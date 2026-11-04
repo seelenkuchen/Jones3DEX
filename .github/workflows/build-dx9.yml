@@ -3,7 +3,8 @@ name: DirectX 9 Build and Tests
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    # m6-*: the M6 renderer branch changes the DX9 code too, so it is built with MSVC before it merges.
+    branches: [ "main", "develop", "m6-*" ]
   pull_request:
     branches: [ "main", "develop" ]
 
