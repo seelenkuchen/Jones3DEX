@@ -382,6 +382,13 @@ void J3DAPI std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer** apVBuf
         }
     }
 
+    // Added: emit every mip's current raster state before the call's blobs; the game can change
+    // a mip VBuffer's rasterInfo directly between calls.
+    for ( i = 0; i < num; ++i )
+    {
+        stdDisplayCapture_WriteVBufferState(apVBuffers[i]);
+    }
+
     for ( i = 0; i < num; ++i )
     {
         pMips[i].handle = stdDisplayCapture_VBufferHandle(apVBuffers[i]);

@@ -24,6 +24,18 @@ static bool stdDisplayCapture_bWarnedBackBufferPitch;
 static bool stdDisplayCapture_bWarnedCountOverflow;
 static bool stdDisplayCapture_bWarnedUnknownCacheTexture;
 
+// Added: the last VBSTATE written for each VBuffer handle. The game can change a VBuffer's
+// rasterInfo directly between calls, so every recorded call that takes an existing VBuffer first
+// emits the current state when it differs from this table.
+typedef struct sStdDisplayCaptureVBufferState
+{
+    bool bWritten;
+    tRasterInfo rasterInfo;
+} StdDisplayCaptureVBufferState;
+
+static StdDisplayCaptureVBufferState* stdDisplayCapture_pVBufferStates;
+static size_t stdDisplayCapture_vBufferStateCapacity;
+
 // The remembered back-buffer lock: stdDisplay_LockBackBuffer stores what the lock handed out
 // even when nothing records, so stdDisplay_UnlockBackBuffer can capture the pixels the lock
 // covered. Only one lock is remembered; the last successful Lock wins.
@@ -42,6 +54,14 @@ static void stdDisplayCapture_ResetState(void)
     stdDisplayCapture_pBackBufferPixels      = NULL;
     stdDisplayCapture_backBufferLockHeight   = 0u;
     stdDisplayCapture_backBufferLockPitch    = 0;
+
+    if ( stdDisplayCapture_pVBufferStates )
+    {
+        STDFREE(stdDisplayCapture_pVBufferStates);
+        stdDisplayCapture_pVBufferStates = NULL;
+    }
+
+    stdDisplayCapture_vBufferStateCapacity = 0u;
 }
 
 bool stdDisplayCapture_Open(const char* pPath, const char* pColumn)
@@ -181,6 +201,94 @@ uint32_t stdDisplayCapture_VBufferHandle(const tVBuffer* pVBuffer)
     }
 
     return stdRenderCapture_AddHandle(STDRENDERCAPTURE_HANDLE_VBUFFER, pVBuffer);
+}
+
+static bool stdDisplayCapture_RasterInfoEqual(const tRasterInfo* pA, const tRasterInfo* pB)
+{
+    return pA->width == pB->width
+        && pA->height == pB->height
+        && pA->size == pB->size
+        && pA->rowSize == pB->rowSize
+        && pA->rowWidth == pB->rowWidth
+        && memcmp(&pA->colorInfo, &pB->colorInfo, sizeof(pA->colorInfo)) == 0;
+}
+
+static bool stdDisplayCapture_EnsureVBufferState(uint32_t handle)
+{
+    size_t needed;
+    size_t capacity;
+    void* pStates;
+
+    needed = (size_t)handle;
+    if ( needed <= stdDisplayCapture_vBufferStateCapacity )
+    {
+        return true;
+    }
+
+    capacity = stdDisplayCapture_vBufferStateCapacity ? stdDisplayCapture_vBufferStateCapacity : 8u;
+    while ( capacity < needed )
+    {
+        if ( capacity > SIZE_MAX / 2u )
+        {
+            capacity = needed;
+            break;
+        }
+
+        capacity *= 2u;
+    }
+
+    if ( capacity > SIZE_MAX / sizeof(StdDisplayCaptureVBufferState) )
+    {
+        return false;
+    }
+
+    pStates = STDREALLOC(stdDisplayCapture_pVBufferStates, capacity * sizeof(StdDisplayCaptureVBufferState));
+    if ( !pStates )
+    {
+        return false;
+    }
+
+    memset(
+        (uint8_t*)pStates + stdDisplayCapture_vBufferStateCapacity * sizeof(StdDisplayCaptureVBufferState),
+        0,
+        ( capacity - stdDisplayCapture_vBufferStateCapacity ) * sizeof(StdDisplayCaptureVBufferState)
+    );
+
+    stdDisplayCapture_pVBufferStates       = (StdDisplayCaptureVBufferState*)pStates;
+    stdDisplayCapture_vBufferStateCapacity = capacity;
+    return true;
+}
+
+void stdDisplayCapture_WriteVBufferState(tVBuffer* pVBuffer)
+{
+    StdDisplayCaptureVBufferState* pState;
+    uint32_t handle;
+
+    if ( !pVBuffer )
+    {
+        return;
+    }
+
+    handle = stdDisplayCapture_VBufferHandle(pVBuffer);
+    if ( handle == 0u || !stdDisplayCapture_EnsureVBufferState(handle) )
+    {
+        STDLOG_ERROR("Render capture: could not record a VBuffer state.\n");
+        return;
+    }
+
+    pState = &stdDisplayCapture_pVBufferStates[handle - 1u];
+    if ( pState->bWritten && stdDisplayCapture_RasterInfoEqual(&pState->rasterInfo, &pVBuffer->rasterInfo) )
+    {
+        return;
+    }
+
+    stdRenderCapture_BeginRecord(STDRENDERCAPTURE_RECORD_VBSTATE);
+    stdRenderCapture_PutU32(handle);
+    stdDisplayCapture_PutRasterFields(&pVBuffer->rasterInfo);
+    stdRenderCapture_EndRecord();
+
+    pState->rasterInfo = pVBuffer->rasterInfo;
+    pState->bWritten   = true;
 }
 
 // A VBuffer's content is rasterInfo.height * rasterInfo.rowSize bytes at pPixels. Without pixels
@@ -760,6 +868,7 @@ int J3DAPI stdDisplay_VBufferLock(tVBuffer* pVBuffer)
     }
 
     handle = stdDisplayCapture_VBufferHandle(pVBuffer);
+    stdDisplayCapture_WriteVBufferState(pVBuffer);
     result = stdDisplayBackend_VBufferLock(pVBuffer);
     stdRenderCapture_BeginRecord(STDRENDERCAPTURE_ID_STDDISPLAY_VBUFFERLOCK);
     stdRenderCapture_PutU32(handle);
@@ -779,6 +888,7 @@ int stdDisplay_VBufferLockReadOnly(tVBuffer* pVBuffer)
     }
 
     handle = stdDisplayCapture_VBufferHandle(pVBuffer);
+    stdDisplayCapture_WriteVBufferState(pVBuffer);
     result = stdDisplayBackend_VBufferLockReadOnly(pVBuffer);
     stdRenderCapture_BeginRecord(STDRENDERCAPTURE_ID_STDDISPLAY_VBUFFERLOCKREADONLY);
     stdRenderCapture_PutU32(handle);
@@ -799,6 +909,7 @@ int J3DAPI stdDisplay_VBufferUnlock(tVBuffer* pVBuffer)
     }
 
     handle = stdDisplayCapture_VBufferHandle(pVBuffer);
+    stdDisplayCapture_WriteVBufferState(pVBuffer);
 
     // The buffer is captured when this unlock takes it from the locked state (lockRefCount 1)
     // down to unlocked: its content is read before the backend call clears the lock.
@@ -827,6 +938,7 @@ int J3DAPI stdDisplay_VBufferFill(tVBuffer* pVBuffer, uint32_t dwFillColor, cons
     }
 
     handle = stdDisplayCapture_VBufferHandle(pVBuffer);
+    stdDisplayCapture_WriteVBufferState(pVBuffer);
     result = stdDisplayBackend_VBufferFill(pVBuffer, dwFillColor, pRect);
     stdRenderCapture_BeginRecord(STDRENDERCAPTURE_ID_STDDISPLAY_VBUFFERFILL);
     stdRenderCapture_PutU32(handle);
@@ -850,8 +962,17 @@ tVBuffer* J3DAPI stdDisplay_VBufferConvertColorFormat(const ColorInfo* pDesiredC
     }
 
     srcHandle = stdDisplayCapture_VBufferHandle(pSrc);
+    stdDisplayCapture_WriteVBufferState(pSrc);
     srcBlobId = stdDisplayCapture_WriteVBufferBlob(pSrc);
     pResult = stdDisplayBackend_VBufferConvertColorFormat(pDesiredColorFormat, pSrc, bColorKey, pColorKey);
+
+    // Fixed: The backend frees the source when it returns a different buffer, so its handle must
+    // end before the result gets a new one; otherwise a reused allocation keeps the stale handle.
+    if ( pResult && pResult != pSrc )
+    {
+        stdRenderCapture_ReleaseHandle(STDRENDERCAPTURE_HANDLE_VBUFFER, pSrc);
+    }
+
     resultHandle = stdRenderCapture_AddHandle(STDRENDERCAPTURE_HANDLE_VBUFFER, pResult);
 
     stdRenderCapture_BeginRecord(STDRENDERCAPTURE_ID_STDDISPLAY_VBUFFERCONVERTCOLORFORMAT);

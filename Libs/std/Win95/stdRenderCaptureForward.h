@@ -12,6 +12,7 @@ void stdDisplayCapture_PutColorInfo(const ColorInfo* pColorInfo);
 void stdDisplayCapture_PutVertices(const StdVertexTL* aVerts, size_t numVerts);
 void stdDisplayCapture_PutIndices(const uint16_t* aIndices, size_t numIndices);
 uint32_t stdDisplayCapture_VBufferHandle(const tVBuffer* pVBuffer);
+void stdDisplayCapture_WriteVBufferState(tVBuffer* pVBuffer);
 uint32_t stdDisplayCapture_WriteVBufferBlob(tVBuffer* pVBuffer);
 uint32_t stdDisplayCapture_CacheTextureHandle(const tSysTexture* pTex);
 

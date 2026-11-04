@@ -9,6 +9,7 @@ J3D_EXTERN_C_START
 #define STDRENDERCAPTURE_RECORD_BLOB   0xFFF0
 #define STDRENDERCAPTURE_RECORD_GLOBAL 0xFFF1
 #define STDRENDERCAPTURE_RECORD_FRAMES 0xFFF2
+#define STDRENDERCAPTURE_RECORD_VBSTATE 0xFFF3
 
 /**
  * @brief Handle kinds the capture assigns stable ids to. Per kind, ids start at 1, count up and are
