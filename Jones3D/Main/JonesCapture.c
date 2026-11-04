@@ -8,6 +8,9 @@
 #define JONECAPTURE_OPTION        "-capture"
 #define JONECAPTURE_OPTION_LENGTH (sizeof(JONECAPTURE_OPTION) - 1)
 
+#define JONECAPTURE_FRAMES_OPTION        "-captureframes"
+#define JONECAPTURE_FRAMES_OPTION_LENGTH (sizeof(JONECAPTURE_FRAMES_OPTION) - 1)
+
 // Added: the parser also runs before stdStartup on Windows, so the logging host services may not
 // exist yet. Log through them only when they do.
 static void JonesCapture_LogError(const char* pText)
@@ -56,8 +59,13 @@ static bool JonesCapture_NextToken(const char* pCmdLine, size_t* pPos, size_t* p
     return true;
 }
 
-bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pathSize, char* pRest, size_t restSize)
+bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pathSize, char* pRest, size_t restSize, bool* pbFramesOn)
 {
+    if ( pbFramesOn )
+    {
+        *pbFramesOn = false;
+    }
+
     if ( pPath && pathSize )
     {
         pPath[0] = '\0';
@@ -68,7 +76,7 @@ bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pat
         pRest[0] = '\0';
     }
 
-    if ( !pCmdLine || !pPath || pathSize == 0 || !pRest || restSize == 0 )
+    if ( !pCmdLine || !pPath || pathSize == 0 || !pRest || restSize == 0 || !pbFramesOn )
     {
         JonesCapture_LogError("Render capture option: missing command line or output buffer.");
         return false;
@@ -82,6 +90,7 @@ bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pat
     size_t valueEnd    = 0;
     size_t cur         = 0;
     bool bFound        = false;
+    bool bFramesOn     = false;
 
     while ( JonesCapture_NextToken(pCmdLine, &cur, &tokenStart, &tokenEnd) )
     {
@@ -98,8 +107,11 @@ bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pat
                 JonesCapture_LogError("Render capture option: missing file name.");
                 return false;
             }
-
-            break;
+        }
+        else if ( tokenEnd - tokenStart == JONECAPTURE_FRAMES_OPTION_LENGTH
+               && memcmp(&pCmdLine[tokenStart], JONECAPTURE_FRAMES_OPTION, JONECAPTURE_FRAMES_OPTION_LENGTH) == 0 )
+        {
+            bFramesOn = true;
         }
     }
 
@@ -145,7 +157,9 @@ bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pat
     while ( JonesCapture_NextToken(pCmdLine, &cur, &tokenStart, &tokenEnd) )
     {
         if ( (tokenStart == optionStart && tokenEnd == optionEnd)
-          || (tokenStart == valueStart && tokenEnd == valueEnd) )
+          || (tokenStart == valueStart && tokenEnd == valueEnd)
+          || (tokenEnd - tokenStart == JONECAPTURE_FRAMES_OPTION_LENGTH
+           && memcmp(&pCmdLine[tokenStart], JONECAPTURE_FRAMES_OPTION, JONECAPTURE_FRAMES_OPTION_LENGTH) == 0) )
         {
             continue;
         }
@@ -171,5 +185,6 @@ bool JonesCapture_ParseCommandLine(const char* pCmdLine, char* pPath, size_t pat
     }
 
     pRest[restUsed] = '\0';
+    *pbFramesOn = bFramesOn;
     return true;
 }

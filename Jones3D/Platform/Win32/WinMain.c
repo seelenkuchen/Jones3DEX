@@ -42,10 +42,13 @@ int Startup(const char* aCmd)
 {
 #ifndef J3D_DIRECTX6
     // Added: on Windows the frame window starts off so the player can arm it in the console for
-    // just the scene to record. The headless runner still records every frame.
-    if ( JonesCapture_ParseCommandLine(aCmd, WinMain_aCapturePath, sizeof(WinMain_aCapturePath), WinMain_aCaptureCmdLine, sizeof(WinMain_aCaptureCmdLine)) )
+    // just the scene to record. The optional -captureframes token starts it on, so scenes before
+    // gameplay, such as the intro and the menu, can be recorded without the console. The headless
+    // runner still records every frame.
+    bool bFramesOn = false;
+    if ( JonesCapture_ParseCommandLine(aCmd, WinMain_aCapturePath, sizeof(WinMain_aCapturePath), WinMain_aCaptureCmdLine, sizeof(WinMain_aCaptureCmdLine), &bFramesOn) )
     {
-        stdRenderCapture_SetFramesEnabled(false);
+        stdRenderCapture_SetFramesEnabled(bFramesOn);
         JonesMain_SetCapture(WinMain_aCapturePath, "dx9");
         aCmd = WinMain_aCaptureCmdLine;
     }

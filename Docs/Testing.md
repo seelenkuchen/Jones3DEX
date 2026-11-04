@@ -397,6 +397,8 @@ M6.1 references):
 5. Turn the frame window off with `capture frames off`.
 6. Quit normally, so `JonesMain_Shutdown` closes and flushes the file.
 
+Add `-captureframes` to the command line to start with the frame window on, so scenes before gameplay, such as the intro cutscene and the main menu, are recorded without the console.
+
 The console also has a plain `capture` command, which prints the state, for
 example `Render capture: open, frames on`. `capture frames on|off` prints the
 new state; with no capture open it reports that the game must be started with

@@ -24,7 +24,8 @@ This is a tool format, not a game asset. Nothing in the game reads it.
   ([`JonesHeadless.c`](../../Jones3D/Platform/Null/JonesHeadless.c)). On Windows the DX9 build
   accepts `Jones3D.exe -capture <file>` ([`WinMain.c`](../../Jones3D/Platform/Win32/WinMain.c));
   it starts with the frame window off and the `capture frames on|off` console command switches it
-  ([`JonesConsole.c`](../../Jones3D/Display/JonesConsole.c)).
+  ([`JonesConsole.c`](../../Jones3D/Display/JonesConsole.c)); adding `-captureframes` starts it on
+  instead.
 - Reader: the replay tool (M6.0c).
 
 The game remembers the request in `JonesMain_SetCapture()`
