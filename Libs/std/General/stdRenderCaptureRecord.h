@@ -55,10 +55,11 @@ bool stdRenderCapture_EndRecord(void);
  * @brief Write a BLOB record for the given data and return its id, or 0 when nothing was written.
  *
  * Blob ids start at 1, count up per capture and are never reused. NULL data or size 0 returns 0 and
- * writes nothing. Identical content (same size and bytes) returns the existing id without writing;
- * the writer verifies a hash match by reading the stored bytes back. Must be called outside a
- * record: inside one it logs an error and returns 0. A failed write, seek or read logs an error and
- * closes the capture. A no-op returning 0 when nothing is open.
+ * writes nothing. Content is deduplicated by size plus two independent 64-bit hashes (FNV-1a and
+ * CRC-64/XZ): when all three match, the existing id is returned without writing and without reading
+ * the capture back. A collision of both hashes for different bytes of the same size is accepted as
+ * practically impossible. Must be called outside a record: inside one it logs an error and returns
+ * 0. A failed write logs an error and closes the capture. A no-op returning 0 when nothing is open.
  */
 uint32_t stdRenderCapture_WriteBlob(const void* pData, size_t size);
 
@@ -105,11 +106,25 @@ uint32_t stdRenderCapture_FindHandleWhere(
 
 #ifdef J3D_TEST
 /**
- * @brief Test seam: replace the blob content hash (64-bit FNV-1a by default) to force collisions.
- * NULL restores FNV-1a. Only affects which stored blobs are read back for verification, never the
- * bytes written. Call when no capture is open; stdRenderCapture_ResetGlobals restores FNV-1a.
+ * @brief Test seam: replace the first blob content hash (64-bit FNV-1a by default) to force
+ * collisions. NULL restores FNV-1a. Never affects the bytes written. A forced collision of this hash
+ * alone does not merge blobs, because the second hash must match too. Call when no capture is open;
+ * stdRenderCapture_ResetGlobals restores FNV-1a.
  */
 void stdRenderCapture_SetHashFuncForTest(uint64_t (*pfHash)(const void* pData, size_t size));
+
+/**
+ * @brief Test seam: replace the second blob content hash (CRC-64/XZ by default) to force collisions.
+ * NULL restores CRC-64/XZ. Never affects the bytes written. Together with SetHashFuncForTest it can
+ * force a collision of both hashes, which merges two different blobs. Call when no capture is open;
+ * stdRenderCapture_ResetGlobals restores CRC-64/XZ.
+ */
+void stdRenderCapture_SetSecondHashFuncForTest(uint64_t (*pfHash)(const void* pData, size_t size));
+
+/**
+ * @brief Test seam: return the CRC-64/XZ hash of the given bytes, so its check value can be tested.
+ */
+uint64_t stdRenderCapture_HashCrc64ForTest(const void* pData, size_t size);
 #endif
 
 J3D_EXTERN_C_END

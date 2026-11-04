@@ -2,8 +2,6 @@
 // through the std host file services; integers are packed little-endian byte by byte, never by
 // writing a struct, so the bytes depend only on the sequence of calls and their data.
 
-#include <limits.h>
-#include <stdio.h> // Added: SEEK_SET, the host pFileSeek origin convention
 #include <string.h>
 
 #include "std.h"
@@ -17,19 +15,21 @@
 #define STDRENDERCAPTURE_MAXGLOBALID     8u
 #define STDRENDERCAPTURE_RECORDHEADERSIZE 8u
 #define STDRENDERCAPTURE_BLOBPREFIXSIZE  12u // u32 blobId + u64 size
-#define STDRENDERCAPTURE_READCHUNKSIZE   65536u
 #define STDRENDERCAPTURE_STRINGNULLLEN   0xFFFFFFFFu
 #define STDRENDERCAPTURE_FNV1AOFFSET     0xcbf29ce484222325ull
 #define STDRENDERCAPTURE_FNV1APRIME      0x100000001b3ull
+#define STDRENDERCAPTURE_CRC64POLY       0xc96c5795d7870f42ull // CRC-64/XZ, reflected
+#define STDRENDERCAPTURE_CRC64INIT       0xffffffffffffffffull
+#define STDRENDERCAPTURE_CRC64XOROUT     0xffffffffffffffffull
 #define STDRENDERCAPTURE_NUMKINDS        2
 
 static const uint8_t stdRenderCapture_aSignature[8] = { 'J', '3', 'D', 'R', 'C', 'A', 'P', 0 };
 
 typedef struct sStdRenderCaptureBlob
 {
-    uint64_t hash;      // content hash key
-    size_t size;        // content size, part of the key
-    uint64_t dataOffset; // file offset of the first content byte
+    uint64_t hash;       // first content hash key (FNV-1a by default)
+    uint64_t secondHash; // second, independent content hash key (CRC-64/XZ by default)
+    size_t size;         // content size, part of the key
     uint32_t blobId;
 } StdRenderCaptureBlob;
 
@@ -45,8 +45,6 @@ static tFileHandle stdRenderCapture_fileHandle;
 // Added: the file services of the Open, kept so a game that swaps the host file services
 // mid-run (JonesFile does) cannot change the functions used for this capture's handle.
 static tHostServices stdRenderCapture_fileServices;
-static char* stdRenderCapture_pPath; // owned copy, so blob verification can reopen the file for reading
-static uint64_t stdRenderCapture_filePos; // logical end-of-file, tracked byte by byte
 static bool stdRenderCapture_bFramesEnabled = true;
 
 static bool stdRenderCapture_bRecordOpen;
@@ -69,6 +67,7 @@ static size_t stdRenderCapture_aHandleCapacities[STDRENDERCAPTURE_NUMKINDS];
 static uint32_t stdRenderCapture_aNextHandles[STDRENDERCAPTURE_NUMKINDS];
 
 static uint64_t (*stdRenderCapture_pfHashFunc)(const void* pData, size_t size);
+static uint64_t (*stdRenderCapture_pfSecondHashFunc)(const void* pData, size_t size);
 
 static bool stdRenderCapture_IsValidKind(StdRenderCaptureHandleKind kind)
 {
@@ -100,11 +99,64 @@ static uint64_t stdRenderCapture_HashFnv1a(const void* pData, size_t size)
     return hash;
 }
 
+static uint64_t stdRenderCapture_aCrc64Table[256];
+static bool stdRenderCapture_bCrc64TableReady;
+
+static void stdRenderCapture_InitCrc64Table(void)
+{
+    uint64_t crc;
+    int i;
+    int bit;
+
+    if ( stdRenderCapture_bCrc64TableReady )
+    {
+        return;
+    }
+
+    for ( i = 0; i < 256; ++i )
+    {
+        crc = (uint64_t)i;
+        for ( bit = 0; bit < 8; ++bit )
+        {
+            crc = ( crc & 1u )
+                ? ( crc >> 1 ) ^ STDRENDERCAPTURE_CRC64POLY
+                : crc >> 1;
+        }
+
+        stdRenderCapture_aCrc64Table[i] = crc;
+    }
+
+    stdRenderCapture_bCrc64TableReady = true;
+}
+
+// CRC-64/XZ: reflected input and output, polynomial 0xC96C5795D7870F42, all-ones init and final xor.
+static uint64_t stdRenderCapture_HashCrc64(const void* pData, size_t size)
+{
+    const uint8_t* pBytes = (const uint8_t*)pData;
+    uint64_t crc = STDRENDERCAPTURE_CRC64INIT;
+    size_t i;
+
+    stdRenderCapture_InitCrc64Table();
+    for ( i = 0; i < size; ++i )
+    {
+        crc = stdRenderCapture_aCrc64Table[(crc ^ pBytes[i]) & 0xFFu] ^ ( crc >> 8 );
+    }
+
+    return crc ^ STDRENDERCAPTURE_CRC64XOROUT;
+}
+
 static uint64_t stdRenderCapture_HashBytes(const void* pData, size_t size)
 {
     return stdRenderCapture_pfHashFunc
         ? stdRenderCapture_pfHashFunc(pData, size)
         : stdRenderCapture_HashFnv1a(pData, size);
+}
+
+static uint64_t stdRenderCapture_HashSecondBytes(const void* pData, size_t size)
+{
+    return stdRenderCapture_pfSecondHashFunc
+        ? stdRenderCapture_pfSecondHashFunc(pData, size)
+        : stdRenderCapture_HashCrc64(pData, size);
 }
 
 static void stdRenderCapture_PackU32(uint8_t* pDst, uint32_t value)
@@ -121,17 +173,11 @@ static void stdRenderCapture_PackU64(uint8_t* pDst, uint64_t value)
     stdRenderCapture_PackU32(pDst + 4, (uint32_t)(value >> 32));
 }
 
-// Writes bytes at the current end of the capture file and advances the logical position. Returns
-// false when the write came up short; the caller logs and closes.
+// Writes bytes at the current end of the capture file. Returns false when the write came up short;
+// the caller logs and closes.
 static bool stdRenderCapture_WriteData(const void* pData, size_t size)
 {
-    if ( size != stdRenderCapture_fileServices.pFileWrite(stdRenderCapture_fileHandle, pData, size) )
-    {
-        return false;
-    }
-
-    stdRenderCapture_filePos += size;
-    return true;
+    return size == stdRenderCapture_fileServices.pFileWrite(stdRenderCapture_fileHandle, pData, size);
 }
 
 static bool stdRenderCapture_WriteRecordHeader(uint16_t id, uint32_t payloadSize)
@@ -167,13 +213,10 @@ static void stdRenderCapture_ResetCaptureState(void)
     stdRenderCapture_Free((void**)&stdRenderCapture_pRecordBuf);
     stdRenderCapture_recordCapacity = 0;
 
-    stdRenderCapture_Free((void**)&stdRenderCapture_pPath);
-
     stdRenderCapture_Free((void**)&stdRenderCapture_pBlobs);
     stdRenderCapture_numBlobs     = 0;
     stdRenderCapture_blobCapacity = 0;
     stdRenderCapture_nextBlobId   = 1;
-    stdRenderCapture_filePos      = 0;
 
     STD_ZEROMEM(stdRenderCapture_aGlobalBits, sizeof(stdRenderCapture_aGlobalBits));
     STD_ZEROMEM(stdRenderCapture_aGlobalWritten, sizeof(stdRenderCapture_aGlobalWritten));
@@ -199,7 +242,7 @@ static void stdRenderCapture_CloseInternal(void)
     stdRenderCapture_ResetCaptureState();
 }
 
-// One error log, then close and free: any failed write, seek or read leaves the module closed.
+// One error log, then close and free: any failed write leaves the module closed.
 static void stdRenderCapture_FailAndClose(const char* pMessage)
 {
     STDLOG_ERROR("Render capture: %s\n", pMessage);
@@ -302,90 +345,9 @@ static bool stdRenderCapture_PreparePut(const char* pFuncName)
     return true;
 }
 
-// Returns 1 when the stored bytes equal the candidate content, 0 when they do not (including an
-// offset too far to seek back to). The capture file's write handle is not readable on every
-// platform (the Babylon file adapter opens "w+b" write-only and refuses reads), so the comparison
-// reopens the capture path for reading; the reposition flushes the buffered bytes of the write
-// handle first, which is what makes the freshly appended data visible to the second reader. The
-// write handle's position never moves, so appends continue at the end. -1 means the capture closed.
-static int stdRenderCapture_CompareStoredBlob(const StdRenderCaptureBlob* pEntry, const void* pCandidate)
-{
-    const uint8_t* pCmp = (const uint8_t*)pCandidate;
-    tFileHandle readHandle;
-    uint8_t* pChunk;
-    size_t remaining = pEntry->size;
-    int bMatch = 1;
-
-    if ( pEntry->dataOffset > (uint64_t)INT_MAX )
-    {
-        return 0; // pFileSeek takes an int offset: too far to verify is treated as no match
-    }
-
-    if ( stdRenderCapture_fileServices.pFileSeek(stdRenderCapture_fileHandle, 0, SEEK_CUR) )
-    {
-        stdRenderCapture_FailAndClose("could not flush the capture for a blob comparison.");
-        return -1;
-    }
-
-    readHandle = stdRenderCapture_fileServices.pFileOpen(stdRenderCapture_pPath, "rb");
-    if ( !readHandle )
-    {
-        stdRenderCapture_FailAndClose("could not reopen the capture to verify a blob.");
-        return -1;
-    }
-
-    if ( stdRenderCapture_fileServices.pFileSeek(readHandle, (int)pEntry->dataOffset, SEEK_SET) )
-    {
-        stdRenderCapture_fileServices.pFileClose(readHandle);
-        stdRenderCapture_FailAndClose("could not seek to a stored blob.");
-        return -1;
-    }
-
-    pChunk = (uint8_t*)STDMALLOC(STDRENDERCAPTURE_READCHUNKSIZE);
-    if ( !pChunk )
-    {
-        STDLOG_WARNING("Render capture: no memory to verify a stored blob; writing a duplicate.\n");
-        bMatch = 0;
-    }
-
-    while ( bMatch && remaining )
-    {
-        size_t chunkSize = remaining > STDRENDERCAPTURE_READCHUNKSIZE
-            ? STDRENDERCAPTURE_READCHUNKSIZE
-            : remaining;
-
-        if ( stdRenderCapture_fileServices.pFileRead(readHandle, pChunk, chunkSize) != chunkSize )
-        {
-            STDFREE(pChunk);
-            stdRenderCapture_fileServices.pFileClose(readHandle);
-            stdRenderCapture_FailAndClose("could not read back a stored blob.");
-            return -1;
-        }
-
-        if ( memcmp(pChunk, pCmp, chunkSize) != 0 )
-        {
-            bMatch = 0;
-            break;
-        }
-
-        pCmp += chunkSize;
-        remaining -= chunkSize;
-    }
-
-    if ( pChunk )
-    {
-        STDFREE(pChunk);
-    }
-
-    stdRenderCapture_fileServices.pFileClose(readHandle);
-    return bMatch;
-}
-
 bool stdRenderCapture_Open(const char* pPath, const char* pColumn)
 {
     uint8_t aHeader[16];
-    char* pPathCopy;
-    size_t pathLen;
     size_t columnLen;
 
     if ( stdRenderCapture_bOpen )
@@ -410,27 +372,15 @@ bool stdRenderCapture_Open(const char* pPath, const char* pColumn)
         return false;
     }
 
-    pathLen = strlen(pPath) + 1u;
-    pPathCopy = (char*)STDMALLOC(pathLen);
-    if ( !pPathCopy )
-    {
-        STDLOG_ERROR("Render capture: could not allocate the capture path.\n");
-        return false;
-    }
-
-    memcpy(pPathCopy, pPath, pathLen);
-
     stdRenderCapture_fileServices = *std_g_pHS;
     stdRenderCapture_fileHandle = stdRenderCapture_fileServices.pFileOpen(pPath, "w+b");
     if ( !stdRenderCapture_fileHandle )
     {
-        STDFREE(pPathCopy);
         STDLOG_ERROR("Render capture: could not open '%s'.\n", pPath);
         return false;
     }
 
     stdRenderCapture_ResetCaptureState();
-    stdRenderCapture_pPath = pPathCopy;
     stdRenderCapture_bOpen = true;
     memcpy(aHeader, stdRenderCapture_aSignature, sizeof(stdRenderCapture_aSignature));
     stdRenderCapture_PackU32(&aHeader[8], STDRENDERCAPTURE_VERSION);
@@ -484,14 +434,25 @@ bool stdRenderCapture_GetFramesEnabled(void)
 void stdRenderCapture_ResetGlobals(void)
 {
     stdRenderCapture_CloseInternal();
-    stdRenderCapture_bFramesEnabled = true;
-    stdRenderCapture_pfHashFunc     = NULL;
+    stdRenderCapture_bFramesEnabled   = true;
+    stdRenderCapture_pfHashFunc       = NULL;
+    stdRenderCapture_pfSecondHashFunc = NULL;
 }
 
 #ifdef J3D_TEST
 void stdRenderCapture_SetHashFuncForTest(uint64_t (*pfHash)(const void* pData, size_t size))
 {
     stdRenderCapture_pfHashFunc = pfHash;
+}
+
+void stdRenderCapture_SetSecondHashFuncForTest(uint64_t (*pfHash)(const void* pData, size_t size))
+{
+    stdRenderCapture_pfSecondHashFunc = pfHash;
+}
+
+uint64_t stdRenderCapture_HashCrc64ForTest(const void* pData, size_t size)
+{
+    return stdRenderCapture_HashCrc64(pData, size);
 }
 #endif
 
@@ -653,9 +614,9 @@ uint32_t stdRenderCapture_WriteBlob(const void* pData, size_t size)
 {
     StdRenderCaptureBlob* pBlob;
     uint64_t hash;
+    uint64_t secondHash;
     uint32_t blobId;
     size_t i;
-    int cmp;
 
     if ( !stdRenderCapture_bOpen )
     {
@@ -679,24 +640,18 @@ uint32_t stdRenderCapture_WriteBlob(const void* pData, size_t size)
         return 0;
     }
 
-    hash = stdRenderCapture_HashBytes(pData, size);
+    hash       = stdRenderCapture_HashBytes(pData, size);
+    secondHash = stdRenderCapture_HashSecondBytes(pData, size);
     for ( i = 0; i < stdRenderCapture_numBlobs; ++i )
     {
-        if ( stdRenderCapture_pBlobs[i].hash != hash || stdRenderCapture_pBlobs[i].size != size )
+        if ( stdRenderCapture_pBlobs[i].hash != hash
+            || stdRenderCapture_pBlobs[i].secondHash != secondHash
+            || stdRenderCapture_pBlobs[i].size != size )
         {
             continue;
         }
 
-        cmp = stdRenderCapture_CompareStoredBlob(&stdRenderCapture_pBlobs[i], pData);
-        if ( cmp < 0 )
-        {
-            return 0;
-        }
-
-        if ( cmp > 0 )
-        {
-            return stdRenderCapture_pBlobs[i].blobId;
-        }
+        return stdRenderCapture_pBlobs[i].blobId;
     }
 
     if ( stdRenderCapture_numBlobs == stdRenderCapture_blobCapacity )
@@ -737,8 +692,8 @@ uint32_t stdRenderCapture_WriteBlob(const void* pData, size_t size)
     }
 
     pBlob->hash       = hash;
+    pBlob->secondHash = secondHash;
     pBlob->size       = size;
-    pBlob->dataOffset = stdRenderCapture_filePos + STDRENDERCAPTURE_BLOBPREFIXSIZE;
     pBlob->blobId     = blobId;
 
     {

@@ -161,6 +161,12 @@ TEST(stdRenderCapture, TestRecordWritesEveryValueType)
     remove("stdRenderCapture_RecordBytes.rcap");
 }
 
+TEST(stdRenderCapture, TestCrc64CheckValue)
+{
+    // CRC-64/XZ check value from the specification.
+    TEST_ASSERT_EQUAL_UINT64(0x995DC9BBDF1939FAull, stdRenderCapture_HashCrc64ForTest("123456789", 9u));
+}
+
 TEST(stdRenderCapture, TestBlobDedupAndInvalidArgs)
 {
     static const uint8_t aExpected[] = {
@@ -219,7 +225,7 @@ TEST(stdRenderCapture, TestBlobForcedHashCollision)
         0x01, 0x00, 0x00, 0x00,
         0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x41, 0x41, 0x41, 0x41,
-        // BLOB record, id 2: "BBBB", same forced hash and size, bytes differ on read-back
+        // BLOB record, id 2: "BBBB", same forced first hash and size, different second hash
         0xF0, 0xFF, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
         0x02, 0x00, 0x00, 0x00,
         0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -243,6 +249,40 @@ TEST(stdRenderCapture, TestBlobForcedHashCollision)
     TEST_ASSERT_EQUAL_MEMORY(aExpected, aFile, sizeof(aExpected));
 
     remove("stdRenderCapture_Collision.rcap");
+}
+
+TEST(stdRenderCapture, TestBlobForcedDoubleCollisionMerges)
+{
+    static const uint8_t aExpected[] = {
+        // header, column "null"
+        0x4A, 0x33, 0x44, 0x52, 0x43, 0x41, 0x50, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00,
+        0x6E, 0x75, 0x6C, 0x6C,
+        // BLOB record, id 1: "AAAA" only; "BBBB" collides on both forced hashes and size
+        0xF0, 0xFF, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x41, 0x41, 0x41, 0x41,
+    };
+    uint8_t aFile[512];
+    size_t size;
+
+    remove("stdRenderCapture_DoubleCollision.rcap");
+    stdRenderCapture_SetHashFuncForTest(stdRenderCaptureTest_ConstantHash);
+    stdRenderCapture_SetSecondHashFuncForTest(stdRenderCaptureTest_ConstantHash);
+    TEST_ASSERT_TRUE(stdRenderCapture_Open("stdRenderCapture_DoubleCollision.rcap", "null"));
+
+    TEST_ASSERT_EQUAL_UINT32(1u, stdRenderCapture_WriteBlob("AAAA", 4u));
+    TEST_ASSERT_EQUAL_UINT32(1u, stdRenderCapture_WriteBlob("BBBB", 4u));
+    TEST_ASSERT_EQUAL_UINT32(1u, stdRenderCapture_WriteBlob("AAAA", 4u));
+
+    stdRenderCapture_Close();
+    size = stdRenderCaptureTest_ReadFile("stdRenderCapture_DoubleCollision.rcap", aFile, sizeof(aFile));
+    TEST_ASSERT_EQUAL_size_t(sizeof(aExpected), size);
+    TEST_ASSERT_EQUAL_MEMORY(aExpected, aFile, sizeof(aExpected));
+
+    remove("stdRenderCapture_DoubleCollision.rcap");
 }
 
 TEST(stdRenderCapture, TestHandles)
@@ -685,8 +725,10 @@ TEST_GROUP_RUNNER(stdRenderCapture)
 {
     RUN_TEST_CASE(stdRenderCapture, TestHeaderOnly);
     RUN_TEST_CASE(stdRenderCapture, TestRecordWritesEveryValueType);
+    RUN_TEST_CASE(stdRenderCapture, TestCrc64CheckValue);
     RUN_TEST_CASE(stdRenderCapture, TestBlobDedupAndInvalidArgs);
     RUN_TEST_CASE(stdRenderCapture, TestBlobForcedHashCollision);
+    RUN_TEST_CASE(stdRenderCapture, TestBlobForcedDoubleCollisionMerges);
     RUN_TEST_CASE(stdRenderCapture, TestHandles);
     RUN_TEST_CASE(stdRenderCapture, TestFindHandleWhere);
     RUN_TEST_CASE(stdRenderCapture, TestReleasedHandlesLeaveTheTable);

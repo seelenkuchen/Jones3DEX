@@ -142,9 +142,10 @@ A VBSTATE whose `height * rowSize` exceeds that allocation is malformed and fail
 Pixel content is written once as a BLOB record and referenced by its id. Blob ids start at 1,
 count up, are never reused and reset on every open.
 
-Content is deduplicated: the same size and the same bytes return the existing blob id and write
-nothing. The writer compares a 64-bit FNV-1a hash first and then reads the stored bytes back and
-compares them.
+Content is deduplicated by size and two independent 64-bit hashes: FNV-1a and CRC-64/XZ (reflected
+polynomial `0xC96C5795D7870F42`, all-ones init and final xor). When the size and both hashes match,
+the existing blob id is returned and nothing is written; the capture is never read back. A collision
+of both hashes for different bytes of the same size is accepted as practically impossible.
 
 Pixel data is recorded at:
 
