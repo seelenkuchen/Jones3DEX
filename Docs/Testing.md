@@ -26,6 +26,7 @@ default from now on; see [Running Tests](#running-tests).
     - [🧹 Test Isolation And Cleanup](#test-isolation-and-cleanup)
 - [🧭 Test Scope](#test-scope)
     - [🎞️ Trace Tests](#trace-tests)
+    - [🎥 Render Capture](#render-capture)
 - [📦 Original-Engine I/O Test Vectors](#original-engine-io-test-vectors)
 - [▶️ Running Tests](#running-tests)
     - [🤖 CI Profiles](#ci-profiles)
@@ -365,6 +366,37 @@ deterministic across 32-bit, 64-bit and sanitizer builds. Selecting the retail
 or Enhanced profile at run time waits for the QOL options to become runtime
 options; until then, the profile is the build's `JONES3D_QOL_IMPROVEMENTS`
 setting.
+
+<a name="render-capture"></a>
+
+### 🎥 Render Capture
+
+A render capture records every call the game makes to the 84 renderer functions,
+with its arguments, return value and recorded out-parameters, into an RCAP file
+([RCAP](Formats/RCAP.md)). The stream is what the replay tool (M6.0c) replays
+against a new renderer backend; the design is in
+[ADR-0024](arc42/09-decisions/ADR-0024-render-capture-by-renamed-backends.md).
+
+```bash
+cd <game>/Resource
+<build>/Jones3D/Jones3D-headless --load ../SaveGames/<save>.nds --frames 1000 --capture capture.rcap
+```
+
+Like the traces, the run needs game data, so a capture is not a permanent unit
+test. Record the savegame, frame count and build with it.
+
+Rules:
+
+- Two runs of the same command give identical files.
+- Capturing does not change the state trace of the run.
+- The Null and Babylon columns record the same stream; only the column name in
+  the header differs.
+- The 1000-frame regression run costs about 390 MB and about 3.5 times the time
+  of the same run without `--capture`.
+
+**Status:** the writer, the forwarding layers and the headless switch exist,
+with unit tests beside them. Replaying a capture against another backend
+(M6.0c) is the next step.
 
 <a name="deterministic-unit-and-regression-tests"></a>
 

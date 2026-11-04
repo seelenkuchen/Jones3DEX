@@ -26,6 +26,11 @@ Rules:
 Replays record each frame's time and raw input, because the simulation step is variable
 ([ADR-0018](../09-decisions/ADR-0018-replays-record-frame-time-and-raw-input.md)).
 
+The renderer's call stream is checked the same way, through render captures: a headless run records
+every `std3D_` and `stdDisplay_` call, and the replay tool compares a new backend against it call by
+call ([ADR-0024](../09-decisions/ADR-0024-render-capture-by-renamed-backends.md),
+[RCAP](../../Formats/RCAP.md)).
+
 [QOL-And-Compatibility.md](QOL-And-Compatibility.md) lists OpenJones3D's QOL changes as they are today:
 one compile-time profile, which becomes individual runtime options.
 

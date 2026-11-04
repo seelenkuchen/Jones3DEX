@@ -12,3 +12,4 @@ This folder collects documentation for engine resource and asset file formats.
 - [SND](SND.md): sound-class text files loaded from `misc\snd\`.
 - [SPR](SPR.md): text sprite-definition files loaded from `misc\spr\`.
 - [UNI](UNI.md): text string-table files loaded from `misc\`.
+- [RCAP](RCAP.md): render capture files written by `Jones3D-headless --capture` (a tool format, not a game asset).
