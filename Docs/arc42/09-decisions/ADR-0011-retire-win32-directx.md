@@ -30,3 +30,12 @@ column at the same time; the 32-bit Windows build goes with the old path
 
 Consequence: between the removal and the first working Babylon renderer, the Windows build runs with the
 Null renderer and shows nothing, like Linux and macOS until then.
+
+## Amendment (2026-11-04): references recorded under wine
+
+The owner has no Windows machine. The references are recorded on Linux instead: the MinGW DX9 build runs
+under wine on a virtual X display (Xvfb) with Mesa's software OpenGL (llvmpipe); wine's wined3d translates
+DX9 to OpenGL. The render captures are unaffected, because they record the game's calls to its renderer,
+above DX9. The screenshots show wined3d's rendering, which is close to but not pixel-identical with DX9 on a
+Windows driver; the owner's visual confirmation uses them with that in mind. The recordings stay local with
+the game data.

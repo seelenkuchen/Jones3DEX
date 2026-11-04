@@ -409,6 +409,16 @@ recorded frame, so keep the frame window off for menus, loading and any scene
 that is not part of the reference. A capture holds only the calls of the
 Windows DX9 backend, and replay needs a matching backend (M6.6).
 
+Without Windows, the same build runs under wine on Linux: start Xvfb, run
+`wine Jones3D.exe -capture Z:\path\scene.rcap` from the game's `Resource`
+directory with `DISPLAY` set to it, and drive it with `xdotool`. Under
+software rendering the game samples keys once per slow frame, so hold keys
+(F10 for the console, Esc for the item menu) for about a second. Console text
+and quitting work best as window messages: post `WM_CHAR` for each character
+of `capture frames on` plus Enter, and `WM_CLOSE` to the "Open Jones 3D"
+window to quit normally, which closes the capture. The M6.1 references were
+recorded this way (ADR-0011).
+
 Rules:
 
 - Two runs of the same command give identical files.
