@@ -6,6 +6,11 @@ file(GLOB_RECURSE HEADERS *.h)
 list(FILTER SOURCES EXCLUDE REGEX ".*/Tests/.*")
 list(FILTER HEADERS EXCLUDE REGEX ".*/Tests/.*")
 
+# Added: the replay tool's main() lives under Tools/ and is built as its own executable below, not
+# as part of the std library.
+list(FILTER SOURCES EXCLUDE REGEX ".*/Tools/.*")
+list(FILTER HEADERS EXCLUDE REGEX ".*/Tools/.*")
+
 # Added: The Null platform has no Windows or DirectX backend: exclude the Win95 backend tree
 # (DX6/DX9 device code, Windows console/comm services) and every Win32-specific file. stdGob.c is
 # built here: its memory-mapped-file branch, which is dead because the streamed path is always
@@ -231,6 +236,24 @@ endif()
 if (JONES3D_SHADER_HEADER_DIR)
     # The MinGW build generates these headers into the build tree (std_shaders above).
     target_include_directories(${PROJECT_NAME} PUBLIC ${JONES3D_SHADER_HEADER_DIR})
+endif()
+
+# Added: the render capture replay tool. The plain Null column needs no Babylon host context, so the
+# tool is built there only; the Babylon column still builds the replay library and its tests.
+if (J3D_PLATFORM_NULL AND NOT J3D_PLATFORM_BABYLON)
+    add_executable(Jones3D-replay Tools/stdRenderReplayMain.c)
+    target_link_libraries(Jones3D-replay PRIVATE
+        ${PROJECT_NAME}
+        j3dcore
+    )
+
+    if (UNIX)
+        target_link_libraries(Jones3D-replay PRIVATE m)
+    endif()
+
+    set_target_properties(Jones3D-replay PROPERTIES
+        FOLDER "Tools"
+    )
 endif()
 
 # Organize source files in Visual Studio

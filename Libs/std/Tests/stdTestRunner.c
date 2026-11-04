@@ -26,6 +26,8 @@ void TEST_stdStrTable_GROUP_RUNNER(void);
 void TEST_stdCvarNull_GROUP_RUNNER(void);
 // Added: the renderer forwarding layer recording; it is only built on the Null platform columns.
 void TEST_stdRenderCaptureForward_GROUP_RUNNER(void);
+// Added: the replay of those captures; it is only built on the Null platform columns.
+void TEST_stdRenderReplay_GROUP_RUNNER(void);
 #endif
 #if !defined(J3D_PLATFORM_NULL)
 // Added: these suites are not built on the Null platform: stdBmpTest.c checks GDI HBITMAPs from the
@@ -62,6 +64,7 @@ static void runAllTests(void)
 #if defined(J3D_PLATFORM_NULL)
     TEST_stdCvarNull_GROUP_RUNNER();
     TEST_stdRenderCaptureForward_GROUP_RUNNER();
+    TEST_stdRenderReplay_GROUP_RUNNER();
 #endif
     TEST_stdStrTable_GROUP_RUNNER();
 #if !defined(J3D_PLATFORM_NULL)

@@ -31,6 +31,21 @@ after the host services exist and before the first renderer call. It closes the 
 
 The header carries the name of the column that wrote the file: `null` or `babylon`.
 
+## Replay
+
+The replay tool is `Jones3D-replay` (plain Null column). It reads a capture and makes the recorded
+calls again through the public renderer functions, so a capture written during the replay has the
+same bytes as the original:
+
+```bash
+<build>/Libs/std/Jones3D-replay capture.rcap [--capture replay.rcap]
+```
+
+It exits `0` when the replay finishes, `1` for a malformed or inconsistent input file (or a file
+that cannot be opened), and `2` for wrong arguments. Records the replay does not reproduce (the
+skipped calls and unknown record ids) are counted as skipped and make the output differ; a call
+that returns different values is counted as a mismatch.
+
 ## Header
 
 16 bytes, then the column name without a NUL terminator:
@@ -57,7 +72,7 @@ Every record starts with an 8-byte header:
 
 The payload follows immediately. A payload of size 0 is legal: the record is then only its header.
 
-Game records use ids 1 to 34 (`std3D_*`) and 101 to 150 (`stdDisplay_*`). Three ids are reserved
+Game records use ids 1 to 34 (`std3D_*`) and 101 to 150 (`stdDisplay_*`). Four ids are reserved
 by the writer:
 
 | Id | Record | Payload |
@@ -65,6 +80,7 @@ by the writer:
 | `0xFFF0` | BLOB | u32 blob id, u64 size, then `size` bytes of content |
 | `0xFFF1` | GLOBAL | u32 global id, u32 value bits |
 | `0xFFF2` | FRAMES | 1 byte, 0 or 1 |
+| `0xFFF3` | VBSTATE | u32 VBuffer handle, then the full tRasterInfo: u32 width, u32 height, u64 size, u64 rowSize, u64 rowWidth, ColorInfo |
 
 A reader skips a record id it does not know by using the payload size in the header. Ids are
 never renumbered; a new renderer function is added at the end of its range.
@@ -89,9 +105,34 @@ Rules:
   warning once per capture.
 - `std3D_ClearSystemTexture` and `stdDisplay_VBufferFree` release their handle after the record, so
   a later call with the same pointer gets a new number.
+- `stdDisplay_VBufferConvertColorFormat` releases the source handle before recording the result
+  when it returns a different, non-NULL buffer: the backend frees the source, so the source's
+  handle ends and the result gets a new number.
 - The `texHandle` of `std3D_DrawRenderList` is the handle of the live system texture whose
   `pCachedTexture` equals the passed pointer. An unknown pointer is recorded as `0xFFFFFFFF`,
   warned once per capture.
+
+## VBuffer State
+
+Game code can change a VBuffer's `rasterInfo` directly between renderer calls, without telling the
+renderer. `sithMaterial.c` does this when it reuses a converted mip buffer for the next cel: it
+writes a new `colorInfo`, `rowSize` and `size` into the buffer, then locks, fills and converts it
+again. A call's arguments alone would not reproduce that state on replay.
+
+Before every recorded call that takes an existing VBuffer argument (`stdDisplay_VBufferLock`,
+`stdDisplay_VBufferLockReadOnly`, `stdDisplay_VBufferUnlock`, `stdDisplay_VBufferFill`,
+`stdDisplay_VBufferConvertColorFormat`'s source, and each mip of
+`std3D_AllocSystemTexture`), the forwarder writes a VBSTATE record when the buffer's current
+`rasterInfo` differs from the last VBSTATE written for that handle in this capture, or when none has
+been written yet. The comparison covers every encoded `tRasterInfo` field: width, height, size,
+rowSize, rowWidth and the 14 `ColorInfo` fields. The back buffer follows the same rule.
+`stdDisplay_VBufferFree` is not included, and VBSTATE records are written before the call's blobs.
+
+On replay, VBSTATE sets the referenced buffer's `rasterInfo` to the recorded values. For each
+replayed VBuffer the replay remembers the pixel allocation size it was created with (`height *
+rowSize` after `stdDisplay_VBufferNew` or a different result from
+`stdDisplay_VBufferConvertColorFormat`; for the back buffer, its `rasterInfo.size` when first seen).
+A VBSTATE whose `height * rowSize` exceeds that allocation is malformed and fails the replay.
 
 ## Blobs
 
@@ -150,9 +191,10 @@ The game does not toggle the flag today, so a run records with the flag on from 
 For each call:
 
 1. A `std3D_*` call writes GLOBAL 1 first, when the fog density changed.
-2. Handles are resolved and blobs are written, while the caller and the backend still hold the data.
-3. The backend function runs.
-4. The record is built and written with the arguments, the return value and the out-parameters.
+2. VBSTATE records for the VBuffer arguments whose raster state changed come next.
+3. Handles are resolved and blobs are written, while the caller and the backend still hold the data.
+4. The backend function runs.
+5. The record is built and written with the arguments, the return value and the out-parameters.
 
 Handles released by the call (`std3D_ClearSystemTexture`, `stdDisplay_VBufferFree`) are released
 after the record. `stdDisplay_UnlockBackBuffer` writes its blob before the backend call and
@@ -271,7 +313,7 @@ together.
 | 127 | `stdDisplay_VBufferLockReadOnly` | u32 handle, i32 result | | |
 | 128 | `stdDisplay_VBufferUnlock` | u32 handle, u32 blobId, i32 result | | |
 | 129 | `stdDisplay_VBufferFill` | u32 handle, u32 dwFillColor, opt(rect) pRect, i32 result | | |
-| 130 | `stdDisplay_VBufferConvertColorFormat` | opt(colorInfo) pDesiredColorFormat, u32 srcHandle, u32 srcBlobId, i32 bColorKey, opt(colorKey) pColorKey, u32 resultHandle | | |
+| 130 | `stdDisplay_VBufferConvertColorFormat` | opt(colorInfo) pDesiredColorFormat, u32 srcHandle, u32 srcBlobId, i32 bColorKey, opt(colorKey) pColorKey, u32 resultHandle; a result different from the source ends the source handle (the backend frees it) | | |
 | 131 | `stdDisplay_GetTextureMemory` | i32 result | | |
 | 132 | `stdDisplay_GetTotalMemory` | i32 result | | |
 | 133 | `stdDisplay_GetBackBufferSize` | u32 width, u32 height | yes | |

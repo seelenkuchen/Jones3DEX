@@ -168,6 +168,8 @@ set(STD_NULL_TESTED_SOURCES
     "${STD_SOURCE_DIR}/Null/stdDisplayNull.c"
     "${STD_WIN95_SOURCE_DIR}/std3DCapture.c"
     "${STD_WIN95_SOURCE_DIR}/stdDisplayCapture.c"
+    # Added: the replay library calls the public renderer functions above.
+    "${STD_WIN95_SOURCE_DIR}/stdRenderReplay.c"
 )
 
 set(STD_TESTED_SOURCES
@@ -189,6 +191,8 @@ if (J3D_PLATFORM_NULL)
         # Added: the renderer forwarding layer records through the Null backend only here; the
         # Windows columns cover the same files through the Win95 suite and the DX9 system tests.
         "${CMAKE_CURRENT_SOURCE_DIR}/stdRenderCaptureForwardTest.c"
+        # Added: the replay reads those captures back through the same Null forwarders.
+        "${CMAKE_CURRENT_SOURCE_DIR}/stdRenderReplayTest.c"
     )
     set(STD_WIN95_TEST_SOURCES "")
     set(STD_TESTED_SOURCES ${STD_GENERAL_TESTED_SOURCES} ${STD_NULL_TESTED_SOURCES})

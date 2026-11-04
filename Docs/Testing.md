@@ -394,9 +394,20 @@ Rules:
 - The 1000-frame regression run costs about 390 MB and about 3.5 times the time
   of the same run without `--capture`.
 
-**Status:** the writer, the forwarding layers and the headless switch exist,
-with unit tests beside them. Replaying a capture against another backend
-(M6.0c) is the next step.
+Replay a capture and optionally record the replayed calls into a second file:
+
+```bash
+<build>/Libs/std/Jones3D-replay capture.rcap [--capture replay.rcap]
+```
+
+The replay exits `0` when it finishes, `1` for a malformed or inconsistent
+input file (or a file that cannot be opened), and `2` for wrong arguments. A
+replay with `--capture` produces the same bytes as the original unless the
+input contains calls the replay does not reproduce or a call returns different
+values.
+
+**Status:** the writer, the forwarding layers, the headless switch and the
+replay tool exist, with unit tests beside them.
 
 <a name="deterministic-unit-and-regression-tests"></a>
 
