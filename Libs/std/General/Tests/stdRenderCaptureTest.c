@@ -164,7 +164,9 @@ TEST(stdRenderCapture, TestRecordWritesEveryValueType)
 TEST(stdRenderCapture, TestCrc64CheckValue)
 {
     // CRC-64/XZ check value from the specification.
-    TEST_ASSERT_EQUAL_UINT64(0x995DC9BBDF1939FAull, stdRenderCapture_HashCrc64ForTest("123456789", 9u));
+    uint64_t crc = stdRenderCapture_HashCrc64ForTest("123456789", 9u);
+    TEST_ASSERT_EQUAL_HEX32(0x995DC9BBu, (uint32_t)(crc >> 32));
+    TEST_ASSERT_EQUAL_HEX32(0xDF1939FAu, (uint32_t)crc);
 }
 
 TEST(stdRenderCapture, TestBlobDedupAndInvalidArgs)
