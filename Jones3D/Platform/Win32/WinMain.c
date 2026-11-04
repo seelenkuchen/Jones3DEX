@@ -7,8 +7,13 @@ int __stdcall Indy3D_WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Win32/JonesDialog.h>
+#include <Jones3D/Main/JonesCapture.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
+
+#ifndef J3D_DIRECTX6
+#include <std/General/stdRenderCapture.h>
+#endif
 
 #include <sound/Driver.h>
 
@@ -24,10 +29,28 @@ int __stdcall Indy3D_WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR
 
 static const char* appName = "Open Jones 3D";
 
+// Added: JonesMain_Startup keeps the capture path until it opens the file, and the command line
+// without the -capture option stays valid for the whole startup call.
+#ifndef J3D_DIRECTX6
+static char WinMain_aCapturePath[1024];
+static char WinMain_aCaptureCmdLine[4096];
+#endif
+
 bool ResetGlobals(void);
 
 int Startup(const char* aCmd)
 {
+#ifndef J3D_DIRECTX6
+    // Added: on Windows the frame window starts off so the player can arm it in the console for
+    // just the scene to record. The headless runner still records every frame.
+    if ( JonesCapture_ParseCommandLine(aCmd, WinMain_aCapturePath, sizeof(WinMain_aCapturePath), WinMain_aCaptureCmdLine, sizeof(WinMain_aCaptureCmdLine)) )
+    {
+        stdRenderCapture_SetFramesEnabled(false);
+        JonesMain_SetCapture(WinMain_aCapturePath, "dx9");
+        aCmd = WinMain_aCaptureCmdLine;
+    }
+#endif
+
     if ( JonesMain_Startup(aCmd) )
     {
         JonesMain_Shutdown();

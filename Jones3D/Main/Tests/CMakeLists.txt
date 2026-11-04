@@ -1,7 +1,52 @@
 set(JONES3D_TEST_SOURCES
     jones3dTestRunner.c
     JonesMainTest.c
+    JonesCaptureTest.c
 )
+
+# Added: the command-line parser is pure C, so its tests also run on the non-Windows columns without
+# the Windows platform or the rest of the game.
+if (J3D_PLATFORM_NULL)
+    add_executable(jonesCaptureTests
+        JonesCaptureTestRunner.c
+        JonesCaptureTest.c
+        "${CMAKE_CURRENT_SOURCE_DIR}/../JonesCapture.c"
+    )
+
+    target_include_directories(jonesCaptureTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+    get_property(JONES3D_CAPTURE_TEST_LIBS TARGET Libs PROPERTY INTERFACE_LINK_LIBRARIES)
+    if (APPLE)
+        target_link_libraries(jonesCaptureTests PRIVATE
+            ${JONES3D_CAPTURE_TEST_LIBS}
+            unity
+        )
+    else()
+        target_link_libraries(jonesCaptureTests PRIVATE
+            -Wl,--start-group
+            ${JONES3D_CAPTURE_TEST_LIBS}
+            unity
+            -Wl,--end-group
+            m
+        )
+    endif()
+
+    set_target_properties(jonesCaptureTests PROPERTIES
+        FOLDER "Tests/Jones3D"
+    )
+
+    source_group("Tests" FILES
+        JonesCaptureTestRunner.c
+        JonesCaptureTest.c
+    )
+
+    add_test(NAME Jones3D.Capture COMMAND jonesCaptureTests)
+    set_tests_properties(Jones3D.Capture PROPERTIES
+        LABELS "unit;Jones3D"
+        TIMEOUT 60
+    )
+    return()
+endif()
 
 # The test target links the game sources directly, mirroring how the standalone Jones3D exe is built, because
 # JonesMain.c depends on the rest of the game layer. The tests only call the pure lookup function

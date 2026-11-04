@@ -21,7 +21,10 @@ This is a tool format, not a game asset. Nothing in the game reads it.
 ## Who Writes And Reads
 
 - Writer: `Jones3D-headless --capture <file>`
-  ([`JonesHeadless.c`](../../Jones3D/Platform/Null/JonesHeadless.c)). A Windows switch follows in M6.0d.
+  ([`JonesHeadless.c`](../../Jones3D/Platform/Null/JonesHeadless.c)). On Windows the DX9 build
+  accepts `Jones3D.exe -capture <file>` ([`WinMain.c`](../../Jones3D/Platform/Win32/WinMain.c));
+  it starts with the frame window off and the `capture frames on|off` console command switches it
+  ([`JonesConsole.c`](../../Jones3D/Display/JonesConsole.c)).
 - Reader: the replay tool (M6.0c).
 
 The game remembers the request in `JonesMain_SetCapture()`
@@ -29,7 +32,7 @@ The game remembers the request in `JonesMain_SetCapture()`
 after the host services exist and before the first renderer call. It closes the capture in
 `JonesMain_Shutdown()`, before the host services go away.
 
-The header carries the name of the column that wrote the file: `null` or `babylon`.
+The header carries the name of the column that wrote the file: `null`, `babylon` or `dx9`.
 
 ## Replay
 
@@ -184,7 +187,9 @@ survives open and close.
   `stdDisplay_LockBackBuffer`, `stdDisplay_LockBackBufferReadOnly` and
   `stdDisplay_UnlockBackBuffer`.
 
-The game does not toggle the flag today, so a run records with the flag on from start to end.
+The headless runner leaves the flag on, so it records from start to end. The Windows entry
+turns it off before opening the capture, and the player switches it on for the scene to record
+with `capture frames on`, then off again with `capture frames off`.
 
 ## Recording Order
 

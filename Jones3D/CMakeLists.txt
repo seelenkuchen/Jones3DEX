@@ -108,6 +108,10 @@ if (J3D_PLATFORM_NULL)
             target_link_libraries(Jones3D PRIVATE m)
         endif()
     endif()
+
+    if (JONES3D_BUILD_TESTS)
+        add_subdirectory(Main/Tests)
+    endif()
     return()
 endif()
 

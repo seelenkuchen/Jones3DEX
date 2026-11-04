@@ -385,6 +385,28 @@ cd <game>/Resource
 Like the traces, the run needs game data, so a capture is not a permanent unit
 test. Record the savegame, frame count and build with it.
 
+To record a reference capture of a real scene with the DX9 Windows build (the
+M6.1 references):
+
+1. Start the game with the capture file:
+   `Jones3D.exe -capture C:\path\scene.rcap`.
+2. Load the savegame for the scene.
+3. Open the console and turn the frame window on with `capture frames on`.
+   The capture is open from startup, but it records no frames until now.
+4. Play the scene.
+5. Turn the frame window off with `capture frames off`.
+6. Quit normally, so `JonesMain_Shutdown` closes and flushes the file.
+
+The console also has a plain `capture` command, which prints the state, for
+example `Render capture: open, frames on`. `capture frames on|off` prints the
+new state; with no capture open it reports that the game must be started with
+`-capture <file>`. Anything else prints a one-line usage.
+
+A frame is large: in the regress scene the file grows by roughly 390 KB per
+recorded frame, so keep the frame window off for menus, loading and any scene
+that is not part of the reference. A capture holds only the calls of the
+Windows DX9 backend, and replay needs a matching backend (M6.6).
+
 Rules:
 
 - Two runs of the same command give identical files.
@@ -406,8 +428,9 @@ replay with `--capture` produces the same bytes as the original unless the
 input contains calls the replay does not reproduce or a call returns different
 values.
 
-**Status:** the writer, the forwarding layers, the headless switch and the
-replay tool exist, with unit tests beside them.
+**Status:** the writer, the forwarding layers, the headless switch, the Windows
+DX9 switch and console command, and the replay tool exist, with unit tests
+beside them.
 
 <a name="deterministic-unit-and-regression-tests"></a>
 

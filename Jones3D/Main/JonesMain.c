@@ -53,7 +53,9 @@
 #include <std/Win95/stdConsole.h>
 #include <std/Win95/stdControl.h>
 #include <std/Win95/stdDisplay.h>
+#ifndef J3D_DIRECTX6
 #include <std/Win95/stdDisplayCapture.h>
+#endif
 #include <std/Win95/stdWin95.h>
 
 #include <wkernel/wkernel.h>
@@ -200,6 +202,7 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // Added: the host services exist now and no renderer call has happened yet, so the capture can
     // open and record the whole run. The writer keeps the file services of this moment, so the
     // JonesFile swap later cannot change the functions behind the capture's handle.
+#ifndef J3D_DIRECTX6
     if ( JonesMain_pCapturePath
         && !stdDisplayCapture_Open(JonesMain_pCapturePath, JonesMain_pCaptureColumn) )
     {
@@ -207,6 +210,12 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
         JonesMain_CloseWindow();
         return 1;
     }
+#else
+    if ( JonesMain_pCapturePath )
+    {
+        STDLOG_ERROR("Render capture is not available in the DX6 build.\n");
+    }
+#endif
 
     // Fixed: Move initialization of JonesMain_circBuf here in case there is engine error and exiting happens sooner
     stdCircBuf_New(&JonesMain_circBuf, 4, 128);
@@ -923,7 +932,9 @@ void JonesMain_Shutdown(void)
     JonesFile_Shutdown();
 
     // Added: close the render capture while the host services still exist; no-op when not open.
+#ifndef J3D_DIRECTX6
     stdDisplayCapture_Close();
+#endif
 
     stdShutdown();
     sithSound_Uninitialize();
