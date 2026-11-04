@@ -149,7 +149,9 @@ and the adapter.
 - Retail behavior is the reference for the simulation. The byte-exact decompilation
   (andrewspode/infernal-machine-decomp-public) is the tie-breaker; read it, don't copy it.
 - OpenJones3D's `upstream-compatible-final` tag is the last binary-compatible state.
-- Never commit game assets or original executables.
+- Never commit game assets or original executables. Exception (owner, 2026-11-04): reference screenshots under
+  `Docs/References/` may be committed. Render captures contain game data and go to the private repo
+  `seelenkuchen/Jones3DEX-references` (xz-compressed), never to this repo.
 
 ## Commits and changes
 
