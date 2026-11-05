@@ -1,4 +1,4 @@
-#include <Jones3D/types.h> // Note, don't move as it requires including windows.h without WIN32_LEAN_AND_MEAN  being defined
+#include <Jones3D/types.h>
 
 #include "JonesFile.h"
 
@@ -9,6 +9,7 @@
 #include <std/General/stdGob.h>
 
 #include <stdarg.h>
+#include <stdio.h>
 
 #define JF_MAX_HANDLES 32
 

@@ -469,33 +469,6 @@ TEST(stdColor, TestColorConvertOneRowScalesOneBitAlpha)
     TEST_ASSERT_EQUAL_HEX32(0x00FF0000u, dest[1]);
 }
 
-#ifdef J3D_COLORKEYSUPPORTED
-TEST(stdColor, TestColorConvertOneRowAppliesDX6ColorKey)
-{
-    const uint16_t aSource[] = {
-        0x7C00u,
-        0xFC00u
-    };
-    uint16_t aDestination[STD_ARRAYLEN(aSource)] = { 0 };
-
-    DDCOLORKEY colorKey = { 0 };
-    colorKey.dwColorSpaceLowValue = 0x1234u;
-
-    stdColor_ColorConvertOneRow(
-        (uint8_t*)aDestination,
-        &stdColor_cfRGB565,
-        (const uint8_t*)aSource,
-        &stdColor_cfARGB5551,
-        (int)STD_ARRAYLEN(aSource),
-        1,
-        &colorKey
-    );
-
-    TEST_ASSERT_EQUAL_HEX16(0x1234u, aDestination[0]);
-    TEST_ASSERT_EQUAL_HEX16(0xF800u, aDestination[1]);
-}
-#endif
-
 TEST(stdColor, TestColorConvertOneRowRejectsUnsupportedDepths)
 {
     ColorInfo sourceCI = stdColor_cfRGB888;
@@ -662,9 +635,6 @@ TEST_GROUP_RUNNER(stdColor)
     RUN_TEST_CASE(stdColor, TestColorConvertOneRow16To24And24To16);
     RUN_TEST_CASE(stdColor, TestColorConvertOneRow32WithAlpha);
     RUN_TEST_CASE(stdColor, TestColorConvertOneRowScalesOneBitAlpha);
-#ifdef J3D_COLORKEYSUPPORTED
-    RUN_TEST_CASE(stdColor, TestColorConvertOneRowAppliesDX6ColorKey);
-#endif
     RUN_TEST_CASE(stdColor, TestColorConvertOneRowRejectsUnsupportedDepths);
     RUN_TEST_CASE(stdColor, TestRGBConversionMatrix);
     RUN_TEST_CASE(stdColor, TestRGBAConversionMatrix);

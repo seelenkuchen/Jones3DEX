@@ -36,12 +36,9 @@
 #endif
 
 // Added: like J3D_ASSERT_SIZE32, for structs holding wchar_t. wchar_t is 2 bytes on Windows, as in the original,
-// and 4 bytes on Linux and macOS, so these sizes only hold on 32-bit Windows.
-#if defined(J3D_32BIT) && defined(_WIN32)
-#   define J3D_ASSERT_SIZE32_WCHAR(expr, msg) static_assert(expr, msg)
-#else
-#   define J3D_ASSERT_SIZE32_WCHAR(expr, msg)
-#endif
+// and 4 bytes on Linux and macOS, so these sizes only hold on 32-bit Windows. No build targets 32-bit Windows
+// any more, so the macro only records the retail size and checks nothing.
+#define J3D_ASSERT_SIZE32_WCHAR(expr, msg)
 
 // Added: scanf conversion for a size_t argument. The original reads counts into size_t with %d, which only fills
 // all of it on 32-bit. 32-bit builds keep %d, so they parse exactly as before.
@@ -61,24 +58,18 @@
 #cmakedefine J3D_SPEEDRUN_BUILD
 #cmakedefine J3D_RUNTIME_GUARDS
 
-#cmakedefine J3D_DIRECTX6
-#cmakedefine J3D_DIRECTX9
-#cmakedefine J3D_PLATFORM_NULL
 #cmakedefine J3D_PLATFORM_BABYLON
-
-#cmakedefine J3D_COLORKEYSUPPORTED
 
 // Platform specific definitions
 #ifdef _WIN32
+    // Altered: no Windows header here. The game compiles without windows.h on every platform, so
+    // only the files that call the Windows API include it themselves. The Microsoft CRT declares the
+    // case-insensitive functions in <string.h> and <wchar.h>.
 #   define J3D_OS_WINDOWS 1
 #   ifndef NDEBUG
 #       define J3D_DEBUG 1
 #   endif
-#   ifndef STRICT
-#       define STRICT
-#   endif
-#   define WIN32_LEAN_AND_MEAN
-#   include <windows.h>
+#   include <wchar.h>
 #   define strcmpi _strcmpi
 #   define strncmpi _strnicmp
 #   define wstrcmpi _wcsicmp
@@ -127,11 +118,8 @@
 #else
 #   define J3DNORETURN _Noreturn
 #endif
-#ifdef _WIN32
-#   define J3DAPI __cdecl
-#else
-#   define J3DAPI
-#endif
+// Altered: the original's __cdecl is gone; 64-bit Windows, like the other targets, has one calling convention.
+#define J3DAPI
 
 // TODO: Detect if C23 and N3030 - Enhanced Enumerations is supported
 //       In this case define macro as: #define J3D_ENUM_TYPE(x) : x

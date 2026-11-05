@@ -30,7 +30,7 @@ if (JONES3D_BUILD_TESTS)
 endif()
 
 # Added: Null platform: native executable for the j3dcrt Microsoft CRT shim (j3dCrtTest.c
-# provides its own main only under J3D_PLATFORM_NULL).
+# provides its own main).
 add_executable(j3dCrtTests
     j3dCrtTest.c
 )

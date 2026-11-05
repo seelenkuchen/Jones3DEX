@@ -72,11 +72,6 @@ bool std3D_IsAnisotropicFilteringSupported(void); // Checks if underlying GAPI s
 bool std3D_IsMipmapAutoGenSupported(void);        // Checks if underlying GAPI supports automatic generation of Mipmaps. Note, device might still not support it.
 bool std3D_IsMSAASupported(void);                 // Checks if underlying GAPI supports Multisample anti-aliasing (MSAA). Note, device might still not support it.
 
-#if defined(J3D_TEST) && defined(J3D_DIRECTX9)
-// Added: Let system tests exercise the otherwise disabled dynamic-buffer rendering path.
-void std3D_TestSetUseBuffers(bool bUseBuffers);
-#endif
-
 void std3D_ResetGlobals(void);
 
 J3D_EXTERN_C_END

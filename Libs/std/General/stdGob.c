@@ -94,39 +94,10 @@ int J3DAPI stdGob_LoadEntry(Gob* pGob, const char* pFilename, int numFileHandles
     if ( bMMapFile )
     {
         // Fixed: The mmap path never populated the directory/hash table, so fall back to streamed I/O.
+        // Altered: the Win32 file-mapping code it led to was unreachable and is removed, here and in
+        // stdGob_FreeEntry.
         STDLOG_WARNING("Warning: Gob memory mapping is not supported; using streamed file I/O.\n");
         bMMapFile = 0;
-    }
-
-    if ( bMMapFile )
-    {
-#if defined(_WIN32)
-        pGob->hFile = CreateFileA(pGob->aFilePath, GENERIC_READ, FILE_SHARE_READ, NULL, CREATE_ALWAYS | CREATE_NEW, FILE_FLAG_RANDOM_ACCESS, NULL);
-        STD_ASSERTREL(pGob->hFile != NULL);
-        STD_ASSERTREL(pGob->hFile != (HANDLE)((HFILE)-1));
-
-        pGob->hMapFile = CreateFileMappingA(pGob->hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-        if ( pGob->hMapFile )
-        {
-            pGob->bFileMap = 1;
-            pGob->aHandles = (GobFileHandle*)LocalAlloc(LMEM_ZEROINIT, sizeof(GobFileHandle) * pGob->numHandles);
-            if ( pGob->aHandles )
-            {
-                pGob->pBase = MapViewOfFile(pGob->hMapFile, FILE_MAP_READ, 0, 0, 0);
-                STD_ASSERTREL(pGob->pBase != NULL);
-                return 1;
-            }
-            else
-            {
-                UnmapViewOfFile(pGob->pBase);
-                CloseHandle(pGob->hMapFile);
-            }
-        }
-        else
-        {
-            CloseHandle(pGob->hFile);
-        }
-#endif
     }
 
     pGob->bFileMap = 0;
@@ -258,32 +229,6 @@ void J3DAPI stdGob_FreeEntry(Gob* pGob)
 
     if ( pGob->bFileMap )
     {
-#if defined(_WIN32)
-        // Fixed: Release all mmap resources and keep the handle state clear.
-        if ( pGob->pBase )
-        {
-            UnmapViewOfFile(pGob->pBase);
-            pGob->pBase = NULL;
-        }
-
-        if ( pGob->hMapFile )
-        {
-            CloseHandle(pGob->hMapFile);
-            pGob->hMapFile = NULL;
-        }
-
-        if ( pGob->hFile && pGob->hFile != INVALID_HANDLE_VALUE )
-        {
-            CloseHandle(pGob->hFile);
-            pGob->hFile = NULL;
-        }
-
-        if ( pGob->aHandles )
-        {
-            LocalFree(pGob->aHandles);
-            pGob->aHandles = NULL;
-        }
-#endif
         pGob->bFileMap = 0;
     }
 

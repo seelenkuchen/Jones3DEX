@@ -283,16 +283,6 @@ void J3DAPI stdColor_ColorConvertOneRow(uint8_t* pDestRow, const ColorInfo* pDes
             J3D_UNUSED(bColorKey);
             J3D_UNUSED(pColorKey);
 
-        #ifdef J3D_COLORKEYSUPPORTED
-            if ( bColorKey )
-            {
-                if ( a < maxAlphaValue )
-                {
-                    pixel = pColorKey->dwColorSpaceLowValue;
-                }
-            }
-            else
-            #endif
             {
                 a = stdColor_ScaleColorComponent(a, pSrcCI->alphaBPP, alphaDelta);
                 pixel |= a << pDestCI->alphaPosShift;

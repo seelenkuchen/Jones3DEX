@@ -700,8 +700,7 @@ TEST_GROUP_RUNNER(j3dCrt)
 
 void TEST_j3dCrt_GROUP_RUNNER(void);
 
-#ifdef J3D_PLATFORM_NULL
-// Added: the Null-platform test target builds a standalone native executable from this file.
+// Added: the test target builds a standalone native executable from this file.
 static void j3dCrtTest_RunAllTests(void)
 {
     TEST_j3dCrt_GROUP_RUNNER();
@@ -711,4 +710,3 @@ int main(int argc, const char* argv[])
 {
     return UnityMain(argc, argv, j3dCrtTest_RunAllTests);
 }
-#endif

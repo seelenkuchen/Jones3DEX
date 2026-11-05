@@ -73,7 +73,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 
 # Added: the render capture replay tool. The plain Null column needs no Babylon host context, so the
 # tool is built there only; the Babylon column still builds the replay library and its tests.
-if (J3D_PLATFORM_NULL AND NOT J3D_PLATFORM_BABYLON)
+if (NOT J3D_PLATFORM_BABYLON)
     add_executable(Jones3D-replay Tools/stdRenderReplayMain.c)
     target_link_libraries(Jones3D-replay PRIVATE
         ${PROJECT_NAME}

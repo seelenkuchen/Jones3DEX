@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #else
 // Added: The Null platform builds this suite natively; the timer tests wait on the tick thread with

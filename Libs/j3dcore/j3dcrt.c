@@ -1,6 +1,6 @@
 // Microsoft CRT function shim for non-Windows (Null platform), following Microsoft's documented
 // behavior so engine code compiles unchanged against the Windows secure CRT. Windows never
-// compiles this file (j3dcore builds it into the j3dcrt static library on J3D_PLATFORM_NULL only).
+// compiles this file (j3dcore builds the j3dcrt static library on non-Windows hosts only).
 // The test coverage lives in Tests/j3dCrtTest.c.
 #ifndef _WIN32
 

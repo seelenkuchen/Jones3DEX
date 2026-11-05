@@ -10,11 +10,6 @@
 #include <windows.h>
 #include <mmsystem.h>
 #include <mmreg.h>
-#if defined (J3D_DIRECTX6)
-#include <DirectX6/dsound.h>
-#elif defined (J3D_DIRECTX9)
-#include <dsound.h>
-#endif
 
 #include <smush/insane/Memory/Memory.h>
 #include <smush/insane/Sound/Dsnd.h>

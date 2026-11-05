@@ -7,6 +7,7 @@
 
 #include <j3dcore/Tests/j3dTest.h>
 #include <std/General/std.h>
+#include <std/General/stdConsole.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -129,11 +130,7 @@ TEST(std, TestConsolePrintfWritesThroughConsoleStub)
     TEST_ASSERT_EQUAL_INT((int)sizeof(std_g_genBuffer), stdConsolePrintf("%s %d", "Temple", 12));
     TEST_ASSERT_EQUAL_STRING("Temple 12", StdGeneralTest_GetDebugOutput());
     TEST_ASSERT_EQUAL_STRING("Temple 12", std_g_genBuffer);
-#ifdef _WIN32
-    // Guarded: FOREGROUND_RED/GREEN/BLUE are the Windows console spelling of the attribute that
-    // stdConsolePrintf passes; the Null platform has no console attributes to spell.
-    TEST_ASSERT_EQUAL_UINT32(FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE, StdGeneralTest_GetConsoleAttributes());
-#endif
+    TEST_ASSERT_EQUAL_UINT32(STDCONSOLE_COLOR_RED | STDCONSOLE_COLOR_GREEN | STDCONSOLE_COLOR_BLUE, StdGeneralTest_GetConsoleAttributes());
     TEST_ASSERT_EQUAL_size_t(1u, StdGeneralTest_GetConsoleWriteCount());
 }
 

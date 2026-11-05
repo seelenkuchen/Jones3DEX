@@ -60,8 +60,6 @@ else()
     option(JONES3D_PLATFORM_BABYLON "Build the Babylon platform column instead of the Null column" OFF)
 endif()
 
-# Altered: J3D_PLATFORM_NULL means "the Null/Babylon columns", which are now every build.
-set(J3D_PLATFORM_NULL ON)
 # Altered: tests stay ON on the Null platform; the portable unit suites run natively.
 set(JONES3D_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
 
@@ -91,7 +89,7 @@ enable_testing()
 option(JONES3D_BUILD_BABYLON "Build the Babylon Engine" ON)
 
 # Added: the Babylon column replaces the Null column's stdPlatform time functions with Babylon ones,
-# so it needs the Babylon Engine. J3D_PLATFORM_BABYLON implies J3D_PLATFORM_NULL.
+# so it needs the Babylon Engine.
 # Altered: the column also builds on Windows (64-bit only); the plain Null column stays non-Windows only.
 if (JONES3D_PLATFORM_BABYLON)
     if (NOT JONES3D_BUILD_BABYLON)
@@ -108,7 +106,7 @@ endif()
 
 # Added: The Null platform has no graphics backend yet (the Null/Babylon columns only).
 # Altered: the DirectX 6 and 9 selection is gone with the Win32/DirectX game (ADR-0011); nothing sets
-# J3D_DIRECTX6, J3D_DIRECTX9 or J3D_COLORKEYSUPPORTED any more, so j3d.h leaves them undefined.
+# J3D_DIRECTX6, J3D_DIRECTX9 or J3D_COLORKEYSUPPORTED any more, and the code no longer tests them.
 set(JONES3D_GAPI_NAME "Null")
 
 # Keep configuration-specific headers in the build tree so differently configured builds can coexist.

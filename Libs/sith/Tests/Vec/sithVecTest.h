@@ -250,13 +250,9 @@ static unsigned int sithVecTest_RunCases(const SithVecSuite* pSuite, const SithV
 
             size_t len = strlen(pFailText);
             snprintf(pFailText + len, failTextSize - len, "\n  %s: %s", pFixCase->aName, aDesc);
-#ifdef _WIN32
-            if ( GetEnvironmentVariableA("SITHVEC_VERBOSE", NULL, 0) != 0 )
-#else
-            // Altered: GetEnvironmentVariableA is the Windows-only way this harness asks whether
-            // SITHVEC_VERBOSE is set; the native build reads the same variable with getenv().
+            // Altered: the harness asked GetEnvironmentVariableA whether SITHVEC_VERBOSE is set; every build
+            // reads the same variable with getenv().
             if ( getenv("SITHVEC_VERBOSE") != NULL )
-#endif
             {
                 printf("  %s\n", pFixCase->aName);
                 sithVecTest_PrintRecord("expected", pFixCase->pRec, pFixCase->recSize);

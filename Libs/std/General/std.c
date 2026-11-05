@@ -41,9 +41,7 @@ void J3DAPI stdStartup(tHostServices* pHS)
         // TODO: Remove when all round and rand float functions are replaced && updated
         // TODO: consider setting FE_DOWNWARD for round functions (lrintf); i.e.: fesetround(FE_DOWNWARD) to mimic same behavior as OG
         short  tmp = 0;
-#if defined(_MSC_VER) && defined(_M_IX86)
-        __asm  fnstcw word ptr[tmp];
-#elif defined(_MSC_VER)
+#if defined(_MSC_VER)
         // Altered: MSVC x64 has no inline assembler and the CRT has no x87 query there. Use the control word the
         // Windows x64 CRT initializes the x87 unit to (0x027F: 53-bit precision, round to nearest, all exceptions
         // masked); only its low byte is used below and it never reaches simulation state.

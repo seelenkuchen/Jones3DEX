@@ -1,4 +1,6 @@
 // TimerWin32.c: the Windows tick thread of the timer service (`TIMER=insane`) (part of original 0x004EA7D0-0x004EAE10).
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h> // thread and event API
 #include <mmsystem.h> // timeGetTime
 #include <stdlib.h> // ldiv

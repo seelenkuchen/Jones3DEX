@@ -25,9 +25,7 @@
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#ifndef J3D_DIRECTX6
 #include <std/General/stdRenderCapture.h>
-#endif
 #include <std/General/stdControl.h>
 #include <std/General/stdDisplay.h>
 #include <std/General/stdWin95.h>
@@ -68,9 +66,7 @@ int J3DAPI JonesConsole_NextLevel(const SithConsoleCommand* pFunc, const char* p
 int J3DAPI JonesConsole_EndLevel(const SithConsoleCommand* pFunc, const char* pArg); // Added: From debug version
 int J3DAPI JonesConsole_Restart(const SithConsoleCommand* pFunc, const char* pArg); // Added: From debug version
 int J3DAPI JonesConsole_ShowEndCredits(const SithConsoleCommand* pFunc, const char* pArg);
-#ifndef J3D_DIRECTX6
 int J3DAPI JonesConsole_Capture(const SithConsoleCommand* pFunc, const char* pArg); // Added
-#endif
 
 void J3DAPI JonesConsole_EnableDevMode(bool bEnable); // Added
 int J3DAPI JonesConsole_DevMode(const SithConsoleCommand* pFunc, const char* pArg); // Added
@@ -135,9 +131,7 @@ int JonesConsole_Open(void)
     sithConsole_RegisterCommand(JonesConsole_PrintPolys, "polys", 0);
     sithConsole_RegisterCommand(JonesConsole_ShowEndCredits, "endcredit", 0);
 
-#ifndef J3D_DIRECTX6
     sithConsole_RegisterCommand(JonesConsole_Capture, "capture", 0); // Added
-#endif
 
     // Added: Following commands were added from debug version
     sithConsole_RegisterCommand(JonesConsole_JumpLevel, "jumplevel", SITHCONSOLE_DEVMODE);
@@ -510,7 +504,6 @@ int J3DAPI JonesConsole_ShowEndCredits(const SithConsoleCommand* pFunc, const ch
     return 1;
 }
 
-#ifndef J3D_DIRECTX6
 // Added: skip the spaces the console passes before an argument.
 static const char* JonesConsole_SkipSpaces(const char* pText)
 {
@@ -608,7 +601,6 @@ int J3DAPI JonesConsole_Capture(const SithConsoleCommand* pFunc, const char* pAr
     JonesConsole_PrintCaptureState();
     return 1;
 }
-#endif
 
 void J3DAPI JonesConsole_EnableDevMode(bool bEnable)
 {

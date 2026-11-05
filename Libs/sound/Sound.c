@@ -364,10 +364,6 @@ int J3DAPI Sound_Open(SoundOpenFlags flags, size_t maxSoundChannels, SoundGetThi
     }
 
     // Open sound driver
-#ifdef J3D_DIRECTX9
-    SOUNDLOG_STATUS("Sound_Open: Opening sound driver with DirectSound8 as backend...\n");
-#endif
-
     Sound_bNoSound3D             = (flags & SOUNDOPEN_NO3DSOUND) != 0;
     Sound_bGlobalFocusBuf        = (flags & SOUNDOPEN_GLOBALFOCUS) != 0;
     Sound_hwnd                   = hwnd;
