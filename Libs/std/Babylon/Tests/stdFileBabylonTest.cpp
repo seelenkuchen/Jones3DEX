@@ -174,7 +174,7 @@ namespace
 
         std::string currentPath() override
         {
-            return "/work/dir/";
+            return m_aCurrentPath;
         }
 
         std::string userPath(std::string_view aOrganization, std::string_view aApplication) override
@@ -191,6 +191,7 @@ namespace
         babylon::files::NullFileSystem m_fs;
         std::vector<std::string>       m_aProbed;
         size_t                         m_numListNames = 0;
+        std::string                    m_aCurrentPath = "/work/dir/"; // what currentPath() reports
     };
 }
 
@@ -300,12 +301,64 @@ TEST(stdBabylonPath, TrustsTheCurrentPathSegments)
     TEST_ASSERT_EQUAL_INT(2, static_cast<int>(counting.m_numListNames));
 }
 
+TEST(stdBabylonPath, KeepsTheDriveRootOfTheCurrentPath)
+{
+    // The SDL backend reports a Windows working directory as "C:/...": relative input keeps that
+    // drive as its root, never climbs above it and never probes the current path's segments.
+    cCountingFileSystem counting;
+    counting.m_aCurrentPath = "C:/work/dir/";
+
+    std::string out;
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "missing\\file.txt", out));
+    TEST_ASSERT_EQUAL_STRING("C:/work/dir/missing/file.txt", out.c_str());
+    TEST_ASSERT_FALSE(counting.Probed("C:/work"));
+    TEST_ASSERT_FALSE(counting.Probed("C:/work/dir"));
+    TEST_ASSERT_TRUE(counting.Probed("C:/work/dir/missing"));
+
+    counting.m_aProbed.clear();
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "..\\Dir\\x", out));
+    TEST_ASSERT_EQUAL_STRING("C:/work/Dir/x", out.c_str());
+    TEST_ASSERT_FALSE(counting.Probed("C:/work"));
+    TEST_ASSERT_TRUE(counting.Probed("C:/work/Dir"));
+
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "..\\..\\..\\x", out));
+    TEST_ASSERT_EQUAL_STRING("C:/x", out.c_str());
+
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "../../..", out));
+    TEST_ASSERT_EQUAL_STRING("C:/", out.c_str());
+}
+
+TEST(stdBabylonPath, DrivePathsAreAbsoluteOnlyOnWindows)
+{
+    cCountingFileSystem counting;
+
+    std::string out;
+#ifdef _WIN32
+    // A drive path roots at its drive, whatever the current path is.
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "D:\\Data\\File.txt", out));
+    TEST_ASSERT_EQUAL_STRING("D:/Data/File.txt", out.c_str());
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "d:/a/../b", out));
+    TEST_ASSERT_EQUAL_STRING("d:/b", out.c_str());
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "D:\\..\\x\\", out));
+    TEST_ASSERT_EQUAL_STRING("D:/x/", out.c_str());
+    // "D:" without a separator is drive-relative, not absolute: it stays a plain segment.
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "D:x", out));
+    TEST_ASSERT_EQUAL_STRING("/work/dir/D:x", out.c_str());
+#else
+    // Elsewhere "C:" is an ordinary name, so the path stays relative.
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(counting, "C:\\x", out));
+    TEST_ASSERT_EQUAL_STRING("/work/dir/C:/x", out.c_str());
+#endif
+}
+
 TEST_GROUP_RUNNER(stdBabylonPath)
 {
     RUN_TEST_CASE(stdBabylonPath, ResolvesExistingEntriesCaseInsensitively);
     RUN_TEST_CASE(stdBabylonPath, NormalizesDotsAndStopsAtMissingSegments);
     RUN_TEST_CASE(stdBabylonPath, KeepsTrailingSeparatorsAndRejectsEmptyInput);
     RUN_TEST_CASE(stdBabylonPath, TrustsTheCurrentPathSegments);
+    RUN_TEST_CASE(stdBabylonPath, KeepsTheDriveRootOfTheCurrentPath);
+    RUN_TEST_CASE(stdBabylonPath, DrivePathsAreAbsoluteOnlyOnWindows);
 }
 
 TEST_SETUP(stdFileBabylon)
