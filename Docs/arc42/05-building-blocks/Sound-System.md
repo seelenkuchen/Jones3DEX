@@ -16,8 +16,8 @@ Primary source files:
 - [`Libs/sith/World/sithVoice.c`](../../../Libs/sith/World/sithVoice.c)
 - [`Libs/sound/Sound.c`](../../../Libs/sound/Sound.c)
 - [`Libs/sound/AudioLib.c`](../../../Libs/sound/AudioLib.c)
-- [`Libs/sound/DriverDX9.c`](../../../Libs/sound/DriverDX9.c)
-- [`Libs/sound/DriverDX6.c`](../../../Libs/sound/DriverDX6.c)
+- `Libs/sound/DriverDX9.c`
+- `Libs/sound/DriverDX6.c`
 
 ## Startup And Ownership Layers
 

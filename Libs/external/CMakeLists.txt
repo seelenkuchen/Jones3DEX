@@ -1,13 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-if (J3D_DIRECTX6)
-    set(EXTERNAL_MODULES
-        DirectX61c
-    )
-endif()
-
 set(EXTERNAL_MODULES
-    ${EXTERNAL_MODULES}
     jansson
 )
 

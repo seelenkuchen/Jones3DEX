@@ -33,16 +33,9 @@ set_target_properties(soundTests PROPERTIES
 source_group("Tests" FILES ${SOUND_TEST_SOURCES})
 source_group("Tested Sources" FILES ${SOUND_TESTED_SOURCES})
 
-set(SOUND_TEST_BACKEND_LABEL "")
-if (J3D_DIRECTX6)
-    set(SOUND_TEST_BACKEND_LABEL "DirectX6")
-elseif (J3D_DIRECTX9)
-    set(SOUND_TEST_BACKEND_LABEL "DirectX9")
-endif()
-
 add_test(NAME sound COMMAND soundTests)
 # The in-memory suite normally finishes in under a second; allow slower hosts.
 set_tests_properties(sound PROPERTIES
-    LABELS "unit;sound;${SOUND_TEST_BACKEND_LABEL}"
+    LABELS "unit;sound"
     TIMEOUT 60
 )

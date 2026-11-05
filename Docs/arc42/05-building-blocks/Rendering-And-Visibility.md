@@ -10,9 +10,9 @@ Primary source files:
 - [`Libs/rdroid/Main/rdroid.c`](../../../Libs/rdroid/Main/rdroid.c)
 - [`Libs/rdroid/Raster/rdCache.c`](../../../Libs/rdroid/Raster/rdCache.c)
 - [`Libs/std/General/std3D.h`](../../../Libs/std/General/std3D.h)
-- [`Libs/std/Win95/DX6/std3DX6.c`](../../../Libs/std/Win95/DX6/std3DX6.c)
-- [`Libs/std/Win95/DX9/std3DX9.c`](../../../Libs/std/Win95/DX9/std3DX9.c)
-- [`Libs/std/Win95/DX9/stdShaderDX9.c`](../../../Libs/std/Win95/DX9/stdShaderDX9.c)
+- `Libs/std/Win95/DX6/std3DX6.c`
+- `Libs/std/Win95/DX9/std3DX9.c`
+- `Libs/std/Win95/DX9/stdShaderDX9.c`
 
 ## Layer Split
 
@@ -693,7 +693,7 @@ From the rest of the engine's perspective, `std3D` is the hardware abstraction l
 
 ## DirectX 6.1c Backend
 
-The legacy backend lives under [`Libs/std/Win95/DX6/`](../../../Libs/std/Win95/DX6).
+The legacy backend lives under `Libs/std/Win95/DX6/`.
 
 Architectural characteristics:
 
@@ -706,13 +706,13 @@ This path represents the original renderer architecture most closely.
 
 ## DirectX 9 Backend
 
-The modern backend lives under [`Libs/std/Win95/DX9/`](../../../Libs/std/Win95/DX9).
+The modern backend lives under `Libs/std/Win95/DX9/`.
 
 Architectural extensions introduced there include:
 
 - Direct3D 9 device/runtime management
 - optional vertex and index buffer paths
-- shader system support through [`stdShaderDX9.c`](../../../Libs/std/Win95/DX9/stdShaderDX9.c)
+- shader system support through `stdShaderDX9.c`
 - wider texture-format and device-capability handling
 - modern fog/shader constant handling
 

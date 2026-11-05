@@ -1,26 +1,10 @@
 set(STD_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(STD_GENERAL_SOURCE_DIR "${STD_SOURCE_DIR}/General")
 set(STD_GENERAL_TEST_DIR "${STD_GENERAL_SOURCE_DIR}/Tests")
-set(STD_WIN95_SOURCE_DIR "${STD_SOURCE_DIR}/Win95")
-set(STD_WIN95_TEST_DIR "${STD_WIN95_SOURCE_DIR}/Tests")
 
 set(STD_TEST_SUPPORT_SOURCES
     stdTestRunner.c
     stdGeneralTest.c
-)
-
-set(STD_SYSTEM_TEST_SUPPORT_SOURCES
-    stdSystemTestRunner.c
-    stdGeneralTest.c
-    "${STD_WIN95_TEST_DIR}/std3DSystemTestSupport.c"
-    "${STD_WIN95_TEST_DIR}/stdWin95SystemTestSupport.c"
-)
-
-set(STD_DISRUPTIVE_SYSTEM_TEST_SUPPORT_SOURCES
-    "${STD_WIN95_TEST_DIR}/stdDisruptiveSystemTestRunner.c"
-    stdGeneralTest.c
-    "${STD_WIN95_TEST_DIR}/std3DSystemTestSupport.c"
-    "${STD_WIN95_TEST_DIR}/stdWin95SystemTestSupport.c"
 )
 
 set(STD_GENERAL_TEST_SOURCES
@@ -39,67 +23,8 @@ set(STD_GENERAL_TEST_SOURCES
     "${STD_GENERAL_TEST_DIR}/stdRenderCaptureTest.c"
     "${STD_GENERAL_TEST_DIR}/stdFileUtilTest.c"
     "${STD_GENERAL_TEST_DIR}/stdJSONTest.c"
-    "${STD_GENERAL_TEST_DIR}/stdBmpTest.c"
-    "${STD_GENERAL_TEST_DIR}/stdPlatformTest.c"
     "${STD_GENERAL_TEST_DIR}/stdStrTableTest.c"
 )
-
-set(STD_WIN95_TEST_SOURCES
-    "${STD_WIN95_TEST_DIR}/stdWin95TestSuite.c"
-    "${STD_GENERAL_TEST_DIR}/stdGobTest.c"
-    "${STD_WIN95_TEST_DIR}/std3DTest.c"
-    "${STD_WIN95_TEST_DIR}/std3DTestVectorTest.c"
-    "${STD_WIN95_TEST_DIR}/stdConsoleTest.c"
-    "${STD_WIN95_TEST_DIR}/stdControlTest.c"
-    "${STD_WIN95_TEST_DIR}/stdDisplayTest.c"
-    "${STD_WIN95_TEST_DIR}/stdShaderTest.c"
-    "${STD_WIN95_TEST_DIR}/stdWin95Test.c"
-)
-
-if (J3D_DIRECTX9)
-    list(APPEND STD_WIN95_TEST_SOURCES
-        "${STD_WIN95_TEST_DIR}/stdCommTest.c"
-        "${STD_WIN95_TEST_DIR}/stdWin95DirectX9Test.c"
-    )
-elseif(J3D_DIRECTX6)
-    list(APPEND STD_WIN95_TEST_SOURCES
-        "${STD_WIN95_TEST_DIR}/stdCommDX6Test.c"
-        "${STD_WIN95_TEST_DIR}/stdWin95DirectX6Test.c"
-    )
-endif()
-
-set(STD_WIN95_SYSTEM_TEST_SOURCES
-    "${STD_WIN95_TEST_DIR}/stdWin95SystemTest.c"
-)
-
-set(STD_DIRECTX_TEST_LABEL "")
-if (J3D_DIRECTX9)
-    set(STD_DIRECTX_TEST_LABEL "DirectX9")
-    list(APPEND STD_WIN95_SYSTEM_TEST_SOURCES
-        "${STD_WIN95_TEST_DIR}/stdControlDX9SystemTest.c"
-        "${STD_WIN95_TEST_DIR}/stdDisplayDX9SystemTest.c"
-        "${STD_WIN95_TEST_DIR}/std3DX9SystemTest.c"
-        "${STD_WIN95_TEST_DIR}/stdShaderDX9SystemTest.c"
-    )
-elseif(J3D_DIRECTX6)
-    set(STD_DIRECTX_TEST_LABEL "DirectX6")
-    list(APPEND STD_WIN95_SYSTEM_TEST_SOURCES
-        "${STD_WIN95_TEST_DIR}/stdControlDX6SystemTest.c"
-        "${STD_WIN95_TEST_DIR}/stdDisplayDX6SystemTest.c"
-        "${STD_WIN95_TEST_DIR}/std3DX6SystemTest.c"
-    )
-endif()
-
-set(STD_WIN95_DISRUPTIVE_SYSTEM_TEST_SOURCES "")
-if (J3D_DIRECTX9)
-    list(APPEND STD_WIN95_DISRUPTIVE_SYSTEM_TEST_SOURCES
-        "${STD_WIN95_TEST_DIR}/stdDisplayDX9DisruptiveSystemTest.c"
-    )
-elseif(J3D_DIRECTX6)
-    list(APPEND STD_WIN95_DISRUPTIVE_SYSTEM_TEST_SOURCES
-        "${STD_WIN95_TEST_DIR}/stdDisplayDX6DisruptiveSystemTest.c"
-    )
-endif()
 
 set(STD_GENERAL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/std.c"
@@ -123,36 +48,6 @@ set(STD_GENERAL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/stdRenderCapture.c"
 )
 
-set(STD_WIN95_TESTED_SOURCES
-    "${STD_WIN95_SOURCE_DIR}/stdBmpWin32.c"
-    "${STD_WIN95_SOURCE_DIR}/stdConsole.c"
-    "${STD_WIN95_SOURCE_DIR}/stdFileUtilWin32.c"
-    "${STD_GENERAL_SOURCE_DIR}/stdGob.c"
-    "${STD_WIN95_SOURCE_DIR}/stdPlatformWin32.c"
-    "${STD_WIN95_SOURCE_DIR}/stdWin95.c"
-)
-
-if (J3D_DIRECTX9)
-    list(APPEND STD_WIN95_TESTED_SOURCES
-        # M6.0: the DX9 backend sources below define std3DBackend_*/stdDisplayBackend_*, so these
-        # targets also need the forwarding layer that carries the public std3D_*/stdDisplay_* names.
-        "${STD_GENERAL_SOURCE_DIR}/std3DCapture.c"
-        "${STD_GENERAL_SOURCE_DIR}/stdDisplayCapture.c"
-        "${STD_WIN95_SOURCE_DIR}/stdComm.c"
-        "${STD_WIN95_SOURCE_DIR}/DX9/stdControlDX9.c"
-        "${STD_WIN95_SOURCE_DIR}/DX9/std3DX9.c"
-        "${STD_WIN95_SOURCE_DIR}/DX9/stdDisplayDX9.c"
-        "${STD_WIN95_SOURCE_DIR}/DX9/stdShaderDX9.c"
-    )
-elseif(J3D_DIRECTX6)
-    list(APPEND STD_WIN95_TESTED_SOURCES
-        "${STD_WIN95_SOURCE_DIR}/DX6/stdCommDX6.c"
-        "${STD_WIN95_SOURCE_DIR}/DX6/stdControlDX6.c"
-        "${STD_WIN95_SOURCE_DIR}/DX6/std3DX6.c"
-        "${STD_WIN95_SOURCE_DIR}/DX6/stdDisplayDX6.c"
-    )
-endif()
-
 # Added: The Null platform runs only the portable std/General suites. stdConsoleNull.c is not listed:
 # stdGeneralTest.c provides the stdConsole_WriteConsole stub the way it does on Windows.
 # stdCvarNull.c is the Null column's simulation cvar seam, covered by stdCvarNullTest.c below; the
@@ -172,79 +67,44 @@ set(STD_NULL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/stdRenderReplay.c"
 )
 
-set(STD_TESTED_SOURCES
-    ${STD_GENERAL_TESTED_SOURCES}
-    ${STD_WIN95_TESTED_SOURCES}
+# Altered: the std/General tests are portable except stdPlatformTest.c (Windows stack frames,
+# minidumps and a CreateProcessA death child) and stdBmpTest.c (GDI HBITMAP checks against the
+# Win32 stdBmp backend), which only the Win32/DirectX game built; they are not listed above and stay
+# unbuilt (ADR-0011). stdCvarNullTest.c is the other way round: it covers the Null column's
+# simulation cvar seam, which only these columns build.
+list(APPEND STD_GENERAL_TEST_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/stdCvarNullTest.c"
+    # Added: the renderer forwarding layer records through the Null backend.
+    "${CMAKE_CURRENT_SOURCE_DIR}/stdRenderCaptureForwardTest.c"
+    # Added: the replay reads those captures back through the same Null forwarders.
+    "${CMAKE_CURRENT_SOURCE_DIR}/stdRenderReplayTest.c"
 )
-
-if (J3D_PLATFORM_NULL)
-    # Added: The std/General tests are portable except stdPlatformTest.c (Windows stack frames,
-    # minidumps and a CreateProcessA death child) and stdBmpTest.c (GDI HBITMAP checks against the
-    # Win32 stdBmp backend, which the Null platform does not build). stdCvarNullTest.c is the other
-    # way round: it covers the Null column's simulation cvar seam, which only these columns build.
-    list(REMOVE_ITEM STD_GENERAL_TEST_SOURCES
-        "${STD_GENERAL_TEST_DIR}/stdPlatformTest.c"
-        "${STD_GENERAL_TEST_DIR}/stdBmpTest.c"
-    )
-    list(APPEND STD_GENERAL_TEST_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/stdCvarNullTest.c"
-        # Added: the renderer forwarding layer records through the Null backend only here; the
-        # Windows columns cover the same files through the Win95 suite and the DX9 system tests.
-        "${CMAKE_CURRENT_SOURCE_DIR}/stdRenderCaptureForwardTest.c"
-        # Added: the replay reads those captures back through the same Null forwarders.
-        "${CMAKE_CURRENT_SOURCE_DIR}/stdRenderReplayTest.c"
-    )
-    set(STD_WIN95_TEST_SOURCES "")
-    set(STD_TESTED_SOURCES ${STD_GENERAL_TESTED_SOURCES} ${STD_NULL_TESTED_SOURCES})
-endif()
-
-set_source_files_properties("${STD_WIN95_SOURCE_DIR}/stdConsole.c" PROPERTIES
-    COMPILE_DEFINITIONS "stdConsole_WriteConsole=stdConsole_WriteConsoleReal"
-)
+set(STD_TESTED_SOURCES ${STD_GENERAL_TESTED_SOURCES} ${STD_NULL_TESTED_SOURCES})
 
 # Added: the Babylon column on Windows skips stdTests: it is the Null column's suite over the POSIX file
 # utilities (Null/stdFileUtilPosix.c: dirent, fnmatch), which Windows does not build. The same
 # std/General suites run there through the Babylon files adapter as std.OnBabylon below.
-if (NOT (WIN32 AND J3D_PLATFORM_NULL))
+if (NOT WIN32)
 add_executable(stdTests
     ${STD_TEST_SUPPORT_SOURCES}
     ${STD_GENERAL_TEST_SOURCES}
-    ${STD_WIN95_TEST_SOURCES}
     ${STD_TESTED_SOURCES}
 )
 
 target_compile_definitions(stdTests PRIVATE
     J3D_TEST
     STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
-    STD_WIN95_TEST_TV_DIR="${STD_WIN95_TEST_DIR}/tv"
 )
 
 target_include_directories(stdTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-# Added: The tested sources compile the DX9 backend, whose stdSysTypesDX9.h and stdBackendTypes.h
-# live in this directory.
-if (J3D_DIRECTX9)
-    target_include_directories(stdTests PRIVATE
-        "${STD_SOURCE_DIR}/Win95/DX9"
-    )
-endif()
-
 # Added: The Null platform compiles its own stdPlatformNull.c/stdFileUtilPosix.c, whose
 # stdBackendTypes.h lives here.
-if (J3D_PLATFORM_NULL)
-    target_include_directories(stdTests PRIVATE
-        "${STD_SOURCE_DIR}/Null"
-    )
-endif()
-
-if (JONES3D_SHADER_HEADER_DIR)
-    # The std test target compiles the DX9 sources directly; add the generated shader
-    # headers to its include path and wait for them to be generated first.
-    target_include_directories(stdTests PRIVATE ${JONES3D_SHADER_HEADER_DIR})
-    add_dependencies(stdTests std_shaders)
-endif()
+target_include_directories(stdTests PRIVATE
+    "${STD_SOURCE_DIR}/Null"
+)
 
 target_link_libraries(stdTests PRIVATE
     j3dcore
@@ -252,44 +112,17 @@ target_link_libraries(stdTests PRIVATE
     jansson::jansson
 )
 
-# Added: Windows-only services; the Null platform's std suite links none of them.
-if (NOT J3D_PLATFORM_NULL)
-    target_link_libraries(stdTests PRIVATE
-        dbghelp
-        gdi32
-        ole32
-        winmm
-    )
-endif()
-
-if (J3D_DIRECTX6)
-    target_link_libraries(stdTests PRIVATE
-        DirectX61c
-    )
-elseif(J3D_DIRECTX9)
-    target_link_libraries(stdTests PRIVATE
-        d3d9
-        d3dcompiler
-        dinput8
-        dxguid
-        xinput
-        wbemuuid
-        oleaut32
-    )
-endif()
-
 set_target_properties(stdTests PROPERTIES
     FOLDER "Tests/Libs/std"
 )
 
 source_group("Test Support" FILES ${STD_TEST_SUPPORT_SOURCES})
 source_group("Tests" FILES ${STD_GENERAL_TEST_SOURCES})
-source_group("Tests\\Win95" FILES ${STD_WIN95_TEST_SOURCES})
 source_group("Tested Sources" FILES ${STD_TESTED_SOURCES})
 
 add_test(NAME std COMMAND stdTests)
 set_tests_properties(std PROPERTIES
-    LABELS "unit;std;${STD_DIRECTX_TEST_LABEL}"
+    LABELS "unit;std"
 )
 endif()
 
@@ -334,7 +167,6 @@ if (J3D_PLATFORM_BABYLON)
         J3D_TEST
         J3D_TEST_RUNNER_ENTRY=j3dTestRunner_Main
         STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
-        STD_WIN95_TEST_TV_DIR="${STD_WIN95_TEST_DIR}/tv"
     )
 
     # The test sources include <std/...> (via Libs through j3dcore), the Null backend types and
@@ -368,147 +200,5 @@ if (J3D_PLATFORM_BABYLON)
     set_tests_properties(std.OnBabylon PROPERTIES
         LABELS "std;unit"
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/OnBabylon"
-    )
-endif()
-
-if (JONES3D_BUILD_SYSTEM_TESTS)
-    add_executable(stdSystemTests
-        ${STD_SYSTEM_TEST_SUPPORT_SOURCES}
-        ${STD_WIN95_SYSTEM_TEST_SOURCES}
-        ${STD_TESTED_SOURCES}
-    )
-
-    target_compile_definitions(stdSystemTests PRIVATE
-        J3D_TEST
-        STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
-        STD_WIN95_TEST_TV_DIR="${STD_WIN95_TEST_DIR}/tv"
-    )
-
-    target_include_directories(stdSystemTests PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-
-    # Added: The tested sources compile the DX9 backend, whose stdSysTypesDX9.h and stdBackendTypes.h
-    # live in this directory.
-    if (J3D_DIRECTX9)
-        target_include_directories(stdSystemTests PRIVATE
-            "${STD_SOURCE_DIR}/Win95/DX9"
-        )
-    endif()
-
-    if (JONES3D_SHADER_HEADER_DIR)
-        # The std system test target compiles the DX9 sources directly; add the generated shader
-        # headers to its include path and wait for them to be generated first.
-        target_include_directories(stdSystemTests PRIVATE ${JONES3D_SHADER_HEADER_DIR})
-        add_dependencies(stdSystemTests std_shaders)
-    endif()
-
-    target_link_libraries(stdSystemTests PRIVATE
-        j3dcore
-        j3dTestSupport
-        jansson::jansson
-        dbghelp
-        gdi32
-        ole32
-        winmm
-    )
-
-    if (J3D_DIRECTX6)
-        target_link_libraries(stdSystemTests PRIVATE
-            DirectX61c
-        )
-    elseif(J3D_DIRECTX9)
-        target_link_libraries(stdSystemTests PRIVATE
-            d3d9
-            d3dcompiler
-            dinput8
-            dxguid
-            xinput
-            wbemuuid
-            oleaut32
-        )
-    endif()
-
-    set_target_properties(stdSystemTests PROPERTIES
-        FOLDER "Tests/Libs/std"
-    )
-
-    source_group("System Test Support" FILES ${STD_SYSTEM_TEST_SUPPORT_SOURCES})
-    source_group("System Tests\\Win95" FILES ${STD_WIN95_SYSTEM_TEST_SOURCES})
-
-    add_test(NAME std.System COMMAND stdSystemTests)
-    set_tests_properties(std.System PROPERTIES
-        LABELS "system;std;Win95;device;${STD_DIRECTX_TEST_LABEL}"
-    )
-endif()
-
-if (JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS)
-    add_executable(stdDisruptiveSystemTests
-        ${STD_DISRUPTIVE_SYSTEM_TEST_SUPPORT_SOURCES}
-        ${STD_WIN95_DISRUPTIVE_SYSTEM_TEST_SOURCES}
-        ${STD_TESTED_SOURCES}
-    )
-
-    target_compile_definitions(stdDisruptiveSystemTests PRIVATE
-        J3D_TEST
-        STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
-        STD_WIN95_TEST_TV_DIR="${STD_WIN95_TEST_DIR}/tv"
-    )
-
-    target_include_directories(stdDisruptiveSystemTests PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-
-    # Added: The tested sources compile the DX9 backend, whose stdSysTypesDX9.h and stdBackendTypes.h
-    # live in this directory.
-    if (J3D_DIRECTX9)
-        target_include_directories(stdDisruptiveSystemTests PRIVATE
-            "${STD_SOURCE_DIR}/Win95/DX9"
-        )
-    endif()
-
-    if (JONES3D_SHADER_HEADER_DIR)
-        # The std disruptive system test target compiles the DX9 sources directly; add the generated
-        # shader headers to its include path and wait for them to be generated first.
-        target_include_directories(stdDisruptiveSystemTests PRIVATE ${JONES3D_SHADER_HEADER_DIR})
-        add_dependencies(stdDisruptiveSystemTests std_shaders)
-    endif()
-
-    target_link_libraries(stdDisruptiveSystemTests PRIVATE
-        j3dcore
-        j3dTestSupport
-        jansson::jansson
-        dbghelp
-        gdi32
-        ole32
-        winmm
-    )
-
-    if (J3D_DIRECTX6)
-        target_link_libraries(stdDisruptiveSystemTests PRIVATE
-            DirectX61c
-        )
-    elseif(J3D_DIRECTX9)
-        target_link_libraries(stdDisruptiveSystemTests PRIVATE
-            d3d9
-            d3dcompiler
-            dinput8
-            dxguid
-            xinput
-            wbemuuid
-            oleaut32
-        )
-    endif()
-
-    set_target_properties(stdDisruptiveSystemTests PROPERTIES
-        FOLDER "Tests/Libs/std"
-    )
-
-    source_group("Disruptive System Test Support" FILES ${STD_DISRUPTIVE_SYSTEM_TEST_SUPPORT_SOURCES})
-    source_group("Disruptive System Tests\\Win95" FILES ${STD_WIN95_DISRUPTIVE_SYSTEM_TEST_SOURCES})
-
-    add_test(NAME std.DisruptiveSystem COMMAND stdDisruptiveSystemTests)
-    set_tests_properties(std.DisruptiveSystem PROPERTIES
-        LABELS "system;disruptive;std;Win95;device;${STD_DIRECTX_TEST_LABEL}"
     )
 endif()

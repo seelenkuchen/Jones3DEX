@@ -37,8 +37,6 @@ endfunction()
 
 option(JONES3D_BUILD_PROGRAMS "Build programs" ON)
 option(JONES3D_BUILD_TESTS "Build tests" ON)
-option(JONES3D_BUILD_SYSTEM_TESTS "Build system/device tests" ON)
-option(JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS "Build opt-in system tests that can switch fullscreen modes or disrupt devices" OFF)
 option(JONES3D_QOL_IMPROVEMENTS "Enable quality-of-life improvements" ON)
 option(JONES3D_SPEEDRUN_BUILD "Enable vanilla bugs and glitches used in speedruns" OFF)
 option(JONES3D_RUNTIME_GUARDS "Enable runtime safety guards for hardened release behavior" OFF)
@@ -47,26 +45,25 @@ option(JONES3D_RUNTIME_GUARDS "Enable runtime safety guards for hardened release
 # silently ignoring it.
 option(JONES3D_SANITIZE "Add address and undefined behavior sanitizer flags to native builds" OFF)
 
-# --- GAPI options ---
-# Add an option to enable DirectX 9 support. Default is ON.
-option(JONES3D_USE_DIRECTX9 "Build with DirectX 9 support" ON)
-#---------------------
-
 # Added: the Babylon column: the Null column with platform services moved onto the Babylon Engine one by one.
-# Altered: declared before the platform selection below, because on Windows it selects the column
-# instead of the DirectX 9 game.
-option(JONES3D_PLATFORM_BABYLON "Build the Babylon platform column instead of the Null column (non-Windows) or the DirectX 9 game (Windows)" OFF)
-
-# Altered: J3D_PLATFORM_NULL means "the Null/Babylon columns": every non-Windows build, and a Windows
-# build configured with JONES3D_PLATFORM_BABYLON. Windows without the option keeps the DirectX build.
-if(NOT WIN32 OR JONES3D_PLATFORM_BABYLON)
-    # Added: Native non-Windows build: no DirectX backend exists yet, so configure a Null
-    # platform without the Windows backends.
-    set(J3D_PLATFORM_NULL ON)
-    # Altered: tests stay ON on the Null platform; the portable unit suites run natively
-    # (the Windows-only suites are excluded per module below).
-    set(JONES3D_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+# Altered: the Win32/DirectX game is gone (ADR-0011), so Windows builds the Babylon column only: the
+# option defaults ON there, and the Null column stays non-Windows.
+if (WIN32)
+    option(JONES3D_PLATFORM_BABYLON "Build the Babylon platform column instead of the Null column" ON)
+    if (NOT JONES3D_PLATFORM_BABYLON)
+        message(FATAL_ERROR "The Null column is non-Windows; Windows builds the Babylon column: configure with -DJONES3D_PLATFORM_BABYLON=ON.")
+    endif()
+    if (CMAKE_SIZEOF_VOID_P EQUAL 4)
+        message(FATAL_ERROR "32-bit Windows is not supported: the Babylon column builds as a 64-bit Windows program (MSVC x64, or cmake/mingw-x86_64.cmake).")
+    endif()
+else()
+    option(JONES3D_PLATFORM_BABYLON "Build the Babylon platform column instead of the Null column" OFF)
 endif()
+
+# Altered: J3D_PLATFORM_NULL means "the Null/Babylon columns", which are now every build.
+set(J3D_PLATFORM_NULL ON)
+# Altered: tests stay ON on the Null platform; the portable unit suites run natively.
+set(JONES3D_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
 
 if (JONES3D_QOL_IMPROVEMENTS)
     set(J3D_QOL_IMPROVEMENTS ON)
@@ -86,24 +83,16 @@ if (JONES3D_RUNTIME_GUARDS)
     set(J3D_RUNTIME_GUARDS ON)
 endif()
 
-if (JONES3D_BUILD_TESTS)
-    enable_testing()
-else()
-    set(JONES3D_BUILD_SYSTEM_TESTS OFF)
-    # Added: the Null platform has no Windows test suite, but its native CRT shim test
-    # (j3dcore.Crt in Libs/j3dcore/Tests) needs testing enabled from the root.
-    if (J3D_PLATFORM_NULL)
-        enable_testing()
-    endif()
-endif()
+# Altered: testing is enabled even without JONES3D_BUILD_TESTS: the native CRT shim test
+# (j3dcore.Crt in Libs/j3dcore/Tests) needs it enabled from the root.
+enable_testing()
 
 # Babylon Engine: built before the game's compile options so it keeps its own flags.
 option(JONES3D_BUILD_BABYLON "Build the Babylon Engine" ON)
 
 # Added: the Babylon column replaces the Null column's stdPlatform time functions with Babylon ones,
 # so it needs the Babylon Engine. J3D_PLATFORM_BABYLON implies J3D_PLATFORM_NULL.
-# Altered: the column also builds on Windows (64-bit), where it replaces the DirectX 9 game; the
-# plain Null column stays non-Windows only.
+# Altered: the column also builds on Windows (64-bit only); the plain Null column stays non-Windows only.
 if (JONES3D_PLATFORM_BABYLON)
     if (NOT JONES3D_BUILD_BABYLON)
         message(FATAL_ERROR "JONES3D_PLATFORM_BABYLON needs the Babylon Engine: configure with -DJONES3D_BUILD_BABYLON=ON.")
@@ -117,51 +106,12 @@ if (JONES3D_BUILD_BABYLON)
     add_subdirectory(Babylon)
 endif()
 
-# Added: the Null platform has no device backends and no Windows console: system and disruptive
-# system tests stay Windows-only there. Windows behavior is unchanged.
-if (J3D_PLATFORM_NULL)
-    set(JONES3D_BUILD_SYSTEM_TESTS OFF)
-    set(JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS OFF)
-endif()
+# Added: The Null platform has no graphics backend yet (the Null/Babylon columns only).
+# Altered: the DirectX 6 and 9 selection is gone with the Win32/DirectX game (ADR-0011); nothing sets
+# J3D_DIRECTX6, J3D_DIRECTX9 or J3D_COLORKEYSUPPORTED any more, so j3d.h leaves them undefined.
+set(JONES3D_GAPI_NAME "Null")
 
-if (NOT JONES3D_BUILD_SYSTEM_TESTS)
-    set(JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS OFF)
-endif()
-
-# Altered: the DirectX selection applies to the Windows DirectX build only, not to the Babylon column on Windows.
-if(WIN32 AND NOT J3D_PLATFORM_NULL AND NOT JONES3D_USE_DIRECTX9)
-    message(FATAL_ERROR "The DirectX 6 build is paused: its backend isn't updated for the platform layer. Configure with -DJONES3D_USE_DIRECTX9=ON.")
-endif()
-
-if(WIN32 AND NOT J3D_PLATFORM_NULL AND JONES3D_USE_DIRECTX9)
-    set(JONES3D_GAPI_NAME "DirectX 9")
-    set(J3D_DIRECTX9 ON) # Set the variable for the header template
-    if (NOT JONES3D_QOL_IMPROVEMENTS)
-        if (JONES3D_RUNTIME_GUARDS)
-            set(JONES3D_BUILD_SUFFIX "-dx9-legacy-hardened") # Legacy behavior with release safety guards
-        else()
-            set(JONES3D_BUILD_SUFFIX "-dx9-legacy") # Pure legacy behavior
-        endif()
-    endif()
-elseif(WIN32 AND NOT J3D_PLATFORM_NULL)
-    set(JONES3D_GAPI_NAME "DirectX 6.1c (original)")
-    set(J3D_DIRECTX6 ON) # Set the variable for the header template
-    set(J3D_COLORKEYSUPPORTED ON)
-    if (JONES3D_QOL_IMPROVEMENTS)
-      set(JONES3D_BUILD_SUFFIX "-dx6") # Add '-sr' version suffix when not legacy build
-    else()
-        if (JONES3D_RUNTIME_GUARDS)
-            set(JONES3D_BUILD_SUFFIX "-legacy-hardened") # Legacy behavior with release safety guards
-        else()
-            set(JONES3D_BUILD_SUFFIX "-legacy") # Pure legacy behavior
-        endif()
-    endif()
-else()
-    # Added: The Null platform has no graphics backend yet (the Null/Babylon columns only).
-    set(JONES3D_GAPI_NAME "Null")
-endif()
-
-# Keep configuration-specific headers in the build tree so DX6 and DX9 builds can coexist.
+# Keep configuration-specific headers in the build tree so differently configured builds can coexist.
 set(JONES3D_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${JONES3D_GENERATED_INCLUDE_DIR}/j3dcore")
 configure_file(
@@ -199,10 +149,10 @@ if (MSVC)
     )
     add_link_options("/Brepro")
 elseif(MINGW)
-    # MinGW-w64 i686 build used for unit tests on Linux.
-    # Added: also the MinGW-w64 x86_64 build of the Babylon column (cmake/mingw-x86_64.cmake); the
-    # flags are the same, -mlong-double-64 matches MSVC x64's 8-byte long double there too.
-    # -msse2/-mfpmath=sse to match the MSVC i386 SSE2 code generation, -fno-strict-aliasing to
+    # Altered: the MinGW-w64 x86_64 build of the Babylon column (cmake/mingw-x86_64.cmake), used for
+    # the Windows unit tests on Linux; the i686 build went with the DirectX game. -mlong-double-64
+    # matches MSVC x64's 8-byte long double.
+    # -msse2/-mfpmath=sse to match the MSVC SSE2 code generation, -fno-strict-aliasing to
     # keep bit relayout behavior of the original code paths the same.
     # -mlong-double-64 makes long double 8 bytes like on MSVC (i686 GCC defaults to 12) and keeps
     # the 64-bit form that the UCRT scanf/printf conversion specifiers expect.
@@ -309,5 +259,3 @@ jones3d_print_config_option("Runtime guards" JONES3D_RUNTIME_GUARDS)
 jones3d_print_config_option("Speedrun build" JONES3D_SPEEDRUN_BUILD)
 jones3d_print_config_option("Build programs" JONES3D_BUILD_PROGRAMS)
 jones3d_print_config_option("Build tests" JONES3D_BUILD_TESTS)
-jones3d_print_config_option("Build system tests" JONES3D_BUILD_SYSTEM_TESTS)
-jones3d_print_config_option("Build disruptive system tests" JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS)

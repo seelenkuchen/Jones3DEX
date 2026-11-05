@@ -100,16 +100,9 @@ function(sith_add_vec_test TARGET)
     source_group("Tests" FILES ${SV_SOURCES})
     source_group("Tested Sources" FILES ${SV_TESTED})
 
-    set(SV_BACKEND_LABEL "")
-    if (J3D_DIRECTX6)
-        set(SV_BACKEND_LABEL "DirectX6")
-    elseif (J3D_DIRECTX9)
-        set(SV_BACKEND_LABEL "DirectX9")
-    endif()
-
     add_test(NAME ${SV_TEST} COMMAND ${TARGET})
     set_tests_properties(${SV_TEST} PROPERTIES
-        LABELS "unit;sith;${SV_BACKEND_LABEL}"
+        LABELS "unit;sith"
         TIMEOUT 60
     )
 endfunction()

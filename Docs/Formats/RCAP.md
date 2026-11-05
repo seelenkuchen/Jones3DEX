@@ -22,7 +22,7 @@ This is a tool format, not a game asset. Nothing in the game reads it.
 
 - Writer: `Jones3D-headless --capture <file>`
   ([`JonesHeadless.c`](../../Jones3D/Platform/Null/JonesHeadless.c)). On Windows the DX9 build
-  accepts `Jones3D.exe -capture <file>` ([`WinMain.c`](../../Jones3D/Platform/Win32/WinMain.c));
+  accepts `Jones3D.exe -capture <file>` (`WinMain.c`);
   it starts with the frame window off and the `capture frames on|off` console command switches it
   ([`JonesConsole.c`](../../Jones3D/Display/JonesConsole.c)); adding `-captureframes` starts it on
   instead.

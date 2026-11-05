@@ -217,8 +217,8 @@ This is a strong architectural split. The lowest layer does not know about secto
 
 The backend underneath that layer depends on the build:
 
-- [`DriverDX6.c`](../../../Libs/sound/DriverDX6.c)
-- [`DriverDX9.c`](../../../Libs/sound/DriverDX9.c)
+- `DriverDX6.c`
+- `DriverDX9.c`
 
 The sound layer therefore mirrors the renderer's design: upper engine code talks to a stable interface while the backend changes underneath.
 

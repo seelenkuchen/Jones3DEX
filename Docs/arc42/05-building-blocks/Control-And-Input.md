@@ -12,8 +12,8 @@ Primary source files:
 
 - [`Libs/sith/Devices/sithControl.c`](../../../Libs/sith/Devices/sithControl.c)
 - [`Libs/std/General/stdControl.h`](../../../Libs/std/General/stdControl.h)
-- [`Libs/std/Win95/DX9/stdControlDX9.c`](../../../Libs/std/Win95/DX9/stdControlDX9.c)
-- [`Libs/std/Win95/DX6/stdControlDX6.c`](../../../Libs/std/Win95/DX6/stdControlDX6.c)
+- `Libs/std/Win95/DX9/stdControlDX9.c`
+- `Libs/std/Win95/DX6/stdControlDX6.c`
 - [`Libs/sith/Gameplay/sithPlayerControls.c`](../../../Libs/sith/Gameplay/sithPlayerControls.c)
 - [`Libs/sith/Engine/sithCamera.c`](../../../Libs/sith/Engine/sithCamera.c)
 
@@ -73,7 +73,7 @@ Architecturally, the defaults are still data baked into code rather than an exte
 
 ## Platform Device Layer
 
-The platform/input backend lives in `stdControl`. In current builds the default path is the DX9 Win32 implementation in [`stdControlDX9.c`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L209), while the legacy DX6 build uses the parallel implementation in [`stdControlDX6.c`](../../../Libs/std/Win95/DX6/stdControlDX6.c#L163).
+The platform/input backend lives in `stdControl`. In current builds the default path is the DX9 Win32 implementation in `stdControlDX9.c`, while the legacy DX6 build uses the parallel implementation in `stdControlDX6.c`.
 
 The two backends follow the same architecture:
 
@@ -84,21 +84,21 @@ The two backends follow the same architecture:
 
 Important entry points in the DX9 path are:
 
-- [`stdControl_Startup()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L209)
-- [`stdControl_Open()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L309)
-- [`stdControl_ReadControls()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L371)
-- [`stdControl_EnableAxis()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L351)
-- [`stdControl_SetActivation()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L659)
+- `stdControl_Startup()`
+- `stdControl_Open()`
+- `stdControl_ReadControls()`
+- `stdControl_EnableAxis()`
+- `stdControl_SetActivation()`
 
 The backend also has dedicated device readers:
 
-- [`stdControl_ReadKeyboard()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L1058)
-- [`stdControl_ReadJoysticks()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L1082)
-- [`stdControl_ReadMouse()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L1161)
+- `stdControl_ReadKeyboard()`
+- `stdControl_ReadJoysticks()`
+- `stdControl_ReadMouse()`
 
 ## Per-Frame Read Pass
 
-[`stdControl_ReadControls()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L371) is the raw device sampling step.
+`stdControl_ReadControls()` is the raw device sampling step.
 
 Each frame it:
 
@@ -115,11 +115,11 @@ This means the gameplay layer sees one coherent input snapshot per frame rather 
 
 The platform layer exposes several different views of the same raw data:
 
-- [`stdControl_ReadAxis()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L413) returns a normalized analog-style value with deadzone handling
-- [`stdControl_ReadAxisRaw()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L462) returns the raw centered delta
-- [`stdControl_ReadKeyAsAxis()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L494) turns a digital key hold into an axis-like value proportional to read time
-- [`stdControl_ReadKey()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L586) returns direct key/button state
-- [`stdControl_ControlsIdle()`](../../../Libs/std/Win95/DX9/stdControlDX9.c#L765) exposes whether the current frame's reads were effectively idle
+- `stdControl_ReadAxis()` returns a normalized analog-style value with deadzone handling
+- `stdControl_ReadAxisRaw()` returns the raw centered delta
+- `stdControl_ReadKeyAsAxis()` turns a digital key hold into an axis-like value proportional to read time
+- `stdControl_ReadKey()` returns direct key/button state
+- `stdControl_ControlsIdle()` exposes whether the current frame's reads were effectively idle
 
 This is why the higher layer can represent both styles cleanly:
 

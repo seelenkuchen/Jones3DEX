@@ -960,7 +960,7 @@ recreation; it does not assume that a bare 16-bit depth format is supported.
 ### 🖼️ BMP Fixture Coverage
 
 Win95 `std3D` system-test BMP vectors live under
-`Libs/std/Win95/Tests/tv/std3D/<backend>`. Most are backend-specific 320x240
+`Libs/std/Tests/tv/std3D/<backend>` (dx9 and opengl; dx6 was dropped in M6.3). Most are backend-specific 320x240
 24-bit BMP masks; magenta pixels are ignored by the comparison helper, while all
 other pixels are expected rendered output. The DX6 explicit-mipmap cube, DX9
 automatic-mipmap cube, and combined DX9 mipmap/MSAA/anisotropic cube sequences

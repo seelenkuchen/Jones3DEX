@@ -93,16 +93,9 @@ set_target_properties(sithTests PROPERTIES
 source_group("Tests" FILES ${SITH_TEST_SOURCES})
 source_group("Tested Sources" FILES ${SITH_TESTED_SOURCES})
 
-set(SITH_TEST_BACKEND_LABEL "")
-if (J3D_DIRECTX6)
-    set(SITH_TEST_BACKEND_LABEL "DirectX6")
-elseif (J3D_DIRECTX9)
-    set(SITH_TEST_BACKEND_LABEL "DirectX9")
-endif()
-
 add_test(NAME sith COMMAND sithTests)
 # The local fixtures perform bounded in-memory I/O; allow slower hosts and file reads.
 set_tests_properties(sith PROPERTIES
-    LABELS "unit;sith;${SITH_TEST_BACKEND_LABEL}"
+    LABELS "unit;sith"
     TIMEOUT 60
 )

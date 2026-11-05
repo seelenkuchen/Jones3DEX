@@ -27,8 +27,8 @@ jobs:
           - name: linux-babylon
             runs-on: ubuntu-24.04
             configure: "-G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DJONES3D_PLATFORM_BABYLON=ON"
-          # The Babylon column as a 64-bit Windows program (MSVC x64), instead of the DirectX 9 game
-          # that a Windows configure builds without the option (build-dx9.yml).
+          # The Babylon column as a 64-bit Windows program (MSVC x64), the only Windows build since
+          # the Win32/DirectX game was removed (ADR-0011).
           - name: windows-babylon
             runs-on: windows-2025-vs2026
             configure: '-G "Visual Studio 18 2026" -A x64 -DJONES3D_PLATFORM_BABYLON=ON'

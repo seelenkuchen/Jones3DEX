@@ -4,9 +4,9 @@ This page documents how control enters OpenJones3D, how the subsystem stack is s
 
 Primary source files:
 
-- [`Jones3D/Platform/Win32/WinMain.c`](../../../Jones3D/Platform/Win32/WinMain.c)
+- `Jones3D/Platform/Win32/WinMain.c`
 - [`Jones3D/Main/JonesMain.c`](../../../Jones3D/Main/JonesMain.c)
-- [`Libs/wkernel/wkernel.c`](../../../Libs/wkernel/wkernel.c)
+- `Libs/wkernel/wkernel.c`
 - [`Libs/std/General/std.c`](../../../Libs/std/General/std.c)
 - [`Libs/std/General/stdPlatform.c`](../../../Libs/std/General/stdPlatform.c)
 - [`Libs/rdroid/Main/rdroid.c`](../../../Libs/rdroid/Main/rdroid.c)
@@ -17,12 +17,12 @@ Primary source files:
 
 The game does not start in [`JonesMain_Startup()`](../../../Jones3D/Main/JonesMain.c#L254) directly. The real entry chain is:
 
-1. [`WinMain()`](../../../Jones3D/Platform/Win32/WinMain.c#L59), which resets the globals and calls [`Indy3D_WinMain()`](../../../Jones3D/Platform/Win32/WinMain.c#L40) in [`Jones3D/Platform/Win32/WinMain.c`](../../../Jones3D/Platform/Win32/WinMain.c)
-2. [`wkernel_SetProcessProc()`](../../../Libs/wkernel/wkernel.c#L104), [`wkernel_SetStartupCallback()`](../../../Libs/wkernel/wkernel.c#L111), and [`wkernel_SetShutdownCallback()`](../../../Libs/wkernel/wkernel.c#L118)
-3. [`wkernel_Run()`](../../../Libs/wkernel/wkernel.c#L46)
+1. `WinMain()`, which resets the globals and calls `Indy3D_WinMain()` in `Jones3D/Platform/Win32/WinMain.c`
+2. `wkernel_SetProcessProc()`, `wkernel_SetStartupCallback()`, and `wkernel_SetShutdownCallback()`
+3. `wkernel_Run()`
 4. [`JonesMain_Startup()`](../../../Jones3D/Main/JonesMain.c#L254)
 
-[`Indy3D_WinMain()`](../../../Jones3D/Platform/Win32/WinMain.c#L40) creates the single-instance mutex, installs the top-level callbacks, and hands control to [`wkernel_Run()`](../../../Libs/wkernel/wkernel.c#L46). `wkernel` is the outer host shell: it creates the main window, pumps Win32 messages, calls the startup callback once, and then repeatedly calls the registered process callback until the application requests exit.
+`Indy3D_WinMain()` creates the single-instance mutex, installs the top-level callbacks, and hands control to `wkernel_Run()`. `wkernel` is the outer host shell: it creates the main window, pumps Win32 messages, calls the startup callback once, and then repeatedly calls the registered process callback until the application requests exit.
 
 That means the runtime has a clear split:
 
@@ -66,7 +66,7 @@ This is one of the original architectural patterns that OpenJones3D keeps intact
    - [`jonesString_Startup()`](../../../Jones3D/Main/jonesString.c#L51)
    - [`sithString_Startup()`](../../../Libs/sith/Main/sithString.c#L26)
 4. Start configuration:
-   - [`wuRegistry_Startup(...)`](../../../Libs/w32util/wuRegistry.c#L32)
+   - `wuRegistry_Startup(...)`
    - [`stdConfig_Startup("Jones.cfg")`](../../../Libs/std/General/stdConfig.c#L65)
 5. Load display environment and saved settings.
 6. Start audio device/runtime state.
@@ -122,8 +122,8 @@ JonesDisplay
 
 The exact implementation under `stdDisplay` and `std3D` depends on the build:
 
-- DirectX 6.1c build: [`Libs/std/Win95/DX6/`](../../../Libs/std/Win95/DX6)
-- DirectX 9 build: [`Libs/std/Win95/DX9/`](../../../Libs/std/Win95/DX9)
+- DirectX 6.1c build: `Libs/std/Win95/DX6/`
+- DirectX 9 build: `Libs/std/Win95/DX9/`
 
 That backend split is discussed in more detail in [Rendering-And-Visibility.md](../05-building-blocks/Rendering-And-Visibility.md) and [QOL-And-Compatibility.md](../08-crosscutting/QOL-And-Compatibility.md).
 
