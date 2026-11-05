@@ -506,6 +506,75 @@ TEST(stdFileBabylon, GetwsClocale)
     TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
 }
 
+// Text-mode reads ("r", "rt") translate the way the Microsoft C runtime does: "\r\n" is "\n",
+// also when the pair straddles the 8 KiB read-ahead buffer, a lone '\r' stays, Ctrl-Z ends the
+// data until a seek. Positions stay byte offsets in the file (this adapter's contract; the
+// Microsoft ftell of a text stream differs and no engine caller asks for it). Binary reads are
+// byte-exact.
+TEST(stdFileBabylon, TextModeReadsCrLfAsLf)
+{
+    // "\r" is the last byte of the first buffer fill, "\n" the first of the second.
+    std::string aBoundary(8191, 'x');
+    aBoundary += "\r\nyz\r\n";
+    TEST_ASSERT_TRUE(pFileSystem->addFile("/boundary.txt", Bytes(aBoundary)));
+
+    tFileHandle fh = stdFileOpen("/boundary.txt", "r");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    static char aLine[8300];
+    TEST_ASSERT_EQUAL_PTR(aLine, stdFileGets(fh, aLine, sizeof(aLine)));
+    TEST_ASSERT_EQUAL_size_t(8192u, std::strlen(aLine));
+    TEST_ASSERT_EQUAL_CHAR('x', aLine[8190]);
+    TEST_ASSERT_EQUAL_CHAR('\n', aLine[8191]);
+    TEST_ASSERT_EQUAL_INT(8193, stdFileTell(fh));
+    TEST_ASSERT_EQUAL_PTR(aLine, stdFileGets(fh, aLine, sizeof(aLine)));
+    TEST_ASSERT_EQUAL_STRING("yz\n", aLine);
+    TEST_ASSERT_EQUAL_INT(8197, stdFileTell(fh));
+    TEST_ASSERT_EQUAL_INT(0, stdFileEof(fh));
+    TEST_ASSERT_NULL(stdFileGets(fh, aLine, sizeof(aLine)));
+    TEST_ASSERT_EQUAL_INT(1, stdFileEof(fh));
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // fread of the whole file in text mode: the direct read path for large requests translates too.
+    fh = stdFileOpen("/boundary.txt", "rt");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_size_t(8195u, stdFileRead(fh, aLine, sizeof(aLine)));
+    TEST_ASSERT_EQUAL_MEMORY("\nyz\n", aLine + 8191, 4u);
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // The same file in binary: every byte, through the direct read path.
+    fh = stdFileOpen("/boundary.txt", "rb");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_size_t(aBoundary.size(), stdFileRead(fh, aLine, sizeof(aLine)));
+    TEST_ASSERT_EQUAL_MEMORY(aBoundary.data(), aLine, aBoundary.size());
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // Ctrl-Z ends the data and is not consumed; a seek clears it.
+    TEST_ASSERT_TRUE(pFileSystem->addFile("/ctrlz.txt", Bytes(std::string_view("ab\x1A" "cd\r\n", 7))));
+    fh = stdFileOpen("/ctrlz.txt", "r");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    char aBuf[16];
+    TEST_ASSERT_EQUAL_PTR(aBuf, stdFileGets(fh, aBuf, sizeof(aBuf)));
+    TEST_ASSERT_EQUAL_STRING("ab", aBuf);
+    TEST_ASSERT_EQUAL_INT(1, stdFileEof(fh));
+    TEST_ASSERT_EQUAL_INT(2, stdFileTell(fh));
+    TEST_ASSERT_EQUAL_size_t(0u, stdFileRead(fh, aBuf, sizeof(aBuf)));
+    TEST_ASSERT_EQUAL_INT(0, stdFileSeek(fh, 3, 0));
+    TEST_ASSERT_EQUAL_INT(0, stdFileEof(fh));
+    TEST_ASSERT_EQUAL_PTR(aBuf, stdFileGets(fh, aBuf, sizeof(aBuf)));
+    TEST_ASSERT_EQUAL_STRING("cd\n", aBuf);
+    TEST_ASSERT_EQUAL_INT(7, stdFileTell(fh));
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // Getws on a text handle reads the same translated characters.
+    TEST_ASSERT_TRUE(pFileSystem->addFile("/widecrlf.txt", Bytes("wide\r\n")));
+    fh = stdFileOpen("/widecrlf.txt", "r");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    wchar_t aWide[16];
+    TEST_ASSERT_EQUAL_PTR(aWide, stdFileGetws(fh, aWide, std::size(aWide)));
+    TEST_ASSERT_EQUAL_INT(0, std::wcscmp(L"wide\n", aWide));
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+}
+
 TEST(stdFileBabylon, SeekClearsEofAndDropsTheBuffer)
 {
     std::string aBig;
@@ -632,6 +701,7 @@ TEST_GROUP_RUNNER(stdFileBabylon)
     RUN_TEST_CASE(stdFileBabylon, OpenReadEofTellAcrossBufferSizes);
     RUN_TEST_CASE(stdFileBabylon, Gets);
     RUN_TEST_CASE(stdFileBabylon, GetwsClocale);
+    RUN_TEST_CASE(stdFileBabylon, TextModeReadsCrLfAsLf);
     RUN_TEST_CASE(stdFileBabylon, SeekClearsEofAndDropsTheBuffer);
     RUN_TEST_CASE(stdFileBabylon, WriteAndAppendModes);
 }

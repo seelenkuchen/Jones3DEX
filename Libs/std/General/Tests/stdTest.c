@@ -217,6 +217,99 @@ TEST(std, TestFileGetsAndGetws)
     stdTest_DeleteFile(pWidePath);
 }
 
+// The Microsoft C runtime text mode the original game read with: in a read open without 'b',
+// "\r\n" reads as "\n", a lone '\r' stays, and Ctrl-Z (0x1A) ends the data. A binary open reads
+// every byte. Provenance: Microsoft's fopen documentation (text mode translation and Ctrl-Z as EOF
+// on input), checked against msvcrt fgets/fread/fseek under Wine. stdFileTell is not checked here:
+// the Microsoft ftell of a text stream is not a byte offset in this file, and no engine caller asks
+// for it. The fixture is written in binary, so it is the same on every platform.
+static void stdTest_WriteBinaryFile(const char* pPath, const char* pData, size_t size)
+{
+    tFileHandle fh = stdFileOpen(pPath, "wb");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_size_t(size, stdFileWrite(fh, pData, size));
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+}
+
+TEST(std, TestFileTextModeReadsCrLfAsLf)
+{
+    const char* pPath    = "stdTest_crlf.tmp";
+    const char aData[]   = "a\r\nb\rc\r\r\nd\x1A" "e\r\n";
+    const size_t numData = sizeof(aData) - 1u;
+    char aText[32];
+    tFileHandle fh;
+
+    stdTest_DeleteFile(pPath);
+    stdTest_WriteBinaryFile(pPath, aData, numData);
+
+    // fgets in text mode.
+    fh = stdFileOpen(pPath, "r");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_STRING("a\n", aText);
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_STRING("b\rc\r\n", aText);
+    TEST_ASSERT_FALSE(stdFileEof(fh));
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_STRING("d", aText); // Ctrl-Z ends the data
+    TEST_ASSERT_TRUE(stdFileEof(fh));
+    TEST_ASSERT_NULL(stdFileGets(fh, aText, sizeof(aText)));
+    TEST_ASSERT_TRUE(stdFileEof(fh));
+
+    // A seek clears the end; a seek past the Ctrl-Z reads on to the end of the file.
+    TEST_ASSERT_EQUAL_INT(0, stdFileSeek(fh, 11, 0));
+    TEST_ASSERT_FALSE(stdFileEof(fh));
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_STRING("e\n", aText);
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // fread in text mode ("rt"): the same translation.
+    fh = stdFileOpen(pPath, "rt");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_size_t(8u, stdFileRead(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_MEMORY("a\nb\rc\r\nd", aText, 8u);
+    TEST_ASSERT_TRUE(stdFileEof(fh));
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // A binary open reads every byte as it is.
+    fh = stdFileOpen(pPath, "rb");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_size_t(numData, stdFileRead(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_MEMORY(aData, aText, numData);
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    fh = stdFileOpen(pPath, "rb");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, sizeof(aText)));
+    TEST_ASSERT_EQUAL_STRING("a\r\n", aText);
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // A '\r' at the end of the file stays, and the end is reported by the read after it.
+    stdTest_WriteBinaryFile(pPath, "x\r", 2u);
+    fh = stdFileOpen(pPath, "r");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_size_t(2u, stdFileRead(fh, aText, 2u));
+    TEST_ASSERT_EQUAL_MEMORY("x\r", aText, 2u);
+    TEST_ASSERT_FALSE(stdFileEof(fh));
+    TEST_ASSERT_EQUAL_size_t(0u, stdFileRead(fh, aText, 1u));
+    TEST_ASSERT_TRUE(stdFileEof(fh));
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    // A line split by the buffer size of fgets: "\r\n" is still one character.
+    stdTest_WriteBinaryFile(pPath, "abc\r\nz", 6u);
+    fh = stdFileOpen(pPath, "r");
+    TEST_ASSERT_NOT_EQUAL(0u, fh);
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, 4u));
+    TEST_ASSERT_EQUAL_STRING("abc", aText);
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, 4u));
+    TEST_ASSERT_EQUAL_STRING("\n", aText);
+    TEST_ASSERT_EQUAL_PTR(aText, stdFileGets(fh, aText, 4u));
+    TEST_ASSERT_EQUAL_STRING("z", aText);
+    TEST_ASSERT_EQUAL_INT(0, stdFileClose(fh));
+
+    stdTest_DeleteFile(pPath);
+}
+
 TEST(std, TestFilePrintfCapacityAndWriteFailures)
 {
     const char* pPath = "stdTest_filePrintf.tmp";
@@ -353,5 +446,6 @@ TEST_GROUP_RUNNER(std)
     RUN_TEST_CASE(std, TestFileFromPathAndBitPosition);
     RUN_TEST_CASE(std, TestFileWrappersReadWriteSeekTellSizeAndPrintf);
     RUN_TEST_CASE(std, TestFileGetsAndGetws);
+    RUN_TEST_CASE(std, TestFileTextModeReadsCrLfAsLf);
     RUN_TEST_CASE(std, TestFilePrintfCapacityAndWriteFailures);
 }

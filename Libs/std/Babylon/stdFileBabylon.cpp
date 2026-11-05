@@ -4,6 +4,17 @@
 // served from an 8 KiB buffer, and a failing operation returns what the C runtime returns. Adapter
 // code: no Fixed/Added markers inside; the file uses Babylon headers and the standard C++ library
 // only.
+//
+// Text mode: the original game ran on the Microsoft C runtime, where a read open without 'b' ("r",
+// "rt") is a text-mode stream. Its reads (fgets, fread, fgetws) hand out "\r\n" as "\n" and end the
+// data at the first Ctrl-Z (0x1A); a lone '\r' stays. Text-mode read handles here do the same, on
+// every platform, so the parsers see what they saw on retail Windows (see stdFileBabylon_GetChar).
+// Positions stay byte offsets in the file (stdFileTell, stdFileSeek). Not reproduced, as no engine
+// caller can observe them: the Microsoft ftell of a text read stream, which assumes every '\n' still
+// buffered was "\r\n" and so is off for LF-only files, and the "\n" to "\r\n" translation of
+// text-mode writes. Writes are byte-exact in every mode; the files the game writes in text mode are
+// the debug dumps of rdModel3, rdParticle and sithCommand and the JSON config, which every reader
+// here takes with either line end. Binary opens ("rb") are byte-exact.
 #include <babylon/files/FileSystem.h>
 
 #include <cstddef>
@@ -29,7 +40,9 @@ namespace
     {
         std::unique_ptr<babylon::files::File> pFile; // the open Babylon file, never null
         bool bReading;                               // opened for reading ("r" mode)
-        bool bEof;                                   // a File::read returned 0 too early
+        bool bText;                                  // a text-mode read handle (no 'b' in the mode)
+        bool bEof;                                   // a read hit the end of the data
+        bool bCtrlZ;                                 // a text read reached a Ctrl-Z: the data ends there
         std::byte aBuffer[kReadBufferSize];          // the read-ahead buffer
         size_t curBuffer;                            // next buffered byte to hand out
         size_t numBuffer;                            // valid bytes in the buffer
@@ -66,6 +79,70 @@ namespace
         }
 
         return true;
+    }
+
+    // Makes sure the buffer holds the byte after a '\r' a text read just took, for the "\r\n" check.
+    // Returns false at the end of the file or after a failed read without setting the EOF flag: the
+    // '\r' is handed out as it is, and the next read reports the end, as the Microsoft runtime does.
+    // The buffer is empty when this has to read, so the logical position stays exact.
+    bool stdFileBabylon_Peek(sStdFileHandle* pHandle)
+    {
+        if ( pHandle->curBuffer < pHandle->numBuffer )
+        {
+            return true;
+        }
+
+        const std::optional<std::size_t> numRead =
+            pHandle->pFile->read(std::span(pHandle->aBuffer, kReadBufferSize));
+        pHandle->curBuffer = 0;
+        pHandle->numBuffer = numRead.value_or(0);
+        return pHandle->numBuffer != 0;
+    }
+
+    // The next byte a read hands out, or -1 at the end of the data or after a failed read. A text
+    // handle reads the way a Microsoft C runtime text stream does: "\r\n" is one '\n', a lone '\r'
+    // stays, and a Ctrl-Z (0x1A) ends the data until the next successful seek (the byte itself is
+    // not consumed). A binary handle hands out every byte as it is.
+    int stdFileBabylon_GetChar(sStdFileHandle* pHandle)
+    {
+        if ( pHandle->bCtrlZ )
+        {
+            pHandle->bEof = true;
+            return -1;
+        }
+
+        if ( !stdFileBabylon_Refill(pHandle) )
+        {
+            return -1;
+        }
+
+        const unsigned char ch = static_cast<unsigned char>(pHandle->aBuffer[pHandle->curBuffer]);
+        if ( !pHandle->bText )
+        {
+            ++pHandle->curBuffer;
+            return ch;
+        }
+
+        if ( ch == 0x1A )
+        {
+            pHandle->bCtrlZ = true;
+            pHandle->bEof   = true;
+            return -1;
+        }
+
+        ++pHandle->curBuffer;
+        if ( ch != '\r' || !stdFileBabylon_Peek(pHandle) )
+        {
+            return ch;
+        }
+
+        if ( static_cast<unsigned char>(pHandle->aBuffer[pHandle->curBuffer]) == '\n' )
+        {
+            ++pHandle->curBuffer;
+            return '\n';
+        }
+
+        return ch;
     }
 
     // The logical position: the file position minus the buffered bytes not handed out yet, or
@@ -111,8 +188,10 @@ tFileHandle J3DAPI stdFileOpen(const char* pFilename, const char* mode)
             return 0;
     }
 
-    // The remaining mode characters ('b', 't', '+') are ignored: no engine caller reads back a
-    // "+" file; a read on a Write or Append handle returns 0.
+    // A read open without 'b' is a text-mode handle (see the top of the file). The other mode
+    // characters ('t', '+') are ignored: no engine caller reads back a "+" file; a read on a Write or
+    // Append handle returns 0.
+    const bool bText = bReading && !std::strchr(mode, 'b');
     babylon::files::FileSystem& rFileSystem = *stdBabylon_RequireContext("stdFileOpen").pFileSystem;
 
     std::string aResolved;
@@ -137,7 +216,9 @@ tFileHandle J3DAPI stdFileOpen(const char* pFilename, const char* mode)
     sStdFileHandle* pHandle = new sStdFileHandle;
     pHandle->pFile      = std::move(pFile);
     pHandle->bReading   = bReading;
+    pHandle->bText      = bText;
     pHandle->bEof       = false;
+    pHandle->bCtrlZ     = false;
     pHandle->curBuffer  = 0;
     pHandle->numBuffer  = 0;
     return reinterpret_cast<tFileHandle>(pHandle);
@@ -160,6 +241,23 @@ size_t J3DAPI stdFileRead(tFileHandle fh, void* pOutData, size_t size)
 
     std::byte* pDst = static_cast<std::byte*>(pOutData);
     size_t     numDelivered = 0;
+    if ( pHandle->bText )
+    {
+        // fread on a text stream: the same translation as stdFileGets, byte by byte.
+        while ( numDelivered < size )
+        {
+            const int ch = stdFileBabylon_GetChar(pHandle);
+            if ( ch < 0 )
+            {
+                break;
+            }
+
+            pDst[numDelivered++] = static_cast<std::byte>(ch);
+        }
+
+        return numDelivered;
+    }
+
     while ( numDelivered < size )
     {
         if ( pHandle->curBuffer < pHandle->numBuffer )
@@ -238,13 +336,13 @@ char* J3DAPI stdFileGets(tFileHandle fh, char* pStr, size_t size)
     size_t curChar = 0;
     while ( curChar + 1 < size )
     {
-        if ( !stdFileBabylon_Refill(pHandle) )
+        const int ch = stdFileBabylon_GetChar(pHandle);
+        if ( ch < 0 )
         {
             break;
         }
 
-        const char ch = static_cast<char>(pHandle->aBuffer[pHandle->curBuffer++]);
-        pStr[curChar] = ch;
+        pStr[curChar] = static_cast<char>(ch);
         ++curChar;
         if ( ch == '\n' )
         {
@@ -254,8 +352,8 @@ char* J3DAPI stdFileGets(tFileHandle fh, char* pStr, size_t size)
 
     if ( curChar == 0 )
     {
-        // Nothing read at the end of the file: the refill already set the EOF flag, a failed
-        // read left it alone. Either way fgets returns NULL.
+        // Nothing read at the end of the data: the read already set the EOF flag, a failed read
+        // left it alone. Either way fgets returns NULL.
         return nullptr;
     }
 
@@ -283,12 +381,13 @@ wchar_t* J3DAPI stdFileGetws(tFileHandle fh, wchar_t* pOutStr, size_t size)
     size_t curChar = 0;
     while ( curChar + 1 < size )
     {
-        if ( !stdFileBabylon_Refill(pHandle) )
+        const int nextChar = stdFileBabylon_GetChar(pHandle);
+        if ( nextChar < 0 )
         {
             break;
         }
 
-        const unsigned ch = static_cast<unsigned>(pHandle->aBuffer[pHandle->curBuffer++]);
+        const unsigned ch = static_cast<unsigned>(nextChar);
         if ( ch >= 0x80u )
         {
             return nullptr;
@@ -382,7 +481,8 @@ int J3DAPI stdFileSeek(tFileHandle fh, int offset, int origin)
         return -1;
     }
 
-    pHandle->bEof = false;
+    pHandle->bEof   = false;
+    pHandle->bCtrlZ = false;
     return 0;
 }
 
