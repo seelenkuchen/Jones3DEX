@@ -3,7 +3,7 @@
 
 #if defined(J3D_TEST)
 
-#include <std/Win95/stdControl.h>
+#include <std/General/stdControl.h>
 
 #ifndef DIRECTINPUT_VERSION
 #define DIRECTINPUT_VERSION 0x0800

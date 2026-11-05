@@ -7,7 +7,7 @@
 #include <std/General/std.h>
 #include <std/General/stdPlatform.h>
 
-#include <std/Win95/stdRenderReplay.h>
+#include <std/General/stdRenderReplay.h>
 
 static void StdRenderReplayMain_Usage(void)
 {

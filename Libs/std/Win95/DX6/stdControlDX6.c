@@ -1,5 +1,5 @@
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdWin95.h>
 
 #include <std/General/std.h>
 #include <std/General/stdMath.h>

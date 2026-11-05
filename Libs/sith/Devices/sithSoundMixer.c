@@ -12,7 +12,7 @@
 #include <std/General/stdConfig.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 static bool sithSoundMixer_bStartup = false; // Added: Init. to false
 static uint16_t sithSoundMixer_channelGUIDSeed = 0; // Added: Init to 0

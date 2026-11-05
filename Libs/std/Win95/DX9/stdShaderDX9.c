@@ -1,5 +1,5 @@
 #include <std/Win95/DX9/stdSysTypesDX9.h>
-#include <std/Win95/stdRenderBackend.h>
+#include <std/General/stdRenderBackend.h>
 #include <std/Win95/DX9/stdDX9Api.h>
 #include "stdShaderDX9.h"
 
@@ -7,7 +7,7 @@
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/std3D.h>
+#include <std/General/std3D.h>
 
 #include <d3d9.h>
 #include <d3dcommon.h>

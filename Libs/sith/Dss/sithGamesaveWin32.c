@@ -5,7 +5,7 @@
 #include <sith/Devices/sithComm.h>
 
 #include <std/General/stdConffile.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 // The Windows thumbnail code of the game saves, moved out of sith/Dss/sithGamesave.c.
 

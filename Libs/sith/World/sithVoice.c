@@ -20,7 +20,7 @@
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 #define SITHVOICE_MSEC_SUBTITLE_HIDE_DURATION    1000
 #define SITHVOICE_MSEC_SUBTITLE_REMOVE_DURATION  SITHVOICE_MSEC_SUBTITLE_HIDE_DURATION / 4

@@ -8,12 +8,12 @@
 #include <std/General/std.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdGob.h>
+#include <std/General/stdGob.h>
 
 #include "stdGeneralTest.h"
 
-#ifndef STD_WIN95_TEST_TV_DIR
-#define STD_WIN95_TEST_TV_DIR "."
+#ifndef STD_GENERAL_TEST_TV_DIR
+#define STD_GENERAL_TEST_TV_DIR "."
 #endif
 
 static const char* stdGobTest_pBasicPath        = "stdGobTest_basic.gob";
@@ -55,7 +55,7 @@ static void stdGobTest_DeleteFiles(void)
 
 static int stdGobTest_WriteVector(const char* pVectorName, const char* pPath)
 {
-    STD_FORMAT(stdGobTest_aTvPath, "%s/stdGob/%s", STD_WIN95_TEST_TV_DIR, pVectorName);
+    STD_FORMAT(stdGobTest_aTvPath, "%s/stdGob/%s", STD_GENERAL_TEST_TV_DIR, pVectorName);
     stdGobTest_aTvPath[sizeof(stdGobTest_aTvPath) - 1] = '\0';
     return StdGeneralTest_CopyFile(stdGobTest_aTvPath, pPath);
 }

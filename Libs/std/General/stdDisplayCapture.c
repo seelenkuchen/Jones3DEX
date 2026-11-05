@@ -11,11 +11,11 @@
 #include <std/General/stdRenderCapture.h>
 #include <std/General/stdRenderCaptureRecord.h>
 
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdDisplayCapture.h>
-#include <std/Win95/stdRenderBackendApi.h>
-#include <std/Win95/stdRenderCaptureForward.h>
-#include <std/Win95/stdRenderCaptureIds.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdDisplayCapture.h>
+#include <std/General/stdRenderBackendApi.h>
+#include <std/General/stdRenderCaptureForward.h>
+#include <std/General/stdRenderCaptureIds.h>
 
 // Per-capture state of the forwarding layer, reset by stdDisplayCapture_Open and Close.
 static bool stdDisplayCapture_bWarnedUnknownVBuffer;

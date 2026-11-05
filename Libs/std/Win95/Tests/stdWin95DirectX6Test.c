@@ -6,8 +6,8 @@
 #include <stddef.h>
 
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/std3D.h>
+#include <std/General/stdControl.h>
+#include <std/General/std3D.h>
 
 TEST_GROUP(stdWin95DirectX6);
 

@@ -94,8 +94,8 @@
 #define stdDisplay_EncodeFromRGB565 stdDisplayBackend_EncodeFromRGB565
 #define stdDisplay_ResetGlobals stdDisplayBackend_ResetGlobals
 
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdRenderBackendApi.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdRenderBackendApi.h>
 
 #endif // STD_STDRENDERBACKEND_H

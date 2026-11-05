@@ -5,7 +5,7 @@
 
 #include <std/General/stdUtil.h>
 
-#include <std/Win95/stdConsole.h>
+#include <std/General/stdConsole.h>
 
 #include "stdGeneralTest.h"
 

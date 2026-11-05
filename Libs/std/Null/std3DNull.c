@@ -8,9 +8,9 @@
 
 #include <j3dcore/j3d.h>
 
-#include <std/Win95/stdRenderBackend.h>
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdRenderBackend.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
 
 #include <std/General/std.h>
 #include <std/General/stdColor.h>

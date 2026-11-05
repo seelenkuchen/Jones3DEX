@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include <j3dcore/Tests/j3dTest.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #include "stdGeneralTest.h"
 

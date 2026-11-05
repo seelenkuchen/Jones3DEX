@@ -13,11 +13,11 @@
 #include <std/General/stdRenderCaptureRecord.h>
 #include <std/General/stdUtil.h>
 
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdDisplayCapture.h>
-#include <std/Win95/stdRenderCaptureIds.h>
-#include <std/Win95/stdRenderReplay.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdDisplayCapture.h>
+#include <std/General/stdRenderCaptureIds.h>
+#include <std/General/stdRenderReplay.h>
 
 #include "stdGeneralTest.h"
 

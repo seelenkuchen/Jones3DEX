@@ -5,7 +5,7 @@
 #include <j3dcore/Tests/j3dTest.h>
 #include <std/General/std.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #include "stdGeneralTest.h"
 

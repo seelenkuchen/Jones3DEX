@@ -6,7 +6,7 @@
 #include <std/General/std.h>
 #include <std/General/stdColor.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 #include "stdGeneralTest.h"
 

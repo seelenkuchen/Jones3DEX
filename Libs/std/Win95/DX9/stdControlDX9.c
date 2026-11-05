@@ -1,7 +1,7 @@
 #include <std/Win95/DX9/stdSysTypesDX9.h>
-#include <std/Win95/stdControl.h>
+#include <std/General/stdControl.h>
 #include <std/Win95/stdControlTestApi.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #ifndef DIRECTINPUT_VERSION
 #  define DIRECTINPUT_VERSION 0x0800

@@ -3,7 +3,7 @@
 #include <j3dcore/j3d.h>
 #include <rdroid/types.h>
 #include <std/types.h>
-#include <std/Win95/std3D.h>    
+#include <std/General/std3D.h>    
 
 J3D_EXTERN_C_START
 

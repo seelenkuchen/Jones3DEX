@@ -6,7 +6,7 @@
 #include "stdJSON.h"
 #include "stdUtil.h"
 
-#include <std/Win95/stdConsole.h>
+#include <std/General/stdConsole.h>
 
 static char aPrintBuffer[2048]     = { 0 };
 static char aFilePrintBuffer[2048] = { 0 };

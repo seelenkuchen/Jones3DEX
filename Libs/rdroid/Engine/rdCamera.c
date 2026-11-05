@@ -10,7 +10,7 @@
 #include <std/General/stdUtil.h>
 #include <std/General/stdMemory.h>
 
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 rdVector3 rdCamera_g_camPYR;

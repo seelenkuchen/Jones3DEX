@@ -9,10 +9,10 @@
 #include <std/General/stdConfig.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/std3D.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 #include <w32util/wuRegistry.h>
 

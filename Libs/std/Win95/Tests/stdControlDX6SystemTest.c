@@ -1,7 +1,7 @@
 #include <unity_fixture.h>
 
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdControl.h>
+#include <std/General/stdControl.h>
 
 #include "stdWin95SystemTestSupport.h"
 

@@ -4,7 +4,7 @@
 #include "stdMemory.h"
 #include "stdUtil.h"
 
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 #include <stdint.h>
 

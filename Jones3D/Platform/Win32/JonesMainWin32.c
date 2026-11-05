@@ -19,8 +19,8 @@
 #include <std/General/stdFnames.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 #include <wkernel/wkernel.h>
 #include <wkernel/wkernelWin32.h>

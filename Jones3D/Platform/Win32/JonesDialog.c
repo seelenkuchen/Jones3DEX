@@ -5,9 +5,9 @@
 
 #include <std/General/std.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdWin95.h>
 
 static int JonesDialog_bWindowResized = 1;
 static int JonesDialog_cursorPointIdx = 1;

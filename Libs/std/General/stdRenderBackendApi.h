@@ -4,8 +4,8 @@
 #ifndef STD_STDRENDERBACKENDAPI_H
 #define STD_STDRENDERBACKENDAPI_H
 
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
 
 J3D_EXTERN_C_START
 

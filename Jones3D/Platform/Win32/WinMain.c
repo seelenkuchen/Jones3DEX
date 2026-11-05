@@ -18,10 +18,10 @@ int __stdcall Indy3D_WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR
 #include <sound/Driver.h>
 
 #include <std/General/stdPlatform.h>
-#include <std/Win95/stdComm.h>
-#include <std/Win95/stdConsole.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdComm.h>
+#include <std/General/stdConsole.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdWin95.h>
 
 #include <w32util/wuRegistry.h>
 #include <wkernel/wkernel.h>

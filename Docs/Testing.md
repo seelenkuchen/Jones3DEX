@@ -205,7 +205,7 @@ Examples:
 
 Prefer the narrowest source-area owner that makes sense. For example, tests for `stdFnames` belong under `Libs/std/General/Tests`, while tests for voice playback state belong under `Libs/sith/World/Tests`.
 
-Subareas can keep their own colocated test files and fixtures while still sharing the parent module test executable. For example, `Libs/std/Win95/Tests/stdGobTest.c` is owned by `std/Win95` and runs through the Win95 suite inside the `stdTests` executable.
+Subareas can keep their own colocated test files and fixtures while still sharing the parent module test executable. For example, `Libs/std/General/Tests/stdGobTest.c` is owned by `std/General` and runs through the Win95 suite inside the `stdTests` executable.
 
 Avoid collecting all tests in one repository-level directory. Keeping tests beside the reconstructed module helps preserve the original engine boundaries and makes ownership clearer.
 

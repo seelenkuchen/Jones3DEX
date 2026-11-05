@@ -15,7 +15,7 @@
 #include <std/General/stdConfig.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 #include <math.h>
 

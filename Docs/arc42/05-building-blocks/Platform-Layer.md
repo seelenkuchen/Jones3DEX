@@ -345,7 +345,7 @@ Win32 uses the existing timer code, and null a monotonic clock. **Must not chang
 #define STDKEY_RETURN 0x1C
 #define STDKEY_LEFT   0xCB
 
-// Unchanged, from Libs/std/Win95/stdControl.h:303.
+// Unchanged, from Libs/std/General/stdControl.h:303.
 int J3DAPI stdControl_ReadKey(size_t keyNum, int* pbPressed);
 ```
 
@@ -372,7 +372,7 @@ typedef struct sSysTexture tSysTexture; // Owned by the backend
 void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
 ```
 
-The parameters match `Libs/std/Win95/std3D.h:48`, with only the platform types replaced. DX9 sees the real types and draws now. Null discards. A deferred backend copies. No caller needs an `#ifdef`. **Must not change:** draw order and render states on DX9.
+The parameters match `Libs/std/General/std3D.h:48`, with only the platform types replaced. DX9 sees the real types and draws now. Null discards. A deferred backend copies. No caller needs an `#ifdef`. **Must not change:** draw order and render states on DX9.
 
 ## Beyond Windows: seen early, solved in M4
 

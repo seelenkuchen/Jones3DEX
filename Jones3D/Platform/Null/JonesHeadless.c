@@ -44,8 +44,8 @@
 #include <std/Null/stdControlNull.h>
 #include <std/Null/stdCvarNull.h>
 #include <std/Null/stdPlatformNull.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdKeys.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdKeys.h>
 
 #define HEADLESS_DEFAULT_FRAMES    1000
 #define HEADLESS_DEFAULT_STEP      33
@@ -92,7 +92,7 @@ static size_t maxInputEvents   = 0;
 static size_t nextInputEvent   = 0;    // index of the next event to fire in the main loop
 
 // Added: Key id for every named key the script accepts, case-insensitively. The ids are the
-// engine key numbers (DirectInput scan codes, see std/Win95/stdKeys.h) plus the mouse button
+// engine key numbers (DirectInput scan codes, see std/General/stdKeys.h) plus the mouse button
 // ids from stdControl.
 typedef struct HeadlessInputKeyName
 {

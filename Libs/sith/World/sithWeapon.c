@@ -37,7 +37,7 @@
 #include <std/General/stdConfig.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #include <errno.h>
 #include <stdlib.h>

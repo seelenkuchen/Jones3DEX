@@ -1,4 +1,4 @@
-#include "stdConsole.h"
+#include <std/General/stdConsole.h>
 
 // The console attributes callers use are the Windows console's own values, checked here so a
 // shared-header change cannot silently alter the colors the original console produced.

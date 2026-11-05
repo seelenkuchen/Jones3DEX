@@ -6,9 +6,9 @@
 // reports the DX9 no-device answer, and the DC/clipper services hold no GDI resources.
 #include <j3dcore/j3d.h>
 
-#include <std/Win95/stdRenderBackend.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdRenderBackend.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 #include <std/General/std.h>
 #include <std/General/stdColor.h>

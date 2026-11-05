@@ -11,8 +11,8 @@
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
 
 #define SITHMATERIAL_TABLESIZE                1024u
 #define SITHMATERIAL_EXTRABUFFERSIZE          64u

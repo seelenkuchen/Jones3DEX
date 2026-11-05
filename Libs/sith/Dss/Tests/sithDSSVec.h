@@ -65,7 +65,7 @@
 #include <sound/Sound.h>
 
 #include <std/General/stdMemory.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #ifdef DSSV_HARNESS
 #define DSSV_STUB static

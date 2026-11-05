@@ -1,6 +1,6 @@
 #include <std/Win95/DX9/stdSysTypesDX9.h>
 
-#include "stdWin95.h"
+#include <std/General/stdWin95.h>
 
 #include <std/General/std.h>
 

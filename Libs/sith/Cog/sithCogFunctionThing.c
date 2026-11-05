@@ -30,7 +30,7 @@
 #include <rdroid/Primitives/rdModel3.h>
 
 #include <std/General/stdMath.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 void J3DAPI sithCogFunctionThing_IsGhostVisible(SithCog* pCog)
 {

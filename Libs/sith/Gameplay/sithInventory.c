@@ -8,7 +8,7 @@
 
 #include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 int sithInventory_g_bInitInventory;

@@ -11,7 +11,7 @@ The input architecture is intentionally layered:
 Primary source files:
 
 - [`Libs/sith/Devices/sithControl.c`](../../../Libs/sith/Devices/sithControl.c)
-- [`Libs/std/Win95/stdControl.h`](../../../Libs/std/Win95/stdControl.h)
+- [`Libs/std/General/stdControl.h`](../../../Libs/std/General/stdControl.h)
 - [`Libs/std/Win95/DX9/stdControlDX9.c`](../../../Libs/std/Win95/DX9/stdControlDX9.c)
 - [`Libs/std/Win95/DX6/stdControlDX6.c`](../../../Libs/std/Win95/DX6/stdControlDX6.c)
 - [`Libs/sith/Gameplay/sithPlayerControls.c`](../../../Libs/sith/Gameplay/sithPlayerControls.c)

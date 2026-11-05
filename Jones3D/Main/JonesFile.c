@@ -6,7 +6,7 @@
 #include <std/General/stdFileUtil.h>
 #include <std/General/stdFnames.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdGob.h>
+#include <std/General/stdGob.h>
 
 #include <stdarg.h>
 

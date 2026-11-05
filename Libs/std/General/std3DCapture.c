@@ -9,10 +9,10 @@
 #include <std/General/stdRenderCapture.h>
 #include <std/General/stdRenderCaptureRecord.h>
 
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdRenderBackendApi.h>
-#include <std/Win95/stdRenderCaptureForward.h>
-#include <std/Win95/stdRenderCaptureIds.h>
+#include <std/General/std3D.h>
+#include <std/General/stdRenderBackendApi.h>
+#include <std/General/stdRenderCaptureForward.h>
+#include <std/General/stdRenderCaptureIds.h>
 
 static bool std3DCapture_bFrameRecording(void)
 {

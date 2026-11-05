@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdShader.h>
+#include <std/General/stdShader.h>
 
 #include "stdGeneralTest.h"
 

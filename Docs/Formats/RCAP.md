@@ -4,10 +4,10 @@ This document describes the binary `.rcap` render-capture format.
 
 In the current codebase the writer is [`stdRenderCapture.c`](../../Libs/std/General/stdRenderCapture.c)
 (header, records, blobs, globals, handles) and the two forwarding layers
-[`std3DCapture.c`](../../Libs/std/Win95/std3DCapture.c) and
-[`stdDisplayCapture.c`](../../Libs/std/Win95/stdDisplayCapture.c) build the record payloads. The
-record ids live in [`stdRenderCaptureIds.h`](../../Libs/std/Win95/stdRenderCaptureIds.h), the
-open/close control in [`stdDisplayCapture.h`](../../Libs/std/Win95/stdDisplayCapture.h).
+[`std3DCapture.c`](../../Libs/std/General/std3DCapture.c) and
+[`stdDisplayCapture.c`](../../Libs/std/General/stdDisplayCapture.c) build the record payloads. The
+record ids live in [`stdRenderCaptureIds.h`](../../Libs/std/General/stdRenderCaptureIds.h), the
+open/close control in [`stdDisplayCapture.h`](../../Libs/std/General/stdDisplayCapture.h).
 
 ## Purpose
 
@@ -232,7 +232,7 @@ Payload fields are written with these helpers:
 | `f32` | the IEEE-754 binary32 bits of the float as a u32, little-endian |
 | `str` | u32 length, then the bytes without a NUL; a NULL pointer is only the u32 `0xFFFFFFFF` |
 
-Composite fields, as built by [`stdDisplayCapture.c`](../../Libs/std/Win95/stdDisplayCapture.c):
+Composite fields, as built by [`stdDisplayCapture.c`](../../Libs/std/General/stdDisplayCapture.c):
 
 | Name | Encoding |
 | --- | --- |

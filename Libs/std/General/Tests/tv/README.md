@@ -14,6 +14,9 @@ Binary formats are stored as normal binary files:
   public-domain generated BMP test image. See `stdBmp/README.md`.
 - `stdBmp/bmpsuite_*.bmp` are additional public-domain generated BMP Suite
   vectors. See `stdBmp/README.md`.
+- `stdGob/*.gob` are small GOB containers using the reconstructed GOB header
+  and directory-entry layout. The payloads are synthetic text/binary bytes
+  created for tests, not original game assets.
 - `stdConfig/existing_config.json` is a valid synthetic nested configuration
   used to verify typed reads and registry-key mappings.
 - `stdConfig/invalid_config.json` contains an intentional trailing comma used

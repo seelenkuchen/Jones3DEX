@@ -46,9 +46,9 @@
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 #include <math.h>
 #include <stdbool.h>

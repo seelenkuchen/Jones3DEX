@@ -7,7 +7,7 @@
 #include <j3dcore/j3d.h>
 
 #include <std/Null/stdControlNull.h>
-#include <std/Win95/stdControl.h>
+#include <std/General/stdControl.h>
 
 // The scripted down state: one flag per engine key id, the STDCONTROL_MAX_KEYBOARD_BUTTONS keyboard
 // ids at their own index and the STDCONTROL_MAX_MOUSE_BUTTONS mouse buttons (engine ids

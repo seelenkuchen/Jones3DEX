@@ -49,14 +49,14 @@
 #include <std/General/stdPlatform.h>
 #include <std/General/stdPlatformSys.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdConsole.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/std3D.h>
+#include <std/General/stdConsole.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
 #ifndef J3D_DIRECTX6
-#include <std/Win95/stdDisplayCapture.h>
+#include <std/General/stdDisplayCapture.h>
 #endif
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #include <wkernel/wkernel.h>
 #include <w32util/wuRegistry.h>

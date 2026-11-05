@@ -55,7 +55,7 @@
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 // Just static regression tests
 static_assert(SITHTHING_TYPEMASK(SITH_THING_FREE) == 0x01, "SITHTHING_TYPEMASK(SITH_THING_FREE) == 0x01");

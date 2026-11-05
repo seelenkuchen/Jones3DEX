@@ -7,7 +7,7 @@
 
 #include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdControl.h>
+#include <std/General/stdControl.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 int sithControl_g_controlOptions;

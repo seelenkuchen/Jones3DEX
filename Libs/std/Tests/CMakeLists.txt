@@ -46,7 +46,7 @@ set(STD_GENERAL_TEST_SOURCES
 
 set(STD_WIN95_TEST_SOURCES
     "${STD_WIN95_TEST_DIR}/stdWin95TestSuite.c"
-    "${STD_WIN95_TEST_DIR}/stdGobTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdGobTest.c"
     "${STD_WIN95_TEST_DIR}/std3DTest.c"
     "${STD_WIN95_TEST_DIR}/std3DTestVectorTest.c"
     "${STD_WIN95_TEST_DIR}/stdConsoleTest.c"
@@ -127,7 +127,7 @@ set(STD_WIN95_TESTED_SOURCES
     "${STD_WIN95_SOURCE_DIR}/stdBmpWin32.c"
     "${STD_WIN95_SOURCE_DIR}/stdConsole.c"
     "${STD_WIN95_SOURCE_DIR}/stdFileUtilWin32.c"
-    "${STD_WIN95_SOURCE_DIR}/stdGob.c"
+    "${STD_GENERAL_SOURCE_DIR}/stdGob.c"
     "${STD_WIN95_SOURCE_DIR}/stdPlatformWin32.c"
     "${STD_WIN95_SOURCE_DIR}/stdWin95.c"
 )
@@ -136,8 +136,8 @@ if (J3D_DIRECTX9)
     list(APPEND STD_WIN95_TESTED_SOURCES
         # M6.0: the DX9 backend sources below define std3DBackend_*/stdDisplayBackend_*, so these
         # targets also need the forwarding layer that carries the public std3D_*/stdDisplay_* names.
-        "${STD_WIN95_SOURCE_DIR}/std3DCapture.c"
-        "${STD_WIN95_SOURCE_DIR}/stdDisplayCapture.c"
+        "${STD_GENERAL_SOURCE_DIR}/std3DCapture.c"
+        "${STD_GENERAL_SOURCE_DIR}/stdDisplayCapture.c"
         "${STD_WIN95_SOURCE_DIR}/stdComm.c"
         "${STD_WIN95_SOURCE_DIR}/DX9/stdControlDX9.c"
         "${STD_WIN95_SOURCE_DIR}/DX9/std3DX9.c"
@@ -166,10 +166,10 @@ set(STD_NULL_TESTED_SOURCES
     # stdRenderCaptureForwardTest.c (the std tests only link the files they compile here).
     "${STD_SOURCE_DIR}/Null/std3DNull.c"
     "${STD_SOURCE_DIR}/Null/stdDisplayNull.c"
-    "${STD_WIN95_SOURCE_DIR}/std3DCapture.c"
-    "${STD_WIN95_SOURCE_DIR}/stdDisplayCapture.c"
+    "${STD_GENERAL_SOURCE_DIR}/std3DCapture.c"
+    "${STD_GENERAL_SOURCE_DIR}/stdDisplayCapture.c"
     # Added: the replay library calls the public renderer functions above.
-    "${STD_WIN95_SOURCE_DIR}/stdRenderReplay.c"
+    "${STD_GENERAL_SOURCE_DIR}/stdRenderReplay.c"
 )
 
 set(STD_TESTED_SOURCES

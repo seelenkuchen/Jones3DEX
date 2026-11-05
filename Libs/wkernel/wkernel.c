@@ -2,7 +2,7 @@
 #include "wkernel.h"
 #include "wkernelWin32.h"
 
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #include <commctrl.h> // InitCommonControls
 #include <initguid.h> // DEFINE_GUID

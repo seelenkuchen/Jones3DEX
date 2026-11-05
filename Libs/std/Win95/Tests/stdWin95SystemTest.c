@@ -1,7 +1,7 @@
 #include <std/Win95/stdSysTagsWin32.h>
 #include <unity_fixture.h>
 
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #include "stdWin95SystemTestSupport.h"
 

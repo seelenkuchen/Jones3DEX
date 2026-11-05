@@ -1,9 +1,6 @@
 These synthetic test vectors exercise std/Win95 file parsers without using
 original game assets.
 
-- `stdGob/*.gob` are small GOB containers using the reconstructed GOB header
-  and directory-entry layout. The payloads are synthetic text/binary bytes
-  created for tests, not original game assets.
 - `std3D/dx9` and `std3D/dx6` contain backend-specific 24-bit BMP masks for
   Direct3D system tests. Most are 320x240. The DX6 explicit-mipmap cube, DX9
   automatic-mipmap cube, and combined DX9 mipmap/MSAA/anisotropic cube

@@ -4,7 +4,7 @@
 #include <std/Win95/DX9/stdSysTypesDX9.h>
 
 #include <j3dcore/j3d.h>
-#include <std/Win95/stdShader.h>
+#include <std/General/stdShader.h>
 #include <std/types.h>
 
 #define STDSHADERDX9_MAX_SHADERS           64

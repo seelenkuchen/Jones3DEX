@@ -28,9 +28,9 @@
 #ifndef J3D_DIRECTX6
 #include <std/General/stdRenderCapture.h>
 #endif
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 int JonesConsole_g_bVisible;

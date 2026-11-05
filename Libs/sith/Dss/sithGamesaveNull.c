@@ -9,7 +9,7 @@
 #include <sith/Dss/sithGamesave.h>
 #include <sith/Dss/sithGamesaveSys.h>
 
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 #include <std/General/stdUtil.h>
 

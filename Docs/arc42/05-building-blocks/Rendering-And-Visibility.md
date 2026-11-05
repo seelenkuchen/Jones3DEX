@@ -9,7 +9,7 @@ Primary source files:
 - [`Libs/sith/Engine/sithRender.h`](../../../Libs/sith/Engine/sithRender.h)
 - [`Libs/rdroid/Main/rdroid.c`](../../../Libs/rdroid/Main/rdroid.c)
 - [`Libs/rdroid/Raster/rdCache.c`](../../../Libs/rdroid/Raster/rdCache.c)
-- [`Libs/std/Win95/std3D.h`](../../../Libs/std/Win95/std3D.h)
+- [`Libs/std/General/std3D.h`](../../../Libs/std/General/std3D.h)
 - [`Libs/std/Win95/DX6/std3DX6.c`](../../../Libs/std/Win95/DX6/std3DX6.c)
 - [`Libs/std/Win95/DX9/std3DX9.c`](../../../Libs/std/Win95/DX9/std3DX9.c)
 - [`Libs/std/Win95/DX9/stdShaderDX9.c`](../../../Libs/std/Win95/DX9/stdShaderDX9.c)
