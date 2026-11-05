@@ -24,6 +24,16 @@ set(STD_GENERAL_TEST_SOURCES
     "${STD_GENERAL_TEST_DIR}/stdFileUtilTest.c"
     "${STD_GENERAL_TEST_DIR}/stdJSONTest.c"
     "${STD_GENERAL_TEST_DIR}/stdStrTableTest.c"
+    # Added: the suites of surviving code that only the Win32/DirectX build ran (M6.3f): stdGob.c and
+    # stdPlatform.c, and the header contracts of std3D, stdDisplay, stdControl, stdComm and stdWin95,
+    # restored from std/Win95/Tests against the Null backends below.
+    "${STD_GENERAL_TEST_DIR}/stdGobTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdPlatformTest.c"
+    "${STD_GENERAL_TEST_DIR}/std3DTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdDisplayTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdControlTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdCommTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdWin95Test.c"
 )
 
 set(STD_GENERAL_TESTED_SOURCES
@@ -41,6 +51,7 @@ set(STD_GENERAL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/stdUtil.c"
     "${STD_GENERAL_SOURCE_DIR}/stdHashtbl.c"
     "${STD_GENERAL_SOURCE_DIR}/stdFnames.c"
+    "${STD_GENERAL_SOURCE_DIR}/stdGob.c"
     "${STD_GENERAL_SOURCE_DIR}/stdLinkList.c"
     "${STD_GENERAL_SOURCE_DIR}/stdEffect.c"
     "${STD_GENERAL_SOURCE_DIR}/stdColor.c"
@@ -65,13 +76,20 @@ set(STD_NULL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/stdDisplayCapture.c"
     # Added: the replay library calls the public renderer functions above.
     "${STD_GENERAL_SOURCE_DIR}/stdRenderReplay.c"
+    # Added: the Null backends of stdControl (with the Null column's scripted device side), stdComm and
+    # stdWin95, tested by stdControlTest.c, stdCommTest.c and stdWin95Test.c. The Babylon column links
+    # the same stdControlNull.c in the game, with its own device side.
+    "${STD_SOURCE_DIR}/Null/stdControlNull.c"
+    "${STD_SOURCE_DIR}/Null/stdControlDevicesNull.c"
+    "${STD_SOURCE_DIR}/Null/stdCommNull.c"
+    "${STD_SOURCE_DIR}/Null/stdWin95Null.c"
 )
 
-# Altered: the std/General tests are portable except stdPlatformTest.c (Windows stack frames,
-# minidumps and a CreateProcessA death child) and stdBmpTest.c (GDI HBITMAP checks against the
-# Win32 stdBmp backend), which only the Win32/DirectX game built; they are not listed above and stay
-# unbuilt (ADR-0011). stdCvarNullTest.c is the other way round: it covers the Null column's
-# simulation cvar seam, which only these columns build.
+# Altered: every std/General test is listed above except stdBmpTest.c: stdBmp_WriteVBuffer and
+# stdBmp_Load lived in the Win32 backend (std/Win95/stdBmpWin32.c) and went with it (ADR-0011), so it
+# tests nothing that is still built. stdPlatformTest.c lost its Windows-only cases (stack frame
+# probes, minidumps, the CreateProcessA death child) and covers the shared stdPlatform.c and the Null
+# platform layer. stdCvarNullTest.c covers the Null column's simulation cvar seam.
 list(APPEND STD_GENERAL_TEST_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/stdCvarNullTest.c"
     # Added: the renderer forwarding layer records through the Null backend.

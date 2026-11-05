@@ -1,6 +1,4 @@
 # Added: the command-line parser is pure C, so its tests run without the rest of the game.
-# Altered: the Windows jones3dTests (JonesMainTest.c, jones3dTestRunner.c), which linked the whole
-# game layer of the DirectX 9 Jones3D.exe, went with the Win32/DirectX game (ADR-0011).
 add_executable(jonesCaptureTests
     JonesCaptureTestRunner.c
     JonesCaptureTest.c
@@ -38,6 +36,61 @@ source_group("Tests" FILES
 
 add_test(NAME Jones3D.Capture COMMAND jonesCaptureTests)
 set_tests_properties(Jones3D.Capture PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 60
+)
+
+# Added: the video mode lookup JonesMain_FindClosestVideoMode (JonesMainTest.c). JonesMain.c needs
+# the rest of the application layer, so the test links the Jones3DGame objects and the platform
+# helpers of Platform/Null without its main(), like the Babylon column's Jones3D-headless. The
+# tests only call the pure lookup function, so no platform is started. It ran in the Windows
+# jones3dTests of the DirectX 9 Jones3D.exe until that went (ADR-0011); the capture cases that
+# executable also ran are Jones3D.Capture above.
+file(GLOB JONES3D_MAIN_TEST_PLATFORM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../Platform/Null/*.c")
+list(FILTER JONES3D_MAIN_TEST_PLATFORM_SOURCES EXCLUDE REGEX "/Platform/Null/main\\.c$")
+
+add_executable(jones3dTests
+    jones3dTestRunner.c
+    JonesMainTest.c
+    ${JONES3D_MAIN_TEST_PLATFORM_SOURCES}
+)
+
+target_include_directories(jones3dTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+# Added: no group options on macOS and MSVC, as for jonesCaptureTests above.
+if (APPLE OR MSVC)
+    target_link_libraries(jones3dTests PRIVATE
+        Jones3DGame
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jones3dTests PRIVATE
+        -Wl,--start-group
+        Jones3DGame
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+    )
+endif()
+if (NOT APPLE AND NOT WIN32)
+    target_link_libraries(jones3dTests PRIVATE m)
+endif()
+if (J3D_PLATFORM_BABYLON)
+    set_target_properties(jones3dTests PROPERTIES LINKER_LANGUAGE CXX)
+endif()
+
+set_target_properties(jones3dTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    jones3dTestRunner.c
+    JonesMainTest.c
+)
+
+add_test(NAME Jones3D.Main COMMAND jones3dTests)
+set_tests_properties(Jones3D.Main PROPERTIES
     LABELS "unit;Jones3D"
     TIMEOUT 60
 )

@@ -1,12 +1,11 @@
 #include <unity_fixture.h>
 
 void TEST_JonesMain_GROUP_RUNNER(void);
-void TEST_JonesCapture_GROUP_RUNNER(void);
 
+// Altered: the JonesCapture group runs in its own executable (jonesCaptureTests, JonesCaptureTestRunner.c).
 static void Jones3DTest_RunAllTests(void)
 {
     TEST_JonesMain_GROUP_RUNNER();
-    TEST_JonesCapture_GROUP_RUNNER();
 }
 
 int main(int argc, const char* argv[])

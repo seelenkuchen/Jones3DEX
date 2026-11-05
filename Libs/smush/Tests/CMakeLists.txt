@@ -7,13 +7,14 @@ set(SMUSH_TEST_SOURCES
 
 set(SMUSH_TESTED_SOURCES "")
 
-# Altered: the smush Sound area (smush_sound.cmake; it mocks IDirectSound and drives Dsnd.c) only ran in
-# the Windows DirectX builds, and Dsnd.c went with them (ADR-0011), so no build includes it any more.
 include(smush_codec.cmake)   # Codec: D_bloc16, D_wave, Bloc16Asm, Decode, DecodeAsm
 include(smush_stream.cmake)  # Stream/File/Anim: Cdstream, Framestream, Stdfile, Stdio, Zfilio, Readauto, Frame, Pcplay
 include(smush_core.cmake)    # Core/Bitmap: SmushPlay, LecShare, Timer, Memory, List, Bitmap, Blit, BlitAsm, MemCopy, MemFill
 include(smush_asm.cmake)     # Assembly translations: Bloc16Asm, DecodeAsm, MixerAsm, BlitAsm, MemCopy, MemFill (original-engine vectors)
 include(smush_vec.cmake)     # C modules: Mixer, D_bloc16, Decode, LecShare, Framestream, Stdfile, Zfilio (original-engine vectors)
+# Altered: the Sound area ran only in the Windows DirectX builds while it also mocked IDirectSound for Dsnd.c; without
+# Dsnd.c (ADR-0011) its engine and mixer cases run everywhere.
+include(smush_sound.cmake)   # Sound: Engine, Mixer, DsndNull
 
 add_executable(smushTests
     ${SMUSH_TEST_SOURCES}
