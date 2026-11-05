@@ -251,8 +251,9 @@ static unsigned int sithVecTest_RunCases(const SithVecSuite* pSuite, const SithV
             size_t len = strlen(pFailText);
             snprintf(pFailText + len, failTextSize - len, "\n  %s: %s", pFixCase->aName, aDesc);
             // Altered: the harness asked GetEnvironmentVariableA whether SITHVEC_VERBOSE is set; every build
-            // reads the same variable with getenv().
-            if ( getenv("SITHVEC_VERBOSE") != NULL )
+            // reads the same variable with getenv_s().
+            size_t verboseSize = 0;
+            if ( getenv_s(&verboseSize, NULL, 0, "SITHVEC_VERBOSE") == 0 && verboseSize != 0 )
             {
                 printf("  %s\n", pFixCase->aName);
                 sithVecTest_PrintRecord("expected", pFixCase->pRec, pFixCase->recSize);

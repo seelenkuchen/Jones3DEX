@@ -548,6 +548,44 @@ FILE* j3dcrt_fopen(const char* pName, const char* pMode)
 
 // Mirrors Microsoft's fopen_s: opens pFilename with j3dcrt_fopen, stores null in *ppFile and returns
 // the errno value when it fails, and 0 on success.
+// Mirrors Microsoft's getenv_s (see j3dcrt.h).
+errno_t getenv_s(size_t* pReturnValue, char* pBuffer, rsize_t numberOfElements, const char* pName)
+{
+    if ( !pReturnValue || !pName || (!pBuffer && numberOfElements != 0) || (pBuffer && numberOfElements == 0) )
+    {
+        if ( pReturnValue )
+        {
+            *pReturnValue = 0;
+        }
+        return EINVAL;
+    }
+
+    const char* pValue = getenv(pName);
+    if ( !pValue )
+    {
+        *pReturnValue = 0;
+        if ( pBuffer )
+        {
+            pBuffer[0] = '\0';
+        }
+        return 0;
+    }
+
+    size_t needed = strlen(pValue) + 1;
+    *pReturnValue = needed;
+    if ( !pBuffer )
+    {
+        return 0;
+    }
+    if ( needed > numberOfElements )
+    {
+        return ERANGE;
+    }
+
+    memcpy(pBuffer, pValue, needed);
+    return 0;
+}
+
 errno_t fopen_s(FILE** ppFile, const char* pFilename, const char* pMode)
 {
     if ( !ppFile )

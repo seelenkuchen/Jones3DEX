@@ -340,6 +340,48 @@ TEST(j3dCrt, TestVsnwprintfS)
     TEST_ASSERT_EQUAL_INT(4, j3dCrtTest_CallVsnwprintfS(buf, 5, _TRUNCATE, L"%ls", L"abcd"));
 }
 
+#ifndef _WIN32
+TEST(j3dCrt, TestGetenvS)
+{
+    size_t size = 99;
+    char aBuf[8];
+
+    TEST_ASSERT_EQUAL_INT(0, setenv("J3DCRT_TEST_ENV", "abc", 1));
+    TEST_ASSERT_EQUAL_INT(0, getenv_s(&size, NULL, 0, "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_UINT(4, size);
+    TEST_ASSERT_EQUAL_INT(0, getenv_s(&size, aBuf, sizeof(aBuf), "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_UINT(4, size);
+    TEST_ASSERT_EQUAL_STRING("abc", aBuf);
+
+    // Exact fit succeeds; one element short is ERANGE and leaves the buffer alone.
+    memset(aBuf, 'x', sizeof(aBuf));
+    TEST_ASSERT_EQUAL_INT(0, getenv_s(&size, aBuf, 4, "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_STRING("abc", aBuf);
+    memset(aBuf, 'x', sizeof(aBuf));
+    TEST_ASSERT_EQUAL_INT(ERANGE, getenv_s(&size, aBuf, 3, "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_UINT(4, size);
+    TEST_ASSERT_EQUAL_INT('x', aBuf[0]);
+
+    // Unset: size 0 and an empty string.
+    unsetenv("J3DCRT_TEST_ENV");
+    size = 99;
+    memset(aBuf, 'x', sizeof(aBuf));
+    TEST_ASSERT_EQUAL_INT(0, getenv_s(&size, aBuf, sizeof(aBuf), "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_UINT(0, size);
+    TEST_ASSERT_EQUAL_STRING("", aBuf);
+    size = 99;
+    TEST_ASSERT_EQUAL_INT(0, getenv_s(&size, NULL, 0, "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_UINT(0, size);
+
+    // Invalid arguments.
+    TEST_ASSERT_EQUAL_INT(EINVAL, getenv_s(NULL, aBuf, sizeof(aBuf), "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_INT(EINVAL, getenv_s(&size, aBuf, sizeof(aBuf), NULL));
+    TEST_ASSERT_EQUAL_INT(EINVAL, getenv_s(&size, aBuf, 0, "J3DCRT_TEST_ENV"));
+    TEST_ASSERT_EQUAL_INT(EINVAL, getenv_s(&size, NULL, 4, "J3DCRT_TEST_ENV"));
+}
+
+#endif
+
 TEST(j3dCrt, TestFopenS)
 {
     FILE* pFile = NULL;
@@ -684,6 +726,9 @@ TEST_GROUP_RUNNER(j3dCrt)
     RUN_TEST_CASE(j3dCrt, TestSprintfS);
     RUN_TEST_CASE(j3dCrt, TestVsnwprintfS);
     RUN_TEST_CASE(j3dCrt, TestFopenS);
+#ifndef _WIN32
+    RUN_TEST_CASE(j3dCrt, TestGetenvS);
+#endif
 #if !defined(_WIN32)
     RUN_TEST_CASE(j3dCrt, TestResolvePath);
     RUN_TEST_CASE(j3dCrt, TestFopenResolvePath);
