@@ -229,7 +229,8 @@ if (WIN32)
     )
 endif()
 
-if (MSVC)
+# Altered: not on the Babylon column: it links no DirectX 6.1 libs, and x64 link.exe rejects /SAFESEH.
+if (MSVC AND NOT J3D_PLATFORM_NULL)
     target_link_options(${PROJECT_NAME} INTERFACE "/SAFESEH:NO") # due to DirectX 6.1 libs
 endif()
 

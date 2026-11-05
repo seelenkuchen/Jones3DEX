@@ -202,6 +202,10 @@ set_source_files_properties("${STD_WIN95_SOURCE_DIR}/stdConsole.c" PROPERTIES
     COMPILE_DEFINITIONS "stdConsole_WriteConsole=stdConsole_WriteConsoleReal"
 )
 
+# Added: the Babylon column on Windows skips stdTests: it is the Null column's suite over the POSIX file
+# utilities (Null/stdFileUtilPosix.c: dirent, fnmatch), which Windows does not build. The same
+# std/General suites run there through the Babylon files adapter as std.OnBabylon below.
+if (NOT (WIN32 AND J3D_PLATFORM_NULL))
 add_executable(stdTests
     ${STD_TEST_SUPPORT_SOURCES}
     ${STD_GENERAL_TEST_SOURCES}
@@ -287,6 +291,7 @@ add_test(NAME std COMMAND stdTests)
 set_tests_properties(std PROPERTIES
     LABELS "unit;std;${STD_DIRECTX_TEST_LABEL}"
 )
+endif()
 
 # Added: the same suites once more through the Babylon files adapter: the Null platform's file
 # sources General/stdFile.c and Null/stdFileUtilPosix.c are replaced by the adapter files and the
@@ -307,6 +312,12 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/stdFileBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdFileUtilBabylon.cpp"
     )
+    # Added: on Windows the Null time file (clock_gettime, nanosleep) does not build; the suites run
+    # on the Babylon clock adapter there, which the game's Babylon column links everywhere.
+    if (WIN32)
+        list(REMOVE_ITEM STD_BABYLON_TESTED_SOURCES "${STD_SOURCE_DIR}/Null/stdPlatformTimeNull.c")
+        list(APPEND STD_BABYLON_TESTED_SOURCES "${STD_BABYLON_SOURCE_DIR}/stdPlatformTimeBabylon.cpp")
+    endif()
 
     add_executable(stdTestsBabylon
         stdTestRunner.c

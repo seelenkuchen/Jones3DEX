@@ -16,7 +16,9 @@ if (J3D_PLATFORM_NULL)
     target_include_directories(jonesCaptureTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 
     get_property(JONES3D_CAPTURE_TEST_LIBS TARGET Libs PROPERTY INTERFACE_LINK_LIBRARIES)
-    if (APPLE)
+    # Added: MSVC's link.exe has no group options and no m.lib; like ld64 it rescans the static
+    # libraries itself, so the Babylon column under MSVC links as on macOS.
+    if (APPLE OR MSVC)
         target_link_libraries(jonesCaptureTests PRIVATE
             ${JONES3D_CAPTURE_TEST_LIBS}
             unity

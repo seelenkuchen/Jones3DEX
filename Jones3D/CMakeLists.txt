@@ -51,7 +51,9 @@ if (J3D_PLATFORM_NULL)
     # Added: --start-group/--end-group are GNU ld and lld options; macOS's ld64 has no such options
     # and rescans static libraries by itself, so the Apple branch links the same libraries without
     # the group flags. Linux and Windows link lines are unchanged.
-    if (APPLE)
+    # Added: MSVC's link.exe has no group options either and also resolves symbols across all static
+    # libraries on its own, so the Babylon column under MSVC takes the same branch.
+    if (APPLE OR MSVC)
         target_link_libraries(Jones3D-headless PRIVATE
             Jones3DGame
             ${JONES3D_LIBS_INTERFACE}
@@ -68,7 +70,8 @@ if (J3D_PLATFORM_NULL)
     # Added: The Null platform links libm directly (the Windows CRT math functions come
     # with the CRT shim wherever they are shimmed). macOS has no libm: its math functions are
     # in libSystem, which the driver always links, so naming it there would fail to resolve.
-    if (NOT APPLE)
+    # Added: on Windows the math functions are in the CRT, and MSVC has no m.lib at all.
+    if (NOT APPLE AND NOT WIN32)
         target_link_libraries(Jones3D-headless PRIVATE m)
     endif()
 
@@ -86,12 +89,15 @@ if (J3D_PLATFORM_NULL)
             endif()
         endforeach()
 
+        # Added: on Windows this is a console-subsystem program with the plain main() of
+        # mainWindowed.cpp: SDL3 needs no SDL_main on desktop Windows, so MinGW and MSVC link it
+        # as is, and its stderr diagnostics stay visible like on the other hosts.
         add_executable(Jones3D ${JONES3D_WINDOWED_SOURCES})
         target_include_directories(Jones3D PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
         set_target_properties(Jones3D PROPERTIES LINKER_LANGUAGE CXX)
 
-        # Added: no group flags on macOS, as for Jones3D-headless above.
-        if (APPLE)
+        # Added: no group flags on macOS and MSVC, as for Jones3D-headless above.
+        if (APPLE OR MSVC)
             target_link_libraries(Jones3D PRIVATE
                 Jones3DGame
                 ${JONES3D_LIBS_INTERFACE}
@@ -104,7 +110,7 @@ if (J3D_PLATFORM_NULL)
                 -Wl,--end-group
             )
         endif()
-        if (NOT APPLE)
+        if (NOT APPLE AND NOT WIN32)
             target_link_libraries(Jones3D PRIVATE m)
         endif()
     endif()

@@ -52,7 +52,14 @@ option(JONES3D_SANITIZE "Add address and undefined behavior sanitizer flags to n
 option(JONES3D_USE_DIRECTX9 "Build with DirectX 9 support" ON)
 #---------------------
 
-if(NOT WIN32)
+# Added: the Babylon column: the Null column with platform services moved onto the Babylon Engine one by one.
+# Altered: declared before the platform selection below, because on Windows it selects the column
+# instead of the DirectX 9 game.
+option(JONES3D_PLATFORM_BABYLON "Build the Babylon platform column instead of the Null column (non-Windows) or the DirectX 9 game (Windows)" OFF)
+
+# Altered: J3D_PLATFORM_NULL means "the Null/Babylon columns": every non-Windows build, and a Windows
+# build configured with JONES3D_PLATFORM_BABYLON. Windows without the option keeps the DirectX build.
+if(NOT WIN32 OR JONES3D_PLATFORM_BABYLON)
     # Added: Native non-Windows build: no DirectX backend exists yet, so configure a Null
     # platform without the Windows backends.
     set(J3D_PLATFORM_NULL ON)
@@ -60,9 +67,6 @@ if(NOT WIN32)
     # (the Windows-only suites are excluded per module below).
     set(JONES3D_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
 endif()
-
-# Added: the Babylon column: the Null column with platform services moved onto the Babylon Engine one by one.
-option(JONES3D_PLATFORM_BABYLON "Build the Babylon platform column instead of the Null column (non-Windows)" OFF)
 
 if (JONES3D_QOL_IMPROVEMENTS)
     set(J3D_QOL_IMPROVEMENTS ON)
@@ -97,12 +101,10 @@ endif()
 option(JONES3D_BUILD_BABYLON "Build the Babylon Engine" ON)
 
 # Added: the Babylon column replaces the Null column's stdPlatform time functions with Babylon ones,
-# so it needs the Babylon Engine and only exists where the Null column exists (non-Windows).
-# J3D_PLATFORM_BABYLON implies J3D_PLATFORM_NULL, which still means "the non-Windows columns".
+# so it needs the Babylon Engine. J3D_PLATFORM_BABYLON implies J3D_PLATFORM_NULL.
+# Altered: the column also builds on Windows (64-bit), where it replaces the DirectX 9 game; the
+# plain Null column stays non-Windows only.
 if (JONES3D_PLATFORM_BABYLON)
-    if (WIN32)
-        message(FATAL_ERROR "JONES3D_PLATFORM_BABYLON is only supported on non-Windows hosts.")
-    endif()
     if (NOT JONES3D_BUILD_BABYLON)
         message(FATAL_ERROR "JONES3D_PLATFORM_BABYLON needs the Babylon Engine: configure with -DJONES3D_BUILD_BABYLON=ON.")
     endif()
@@ -126,11 +128,12 @@ if (NOT JONES3D_BUILD_SYSTEM_TESTS)
     set(JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS OFF)
 endif()
 
-if(WIN32 AND NOT JONES3D_USE_DIRECTX9)
+# Altered: the DirectX selection applies to the Windows DirectX build only, not to the Babylon column on Windows.
+if(WIN32 AND NOT J3D_PLATFORM_NULL AND NOT JONES3D_USE_DIRECTX9)
     message(FATAL_ERROR "The DirectX 6 build is paused: its backend isn't updated for the platform layer. Configure with -DJONES3D_USE_DIRECTX9=ON.")
 endif()
 
-if(WIN32 AND JONES3D_USE_DIRECTX9)
+if(WIN32 AND NOT J3D_PLATFORM_NULL AND JONES3D_USE_DIRECTX9)
     set(JONES3D_GAPI_NAME "DirectX 9")
     set(J3D_DIRECTX9 ON) # Set the variable for the header template
     if (NOT JONES3D_QOL_IMPROVEMENTS)
@@ -140,7 +143,7 @@ if(WIN32 AND JONES3D_USE_DIRECTX9)
             set(JONES3D_BUILD_SUFFIX "-dx9-legacy") # Pure legacy behavior
         endif()
     endif()
-elseif(WIN32)
+elseif(WIN32 AND NOT J3D_PLATFORM_NULL)
     set(JONES3D_GAPI_NAME "DirectX 6.1c (original)")
     set(J3D_DIRECTX6 ON) # Set the variable for the header template
     set(J3D_COLORKEYSUPPORTED ON)
@@ -154,7 +157,7 @@ elseif(WIN32)
         endif()
     endif()
 else()
-    # Added: The Null platform has no graphics backend yet (non-Windows configure only).
+    # Added: The Null platform has no graphics backend yet (the Null/Babylon columns only).
     set(JONES3D_GAPI_NAME "Null")
 endif()
 
@@ -197,6 +200,8 @@ if (MSVC)
     add_link_options("/Brepro")
 elseif(MINGW)
     # MinGW-w64 i686 build used for unit tests on Linux.
+    # Added: also the MinGW-w64 x86_64 build of the Babylon column (cmake/mingw-x86_64.cmake); the
+    # flags are the same, -mlong-double-64 matches MSVC x64's 8-byte long double there too.
     # -msse2/-mfpmath=sse to match the MSVC i386 SSE2 code generation, -fno-strict-aliasing to
     # keep bit relayout behavior of the original code paths the same.
     # -mlong-double-64 makes long double 8 bytes like on MSVC (i686 GCC defaults to 12) and keeps

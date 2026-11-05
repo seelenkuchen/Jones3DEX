@@ -20,7 +20,8 @@ target_include_directories(${PROJECT_NAME} BEFORE PUBLIC
 
 # Added: Null platform: build the Microsoft CRT shim as a static library and link it through
 # j3dcore's interface, so engine code keeps calling the Microsoft names on non-Windows hosts.
-if (J3D_PLATFORM_NULL)
+# The Babylon column on Windows has the real Microsoft CRT and builds no shim.
+if (J3D_PLATFORM_NULL AND NOT WIN32)
     add_library(j3dcrt STATIC
         j3dcrt.c
         j3dcrt.h

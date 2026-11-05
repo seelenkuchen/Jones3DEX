@@ -524,7 +524,9 @@ static void Headless_PrintRunState(size_t frameCount)
 // plus every active thing's index, type and position, one per line.
 static bool Headless_WriteStateFile(const char* pPath, size_t frameCount)
 {
-    FILE* pFile = fopen(pPath, "w");
+    // Added: binary mode, so the file holds '\n' line ends on every host and the state bytes
+    // compare equal across columns (text mode writes "\r\n" on Windows).
+    FILE* pFile = fopen(pPath, "wb");
     if ( !pFile )
     {
         fprintf(stderr, "ERROR: Jones3D-headless: cannot open state file '%s' for writing!\n", pPath);

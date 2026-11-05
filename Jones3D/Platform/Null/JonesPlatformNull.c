@@ -4,8 +4,11 @@
 // no-op, every dialog answers the DialogBoxParam value of the Windows user pressing
 // Cancel (EndDialog(hwnd, IDCANCEL) == 2), and the timer/mutex/ComputerName services
 // degrade to safe stubs. Same header contracts.
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <j3dcore/j3d.h>
 
@@ -73,7 +76,19 @@ bool JonesMainSys_GetComputerName(char* pDst, size_t size)
     // Added: gethostname fills the same host-name contract as the Windows
     // GetComputerName call (POSIX name, truncated to the buffer).
     char aName[128] = { 0 };
+#ifdef _WIN32
+    // Added: the Babylon column on Windows reads the COMPUTERNAME variable Windows sets to the
+    // GetComputerName name (gethostname there needs Winsock started first). getenv_s is the CRT
+    // form MSVC does not deprecate; a missing or oversized value leaves the buffer empty.
+    size_t numRequired = 0;
+    if ( getenv_s(&numRequired, aName, STD_ARRAYLEN(aName), "COMPUTERNAME") != 0 )
+    {
+        aName[0] = '\0';
+    }
+    if ( !aName[0] )
+#else
     if ( gethostname(aName, STD_ARRAYLEN(aName) - 1) != 0 || !aName[0] )
+#endif
     {
         aName[0] = 'J';
     }
