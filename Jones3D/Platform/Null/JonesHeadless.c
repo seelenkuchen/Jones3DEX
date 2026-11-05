@@ -288,7 +288,7 @@ static bool Headless_InputParseLine(const char* pPath, size_t lineNum, char* aLi
     // From here on the new event is built in its final slot; pEvent keeps all of it.
     HeadlessInputEvent* pEvent = &apInputEvents[numInputEvents];
     memset(pEvent, 0, sizeof(*pEvent));
-    strcpy(pEvent->aText, pText);
+    strcpy_s(pEvent->aText, sizeof(pEvent->aText), pText);
     pEvent->frame = (size_t)frame;
 
     // The verb decides the event kind; both commands and keys are fully validated here so
@@ -371,7 +371,12 @@ static bool Headless_InputParseLine(const char* pPath, size_t lineNum, char* aLi
 // false without leaving a half-parsed array behind.
 static bool Headless_InputLoadFile(const char* pPath)
 {
-    FILE* pFile = fopen(pPath, "r");
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pPath, "r") != 0 )
+    {
+        pFile = NULL;
+    }
+
     if ( !pFile )
     {
         fprintf(stderr, "ERROR: Jones3D-headless: cannot open input script '%s'!\n", pPath);
@@ -526,7 +531,12 @@ static bool Headless_WriteStateFile(const char* pPath, size_t frameCount)
 {
     // Added: binary mode, so the file holds '\n' line ends on every host and the state bytes
     // compare equal across columns (text mode writes "\r\n" on Windows).
-    FILE* pFile = fopen(pPath, "wb");
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pPath, "wb") != 0 )
+    {
+        pFile = NULL;
+    }
+
     if ( !pFile )
     {
         fprintf(stderr, "ERROR: Jones3D-headless: cannot open state file '%s' for writing!\n", pPath);

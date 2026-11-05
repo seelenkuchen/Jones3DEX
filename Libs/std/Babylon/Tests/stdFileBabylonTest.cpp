@@ -111,13 +111,22 @@ namespace
         }
     }
 
+    // Stores pFilter in the search filter of pData, truncated and zero padded like strncpy of size - 1
+    // characters (the whole field is cleared first, as buffers are reused), without the CRT call MSVC's /sdl rejects.
+    void CopySearchFilter(FindFileData* pData, const char* pFilter)
+    {
+        const std::size_t numCopy = std::min(std::strlen(pFilter), sizeof(pData->aSearchFilter) - 1);
+        std::memset(pData->aSearchFilter, 0, sizeof(pData->aSearchFilter));
+        std::memcpy(pData->aSearchFilter, pFilter, numCopy);
+    }
+
     // Runs one complete search through the adapter and copies the reported names; the count of
     // results is returned, entries beyond numMax are not collected.
     int CollectFind(const char* pFilter, tFoundFileInfo* pInfos, int numMax)
     {
         FindFileData* pData       = new FindFileData;
         std::memset(pData, 0, sizeof(*pData));
-        std::strncpy(pData->aSearchFilter, pFilter, sizeof(pData->aSearchFilter) - 1);
+        CopySearchFilter(pData, pFilter);
 
         int numFound = 0;
         while ( numFound < numMax && stdFileUtil_FindNext(pData, &pInfos[numFound]) )
@@ -686,7 +695,7 @@ TEST(stdFileUtilBabylon, FindNextRetriesAfterAFailedSearch)
 
     FindFileData* pData = new FindFileData;
     std::memset(pData, 0, sizeof(*pData));
-    std::strncpy(pData->aSearchFilter, "/missing/*.*", sizeof(pData->aSearchFilter) - 1);
+    CopySearchFilter(pData, "/missing/*.*");
 
     tFoundFileInfo info;
     TEST_ASSERT_EQUAL_INT(0, stdFileUtil_FindNext(pData, &info));
@@ -696,7 +705,7 @@ TEST(stdFileUtilBabylon, FindNextRetriesAfterAFailedSearch)
     TEST_ASSERT_EQUAL_INT(0, stdFileUtil_FindNext(pData, &info));
     TEST_ASSERT_EQUAL_INT(0, pData->nFoundFiles);
 
-    std::strncpy(pData->aSearchFilter, "/FX/*.txt", sizeof(pData->aSearchFilter) - 1);
+    CopySearchFilter(pData, "/FX/*.txt");
     TEST_ASSERT_EQUAL_INT(1, stdFileUtil_FindNext(pData, &info));
     TEST_ASSERT_EQUAL_STRING("a.txt", info.aName);
     TEST_ASSERT_EQUAL_INT(1, pData->nFoundFiles);
@@ -707,7 +716,7 @@ TEST(stdFileUtilBabylon, FindNextRetriesAfterAFailedSearch)
     TEST_ASSERT_EQUAL_INT(0, stdFileUtil_FindNext(NULL, &info));
     FindFileData* pGuardData = new FindFileData;
     std::memset(pGuardData, 0, sizeof(*pGuardData));
-    std::strncpy(pGuardData->aSearchFilter, "/FX/*.*", sizeof(pGuardData->aSearchFilter) - 1);
+    CopySearchFilter(pGuardData, "/FX/*.*");
     TEST_ASSERT_EQUAL_INT(0, stdFileUtil_FindNext(pGuardData, NULL));
     stdFileUtil_DisposeFind(pGuardData);
 #endif

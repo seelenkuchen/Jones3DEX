@@ -149,8 +149,11 @@ namespace
     // find data.
     void stdFileUtilBabylon_FillInfo(tFoundFileInfo* pFileInfo, const sStdFileUtilFindEntry& rEntry)
     {
-        std::strncpy(pFileInfo->aName, rEntry.aName.c_str(), sizeof(pFileInfo->aName) - 1);
-        pFileInfo->aName[sizeof(pFileInfo->aName) - 1] = '\0';
+        // Same result as strncpy of at most size - 1 characters (zero padded) plus a terminator,
+        // without the CRT call MSVC's /sdl rejects.
+        std::memset(pFileInfo->aName, 0, sizeof(pFileInfo->aName));
+        const size_t numCopy = std::min(std::strlen(rEntry.aName.c_str()), sizeof(pFileInfo->aName) - 1);
+        std::memcpy(pFileInfo->aName, rEntry.aName.c_str(), numCopy);
 
         // Keep the original 32-bit field conversion explicit, as the Posix file does on
         // st_mtime: seconds since the epoch truncated into the field the engine carries.
