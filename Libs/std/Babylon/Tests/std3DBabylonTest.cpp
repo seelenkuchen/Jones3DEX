@@ -43,6 +43,8 @@
 #include <babylon/time/NullClock.h>
 #include <babylon/time/SdlClock.h>
 
+#include <SDL3/SDL_stdinc.h>
+
 #include <std/General/std3D.h>
 #include <std/General/stdColor.h>
 #include <std/General/stdDisplay.h>
@@ -275,7 +277,8 @@ namespace
 
     bool GpuRequired()
     {
-        const char* pValue = std::getenv("BABYLON_REQUIRE_GPU");
+        // SDL_getenv: MSVC rejects getenv under /sdl.
+        const char* pValue = SDL_getenv("BABYLON_REQUIRE_GPU");
         return pValue && std::strcmp(pValue, "1") == 0;
     }
 
