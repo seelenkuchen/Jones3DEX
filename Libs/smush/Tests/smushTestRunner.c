@@ -8,6 +8,7 @@ void TEST_SmushCore_GROUP_RUNNER(void);
 void TEST_SmushAsm_GROUP_RUNNER(void);
 void TEST_SmushVec_GROUP_RUNNER(void);
 void TEST_SmushSound_GROUP_RUNNER(void);
+void TEST_SmushMovie_GROUP_RUNNER(void); // Added: M6.8, empty on the Null column
 
 static void SmushTest_RunAllTests(void)
 {
@@ -17,6 +18,7 @@ static void SmushTest_RunAllTests(void)
     TEST_SmushAsm_GROUP_RUNNER();
     TEST_SmushVec_GROUP_RUNNER();
     TEST_SmushSound_GROUP_RUNNER();
+    TEST_SmushMovie_GROUP_RUNNER();
 }
 
 // Added: the entry name is overridable so the Babylon column's test main can call this runner

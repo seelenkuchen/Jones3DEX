@@ -47,6 +47,17 @@ namespace
     int numActivateLog = 0;
 }
 
+// The intro skip callback under test: counts the calls.
+namespace
+{
+    int numIntroSkips = 0;
+}
+
+extern "C" void RecordIntroSkip(void)
+{
+    ++numIntroSkips;
+}
+
 // The activation callback under test: it records what the game window's focus changes arrive as.
 extern "C" void J3DAPI RecordActivate(int bActive)
 {
@@ -78,6 +89,7 @@ TEST_SETUP(wkernelBabylon)
     stdBabylon_SetContext(&context);
 
     numActivateLog = 0;
+    numIntroSkips  = 0;
     stdBabylonEvents_ResetForTest();
     TEST_ASSERT_TRUE(wkernel_SetActivateCallback(RecordActivate) == nullptr);
 }
@@ -85,6 +97,7 @@ TEST_SETUP(wkernelBabylon)
 TEST_TEAR_DOWN(wkernelBabylon)
 {
     wkernel_SetActivateCallback(nullptr);
+    wkernel_SetIntroSkipCallback(nullptr);
     stdBabylonEvents_ResetForTest();
     stdBabylon_SetContext(pSavedContext);
 
@@ -166,6 +179,67 @@ TEST(wkernelBabylon, SetWindowSizeResizesTheGameWindowAndAnswersSuccess)
     TEST_ASSERT_EQUAL_INT(600, size.height);
 }
 
+TEST(wkernelBabylon, IntroSkipCallbackTakesTheIntroWindowProcSkipKeys)
+{
+    using babylon::platform::Key;
+    using babylon::platform::KeyChanged;
+    using babylon::platform::MouseButton;
+    using babylon::platform::MouseButtonChanged;
+    const babylon::platform::WindowId id = pWindow->id();
+
+    // Not installed: a skip key calls nothing
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, true, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, false, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(0, numIntroSkips);
+
+    TEST_ASSERT_TRUE(wkernel_SetIntroSkipCallback(RecordIntroSkip) == nullptr);
+
+    // Other keys, a held key's repeat, a key release and a mouse button press don't skip; neither does an empty pump
+    pPlatform->pushEvent(KeyChanged{ id, Key::Space, true, false });
+    pPlatform->pushEvent(KeyChanged{ id, Key::F4, true, false });
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, true });
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Right, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(0, numIntroSkips);
+
+    // The left button's release skips, once per pump
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(1, numIntroSkips);
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(1, numIntroSkips);
+
+    // Escape, Enter and keypad Enter presses skip; a pump with two of them calls once
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, true, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(2, numIntroSkips);
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, true, true }); // the repeat of the held key
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, false, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(2, numIntroSkips);
+    pPlatform->pushEvent(KeyChanged{ id, Key::Enter, true, false });
+    pPlatform->pushEvent(KeyChanged{ id, Key::KeypadEnter, true, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(3, numIntroSkips);
+
+    // A skip and a quit in one pump: both answered
+    pPlatform->pushEvent(KeyChanged{ id, Key::Enter, false, false });
+    pPlatform->pushEvent(KeyChanged{ id, Key::Enter, true, false });
+    pPlatform->pushEvent(babylon::platform::QuitRequested{});
+    TEST_ASSERT_EQUAL_INT(1, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(4, numIntroSkips);
+
+    // Removed again: the setter hands back what it replaced, and nothing is called
+    TEST_ASSERT_TRUE(wkernel_SetIntroSkipCallback(nullptr) == RecordIntroSkip);
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, false, false });
+    pPlatform->pushEvent(KeyChanged{ id, Key::Escape, true, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(4, numIntroSkips);
+}
+
 TEST_GROUP_RUNNER(wkernelBabylon)
 {
     RUN_TEST_CASE(wkernelBabylon, PeekProcessEventsDeliversFocusChangesOldestFirstAndAnswersQuit);
@@ -174,4 +248,5 @@ TEST_GROUP_RUNNER(wkernelBabylon)
     RUN_TEST_CASE(wkernelBabylon, ProcessEventsWakesOnTheFirstEvent);
     RUN_TEST_CASE(wkernelBabylon, SetActivateCallbackReturnsThePreviousOne);
     RUN_TEST_CASE(wkernelBabylon, SetWindowSizeResizesTheGameWindowAndAnswersSuccess);
+    RUN_TEST_CASE(wkernelBabylon, IntroSkipCallbackTakesTheIntroWindowProcSkipKeys);
 }

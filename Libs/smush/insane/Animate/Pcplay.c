@@ -267,6 +267,10 @@ int J3DAPI animplay_GetTime(AnimPlay* pPlay)
 
 int J3DAPI animplay_Pace(AnimPlay* pPlay, void* a2, intptr_t a3, int a4, int a5, void* a6, int* a7, int* a8, int a9, int a10) // Altered: a3 carries a clip MixerRect*, so intptr_t
 {
+    // Added: the Babylon column's timer has no tick thread (TimerPolled.c): the ticks that pace the frames are delivered
+    // here, before the step reads them. A no-op where a tick thread runs (TimerNull.c).
+    timer_Update();
+
     if ( pPlay->done == 0 )
     {
         int percent = animplay_pStreamer->Percent(pPlay->pStream);

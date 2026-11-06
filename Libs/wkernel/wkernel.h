@@ -31,6 +31,15 @@ WKERNELSHUTDOWNPROC J3DAPI wkernel_SetShutdownCallback(WKERNELSHUTDOWNPROC pfOnS
 typedef void (J3DAPI* WKERNELACTIVATEPROC)(int bActive);
 WKERNELACTIVATEPROC J3DAPI wkernel_SetActivateCallback(WKERNELACTIVATEPROC pfProc);
 
+// Added: the intro's skip keys. The Win32 game switched to the intro window procedure while the intro movie played, and
+// it skipped the movie (JonesMain_OnSkipIntro) on a key-down of Enter or Escape and on a release of the left mouse
+// button. The Babylon column has no window procedures: while this callback is installed, its wkernel_PeekProcessEvents
+// calls it once for a pump that took at least one press of Enter, keypad Enter or Escape or one release of the left
+// mouse button (the pump's input state starts a new frame first, so each press counts once). wkernelNull.c stores it
+// and never calls it. NULL removes it. Returns the previous callback, like wkernel_SetActivateCallback.
+typedef void (*WKERNELSKIPPROC)(void);
+WKERNELSKIPPROC J3DAPI wkernel_SetIntroSkipCallback(WKERNELSKIPPROC pfProc);
+
 void wkernel_ResetGlobals(void);
 
 J3D_EXTERN_C_END

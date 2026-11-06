@@ -237,9 +237,8 @@ and the Win32, DX6 and DX9 backend directories, the native build leaves out only
 builds). Everything else compiles on Linux, where no platform header exists, so nothing above the line needs
 one. The game CI job on Linux and macOS (M5.15) repeats the check on every push.
 
-Since M6.3 all of those Windows backend files are gone except `TimerWin32.c`, which the 64-bit Windows build of
-the Babylon column still compiles (smush has no portable timer thread yet, see
-[chapter 11](../11-risks-and-technical-debt.md)), and `Scripts/checkboundary.py` reports 0 matches above the line.
+Since M6.3 all of those Windows backend files are gone, `TimerWin32.c` last (M6.8: the Babylon column's SMUSH
+timer is the polled `TimerPolled.c` on every host), and `Scripts/checkboundary.py` reports 0 matches above the line.
 
 ## Wrong ways to cross the line
 
@@ -286,7 +285,27 @@ root (ADR-0016).
 Since M6.3 these two are the only columns: Null on non-Windows hosts (the default there), Babylon on Linux and
 macOS with `-DJONES3D_PLATFORM_BABYLON=ON`, and Babylon on Windows, where it is the default and only choice.
 Configuring Windows with the option `OFF` or for 32-bit is a configure error. On Windows the column uses the
-real Microsoft CRT instead of the `j3dcrt` shim, and smush keeps `TimerWin32.c`.
+real Microsoft CRT instead of the `j3dcrt` shim.
+
+<a id="movies"></a>
+## Movies (SMUSH)
+
+The Null column skips movies: `DsndNull.c` publishes no `SNDDRIVER`, the sound module fails to start and
+`SmushPlay_SysStartup` never succeeds. The Babylon column (M6.8) plays them silently until M7:
+
+- **Sound driver:** `DsndSilent.c` publishes `SNDDRIVER=insane_dsnd` with Dsnd.c's interface, services and block
+  schedule; the play position of the missing DirectSound buffer is derived from the timer clock at the 22050 Hz
+  stereo 16-bit stream format, and each due block is mixed into a scratch buffer and dropped.
+- **Pacing:** frames advance on the timer: the player's one-shot tick timer fires after `interval2` (79545 PC-timer
+  ticks at 15 fps, corrected by the lead), and its pace timer counts the lead. The sound engine syncs the pace timer to
+  the audio it consumed (`sound_Advance`, `timer_Sync`). With the silent driver both clocks are the timer clock, so the
+  pace is the timer's.
+- **Timer:** `TimerPolled.c` runs the original 60 Hz tick schedule (1000/60 ms with the remainder carried) on
+  `stdPlatform_GetTimeMsec`, without a thread: `animplay_Pace` and `timer_Wait` call `timer_Update`, which delivers the
+  due ticks on the caller's thread and sleeps 1 ms when none was due (so the headless virtual clock moves too). A
+  backlog over one second (a stall) is dropped. The Null column keeps the pthread tick thread `TimerNull.c`.
+- **Skip:** the intro window procedure's skip keys (Enter, Escape, left mouse button up) reach `JonesMain_OnSkipIntro`
+  through `wkernel_SetIntroSkipCallback`, which `JonesMainSys_UseIntroWindowProc` installs.
 
 <a id="file-services"></a>
 ## File services
@@ -344,13 +363,13 @@ The M3 plan per subsystem, as built then. The Win32 and DirectX sides it names w
 | Subsystem | Interface | What changes |
 |---|---|---|
 | Time | `stdPlatform_GetTimeMsec`, `stdPlatform_InitHighResTimer` | `timeGetTime` and `QueryPerformance*` move to a Win32 file |
-| Timer thread | New small function for `smush/insane/Timer/Timer.c` | Its own `CreateThread` loop moves down. Thread priority and period stay |
+| Timer thread | `TimerSys.h` under `smush/insane/Timer/Timer.c` | Done: the thread is gone on the Babylon column, `TimerPolled.c` polls the platform clock (see [Movies](#movies)) |
 | Files and search | `stdFileUtil_*`, unchanged | `FindFirstFile` moves down. `FindFileData.handle` becomes `tSysHandle` |
 | GOB mapping | `stdGob_*` | `Gob`'s `HANDLE` and `LPVOID` fields become engine types |
 | Registry and config | `wuRegistry_*` | `stdConfig.c` falls back to the registry. It gets a callback set by `Jones3D`, which removes the `std -> w32util` break and keeps the read order |
 | Input | `stdControl_*`, with `STDKEY_*` | See below |
 | Sound | `SoundDriver_*`, already a boundary | `tSysSoundBuffer` becomes opaque. `Sound.c`'s one test goes |
-| Cutscene sound | `SNDDRIVER`, which `Engine.c` already uses | `Dsnd.c` is a backend as a whole, and another platform replaces the file |
+| Cutscene sound | `SNDDRIVER`, which `Engine.c` already uses | `Dsnd.c` is a backend as a whole, and another platform replaces the file: `DsndSilent.c` on the Babylon column until M7 |
 | Window and lifecycle | `wkernel_*` | See below |
 | Dialogs | `jonesConfig_*`, `JonesDialog_*` | See below |
 | Thumbnails | `stdBmp_Load`, `sithGamesave_*Thumbnail` | The code moves to Win32 files and `HBITMAP` becomes `tSysBitmap`. A pixel buffer waits for the in-game UI that needs it |

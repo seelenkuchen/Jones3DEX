@@ -23,6 +23,8 @@
 #include <std/General/stdFnames.h>
 #include <std/General/stdUtil.h>
 
+#include <wkernel/wkernel.h>
+
 // Altered: Answers IDCANCEL (2), the value Windows dialogs hand back when the user
 // cancels (WM_CLOSE/Cancel all call EndDialog(hwnd, 2) in jonesConfig.c). Callers treat
 // everything but their success codes as cancel, so the Null dialogs always cancel.
@@ -53,17 +55,23 @@ void JonesMainSys_UseGameWindowProc(void)
 {
     // Added: Switches wkernel to JonesMain_GameWndProc on Windows; there is no window or
     // message queue on the Null platform, and the wkernel proc hook is Win32-only, so
-    // nothing to switch.
+    // nothing to switch. The intro's skip keys end with the intro window procedure.
+    wkernel_SetIntroSkipCallback(NULL);
 }
 
 void JonesMainSys_UseIntroWindowProc(void)
 {
-    // Added: See JonesMainSys_UseGameWindowProc.
+    // Added: See JonesMainSys_UseGameWindowProc. The one part of JonesMain_IntroWndProc that
+    // a window-less column keeps: its skip keys (Enter, Escape, left mouse button up) call
+    // JonesMain_OnSkipIntro, through the wkernel callback the Babylon column's event pump
+    // calls (wkernelNull.c never does).
+    wkernel_SetIntroSkipCallback(JonesMain_OnSkipIntro);
 }
 
 void JonesMainSys_ClearWindowProc(void)
 {
     // Added: See JonesMainSys_UseGameWindowProc.
+    wkernel_SetIntroSkipCallback(NULL);
 }
 
 bool JonesMainSys_GetComputerName(char* pDst, size_t size)

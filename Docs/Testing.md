@@ -749,8 +749,8 @@ ctest --test-dir build/asan --output-on-failure -L unit
 
 Windows builds the Babylon column only, as a 64-bit program. Configuring with
 `-DJONES3D_PLATFORM_BABYLON=OFF` or for 32-bit Windows is a configure error.
-The column uses the real Microsoft CRT and the Windows SMUSH timer
-(`TimerWin32.c`). Until M6.6 it runs the Null renderer: the windowed `Jones3D.exe`
+The column uses the real Microsoft CRT and, like the other Babylon hosts, the
+polled SMUSH timer (`TimerPolled.c`) and the silent SMUSH sound driver (`DsndSilent.c`). Until M6.6 it runs the Null renderer: the windowed `Jones3D.exe`
 shows nothing.
 
 With MinGW-w64 (x86_64) from Linux, the tests run under wine; the toolchain file
@@ -1002,8 +1002,16 @@ timer), an in-memory file system and the executable's zlib `gz*` functions (thro
 C `IDirectSound` mock went with the DirectSound driver `Dsnd.c` in M6.3. Each area has its own test file and CMake list
 under `Libs/smush/Tests`: `SmushCoreTest.c` (SmushPlay, LecShare, Timer, Memory, List, Bitmap, Blit), `SmushSoundTest.c`
 (Engine, Mixer, DsndNull), `SmushCodecTest.c` (D_bloc16,
-D_wave, Decode), `SmushStreamTest.c` (Cdstream, Framestream, Stdfile, Stdio, Zfilio, Readauto, Frame, Pcplay) and
-`SmushAsmTest.c`.
+D_wave, Decode), `SmushStreamTest.c` (Cdstream, Framestream, Stdfile, Stdio, Zfilio, Readauto, Frame, Pcplay),
+`SmushMovieTest.c` and `SmushAsmTest.c`.
+
+`SmushMovieTest.c` (group `SmushMovie`, Babylon column only; empty on the Null column) covers movie playback without
+game assets: the silent sound driver `DsndSilent.c` consumes the engine's audio at the 22050 Hz stream rate, the polled
+timer `TimerPolled.c` ticks at 60 Hz on the clock, `SmushPlay_SysStartup` succeeds, and a synthetic SMUSH stream (an
+`SHDR` and 60 `FRME` chunks of one raw 8x8 `Bl16` object each, written by the test) plays to the end with one blit per
+frame at 15 fps, or stops on the blit that asks to abort. The timer runs on a fake millisecond clock injected through
+`TimerPolled_SetClockForTest` (TimerPolled.c is compiled into the test executable with `J3D_TEST`). On the Babylon
+column the `SmushCore` timer cases poll the timer after each of their sleeps, as the player does.
 
 `SmushAsmTest.c` covers the six assembly files that were translated to C (`Bloc16Asm`, `DecodeAsm`, `MixerAsm`,
 `BlitAsm`, `MemCopy`, `MemFill`) with original-engine vectors: inputs and complete results of every procedure captured by
