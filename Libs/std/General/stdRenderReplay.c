@@ -107,6 +107,10 @@ typedef struct sStdRenderReplay
     bool bWarnedUnknownTexture;
     bool bWarnedBlobSize;
 
+    StdRenderReplayFrameCallback pFrameCallback;
+    void* pFrameUserData;
+    size_t numFrames;
+
     size_t numRecords;
     size_t numBlobRecords;
     size_t numSkipped;
@@ -1903,6 +1907,13 @@ static bool StdRenderReplay_ProcessRecord(
 
             result = stdDisplay_Update();
             StdRenderReplay_MismatchI(pReplay, recordIndex, id, "result", expected, result);
+            // Added: one replayed stdDisplay_Update is one frame for the image-output observer.
+            if ( pReplay->pFrameCallback )
+            {
+                pReplay->pFrameCallback(pReplay->numFrames, pReplay->pFrameUserData);
+            }
+
+            ++pReplay->numFrames;
             return true;
         }
 
@@ -2665,7 +2676,12 @@ static void StdRenderReplay_FreeResources(StdRenderReplay* pReplay)
     }
 }
 
-int stdRenderReplay_Run(const char* pInPath, const char* pOutPath)
+int stdRenderReplay_RunWithFrameCallback(
+    const char* pInPath,
+    const char* pOutPath,
+    StdRenderReplayFrameCallback pFrameCallback,
+    void* pUserData
+)
 {
     StdRenderReplay replay;
     uint8_t aHeader[16];
@@ -2687,7 +2703,9 @@ int stdRenderReplay_Run(const char* pInPath, const char* pOutPath)
     }
 
     STD_ZEROMEM(&replay, sizeof(replay));
-    replay.reader.pHS = std_g_pHS;
+    replay.reader.pHS        = std_g_pHS;
+    replay.pFrameCallback    = pFrameCallback;
+    replay.pFrameUserData    = pUserData;
 
     replay.reader.file = replay.reader.pHS->pFileOpen(pInPath, "rb");
     if ( !replay.reader.file )
@@ -2994,4 +3012,9 @@ done:
     }
 
     return result;
+}
+
+int stdRenderReplay_Run(const char* pInPath, const char* pOutPath)
+{
+    return stdRenderReplay_RunWithFrameCallback(pInPath, pOutPath, NULL, NULL);
 }

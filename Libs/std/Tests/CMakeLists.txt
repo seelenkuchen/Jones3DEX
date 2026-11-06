@@ -228,6 +228,7 @@ if (J3D_PLATFORM_BABYLON)
     list(REMOVE_ITEM STD3D_BABYLON_TESTED_SOURCES "${STD_SOURCE_DIR}/Null/std3DNull.c")
     list(APPEND STD3D_BABYLON_TESTED_SOURCES
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylon.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdRenderReplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylon.cpp"
     )
 

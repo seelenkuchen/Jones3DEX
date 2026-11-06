@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -59,6 +60,7 @@
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonCvars.h>
 #include <std/Babylon/stdRenderBabylon.h>
+#include <std/Babylon/stdRenderReplayBabylon.h>
 
 #include "stdGeneralTest.h"
 
@@ -1242,6 +1244,103 @@ TEST_GROUP_RUNNER(stdRenderBabylonOption)
     RUN_TEST_CASE(stdRenderBabylonOption, AMissingOrUnknownValueIsRefused);
 }
 
+TEST_GROUP(stdRenderReplayBabylonOption);
+
+TEST_SETUP(stdRenderReplayBabylonOption)
+{
+}
+
+TEST_TEAR_DOWN(stdRenderReplayBabylonOption)
+{
+}
+
+TEST(stdRenderReplayBabylonOption, TakesTheOptionsAndKeepsTheRest)
+{
+    char aProgram[] = "Jones3D-replay", aRender[] = "--render", aGpu[] = "gpu", aFramesOut[] = "--frames-out",
+        aDir[] = "frames", aEvery[] = "--every", aThree[] = "3", aCapture[] = "--capture", aOut[] = "out.rcap";
+    char* argv[] = { aProgram, aRender, aGpu, aFramesOut, aDir, aEvery, aThree, aCapture, aOut, nullptr };
+    int argc = 9;
+    StdRenderBabylonDeviceType type = StdRenderBabylonDeviceType::Null;
+    StdRenderReplayBabylonFrameOutput output;
+    const char* pError = nullptr;
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_TakeRenderOption(&argc, argv, &type));
+    TEST_ASSERT_TRUE(type == StdRenderBabylonDeviceType::Gpu);
+    TEST_ASSERT_TRUE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argv, true, &output, &pError));
+    TEST_ASSERT_NULL(pError);
+    TEST_ASSERT_EQUAL_STRING("frames", output.pDirectory);
+    TEST_ASSERT_EQUAL_UINT32(3u, output.every);
+    TEST_ASSERT_EQUAL_INT(3, argc);
+    TEST_ASSERT_EQUAL_PTR(aProgram, argv[0]);
+    TEST_ASSERT_EQUAL_PTR(aCapture, argv[1]);
+    TEST_ASSERT_EQUAL_PTR(aOut, argv[2]);
+    TEST_ASSERT_NULL(argv[3]);
+}
+
+TEST(stdRenderReplayBabylonOption, FramesOutNeedsTheGpu)
+{
+    char aProgram[] = "p", aFramesOut[] = "--frames-out", aDir[] = "frames";
+    char* argv[] = { aProgram, aFramesOut, aDir, nullptr };
+    int argc = 3;
+    StdRenderReplayBabylonFrameOutput output;
+    const char* pError = nullptr;
+
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argv, false, &output, &pError));
+    TEST_ASSERT_NOT_NULL(pError);
+    TEST_ASSERT_EQUAL_INT(3, argc);
+    TEST_ASSERT_NULL(output.pDirectory);
+}
+
+TEST(stdRenderReplayBabylonOption, EveryNeedsFramesOut)
+{
+    char aProgram[] = "p", aEvery[] = "--every", aTwo[] = "2";
+    char* argv[] = { aProgram, aEvery, aTwo, nullptr };
+    int argc = 3;
+    StdRenderReplayBabylonFrameOutput output;
+    const char* pError = nullptr;
+
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argv, true, &output, &pError));
+    TEST_ASSERT_NOT_NULL(pError);
+    TEST_ASSERT_EQUAL_INT(3, argc);
+}
+
+TEST(stdRenderReplayBabylonOption, AMissingOrBadValueIsRefused)
+{
+    char aProgram[] = "p", aFramesOut[] = "--frames-out", aEmpty[] = "", aDir[] = "frames", aEvery[] = "--every",
+        aZero[] = "0", aJunk[] = "2x";
+    StdRenderReplayBabylonFrameOutput output;
+    const char* pError = nullptr;
+    int argc;
+
+    char* argvMissing[] = { aProgram, aFramesOut, nullptr };
+    argc = 2;
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argvMissing, true, &output, &pError));
+    TEST_ASSERT_EQUAL_INT(2, argc);
+
+    char* argvEmpty[] = { aProgram, aFramesOut, aEmpty, nullptr };
+    argc = 3;
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argvEmpty, true, &output, &pError));
+    TEST_ASSERT_EQUAL_INT(3, argc);
+
+    char* argvZero[] = { aProgram, aFramesOut, aDir, aEvery, aZero, nullptr };
+    argc = 5;
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argvZero, true, &output, &pError));
+    TEST_ASSERT_EQUAL_INT(5, argc);
+
+    char* argvJunk[] = { aProgram, aFramesOut, aDir, aEvery, aJunk, nullptr };
+    argc = 5;
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argvJunk, true, &output, &pError));
+    TEST_ASSERT_EQUAL_INT(5, argc);
+}
+
+TEST_GROUP_RUNNER(stdRenderReplayBabylonOption)
+{
+    RUN_TEST_CASE(stdRenderReplayBabylonOption, TakesTheOptionsAndKeepsTheRest);
+    RUN_TEST_CASE(stdRenderReplayBabylonOption, FramesOutNeedsTheGpu);
+    RUN_TEST_CASE(stdRenderReplayBabylonOption, EveryNeedsFramesOut);
+    RUN_TEST_CASE(stdRenderReplayBabylonOption, AMissingOrBadValueIsRefused);
+}
+
 TEST_GROUP(std3DBabylonGpu);
 
 namespace
@@ -1250,22 +1349,37 @@ namespace
     // assert: the device first, then the window, then the platform.
     std::unique_ptr<babylon::platform::Platform> std3DBabylonGpuTest_pPlatform;
     std::unique_ptr<babylon::platform::Window> std3DBabylonGpuTest_pWindow;
+
+    const char* const kReplayFramesCapturePath = "std3DBabylonTest_ReplayFrames.rcap";
+    const char* const kReplayFramesDir         = "std3DBabylonTest_ReplayFrames";
+
+    void RemoveReplayFrames()
+    {
+        std::remove(kReplayFramesCapturePath);
+        std::error_code error;
+        std::filesystem::remove_all(kReplayFramesDir, error);
+    }
 }
 
 TEST_SETUP(std3DBabylonGpu)
 {
     StdGeneralTest_Startup();
+    stdRenderCapture_ResetGlobals();
     std3D_ResetGlobals();
     stdDisplay_ResetGlobals();
+    RemoveReplayFrames();
 }
 
 TEST_TEAR_DOWN(std3DBabylonGpu)
 {
+    stdDisplayCapture_Close();
+    stdRenderCapture_ResetGlobals();
     CloseStd3D();
     stdRenderBabylon_Close();
     DropDevice();
     std3DBabylonGpuTest_pWindow.reset();
     std3DBabylonGpuTest_pPlatform.reset();
+    RemoveReplayFrames();
     StdGeneralTest_Shutdown();
 }
 
@@ -1740,6 +1854,81 @@ TEST(std3DBabylonGpu, TexturingIsPerspectiveCorrect)
     std3D_ClearSystemTexture(&texture);
 }
 
+TEST(std3DBabylonGpu, ReplayWritesFrameImages)
+{
+    // A tiny capture with one 64 x 64 frame: a red quad over the transparent black clear. The Null
+    // device records the calls; the replay below makes them again on the GPU device.
+    UseNullDevice();
+    TEST_ASSERT_TRUE(stdDisplayCapture_Open(kReplayFramesCapturePath, "babylon"));
+    OpenStd3D(64u, 64u);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    {
+        StdVertexTL aVerts[4] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFF0000u), Vertex(64.0f, 0.0f, 0.5f, 1.0f, 0xFFFF0000u),
+            Vertex(64.0f, 64.0f, 0.5f, 1.0f, 0xFFFF0000u), Vertex(0.0f, 64.0f, 0.5f, 1.0f, 0xFFFF0000u) };
+        uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
+        std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 4u, aIndices, 6u);
+    }
+    std3D_EndScene();
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+    CloseStd3D();
+    stdDisplayCapture_Close();
+    TEST_ASSERT_FALSE(stdRenderCapture_IsOpen());
+
+    UseDevice(CreateGpuDevice(nullptr));
+    if ( !std3DBabylonTest_pDevice )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    char aProgram[] = "Jones3D-replay", aRender[] = "--render", aGpu[] = "gpu", aFramesOut[] = "--frames-out",
+        aEvery[] = "--every", aOne[] = "1";
+    char aDir[128];
+    std::snprintf(aDir, sizeof(aDir), "%s", kReplayFramesDir);
+    char* argv[] = { aProgram, aRender, aGpu, aFramesOut, aDir, aEvery, aOne, nullptr };
+    int argc = 7;
+    StdRenderBabylonDeviceType type = StdRenderBabylonDeviceType::Null;
+    StdRenderReplayBabylonFrameOutput output;
+    const char* pError = nullptr;
+    TEST_ASSERT_TRUE(stdRenderBabylon_TakeRenderOption(&argc, argv, &type));
+    TEST_ASSERT_TRUE(type == StdRenderBabylonDeviceType::Gpu);
+    TEST_ASSERT_TRUE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argv, true, &output, &pError));
+    TEST_ASSERT_NULL(pError);
+    TEST_ASSERT_TRUE(stdRenderReplayBabylon_BeginFrames(&output));
+
+    TEST_ASSERT_EQUAL_INT(0, stdRenderReplay_RunWithFrameCallback(kReplayFramesCapturePath, nullptr,
+        stdRenderReplayBabylon_CaptureFrame, &output));
+    TEST_ASSERT_EQUAL_size_t(1u, output.frames);
+    TEST_ASSERT_EQUAL_size_t(1u, output.images);
+
+    const std::vector<char> bmp = ReadFile((std::string(kReplayFramesDir) + "/frame_00000.bmp").c_str());
+    TEST_ASSERT_TRUE(bmp.size() > 54u);
+    TEST_ASSERT_EQUAL_INT('B', bmp[0]);
+    TEST_ASSERT_EQUAL_INT('M', bmp[1]);
+    const auto readU16 = [&bmp](size_t at)
+    {
+        return (uint32_t)(uint8_t)bmp[at] | (uint32_t)(uint8_t)bmp[at + 1u] << 8;
+    };
+    const auto readU32 = [&bmp](size_t at)
+    {
+        return (uint32_t)(uint8_t)bmp[at] | (uint32_t)(uint8_t)bmp[at + 1u] << 8
+            | (uint32_t)(uint8_t)bmp[at + 2u] << 16 | (uint32_t)(uint8_t)bmp[at + 3u] << 24;
+    };
+    TEST_ASSERT_EQUAL_UINT32(54u, readU32(10u));
+    TEST_ASSERT_EQUAL_UINT32(40u, readU32(14u));
+    TEST_ASSERT_EQUAL_UINT32(64u, readU32(18u));
+    TEST_ASSERT_EQUAL_UINT32(64u, readU32(22u));
+    TEST_ASSERT_EQUAL_UINT32(1u, readU16(26u));
+    TEST_ASSERT_EQUAL_UINT32(24u, readU16(28u));
+    TEST_ASSERT_EQUAL_UINT32(64u * 3u * 64u, readU32(34u));
+
+    // BMP rows are bottom up, so the pixel at (1, 1) from the top is in row 62. It is red: BGR.
+    const size_t at = 54u + (size_t)(64u - 1u - 1u) * 64u * 3u + 1u * 3u;
+    TEST_ASSERT_TRUE(at + 3u <= bmp.size());
+    TEST_ASSERT_EQUAL_INT(0, (uint8_t)bmp[at + 0u]);
+    TEST_ASSERT_EQUAL_INT(0, (uint8_t)bmp[at + 1u]);
+    TEST_ASSERT_EQUAL_INT(255, (uint8_t)bmp[at + 2u]);
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -1752,6 +1941,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, FogIsLinearInWBetweenStartAndEnd);
     RUN_TEST_CASE(std3DBabylonGpu, LinesAndPointsLightTheirPixels);
     RUN_TEST_CASE(std3DBabylonGpu, TexturingIsPerspectiveCorrect);
+    RUN_TEST_CASE(std3DBabylonGpu, ReplayWritesFrameImages);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.
@@ -1761,6 +1951,7 @@ static void runAllTests(void)
 {
     RUN_TEST_GROUP(std3DBabylon);
     RUN_TEST_GROUP(stdRenderBabylonOption);
+    RUN_TEST_GROUP(stdRenderReplayBabylonOption);
     RUN_TEST_GROUP(std3DBabylonGpu);
     UseNullDevice();
     TEST_stdRenderReplay_GROUP_RUNNER();

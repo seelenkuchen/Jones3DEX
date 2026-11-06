@@ -40,6 +40,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdControlDevicesBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdCvarBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderReplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
     )
 

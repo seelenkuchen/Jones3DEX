@@ -295,6 +295,65 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     return true;
 }
 
+bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHeight)
+{
+    if ( pWidth )
+    {
+        *pWidth = 0;
+    }
+
+    if ( pHeight )
+    {
+        *pHeight = 0;
+    }
+
+    if ( !pOut )
+    {
+        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: no destination buffer.\n");
+        return false;
+    }
+
+    if ( !stdRenderBabylon_state.pDevice || stdRenderBabylon_state.colorTarget.isNull() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: no back buffer.\n");
+        return false;
+    }
+
+    const uint32_t width  = stdRenderBabylon_state.width;
+    const uint32_t height = stdRenderBabylon_state.height;
+    const uint64_t size   = (uint64_t)width * (uint64_t)height * 4u;
+    if ( size > (uint64_t)SIZE_MAX )
+    {
+        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the %ux%u back buffer is too large.\n", width, height);
+        return false;
+    }
+
+    const std::vector<std::byte> pixels = stdRenderBabylon_state.pDevice->readTexture(stdRenderBabylon_state.colorTarget, 0);
+    if ( pixels.size() != (size_t)size )
+    {
+        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the device returned %zu bytes for a %ux%u Bgra8 buffer.\n",
+            pixels.size(), width, height);
+        return false;
+    }
+
+    if ( size > 0u )
+    {
+        std::memcpy(pOut, pixels.data(), (size_t)size);
+    }
+
+    if ( pWidth )
+    {
+        *pWidth = width;
+    }
+
+    if ( pHeight )
+    {
+        *pHeight = height;
+    }
+
+    return true;
+}
+
 render::TextureHandle stdRenderBabylon_GetColorTarget()
 {
     return stdRenderBabylon_state.colorTarget;

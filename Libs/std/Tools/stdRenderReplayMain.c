@@ -9,18 +9,32 @@
 
 #include <std/General/stdRenderReplay.h>
 
+// Added: the Babylon column's entry (std/Babylon/stdRenderReplayBabylonMain.cpp) also takes the
+// --render and --frames-out options before calling the shared run below.
+#ifdef STDRENDERREPLAYMAIN_ENTRY
+#define STDRENDERREPLAY_RENDER_USAGE " [--render null|gpu, default null] [--frames-out <dir> [--every <n>, default 1]]"
+#else
+#define STDRENDERREPLAY_RENDER_USAGE ""
+#endif
+
 static void StdRenderReplayMain_Usage(void)
 {
-    fprintf(stderr, "usage: Jones3D-replay <in.rcap> [--capture <out.rcap>]\n");
+    fprintf(stderr, "usage: Jones3D-replay <in.rcap> [--capture <out.rcap>]" STDRENDERREPLAY_RENDER_USAGE "\n");
 }
 
-// Added: the Babylon column's C++ entry (std/Babylon/stdRenderReplayBabylonMain.cpp) installs the adapter
-// context first and calls this one under the name STDRENDERREPLAYMAIN_ENTRY; other builds keep main.
+// Added: the Babylon column's C++ entry (std/Babylon/stdRenderReplayBabylonMain.cpp) installs the
+// adapter context first and calls this one under the name STDRENDERREPLAYMAIN_ENTRY; other builds
+// keep main.
 #ifndef STDRENDERREPLAYMAIN_ENTRY
 #define STDRENDERREPLAYMAIN_ENTRY main
 #endif
 
-int STDRENDERREPLAYMAIN_ENTRY(int argc, char** argv)
+int stdRenderReplayMain_RunWithFrameCallback(
+    int argc,
+    char** argv,
+    StdRenderReplayFrameCallback pFrameCallback,
+    void* pUserData
+)
 {
     const char* pInPath = NULL;
     const char* pOutPath = NULL;
@@ -45,9 +59,14 @@ int STDRENDERREPLAYMAIN_ENTRY(int argc, char** argv)
     stdPlatform_InitServices(&hostServices);
     stdStartup(&hostServices);
 
-    result = stdRenderReplay_Run(pInPath, pOutPath);
+    result = stdRenderReplay_RunWithFrameCallback(pInPath, pOutPath, pFrameCallback, pUserData);
 
     stdShutdown();
     stdPlatform_ClearServices(&hostServices);
     return result;
+}
+
+int STDRENDERREPLAYMAIN_ENTRY(int argc, char** argv)
+{
+    return stdRenderReplayMain_RunWithFrameCallback(argc, argv, NULL, NULL);
 }

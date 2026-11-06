@@ -55,6 +55,11 @@ babylon::render::Device* stdRenderBabylon_GetDevice();
 // limits, and when a target can't be created; there is then no back buffer.
 bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* pbRecreated);
 
+// Copies the back buffer's mip 0 into pOut, which must have room for width * height * 4 bytes of
+// Bgra8, rows top first, and sets *pWidth and *pHeight (both may be nullptr). Returns false,
+// logging why, when not open, without a back buffer, or when the device returns another size.
+bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHeight);
+
 // The back buffer targets, or null handles without a back buffer.
 babylon::render::TextureHandle stdRenderBabylon_GetColorTarget();
 babylon::render::TextureHandle stdRenderBabylon_GetDepthTarget();
