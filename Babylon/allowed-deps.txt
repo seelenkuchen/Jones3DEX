@@ -14,3 +14,4 @@ files: log SDL3-static
 platform: log SDL3-static
 input: platform core
 cvars: log core
+render: log

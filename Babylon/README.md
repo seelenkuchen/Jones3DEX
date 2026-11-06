@@ -35,6 +35,13 @@ recorded events so headless runs see exactly what a device would (ADR-0018).
 callbacks (ADR-0013, ADR-0020); a `Registry` is an ordinary object owned by the
 composition root, never a global.
 
+`render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
+and pipelines behind typed handles, a frame is recorded into a `CommandList`
+(passes, bindings, draws, copies) and submitted once, and `Device::submit`
+checks every command against the live resources the same way for every
+backend. The Null backend keeps contents in memory, so uploads, clears, copies
+and readback are real, and records what it executed for tests.
+
 ## Declaring a module
 
     babylon_add_module(<name>
