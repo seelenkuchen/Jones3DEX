@@ -220,28 +220,37 @@ if (J3D_PLATFORM_BABYLON)
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/OnBabylon"
     )
 
-    # Added: the Babylon std3D backend and its frame owner (M6.6), tested through the public std3D_
-    # functions on the Babylon render devices: the sources of stdTestsBabylon with std3DBabylon.cpp
-    # in place of std3DNull.c. stdRenderReplayTest.c runs here once more, replaying into that
-    # backend. The suite's own main installs the adapter context (std3DBabylonTest.cpp).
+    # Added: the Babylon std3D and stdDisplay backends and their frame owner (M6.6, M6.7), tested
+    # through the public std3D_ and stdDisplay_ functions on the Babylon render devices: the sources of
+    # stdTestsBabylon with std3DBabylon.cpp and stdDisplayBabylon.cpp in place of std3DNull.c and
+    # stdDisplayNull.c. stdRenderReplayTest.c runs here once more, replaying into those backends. The
+    # suite's own main installs the adapter context (std3DBabylonTest.cpp).
     set(STD3D_BABYLON_TESTED_SOURCES ${STD_BABYLON_TESTED_SOURCES})
-    list(REMOVE_ITEM STD3D_BABYLON_TESTED_SOURCES "${STD_SOURCE_DIR}/Null/std3DNull.c")
+    list(REMOVE_ITEM STD3D_BABYLON_TESTED_SOURCES
+        "${STD_SOURCE_DIR}/Null/std3DNull.c"
+        "${STD_SOURCE_DIR}/Null/stdDisplayNull.c"
+    )
     list(APPEND STD3D_BABYLON_TESTED_SOURCES
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderReplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylon.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylon.cpp"
     )
 
     add_executable(std3DBabylonTests
         stdGeneralTest.c
         stdRenderReplayTest.c
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/stdDisplayBabylonTest.cpp"
         ${STD3D_BABYLON_TESTED_SOURCES}
     )
 
+    # STDRENDERREPLAYTEST_VBUFFERFILL_OK: stdDisplayDX9.c's VBufferFill answer for a filled
+    # software VBuffer, which stdDisplayBabylon.cpp keeps (stdDisplayNull.c answers 0).
     target_compile_definitions(std3DBabylonTests PRIVATE
         J3D_TEST
         STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
+        STDRENDERREPLAYTEST_VBUFFERFILL_OK=1
     )
 
     target_include_directories(std3DBabylonTests PRIVATE

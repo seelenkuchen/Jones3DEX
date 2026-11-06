@@ -29,6 +29,8 @@ if (J3D_PLATFORM_BABYLON)
     list(FILTER SOURCES EXCLUDE REGEX "/Null/stdCvarNull\\.c$")
     # Added: std3D draws on the Babylon render device (M6.6), through the frame owner stdRenderBabylon.
     list(FILTER SOURCES EXCLUDE REGEX "/Null/std3DNull\\.c$")
+    # Added: stdDisplay presents on the same device and owns the frame (M6.7).
+    list(FILTER SOURCES EXCLUDE REGEX "/Null/stdDisplayNull\\.c$")
     list(APPEND SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonCvars.cpp"
@@ -42,6 +44,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderReplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylon.cpp"
     )
 
     # Added: the shaders of the Babylon render adapter, compiled at build time (ADR-0022) into their own
