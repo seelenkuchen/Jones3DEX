@@ -16,6 +16,7 @@
 #include <babylon/log/Sink.h>
 
 #include "../backends/sdl/tests/KeepGpuDriverLoaded.h"
+#include "GpuRequirement.h"
 
 #include <doctest.h>
 
@@ -70,7 +71,7 @@ namespace
             const std::unique_ptr<Device> device = factory.create();
             if ( device == nullptr )
             {
-                MESSAGE("skipped, no device: " << std::string(factory.name));
+                test::noGpuDevice("no device: " + std::string(factory.name));
                 continue;
             }
             check(*device);
@@ -700,7 +701,7 @@ TEST_CASE("A command list belongs to the device that made it")
         const std::unique_ptr<Device> second = factory.create();
         if ( first == nullptr || second == nullptr )
         {
-            MESSAGE("skipped, no two devices: " << std::string(factory.name));
+            test::noGpuDevice("no two devices: " + std::string(factory.name));
             continue;
         }
         CaptureSink sink;

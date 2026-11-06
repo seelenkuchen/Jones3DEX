@@ -16,6 +16,7 @@
 #include <babylon/platform/SdlPlatform.h>
 #include <babylon/platform/Window.h>
 
+#include "../../../tests/GpuRequirement.h"
 #include "KeepGpuDriverLoaded.h"
 
 #include <doctest.h>
@@ -63,7 +64,7 @@ TEST_CASE("The headless SDL GPU device names its driver and lists its formats")
     const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
     if ( device == nullptr )
     {
-        MESSAGE("skipped, no GPU device: " << joined(sink));
+        test::noGpuDevice("no GPU device: " + joined(sink));
         return;
     }
     CHECK(sink.records().empty());
@@ -126,7 +127,7 @@ TEST_CASE("An SDL GPU device on a window clears and presents its swapchain")
     std::unique_ptr<Device> device = createSdlGpuDevice(window.get());
     if ( device == nullptr )
     {
-        MESSAGE("skipped, no GPU device for the window: " << joined(sink));
+        test::noGpuDevice("no GPU device for the window: " + joined(sink));
         return;
     }
     INFO("captured log: " << joined(sink));

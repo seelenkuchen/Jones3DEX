@@ -52,7 +52,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdrm-dev libgbm-dev libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
+          sudo apt-get install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdrm-dev libgbm-dev libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev mesa-vulkan-drivers
       - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja
@@ -66,7 +66,14 @@ jobs:
       # expected suites were found and that the run validated something.
       - name: List unit tests
         run: ctest --test-dir build -C Debug -N -L unit
-      - name: Run unit tests
+      - name: Run unit tests (Linux, lavapipe required)
+        if: runner.os == 'Linux'
+        env:
+          BABYLON_REQUIRE_GPU: "1"
+        run: ctest --test-dir build -C Debug --output-on-failure -L unit
+      # Windows and macOS have no lavapipe (WARP comes later), so they leave BABYLON_REQUIRE_GPU unset.
+      - name: Run unit tests (Windows and macOS, no GPU required)
+        if: runner.os != 'Linux'
         run: ctest --test-dir build -C Debug --output-on-failure -L unit
       # The Babylon boundary checks (babylon.check.boundary, babylon.check.selftest) carry the
       # labels "babylon;check", not "unit", because they inspect the source tree instead of
