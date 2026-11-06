@@ -40,7 +40,7 @@ The work is ordered so that something runs at every step. See the [roadmap](../R
 | Milestone | Result |
 |---|---|
 | M5. Babylon foundation | `Babylon/` with tests, SDL3 window, input, timer and files, null backends, cvars, adapters. CI on Windows, Linux and macOS |
-| M6. Babylon renderer | SDL3 GPU renderer at parity with DirectX 9, then the Win32 and DirectX path is removed |
+| M6. Babylon renderer | SDL3 GPU renderer at parity with DirectX 9. The Win32 and DirectX path was removed in M6.3 (2026-11-05); Windows is now a 64-bit Babylon build with the Null renderer until M6.6 |
 | M7. Playable | Sound through miniaudio, the original dialogs as in-game screens, playable on all three platforms |
 | M8. Release | Packages, game data installation, macOS signing, first release |
 | M9. Presentation | Widescreen, high resolution, bloom and depth of field, high frame rates |

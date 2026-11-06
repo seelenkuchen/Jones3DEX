@@ -58,9 +58,10 @@ Headless run, the basis for behavior checks:
 build/native/Jones3D/Jones3D-headless --load <save>.nds --frames 1000 --state state.txt
 ```
 
-The legacy Win32 and DirectX 9 build (until M6) builds with MSVC Win32 or with MinGW through
-`cmake/mingw-i686.cmake`; both produce the standalone `Jones3D.exe`. Code that touches it needs a Windows build. Say
-so when you couldn't build it, and never describe unbuilt or untested code as validated.
+Windows builds the Babylon column only, as a 64-bit program: MSVC x64 in CI (`windows-babylon`), or locally
+with MinGW through `cmake/mingw-x86_64.cmake` and the tests under wine (see Docs/Testing.md). Until M6.6 it runs
+the Null renderer and shows nothing. Code that differs on Windows (paths, CRT calls, `_WIN32` branches) needs a
+Windows build. Say so when you couldn't build it, and never describe unbuilt or untested code as validated.
 
 ## Fidelity
 
@@ -107,7 +108,7 @@ Babylon code (C++):
 Everywhere:
 
 - Validate counts and sizes from files, configs, savegames, packets, scripts and the OS where they enter.
-- No platform types (Windows, DirectX, SDL) in shared headers above the backends.
+- No platform types (Windows, SDL, graphics APIs) in shared headers above the backends.
 - Keep helpers `static` and types private unless another module needs them now. No abstractions without a
   second user.
 

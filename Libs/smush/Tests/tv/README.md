@@ -165,8 +165,9 @@ stay untouched.
 - Environment: MSVC 2026 x86 compiler under Wine. No locale, time or
   floating-point state is involved; the generators use integer arithmetic only.
 - Two complete runs in fresh processes produced byte-identical files.
-- The C translations reproduce every case in Debug and Release for both
-  DirectX 6 and DirectX 9 builds.
+- The C translations reproduced every case in Debug and Release for both
+  DirectX 6 and DirectX 9 builds. Those builds were removed in M6.3; this is a record of the validation they
+  provided.
 
 ### SHA-256
 

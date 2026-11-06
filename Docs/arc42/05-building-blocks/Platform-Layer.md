@@ -3,7 +3,11 @@
 > **Superseded in part.** This page describes the platform layer built in milestones M3 and M4, where the recovered
 > function names were the interface. From M5 on, Babylon defines its own interfaces and these functions become
 > adapters ([ADR-0007](../09-decisions/ADR-0007-adapter-between-game-and-babylon.md)). Struct layouts no longer
-> need to stay fixed ([ADR-0004](../09-decisions/ADR-0004-drop-binary-compatibility.md)).
+> need to stay fixed ([ADR-0004](../09-decisions/ADR-0004-drop-binary-compatibility.md)). Milestone M6.3 (2026-11-05)
+> removed the Win32, DX9 and DX6 columns ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)): the Null and
+> Babylon columns remain, and Windows builds the Babylon column as a 64-bit program. Where this page names DX9, DX6 or
+> Win32 files, it describes the design as it was built in M3; the diagram, the traces, "Where the layer is",
+> "Selection" and "File services" describe today's state.
 
 How OpenJones3D separates engine code from Windows and DirectX, so the engine can run on other platforms. Milestone names such as M3.6 refer to stages of the native port.
 
@@ -42,24 +46,28 @@ The separation is a horizontal cut through the existing modules, not a new modul
   std       General/: files, config, memory, utilities
   j3dcore   macros, sized types
 ======================= engine types only above this line =======================
-  Interfaces (headers):
+  Interfaces (headers, in std/General since M6.3):
   std3D.h  stdDisplay.h  stdControl.h  stdComm.h  stdWin95.h  stdGob.h
   sound/Driver.h  wkernel.h  wuRegistry.h
 ======================= the build links exactly one column ======================
-  Win32 + DX9      | Win32 + DX6 (paused) | Null (M4)      | Native backend (M5, M6)
-  Win95/DX9/*.c    | Win95/DX6/*.c        | std/Null/*.c   | added by later milestones
-  DriverDX9.c      | DriverDX6.c          | null driver    |
-  Jones3D/Platform/Win32/, wkernel.c,  |                |
-  wuRegistry.c (shared by both columns)|                |
+  Null (M4), non-Windows            | Babylon (M5): Linux, macOS, 64-bit Windows
+  std/Null/*.c                      | the Null files, with std/Babylon/*.cpp in
+  sound/DriverNull.c                | place of time, files, input devices and
+  wkernel/wkernelNull.c             | cvars; wkernel/wkernelBabylon.cpp
+  w32util/wuRegistryNull.c          |
+  Jones3D/Platform/Null/            | Jones3D/Platform/Babylon/ (+ Platform/Null/)
 ---------------------------------------------------------------------------------
-  Windows, Direct3D, DirectInput, DirectSound ...
+  C runtime                         | Babylon Engine (SDL3)
 ```
+
+Until M6.3 the Win32 + DX9 and Win32 + DX6 columns sat beside these (`Win95/DX9/*.c`, `Win95/DX6/*.c`,
+`DriverDX9.c`, `DriverDX6.c`, `Jones3D/Platform/Win32/`, `wkernel.c`, `wuRegistry.c`).
 
 Three rules define the cut:
 
 1. **Code above the line can't name a platform type or include a platform header.** It compiles with no Windows or DirectX headers on the include path.
-2. **Code above the line contains no backend `#if`.** `J3D_DIRECTX*`, `_WIN32` and `_MSC_VER` go away there, 47 lines today. Compiler and CRT differences move to `j3dcore`.
-3. **Backends follow the same downward order as their module.** A `std` backend can't include anything above `std`, and a `sound` backend can use `rdroid` math, as `DriverDX9.c` does today. Files in one column can call each other, as `std3DX9.c` calls `stdShaderDX9`, but a column never uses another column, and no backend reaches `sith` or `Jones3D`. All current backend includes already follow this.
+2. **Code above the line contains no backend `#if`.** `J3D_DIRECTX*`, `_WIN32` and `_MSC_VER` go away there: 47 lines at the design's start. `J3D_DIRECTX*` is gone since M6.3; two lines are left in `std/General`, `std.c`'s x87 control word on MSVC x64 and `stdFile.c`'s text-mode switch (see [File services](#file-services)). Compiler and CRT differences move to `j3dcore`.
+3. **Backends follow the same downward order as their module.** A `std` backend can't include anything above `std`, and a `sound` backend can use `rdroid` math, as `DriverDX9.c` did. Files in one column can call each other, as `std3DX9.c` called `stdShaderDX9`, but a column never uses another column, and no backend reaches `sith` or `Jones3D`. All current backend includes follow this.
 
 ### Three traces through the cut
 
@@ -68,17 +76,17 @@ Three rules define the cut:
 ```text
 sithControl.c   stdControl_ReadKey(STDKEY_LEFT, &bPressed)      engine number, engine call
 ---------------------------------------------------------------------------------
-stdControlDX9.c reads DirectInput state, indexed by the same number
-stdControlNull  reports nothing pressed
+stdControlDevicesBabylon.cpp  reads the Babylon input state, indexed by the same number
+stdControlDevicesNull.c       reports nothing pressed unless the headless --input script set it
 ```
 
 **An event coming up: the window is activated.** Lower code can't call `Jones3D` directly, so `Jones3D` registers a function at startup.
 
 ```text
-Windows         WM_ACTIVATE
-Win32 wndproc   unpacks wParam into engine values                Jones3D/Platform/Win32/
+SDL3            window focus event, recorded by stdBabylonEvents.cpp
+wkernelBabylon  hands each focus change to the callback          wkernel_SetActivateCallback
 ---------------------------------------------------------------------------------
-JonesMain.c     JonesMain_OnActivate(bActive)                    no HWND, no WM_*
+JonesBabylon.c  JonesMain_OnAppActivate(NULL, bActive)           no HWND, no WM_*
 ```
 
 **Data crossing: a texture.** The engine holds and sorts textures without knowing what they are.
@@ -87,8 +95,11 @@ JonesMain.c     JonesMain_OnActivate(bActive)                    no HWND, no WM_
 rdCache.c       tSysTexture* pCachedTexture = pTex->pCachedTexture     can store and pass it
                 std3D_DrawRenderList(pCachedTexture, flags, aVerts, ...)  can't look inside it
 ---------------------------------------------------------------------------------
-std3DX9.c       sees the real IDirect3DTexture9* and draws
+std3DNull.c     discards it; from M6.6 the Babylon render adapter sees its real texture
 ```
+
+Until M6.3 the same traces ended in `stdControlDX9.c` (DirectInput), the Win32 window procedure in
+`Jones3D/Platform/Win32/` (`WM_ACTIVATE`) and `std3DX9.c` (the real `IDirect3DTexture9*`).
 
 ## Patterns
 
@@ -97,12 +108,12 @@ Eight patterns do the separating. Each row says which problem it solves, so a ne
 | # | Pattern | Use it when | In this engine | Status |
 |---|---|---|---|---:|
 | 1 | Ports and adapters | Always: this is the overall shape | The header is the port, the backend `.c` the adapter | Partly there |
-| 2 | Link-time selection | Choosing the implementation of a port | `Libs/std/CMakeLists.txt` drops `*DX6.c` or `*DX9.c` from the build | Exists |
+| 2 | Link-time selection | Choosing the implementation of a port | `Libs/std/CMakeLists.txt` drops the Null files the Babylon column replaces (until M6.3 it dropped `*DX6.c` or `*DX9.c`) | Exists |
 | 3 | Opaque handle | The engine only stores and passes something | `tSysTexture*`, `tSysWindow` | New for most types |
 | 4 | Backend-sized storage | The engine must embed or allocate something it can't read | `tSystemTexture` arrays, `tVSurface.desc` | New |
 | 5 | Neutral types, translated at the edge | The engine must read or write the data | `StdVertexTL`, `STDKEY_*` | New |
-| 6 | Capability query | The engine asks what a backend can do | `std3D_IsMSAASupported` | Exists, needs extending |
-| 7 | Registered callback | Lower code must reach upward | `wkernel_SetProcessProc`, `wkernel_SetWindowProc` | Exists, needs cleaning |
+| 6 | Capability query | The engine asks what a backend can do | `std3D_IsMSAASupported` (declared; no backend defines it since M6.3) | Came back with the Babylon renderer |
+| 7 | Registered callback | Lower code must reach upward | `wkernel_SetProcessProc`, `wkernel_SetActivateCallback` | Exists; the window procedure left with M6.3 |
 | 8 | Null object | A platform has no such feature, or none yet | Null backend, null dialogs | New |
 
 ### 1. Ports and adapters
@@ -114,8 +125,8 @@ The port is the header, written in engine terms. The adapter is a backend that t
 Each port has one implementation in a given build, chosen by CMake, with no runtime dispatch.
 
 ```cmake
-if(J3D_DIRECTX9)
-    list(FILTER SOURCES EXCLUDE REGEX ".*DX6\\.c$")
+if (J3D_PLATFORM_BABYLON)
+    list(FILTER SOURCES EXCLUDE REGEX "stdPlatformTimeNull\\.c$")
 ```
 
 - **Why not function-pointer tables:** a table would hide the recovered symbol names that hooks and binary comparison use, and would add an indirect call to hot paths. Nothing needs to swap backends at runtime.
@@ -123,7 +134,7 @@ if(J3D_DIRECTX9)
 
 ### 3. Opaque handle
 
-The shared header declares a struct and never defines it. The engine can hold the pointer, but dereferencing it is a compile error. Only the backend knows the real type.
+The shared header declares a struct and never defines it. The engine can hold the pointer, but dereferencing it is a compile error. Only the backend knows the real type. The DX9 backend did it this way until M6.3:
 
 ```c
 // Shared header
@@ -148,7 +159,7 @@ An undefined struct can't be embedded by value, and four are embedded today:
 
 `tSystemTexture` also has different fields per backend, behind an `#ifdef` at `Libs/std/types.h:398`. The engine has to know its size, because `rdMaterial.c:153` and `sithMaterial.c:536` allocate arrays of it, and `rdCache.c:315` reads its `pCachedTexture` field.
 
-The fix is a byte array of the right size above the line, and the real type below it. The size comes from a header in the selected backend's directory, which defines numbers only.
+The fix is a byte array of the right size above the line, and the real type below it. The size comes from a header in the selected backend's directory, which defines numbers only: today `Libs/std/Null/stdBackendTypes.h`, which both columns use. The DX9 backend did it this way until M6.3:
 
 ```c
 // Libs/std/Win95/DX9/stdBackendTypes.h, found through the backend's include path
@@ -176,14 +187,14 @@ When the engine really uses the contents, it gets its own definition, and the ba
 
 | Data | Engine definition | How the backend adapts |
 |---|---|---|
-| Vertices | `StdVertexTL`, same 32 bytes | DX uses the same layout, and a size check proves it. Other backends copy |
-| Key codes | `STDKEY_*`, same numbers as DirectInput | DX uses them directly, with `static_assert(STDKEY_X == DIK_X)`. Other backends translate |
-| Colors | `uint32_t`, `0xAARRGGBB` | DX passes through. Other backends swizzle |
+| Vertices | `StdVertexTL`, same 32 bytes | The DX backends used the same layout, and a size check proved it. Other backends copy |
+| Key codes | `STDKEY_*`, same numbers as DirectInput | The DX backends used them directly, with `static_assert(STDKEY_X == DIK_X)`. Other backends translate |
+| Colors | `uint32_t`, `0xAARRGGBB` | The DX backends passed them through. Other backends swizzle |
 | Thumbnails | Pixel buffer | The backend converts from `HBITMAP` |
 
 ### 6. Capability query
 
-Code above the line must not read a backend's capability struct. It asks a function, and the backend answers. For example, `JonesMain_CurDisplaySupportsBPP` (`JonesMain.c:3368`) and its copy in `jonesConfig.c:7746` read `d3dDesc.dwDeviceRenderBitDepth` inside `#if defined(J3D_DIRECTX6)`.
+Code above the line must not read a backend's capability struct. It asks a function, and the backend answers. For example, until M6.3 `JonesMain_CurDisplaySupportsBPP` and its copy in `jonesConfig.c` read `d3dDesc.dwDeviceRenderBitDepth` inside `#if defined(J3D_DIRECTX6)`. The function that remains answers 24 and 32 bpp without a device query (`JonesMain.c:2496`).
 
 ```c
 /** Returns whether the 3D device can render at the given bit depth. */
@@ -196,7 +207,7 @@ The backend owns the check, and the `#if` goes away from both callers. The two c
 
 Dependencies only go down, so lower code reaches upward through a function that upper code gave it. `wkernel` already does this. It needs two fixes:
 
-- **`WKERNELWNDPROC` leaks `HWND`, `UINT`, `WPARAM` and `LPARAM`.** The window procedure moves to `Jones3D/Platform/Win32/`, and the engine side gets `JonesMain_On*` functions.
+- **`WKERNELWNDPROC` leaks `HWND`, `UINT`, `WPARAM` and `LPARAM`.** The window procedure moved to `Jones3D/Platform/Win32/` (removed in M6.3), and the engine side got `JonesMain_On*` functions, which the Babylon column calls through `wkernel_SetActivateCallback`.
 - **`stdConfig.c` calls `wuRegistry_*` directly,** which breaks the layering. `Jones3D` registers a fallback reader at startup and the read order stays the same.
 
 ### 8. Null object
@@ -205,7 +216,7 @@ A backend that does nothing, but honors the interface's contract: draws are disc
 
 ### Moving code as a block
 
-Not a separation pattern, but the choice for dialogs. `jonesConfig.c` and `JonesDialog.c` are Win32 UI with a small external surface, so they move below the line as they are. Their 15 functions become the interface. Splitting their logic from their UI waits until M7 needs it.
+Not a separation pattern, but the choice for dialogs. `jonesConfig.c` and `JonesDialog.c` were Win32 UI with a small external surface, so they moved below the line as they were. Their 15 functions became the interface. Splitting their logic from their UI waits until M7 needs it; the Win32 dialog files went with the rest of the Win32 layer in M6.3, and M7 brings the in-game screens.
 
 ## How the separation is enforced
 
@@ -225,6 +236,10 @@ and the Win32, DX6 and DX9 backend directories, the native build leaves out only
 `Libs/wkernel/wkernel.c` (plus `Jones3D/Platform/Babylon/JonesBabylon.c`, which only the Babylon column
 builds). Everything else compiles on Linux, where no platform header exists, so nothing above the line needs
 one. The game CI job on Linux and macOS (M5.15) repeats the check on every push.
+
+Since M6.3 all of those Windows backend files are gone except `TimerWin32.c`, which the 64-bit Windows build of
+the Babylon column still compiles (smush has no portable timer thread yet, see
+[chapter 11](../11-risks-and-technical-debt.md)), and `Scripts/checkboundary.py` reports 0 matches above the line.
 
 ## Wrong ways to cross the line
 
@@ -252,13 +267,13 @@ These are refused in review, even when they would pass the check:
 
 ## Where the layer is
 
-- **Interface:** the existing headers, at their existing paths: `Libs/std/Win95/*.h`, `Libs/sound/Driver.h`, `Libs/wkernel/wkernel.h`, `Libs/w32util/wuRegistry.h`. The `Win95` path name is wrong for an interface, but moving it changes every include and makes upstream review harder. A rename can be a single separate commit at the end.
-- **Backends:** `Libs/std/Win95/DX6/`, `Libs/std/Win95/DX9/`, `Libs/sound/DriverDX*.c`, and new `Libs/std/Null/` in M4. Win32 code that lives above `std` moves to `Jones3D/Platform/Win32/`.
+- **Interface:** `Libs/std/General/*.h` (`std3D.h`, `stdDisplay.h`, `stdControl.h`, `stdComm.h`, `stdConsole.h`, `stdWin95.h`, `stdKeys.h`, `stdGob.h` and the rest), `Libs/sound/Driver.h`, `Libs/wkernel/wkernel.h`, `Libs/w32util/wuRegistry.h`. The `std` headers lived in `Libs/std/Win95/` until M6.3 moved them to `General` with the files every column uses.
+- **Backends:** `Libs/std/Null/`, `Libs/std/Babylon/`, `Libs/sound/DriverNull.c`, `Libs/wkernel/wkernelNull.c` and `wkernelBabylon.cpp`, `Libs/w32util/wuRegistryNull.c`, and the entry points in `Jones3D/Platform/Null/` and `Jones3D/Platform/Babylon/`. The Win32, DX6 and DX9 backends (`Libs/std/Win95/`, `Libs/sound/DriverDX*.c`, `Jones3D/Platform/Win32/`) went in M6.3.
 - **The check** skips only backends and platform `.c` files, so leaks in interface headers count.
 
 ## Selection
 
-Build time, as DX6 and DX9 already work: one implementation linked per build, chosen in CMake. No function-pointer tables. `tHostServices` stays as it is. This keeps the original symbol names, which comparison with the decompilation relies on.
+Build time, as DX6 and DX9 worked: one implementation linked per build, chosen in CMake. No function-pointer tables. `tHostServices` stays as it is. This keeps the original symbol names, which comparison with the decompilation relies on.
 
 M5 added a third column the same way: `-DJONES3D_PLATFORM_BABYLON=ON` builds the Null column with some files
 replaced by adapter files on the Babylon Engine (time, files, input devices, the wkernel event loop, the
@@ -266,6 +281,33 @@ simulation cvars). Where a Null file has device code mixed with engine logic, it
 column can replace the device part only: `stdPlatformTimeNull.c`, `General/stdFile.c`,
 `stdControlDevicesNull.c` behind `stdControlNull.h`, and `stdCvarNull.c` behind `stdCvarNull.h`. Inside the
 Babylon column the backends (SDL3 or Null) are chosen at startup by the composition root (ADR-0016).
+
+Since M6.3 these two are the only columns: Null on non-Windows hosts (the default there), Babylon on Linux and
+macOS with `-DJONES3D_PLATFORM_BABYLON=ON`, and Babylon on Windows, where it is the default and only choice.
+Configuring Windows with the option `OFF` or for 32-bit is a configure error. On Windows the column uses the
+real Microsoft CRT instead of the `j3dcrt` shim, and smush keeps `TimerWin32.c`.
+
+<a id="file-services"></a>
+## File services
+
+The game reads and writes host files through `stdFileOpen`, `stdFileRead`, `stdFileGets` and the other `tHostServices`
+file functions. The Null column implements them on the C runtime in `Libs/std/General/stdFile.c`, the Babylon column
+on the Babylon file system in `Libs/std/Babylon/stdFileBabylon.cpp`. Both keep the contract the original had on the
+Microsoft C runtime:
+
+- **Text-mode reads translate line ends.** A read open without `b` (`"r"`, `"rt"`) hands out `"\r\n"` as `"\n"`.
+  A lone `"\r"` stays, and a Ctrl-Z (`0x1A`) ends the data until the next seek. `stdConffile` (`.ndy`, `.cog`,
+  `.3do`, `.key` and the other text resources) opens with `"r"` and `stdStrTable` with `"rt"`, so their parsers see
+  loose CRLF files without `"\r"`, as on retail Windows. Before this, the Linux and macOS builds kept a trailing
+  `"\r"` on such lines.
+- **Positions stay byte offsets** in the file: `stdFileTell` and `stdFileSeek` count bytes, not translated characters.
+- **Writes and binary opens are byte-exact** on the handles that translate reads themselves (the Null column on
+  non-Windows and the Babylon adapter). On Windows the Null file wrapper leaves both directions to the Microsoft CRT.
+- **Files served from GOBs are unchanged:** the game opens them with `"rb"`, as in retail.
+
+On Windows the Null file wrapper leaves the translation to the Microsoft CRT; everywhere else, and in the Babylon
+adapter on every host, the read handle translates itself. The tests are `std` `TestFileTextModeReadsCrLfAsLf` and
+`std.Babylon` `TextModeReadsCrLfAsLf`.
 
 ## Names
 
@@ -296,6 +338,8 @@ All replacements keep size and layout on 32-bit, checked by the existing `static
 
 ## Subsystems
 
+The M3 plan per subsystem, as built then. The Win32 and DirectX sides it names went in M6.3.
+
 | Subsystem | Interface | What changes |
 |---|---|---|
 | Time | `stdPlatform_GetTimeMsec`, `stdPlatform_InitHighResTimer` | `timeGetTime` and `QueryPerformance*` move to a Win32 file |
@@ -322,11 +366,13 @@ All replacements keep size and layout on 32-bit, checked by the existing `static
 
 ## Batching
 
-Batching happens below `std3D`. A backend may defer draws, as long as they appear in submission order by `std3D_EndScene`. `rdCache_Flush` stays one code path for every backend, and DX9 keeps drawing immediately.
+Batching happens below `std3D`. A backend may defer draws, as long as they appear in submission order by `std3D_EndScene`. `rdCache_Flush` stays one code path for every backend, and DX9 kept drawing immediately.
 
 `origin/OpenGL` went the other way: `#ifdef J3D_OPENGL` in `rdCache.c`, `sithRender.c`, `sithShadow.c` and the primitives, and batch functions such as `std3D_DrawModelBatch`. Some of that serves instancing, per-pixel lighting and sky shaders, which need data `std3D_DrawRenderList` doesn't receive. Those features become additive functions when requested. **Unverified:** whether a backend that sees only the current calls performs well enough. `rdCache` already groups by texture, and M6 finds out.
 
 ## Example headers
+
+As written for M3; the DX9 and DX6 sides they mention went in M6.3.
 
 **Time:** no caller changes.
 

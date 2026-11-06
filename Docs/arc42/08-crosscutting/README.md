@@ -77,7 +77,7 @@ testing a result. New functions return `bool` for success or failure. Failures a
 | Unit | One function or module, Unity Fixture in C, doctest in C++ ([ADR-0017](../09-decisions/ADR-0017-babylon-toolchain-and-dependencies.md)) | `Tests/` beside the code, `Babylon/` tests inside Babylon |
 | Interface | Each Babylon interface's contract, run against every backend including Null | `Babylon/` |
 | Trace | Whole-game simulation against the retail and default profiles | Headless runner |
-| Visual | The new renderer against DirectX 9, until M6 | Manual and screenshot comparison |
+| Visual | The new renderer against the recorded DirectX 9 reference screenshots and captures (M6.1) | Manual and screenshot comparison |
 
 Details are in [Testing.md](../../Testing.md).
 

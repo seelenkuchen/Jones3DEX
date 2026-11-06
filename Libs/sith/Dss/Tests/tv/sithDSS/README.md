@@ -293,8 +293,9 @@ earlier cases are byte-identical in the regenerated files.
   to static memory (`sithDSSTestAddrs.h`, force-included) because the original addresses
   cannot be mapped in every host; the test image is linked at a fixed high base so the
   normalized addresses of the synthetic state can never equal a generated value.
-- The reconstructed functions reproduce every case except the ones listed under Known
-  Differences, in Debug and Release for both DirectX 6 and DirectX 9 builds.
+- The reconstructed functions reproduced every case except the ones listed under Known
+  Differences, in Debug and Release for both DirectX 6 and DirectX 9 builds. Those builds were removed in M6.3;
+  this is a record of the validation they provided.
 
 ### SHA-256
 

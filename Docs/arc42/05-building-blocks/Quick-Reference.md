@@ -16,7 +16,7 @@ rdroid    renderer-facing primitives and caches
 std       platform, display, input, files, config
 sound     low-level audio engine
   |
-wkernel   outer Win32 process and window loop
+wkernel   outer process and window loop (SDL3 on the Babylon column)
 ```
 
 The most important idea is that the engine is both:

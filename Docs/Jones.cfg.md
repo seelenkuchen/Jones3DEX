@@ -183,10 +183,10 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `graphics.bpp` | int | `32` | Requested color depth. |
 | `graphics.refreshRate` | int | `60` | Requested refresh rate. If the display doesn't offer that rate, the closest available rate at the configured size and bit depth is used. |
 | `graphics.performanceLevel` | int | `4` | Performance preset used by the display dialog. |
-| `graphics.mipmapAutoGen` | bool | `true` | DirectX 9 only. Disabled automatically if unsupported by the device. |
-| `graphics.anisotropicFilter` | bool | `true` | DirectX 9 only. Disabled automatically if unsupported by the device. |
-| `graphics.msaa.enabled` | bool | `true` | DirectX 9 only. |
-| `graphics.msaa.samples` | int | `16` | DirectX 9 only. Clamped to `2`, `4`, `8`, or `16`, with runtime fallback if unsupported. |
+| `graphics.mipmapAutoGen` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.anisotropicFilter` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.msaa.enabled` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.msaa.samples` | int | `16` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
 
 ## Renderer, world, and engine options
 
@@ -296,5 +296,5 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 
 - `Jones.cfg` is the correct filename. The engine opens `Jones.cfg`, not `Jones3D.cfg`.
 - Keys under `graphics.display`, `graphics.device`, resolution, refresh rate, and several UI sections are often rewritten by the in-game configuration dialogs.
-- DirectX 9-only settings such as MSAA, anisotropic filtering, and automatic mipmap generation are ignored by the legacy DirectX 6.1c backend.
+- DirectX 9-only settings such as MSAA, anisotropic filtering, and automatic mipmap generation were used by the removed DirectX 9 backend. The keys stay in the file; no current backend reads them.
 - A few defaults depend on whether the build was compiled with `JONES3D_QOL_IMPROVEMENTS=ON`.

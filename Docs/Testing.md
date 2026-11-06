@@ -8,9 +8,11 @@ live in `Babylon/`; their framework is chosen in milestone M5. Behavior of the
 whole game is checked with [headless traces](#trace-tests). Contributors and
 LLM agents should follow the same workflow and coverage requirements below.
 
-Much of this guide comes from OpenJones3D and still describes the legacy Win32
-and DirectX build, which exists until milestone M6. Native builds are the
-default from now on; see [Running Tests](#running-tests).
+Much of this guide comes from OpenJones3D. The Win32 and DirectX build it
+once described was removed in milestone M6.3
+([ADR-0011](arc42/09-decisions/ADR-0011-retire-win32-directx.md)). The game now
+builds in two columns: the Null column (non-Windows) and the Babylon column
+(Linux, macOS and 64-bit Windows); see [Running Tests](#running-tests).
 
 <a name="contents"></a>
 
@@ -27,13 +29,14 @@ default from now on; see [Running Tests](#running-tests).
 - [🧭 Test Scope](#test-scope)
     - [🎞️ Trace Tests](#trace-tests)
     - [🎥 Render Capture](#render-capture)
+    - [🖼️ Renderer Reference Masks](#renderer-reference-masks)
 - [📦 Original-Engine I/O Test Vectors](#original-engine-io-test-vectors)
 - [▶️ Running Tests](#running-tests)
-    - [🤖 CI Profiles](#ci-profiles)
-    - [🐧 Native CI Columns](#native-ci-columns)
+    - [🐧 Native Unit Builds](#native-unit-builds)
+    - [🪟 Windows Unit Builds](#windows-unit-builds)
+    - [🤖 CI Columns](#ci-columns)
     - [🔎 Intermittent Failures](#intermittent-failures)
     - [⏱️ Timeouts And Shared Devices](#timeouts-and-shared-devices)
-- [🖼️ Visual System Tests](#visual-system-tests)
 - [📋 Validation Report](#validation-report)
 - [🚧 Planned Test Integrations](#planned-test-integrations)
     - [🛡️ AddressSanitizer In CI](#deferred-addresssanitizer-integration)
@@ -63,15 +66,15 @@ them, then report the results and remaining gaps.
    tests independent of the original executable and game assets.
 4. **Build and run.** Build natively and [discover and run the unit suites](#native-unit-builds).
    Add the builds required by [Validation Scope](#backend-validation-scope):
-   the Windows legacy build for code it compiles, a [trace comparison](#trace-tests)
+   a 64-bit Windows build for code that compiles differently there, a [trace comparison](#trace-tests)
    for simulation changes, and every backend for Babylon changes. Build
    production code as well as tests, then exercise changed runtime-guard or QOL
    branches in their configuration.
-5. **Check host-dependent behavior.** Run relevant [system tests](#system-test-runs)
-   on a suitable desktop. Run [disruptive tests](#disruptive-test-runs) separately
-   when that coverage is needed. Record unavailable prerequisites and ignored
-   cases; they do not count as exercised behavior. Verify the registration's
-   [timeout and device scheduling](#timeouts-and-shared-devices).
+5. **Check host-dependent behavior.** No [system or device tests](#system-and-device-tests)
+   are built since M6.3, so behavior that needs a window, display or audio device
+   is checked by hand; record what was checked. Record unavailable prerequisites
+   and ignored cases; they do not count as exercised behavior. Verify the
+   registration's [timeout and device scheduling](#timeouts-and-shared-devices).
 6. **Review and report.** Inspect the final diff and fixture provenance. Rerun
    regenerated vectors with update modes disabled, then provide the
    [validation report](#validation-report), including any remaining gaps and
@@ -170,6 +173,19 @@ controlled time, callbacks, and host dependencies. Tests should explain a
 contract or regression rather than repeat the implementation's calculations.
 Use `NULL` for null-pointer expectations in C test code.
 
+Fixtures under any `Tests/tv/` directory are byte-exact on every checkout:
+`.gitattributes` marks `**/Tests/tv/** -text`, so Git for Windows' `core.autocrlf`
+does not turn text vectors into CRLF files and the parser tests read the same bytes
+on every host. A test that needs CRLF input writes it in binary mode itself, as
+`std` `TestFileTextModeReadsCrLfAsLf` does.
+
+Loose text files follow the Microsoft CRT's text mode on every column: a read open
+without `b` (`"r"`, `"rt"`) hands out `"\r\n"` as `"\n"`, a lone `"\r"` stays, and
+Ctrl-Z ends the data until the next seek. Positions stay byte offsets; binary opens
+stay byte-exact. The `std` tests `TestFileTextModeReadsCrLfAsLf` and the Babylon
+file suite's `TextModeReadsCrLfAsLf` pin this contract (see
+[Platform-Layer.md](arc42/05-building-blocks/Platform-Layer.md#file-services)).
+
 <a name="test-case-comments"></a>
 
 ### 💬 Test Case Comments
@@ -205,7 +221,7 @@ Examples:
 
 Prefer the narrowest source-area owner that makes sense. For example, tests for `stdFnames` belong under `Libs/std/General/Tests`, while tests for voice playback state belong under `Libs/sith/World/Tests`.
 
-Subareas can keep their own colocated test files and fixtures while still sharing the parent module test executable. For example, `Libs/std/General/Tests/stdGobTest.c` is owned by `std/General` and runs through the Win95 suite inside the `stdTests` executable.
+Subareas can keep their own colocated test files and fixtures while still sharing the parent module test executable. For example, `Libs/std/General/Tests/stdGobTest.c` is owned by `std/General` and runs with the other `std/General` suites inside the `stdTests` executable (and `stdTestsBabylon` in the Babylon column).
 
 Avoid collecting all tests in one repository-level directory. Keeping tests beside the reconstructed module helps preserve the original engine boundaries and makes ownership clearer.
 
@@ -221,9 +237,9 @@ Use Unity Fixture groups for module-level test files. Name test groups after the
 
 Name test source files after the module followed by `Test.c`, matching the reconstructed codebase's C naming style. For example, use `stdMathTest.c` for `stdMath.c`.
 
-When a module has different DirectX 6 and DirectX 9 implementations, split backend-specific unit tests by backend instead of hiding `#ifdef` branches inside a broad test file. For example, keep DirectPlay-backed communication checks in `stdCommDX6Test.c` and DX9/stub communication checks in `stdCommTest.c` or `stdCommDX9Test.c` when the source module is split that way.
+When a module has different backend implementations, split backend-specific unit tests by backend instead of hiding `#ifdef` branches inside a broad test file. For example, `Libs/std/Tests/stdCvarNullTest.c` covers the Null column's simulation cvar seam (`stdCvarNull.c`), and `Libs/std/Babylon/Tests/stdCvarBabylonTest.cpp` covers its Babylon replacement.
 
-Name system test source files after the exact module or backend they exercise, followed by `SystemTest.c`. For example, use `stdDisplayDX9SystemTest.c` for DirectX 9 display device coverage and `stdDisplayDX6SystemTest.c` for DirectX 6 display device coverage.
+Name system test source files after the exact module or backend they exercise, followed by `SystemTest.c`.
 
 <a name="test-executables-and-registration"></a>
 
@@ -235,10 +251,14 @@ startup and a stable module-level CTest entry.
 | Executable | CTest entry | Coverage | Integration |
 | --- | --- | --- | --- |
 | `j3dcoreTests` | `j3dcore.Macros` | Core macros | Available |
+| `j3dCrtTests` | `j3dcore.Crt` | The `j3dcrt` Microsoft CRT shim | Available |
 | `rdroidTests` | `rdroid.Math` | Vector and matrix debug-source numerical fidelity | Available |
-| `stdTests` | `std` | General and deterministic Win95 services | Available |
-| `stdSystemTests` | `std.System` | Win95 windows and DirectX devices | Available |
-| `stdDisruptiveSystemTests` | `std.DisruptiveSystem` | Opt-in fullscreen/device changes | Available |
+| `stdTests` | `std` | `std/General` services and the Null backends; not on Windows (POSIX file utilities) | Available |
+| `stdTestsBabylon` | `std.OnBabylon` | The same suites through the Babylon file adapter; Babylon column only | Available |
+| `stdBabylonTests` | `std.Babylon` | The std adapter onto Babylon: time, files, control devices, events, cvars; Babylon column only | Available |
+| `wkernelTests` | `wkernel` | The Babylon wkernel event loop and window callbacks; Babylon column only | Available |
+| `jonesCaptureTests` | `Jones3D.Capture` | Render capture command line and console command | Available |
+| `jones3dTests` | `Jones3D.Main` | `JonesMain` video mode lookup | Available |
 | `soundTests` | `sound` | Deterministic lip-sync generation and lookup, AudioLib codec and header vectors | Available |
 | `smushTests` | `smush` | INSANE movie player: core, bitmap, codec, sound, stream areas and original-engine assembly vectors | Available |
 | `sithTests` | `sith` | World thing/template I/O, voice lip-sync and the cogstatus console command bounds | Available |
@@ -252,7 +272,7 @@ startup and a stable module-level CTest entry.
 
 Name CTest entries after the owning module when the executable covers that whole module, such as `std`. When an executable covers only a subarea, use the owning module first and a short area name second, separated by a dot, such as `j3dcore.Macros`. Use labels that match the owning module, such as `j3dcore`, `std`, `rdroid`, `sith`, `sound`, or `Jones3D`.
 
-Backend-specific test builds should also label the CTest entry with the active backend, such as `DirectX6`, `DirectX9`, or later `OpenGL`, so filtered test runs can choose the intended API surface.
+The column is chosen at configure time, so a suite that only one column builds keeps its module labels; `ctest -N -L unit` shows which suites a build tree has.
 
 <a name="fixture-structure"></a>
 
@@ -313,7 +333,7 @@ only the module name or whether a test file was edited.
 | Changed code or tests | Required validation |
 | --- | --- |
 | Any engine code | Native build (Clang), unit suites in Debug |
-| Code the legacy Win32/DirectX 9 build compiles (until M6) | Also a Windows build (MinGW or MSVC) with its unit suites. DX6 is paused and not required |
+| Code that compiles differently on Windows (paths, CRT calls, `_WIN32` branches) | Also a [64-bit Windows build](#windows-unit-builds) (MinGW x86_64 under wine, or MSVC x64) with its unit suites |
 | Simulation behavior (physics, collision, AI, COG, game time, savegames) | Also a [trace comparison](#trace-tests) against the retail profile, and against the Enhanced profile when an enhancement changed |
 | Memory handling, file or savegame parsing, 64-bit portability | Also a sanitizer build (`-DJONES3D_SANITIZE=ON`) |
 | Babylon interfaces or backends | Babylon's own tests against every backend, including Null, and its standalone build |
@@ -335,11 +355,14 @@ cd <game>/Resource
 <build>/Jones3D/Jones3D-headless --load ../SaveGames/<save>.nds --frames 1000 --state state.txt
 ```
 
-Both non-Windows columns build `Jones3D-headless`; the Babylon column
-(`-DJONES3D_PLATFORM_BABYLON=ON`) must give the same state file as the Null column for the same run.
+Every column builds `Jones3D-headless`: the Null column, the Babylon column
+(`-DJONES3D_PLATFORM_BABYLON=ON`) on Linux and macOS, and the Babylon column on 64-bit
+Windows. The same run must give the same state file, byte for byte, in all of them; the
+runner writes the state file in binary mode so Windows line endings do not differ. On
+Linux the Windows build runs under wine (`wine <build>/Jones3D/Jones3D-headless.exe ...`).
 `--input <file>` feeds a scripted-input file of `frame <n>: cmd <command>` and
 `frame <n>: key <name|number> down|up` lines; scripted keys take effect at the next
-`stdControl_ReadControls`, as device input does on Windows.
+`stdControl_ReadControls`, as device input does.
 
 The state file starts with one `cvar <name> <value>` line per simulation cvar (today
 `cvar game.profile enhanced` or `retail`), followed by the frame, game time, player state and one line per
@@ -357,7 +380,7 @@ Rules:
   before anything else changes; reference traces are never edited to make a
   change pass.
 - The same run must give identical state files on 32-bit, 64-bit and sanitizer
-  builds.
+  builds, and on the Null, Babylon and 64-bit Windows columns.
 - Traces need game data, so they are not permanent unit tests. Record the
   savegame, input script, frame count and build in the validation report.
 
@@ -385,39 +408,22 @@ cd <game>/Resource
 Like the traces, the run needs game data, so a capture is not a permanent unit
 test. Record the savegame, frame count and build with it.
 
-To record a reference capture of a real scene with the DX9 Windows build (the
-M6.1 references):
-
-1. Start the game with the capture file:
-   `Jones3D.exe -capture C:\path\scene.rcap`.
-2. Load the savegame for the scene.
-3. Open the console and turn the frame window on with `capture frames on`.
-   The capture is open from startup, but it records no frames until now.
-4. Play the scene.
-5. Turn the frame window off with `capture frames off`.
-6. Quit normally, so `JonesMain_Shutdown` closes and flushes the file.
-
-Add `-captureframes` to the command line to start with the frame window on, so scenes before gameplay, such as the intro cutscene and the main menu, are recorded without the console.
-
-The console also has a plain `capture` command, which prints the state, for
-example `Render capture: open, frames on`. `capture frames on|off` prints the
-new state; with no capture open it reports that the game must be started with
-`-capture <file>`. Anything else prints a one-line usage.
-
 A frame is large: in the regress scene the file grows by roughly 390 KB per
-recorded frame, so keep the frame window off for menus, loading and any scene
-that is not part of the reference. A capture holds only the calls of the
-Windows DX9 backend, and replay needs a matching backend (M6.6).
+recorded frame.
 
-Without Windows, the same build runs under wine on Linux: start Xvfb, run
-`wine Jones3D.exe -capture Z:\path\scene.rcap` from the game's `Resource`
-directory with `DISPLAY` set to it, and drive it with `xdotool`. Under
-software rendering the game samples keys once per slow frame, so hold keys
-(F10 for the console, Esc for the item menu) for about a second. Console text
-and quitting work best as window messages: post `WM_CHAR` for each character
-of `capture frames on` plus Enter, and `WM_CLOSE` to the "Open Jones 3D"
-window to quit normally, which closes the capture. The M6.1 references were
-recorded this way (ADR-0011).
+The M6.1 references were recorded with the DX9 Windows build, which M6.3 removed:
+`Jones3D.exe -capture <file>` (with `-captureframes` to record from startup) and
+the console command `capture frames on|off`, partly under wine with Xvfb and
+`xdotool` ([ADR-0011](arc42/09-decisions/ADR-0011-retire-win32-directx.md),
+[M6.1 references](References/M6.1/README.md)). A capture holds the calls of the
+backend that recorded it, and replay needs a matching backend (M6.6).
+
+The console command `capture` stays: it prints the state, for example
+`Render capture: open, frames on`, and `capture frames on|off` sets the frame
+window. With no capture open it reports that the game must be started with
+`-capture <file>`. The windowed `Jones3D` of the Babylon column does not parse
+`-capture` yet (`JonesCapture_ParseCommandLine` has no caller since M6.3), so
+today only `Jones3D-headless --capture` opens a capture.
 
 Rules:
 
@@ -440,9 +446,18 @@ replay with `--capture` produces the same bytes as the original unless the
 input contains calls the replay does not reproduce or a call returns different
 values.
 
-**Status:** the writer, the forwarding layers, the headless switch, the Windows
-DX9 switch and console command, and the replay tool exist, with unit tests
-beside them.
+**Status:** the writer, the forwarding layers, the headless switch, the console
+command and the replay tool exist, with unit tests beside them.
+
+<a name="renderer-reference-masks"></a>
+
+### 🖼️ Renderer Reference Masks
+
+The DirectX 9 rendering masks of the removed `std3D` system tests are kept in
+`Libs/std/Tests/tv/std3D/` as references for the tests of the new renderer.
+Nothing builds or audits them today; their scenes, sizes and provenance are in
+[that directory's README](../Libs/std/Tests/tv/README.md). Magenta pixels in a
+mask are ignored by a comparison; all other pixels are expected output.
 
 <a name="deterministic-unit-and-regression-tests"></a>
 
@@ -453,37 +468,21 @@ Integration tests can still live near the module that owns the scenario, but sho
 
 For parsers and file formats, prefer deterministic fuzz-style corpora in the normal unit tests before adding a separate fuzzing harness. Good examples are generated malformed JSON strings, exhaustive small truncation sweeps for binary containers, boundary-size argument lists, and generated round-trip vectors. These tests should be reproducible, fast enough for every CTest run, and should not use process-wide random seeds.
 
-The deterministic `stdTests` executable also owns process-isolated death tests when the production contract necessarily terminates the process. `stdPlatform` re-enters the same test executable in a private temporary directory, raises an unhandled exception after installing the production exception filter, and verifies the resulting `core.dmp` signature, version, stream directory bounds, and exception exit code. Keep child-only modes out of the normal Unity runner and suppress host error-reporting dialogs so CI cannot block on them.
+When a production contract necessarily terminates the process, test it in a child process: re-enter the same test executable in a private temporary directory and check the child's result. Keep child-only modes out of the normal Unity runner and suppress host error-reporting dialogs so CI cannot block on them. (The `stdPlatform` minidump death test did this until M6.3 removed the Win32 exception filter it tested.)
 
-The `stdBmp` tests include generated vectors plus selected public-domain images from BMP Suite 2.8. Their provenance, expected checksums, and malformed-file purpose are recorded in `Libs/std/General/Tests/tv/stdBmp/README.md`. Prefer extending that attributed corpus over copying unknown BMP files from the web.
+`stdBmpTest.c` and its vectors (generated images plus selected public-domain images from BMP Suite 2.8, recorded in `Libs/std/General/Tests/tv/stdBmp/README.md`) are kept but not built since M6.3: `stdBmp_WriteVBuffer` and `stdBmp_Load` lived in the removed Win32 backend. Prefer extending that attributed corpus over copying unknown BMP files from the web when the BMP code returns.
 
 <a name="system-and-device-tests"></a>
 
 ### 🖥️ System And Device Tests
 
-System tests are integration-style tests that touch host or device services such as Win32 windows, DirectInput, DirectDraw, Direct3D, OpenGL, audio devices, or filesystem locations outside small test vectors. Keep them in separate executables from deterministic unit tests and label them with `system`; add more specific labels such as `device`, `Win95`, `DirectX`, `OpenGL`, `audio`, or `gui` as appropriate.
+System tests are integration-style tests that touch host or device services such as windows, input devices, the GPU, audio devices, or filesystem locations outside small test vectors. None are built since M6.3 removed the Win32 and DirectX system tests; the Babylon render module (M6.4) is expected to bring the next ones. Keep them in separate executables from deterministic unit tests and label them with `system`; add more specific labels such as `device`, `audio`, or `gui` as appropriate.
 
 System/device tests may use Unity ignore results when the host cannot provide the needed service, for example a headless CI worker without a render device. They should still fail normally when the service was available and the engine behavior is wrong.
 
-When multiple system tests share host setup, keep that setup in a small local support file and keep the test cases themselves in the owning module files. For example, Win95 tests can share Win32 test-window setup through `stdWin95SystemTestSupport.c`, while DirectInput, display, and 3D checks live in their own `stdControlDX*SystemTest.c`, `stdDisplayDX*SystemTest.c`, and `std3DX*SystemTest.c` files.
+When multiple system tests share host setup, keep that setup in a small local support file and keep the test cases themselves in the owning module files.
 
-<a name="disruptive-system-tests"></a>
-
-### ⚠️ Disruptive System Tests
-
-Disruptive system tests are disabled by default through `JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS=OFF`. Use them for scenarios that can change fullscreen display modes, reset or recreate graphics devices, or disturb desktop input focus. Keep them in separate source files named `*DisruptiveSystemTest.c`, label them with `disruptive`, and make host capability failures explicit with Unity ignore messages.
-
-<a name="backend-specific-coverage"></a>
-
-### 🎮 Backend-Specific Coverage
-
-DX9 fullscreen color-depth tests check the retained request separately from the
-swap chain returned by Direct3D. Hosts may promote an RGB565 request to a
-32-bit swap chain. The tests still verify the actual current-mode and buffer
-formats, rendered pixels, restoration to windowed mode, and unchanged enumerated
-mode descriptions across the switch.
-
-DirectPlay-backed communication tests should stay deterministic until the reconstructed code exposes a real public DirectPlay startup/connection path. Keep no-device DX6 communication checks in `stdCommDX6Test.c`; add a `stdCommDX6SystemTest.c` only when it can initialize DirectPlay through normal engine entry points.
+Tests that can change fullscreen display modes, reset or recreate graphics devices, or disturb desktop input focus are disruptive: keep them in separate source files named `*DisruptiveSystemTest.c`, label them `disruptive`, keep them out of default builds, and make host capability failures explicit with Unity ignore messages.
 
 <a name="original-engine-io-test-vectors"></a>
 
@@ -641,13 +640,13 @@ change and rerun the permanent tests with vector-update modes disabled.
 | CMake option | Default | Effect |
 | --- | --- | --- |
 | `JONES3D_BUILD_TESTS` | ON | Builds Unity test executables and enables CTest |
-| `JONES3D_BUILD_SYSTEM_TESTS` | ON | Adds system/device tests when normal tests are enabled |
-| `JONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS` | OFF | Adds opt-in disruptive tests; requires system tests |
+| `JONES3D_PLATFORM_BABYLON` | OFF, ON on Windows | Builds the Babylon column instead of the Null column; Windows accepts only ON |
+| `JONES3D_QOL_IMPROVEMENTS` | ON | The Enhanced profile's QOL changes |
 | `JONES3D_RUNTIME_GUARDS` | OFF | Enables opt-in release safety checks and their rejection paths |
+| `JONES3D_SANITIZE` | OFF | AddressSanitizer and UndefinedBehaviorSanitizer; non-Windows only |
 
-Disabling normal tests also disables system tests. Disabling system tests forces
-disruptive tests off. Use separate build trees for backend and guard/QOL settings
-so an existing CMake cache does not silently select a different profile.
+Use separate build trees for column and guard/QOL settings so an existing CMake
+cache does not silently select a different profile.
 
 <a name="native-unit-builds"></a>
 
@@ -673,63 +672,50 @@ cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure -L unit
 ```
 
-Windows build with MinGW (i686), from any host:
+<a name="windows-unit-builds"></a>
+
+### 🪟 Windows Unit Builds
+
+Windows builds the Babylon column only, as a 64-bit program. Configuring with
+`-DJONES3D_PLATFORM_BABYLON=OFF` or for 32-bit Windows is a configure error.
+The column uses the real Microsoft CRT and the Windows SMUSH timer
+(`TimerWin32.c`). Until M6.6 it runs the Null renderer: the windowed `Jones3D.exe`
+shows nothing.
+
+With MinGW-w64 (x86_64) from Linux, the tests run under wine; the toolchain file
+sets wine as `CMAKE_CROSSCOMPILING_EMULATOR`, so CTest starts every test
+executable through it:
 
 ```bash
-cmake -S . -B build/mingw -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-i686.cmake -DCMAKE_BUILD_TYPE=Debug -DJONES3D_BUILD_PROGRAMS=OFF
-cmake --build build/mingw
+cmake -S . -B build/win64 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-x86_64.cmake -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/win64
+ctest --test-dir build/win64 -N -L unit
+ctest --test-dir build/win64 --output-on-failure -L unit
 ```
 
-Under MinGW, `stdConffile` has 2 known failing cases (`stdConffileTest.c:447`,
-`:662`) that pass natively.
+`stdTests` (the `std` entry) is not built on Windows; `std.OnBabylon` runs the
+same `std/General` suites there. Two known differences under wine:
 
-<a name="msvc-unit-builds"></a>
+- `std.OnBabylon` fails one case, `stdConffile`
+  `TestReadAndScanLineFormatsAndErrors`, because Wine's `vsscanf_s` lacks `%a`.
+  It passes natively; report it as a known Wine failure, not as passed.
+- `ctest -L check` does not work: CMake prefixes the `python3` command of the
+  Babylon boundary checks with the emulator. Run the checks in a native tree.
 
-### 🛠️ MSVC Unit Builds (legacy, until M6)
-
-Run these examples from the repository root in `cmd.exe` or a Visual Studio 2026
-Developer Command Prompt. They use MSVC Win32 and the Visual Studio 2026 generator,
-which requires CMake 4.2 or newer. Use subdirectories under `build/codex` for
-local alternate configurations.
-
-Use both sets of commands when required by
-[Validation Scope](#backend-validation-scope). For independent changes,
-choose the representative backend and run the affected unit suites in both
-Debug and Release.
-
-The following builds compile production code and all available tests. CTest
-lists the selected unit suites before running them; confirm that the expected
-module entries are present. Zero discovered tests do not validate a change.
-
-DX9, Debug and Release:
+With Visual Studio (MSVC x64), from a Developer Command Prompt; the Visual
+Studio 2026 generator needs CMake 4.2 or newer. CI runs the same in its
+`windows-babylon` column:
 
 ```bat
-cmake -S . -B build\codex\dx9-win32 -G "Visual Studio 18 2026" -A Win32 ^
-  -DJONES3D_USE_DIRECTX9=ON -DJONES3D_BUILD_PROGRAMS=OFF ^
-  -DJONES3D_BUILD_TESTS=ON -DJONES3D_BUILD_SYSTEM_TESTS=ON ^
-  -DJONES3D_QOL_IMPROVEMENTS=ON -DJONES3D_RUNTIME_GUARDS=OFF
-cmake --build build\codex\dx9-win32 --config Debug
-ctest --test-dir build\codex\dx9-win32 -C Debug -N -L unit
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -L unit
-cmake --build build\codex\dx9-win32 --config Release
-ctest --test-dir build\codex\dx9-win32 -C Release -N -L unit
-ctest --test-dir build\codex\dx9-win32 -C Release --output-on-failure -L unit
+cmake -S . -B build\win64-msvc -G "Visual Studio 18 2026" -A x64 -DJONES3D_PLATFORM_BABYLON=ON
+cmake --build build\win64-msvc --config Debug
+ctest --test-dir build\win64-msvc -C Debug -N -L unit
+ctest --test-dir build\win64-msvc -C Debug --output-on-failure -L unit
 ```
 
-DX6, Debug and Release:
-
-```bat
-cmake -S . -B build\codex\dx6-win32 -G "Visual Studio 18 2026" -A Win32 ^
-  -DJONES3D_USE_DIRECTX9=OFF -DJONES3D_BUILD_PROGRAMS=OFF ^
-  -DJONES3D_BUILD_TESTS=ON -DJONES3D_BUILD_SYSTEM_TESTS=ON ^
-  -DJONES3D_QOL_IMPROVEMENTS=ON -DJONES3D_RUNTIME_GUARDS=OFF
-cmake --build build\codex\dx6-win32 --config Debug
-ctest --test-dir build\codex\dx6-win32 -C Debug -N -L unit
-ctest --test-dir build\codex\dx6-win32 -C Debug --output-on-failure -L unit
-cmake --build build\codex\dx6-win32 --config Release
-ctest --test-dir build\codex\dx6-win32 -C Release -N -L unit
-ctest --test-dir build\codex\dx6-win32 -C Release --output-on-failure -L unit
-```
+MSVC builds with `/sdl`, which rejects the unbounded CRT functions (`strcpy`,
+`fopen`, `getenv` and others, warning C4996); use the bounded forms, which
+`j3dcrt` shims on the other hosts.
 
 <a name="guard-and-legacy-profiles"></a>
 
@@ -740,135 +726,39 @@ preserve the original unchecked contracts while retaining `STD_ASSERTREL`.
 When changing guard behavior, exercise the guard-enabled branch in a separate
 legacy-hardened tree:
 
-```bat
-cmake -S . -B build\codex\dx9-legacy-hardened-win32 -G "Visual Studio 18 2026" -A Win32 ^
-  -DJONES3D_USE_DIRECTX9=ON -DJONES3D_BUILD_PROGRAMS=OFF ^
-  -DJONES3D_BUILD_TESTS=ON -DJONES3D_BUILD_SYSTEM_TESTS=OFF ^
+```bash
+cmake -S . -B build/legacy-hardened -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release \
   -DJONES3D_QOL_IMPROVEMENTS=OFF -DJONES3D_RUNTIME_GUARDS=ON
-cmake --build build\codex\dx9-legacy-hardened-win32 --config Release
-ctest --test-dir build\codex\dx9-legacy-hardened-win32 -C Release -N -L unit
-ctest --test-dir build\codex\dx9-legacy-hardened-win32 -C Release --output-on-failure -L unit
+cmake --build build/legacy-hardened
+ctest --test-dir build/legacy-hardened -N -L unit
+ctest --test-dir build/legacy-hardened --output-on-failure -L unit
 ```
 
-For shared guard changes, repeat with `build\codex\dx6-legacy-hardened-win32`
-and `JONES3D_USE_DIRECTX9=OFF`. When changing QOL or preserved legacy behavior,
-also run with `JONES3D_QOL_IMPROVEMENTS=OFF` and `JONES3D_RUNTIME_GUARDS=OFF` in
-separate legacy trees for the affected backends.
+When changing QOL or preserved legacy behavior, also run with
+`JONES3D_QOL_IMPROVEMENTS=OFF` and `JONES3D_RUNTIME_GUARDS=OFF` in a separate
+legacy tree, in each column the change affects.
 
-<a name="system-test-runs"></a>
+<a name="ci-columns"></a>
 
-### 🖥️ System Test Runs
+### 🤖 CI Columns
 
-The baseline trees above build normal system tests but do not run them with
-`-L unit`. On a suitable interactive desktop, run relevant device coverage
-separately:
+The DirectX build and test workflows inherited from OpenJones3D were removed in
+M6.3. Two workflows remain:
 
-```bat
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -R "^std\.System$"
-ctest --test-dir build\codex\dx9-win32 -C Release --output-on-failure -R "^std\.System$"
-ctest --test-dir build\codex\dx6-win32 -C Debug --output-on-failure -R "^std\.System$"
-ctest --test-dir build\codex\dx6-win32 -C Release --output-on-failure -R "^std\.System$"
-```
+- `Babylon` (`.github/workflows/babylon.yml`) builds `Babylon/` on its own, runs its
+  tests and checks its module graph against `Babylon/allowed-deps.txt`.
+- `Game (native)` (`.github/workflows/game-native.yml`) builds the game and runs its
+  tests in Debug columns with `fail-fast: false`: the Null column (`linux-null`) and the
+  Babylon column (`linux-babylon`, `-DJONES3D_PLATFORM_BABYLON=ON`) on `ubuntu-24.04`
+  with Clang and Ninja, and the Babylon column as a 64-bit Windows program
+  (`windows-babylon`, MSVC x64 with the `Visual Studio 18 2026` generator on
+  `windows-2025-vs2026`). SDL3 is built from source in CI, so the Linux columns install
+  the same dependency packages as `babylon.yml`.
 
-Report Unity ignores and their prerequisite reasons separately from passes and
-failures. A passing CTest executable may still contain ignored Unity cases.
-
-<a name="disruptive-test-runs"></a>
-
-### ⚠️ Disruptive Test Runs
-
-Use separate build directories for local disruptive coverage. Run on a desktop
-where fullscreen changes and input focus changes can be exercised.
-
-```bat
-cmake -S . -B build\codex\dx9-win32-disruptive -G "Visual Studio 18 2026" -A Win32 ^
-  -DJONES3D_USE_DIRECTX9=ON -DJONES3D_BUILD_PROGRAMS=OFF ^
-  -DJONES3D_BUILD_TESTS=ON -DJONES3D_BUILD_SYSTEM_TESTS=ON ^
-  -DJONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS=ON
-cmake --build build\codex\dx9-win32-disruptive --config Debug --target stdDisruptiveSystemTests
-ctest --test-dir build\codex\dx9-win32-disruptive -C Debug --output-on-failure -R "^std\.DisruptiveSystem$"
-```
-
-```bat
-cmake -S . -B build\codex\dx6-win32-disruptive -G "Visual Studio 18 2026" -A Win32 ^
-  -DJONES3D_USE_DIRECTX9=OFF -DJONES3D_BUILD_PROGRAMS=OFF ^
-  -DJONES3D_BUILD_TESTS=ON -DJONES3D_BUILD_SYSTEM_TESTS=ON ^
-  -DJONES3D_BUILD_DISRUPTIVE_SYSTEM_TESTS=ON
-cmake --build build\codex\dx6-win32-disruptive --config Debug --target stdDisruptiveSystemTests
-ctest --test-dir build\codex\dx6-win32-disruptive -C Debug --output-on-failure -R "^std\.DisruptiveSystem$"
-```
-
-Also build and run Release when changing disruptive tests or their production
-paths. Keep disruptive failures, ignores, and unexecuted scenarios explicit in
-the report; a unit-suite pass does not resolve them.
-
-<a name="ci-profiles"></a>
-
-### 🤖 CI Profiles
-
-> The workflows below are inherited from OpenJones3D and cover the legacy MSVC
-> Win32 build. From milestone M5, CI builds and tests on Windows, Linux and
-> macOS, builds Babylon on its own, and checks includes and dependency licenses.
-
-Both backends use MSVC Win32 on the `windows-2025-vs2026` runner with
-the `Visual Studio 18 2026` CMake generator. The runner includes Visual Studio
-2026 and the Windows SDK. DX9 uses the SDK's Direct3D headers, import libraries,
-and FXC shader compiler; no separate legacy DirectX SDK installation is needed.
-DX6 still downloads the archived DirectX 6.1 SDK because it needs legacy APIs.
-
-The CI test integration uses four profiles for both backends:
-
-| Profile | Configuration | QOL | Runtime guards |
-| --- | --- | --- | --- |
-| `release-qol` | Release | ON | OFF |
-| `legacy-hardened` | Release | OFF | ON |
-| `legacy` | Release | OFF | OFF |
-| `debug-qol` | Debug | ON | OFF |
-
-Each profile enables `JONES3D_BUILD_TESTS` and disables
-`JONES3D_BUILD_SYSTEM_TESTS`. The MSVC Win32 build workflow uploads its build tree
-with the exact checked-out source revision and configuration. The reusable test
-workflow checks out that revision, restores the build at its original workspace
-path, discovers every registered CTest suite, and runs them all with finite
-timeouts, without a test-name filter. New suites registered in the CI build are
-included automatically. Discovery also requires the existing 13 suites:
-
-- `j3dcore.Macros`, `rdroid.Math`, `std`, `sound`, and `smush`
-- `sith`, `sith.DSS`, `sith.Multi`, and `sith.ThingQuetz`
-- `sith.AIInstinct`, `sith.AIInstinctFn`, `sith.AIMove`, and `sith.AIUtil`
-
-Test failures, missing required suites, and empty discovery fail the job.
-JUnit results and CTest logs are uploaded even when tests fail.
-
-Each build workflow calls its reusable test workflow with `needs: build` after
-all four build profiles succeed. The test jobs appear in the same workflow run,
-and a test failure fails that run. The test workflows use `workflow_call` and a
-local `uses: ./.github/workflows/test-dx*.yml` reference, so they come from the
-same commit as the caller and work on `develop` and pull requests without first
-merging the workflow files into `main`. Artifacts are downloaded from the current
-run. Separate build and test summary jobs require all four profiles in their
-stage to succeed. The four README badges track those named check results on
-`develop`, independently for each backend and stage. A failed, cancelled, or
-skipped stage does not report a passing result. See
-[GitHub's reusable workflow documentation](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
-
-These profiles check debug assertions, optimization-sensitive behavior, and
-opt-in guard rejection paths. System and disruptive tests remain outside CI
-because they require local devices or can disturb the desktop.
-
-<a name="native-ci-columns"></a>
-
-### 🐧 Native CI Columns
-
-`Game (native)` (`.github/workflows/game-native.yml`) builds the game natively and runs its
-tests on Linux and macOS in four Debug columns with Ninja and `fail-fast: false`: the Null
-column and the Babylon column (`-DJONES3D_PLATFORM_BABYLON=ON`) on `ubuntu-24.04` with Clang,
-and the same two on `macos-15-intel` with the system Apple clang. SDL3 is built from source in
-CI, so the Linux columns install the same dependency packages as `babylon.yml`; macOS needs
-only Ninja.
-
-The macOS columns of this workflow and of `babylon.yml` are commented out for now because the
-macOS runners are flaky (jobs not acquired, timing failures). Uncomment them to turn macOS back on.
+The macOS columns of both workflows (`macos-null` and `macos-babylon` on
+`macos-15-intel` with the system Apple clang) are commented out for now because the
+macOS runners are flaky (jobs not acquired, timing failures). Uncomment them to turn
+macOS back on.
 
 - Unit suites run as `ctest -N -L unit` followed by `ctest --output-on-failure -L unit`, so the
   discovery list is logged before the results.
@@ -881,7 +771,10 @@ macOS runners are flaky (jobs not acquired, timing failures). Uncomment them to 
   `sith.AIInstinct`, `sith.AIInstinctFn`, `sith.AIMove`, `sith.AIUtil`) are not built on Apple
   hosts: they need GNU ld's `-no-pie -Wl,-Ttext-segment=0x20000000` to put the synthetic arena in
   the window that `sithVecTest_AssertArenaPlacement` requires, and ld64 offers no equivalent.
-  Both Linux columns still run them.
+  The Linux columns still run them.
+
+Traces need game data, so CI runs none; compare them locally on the Null, Babylon
+and 64-bit Windows columns (see [Trace Tests](#trace-tests)).
 
 <a name="intermittent-failures"></a>
 
@@ -912,7 +805,7 @@ CTest can terminate a timed-out process before its teardown runs.
 Within one CTest run, use a shared `RESOURCE_LOCK` for tests that compete for the
 desktop, display mode, input focus, or the same device. Use `RUN_SERIAL` when a
 test must run without any other test in that invocation. These properties
-coordinate one CTest scheduler; serialize conflicting DX6/DX9 test runs across
+coordinate one CTest scheduler; serialize conflicting device test runs across
 build directories and separate invocations as well.
 
 A capability skip still needs a clear reason, and a timeout is a failure to
@@ -921,103 +814,6 @@ properties are already configured for an existing suite.
 See CMake's [TIMEOUT](https://cmake.org/cmake/help/latest/prop_test/TIMEOUT.html),
 [RESOURCE_LOCK](https://cmake.org/cmake/help/latest/prop_test/RESOURCE_LOCK.html),
 and [RUN_SERIAL](https://cmake.org/cmake/help/latest/prop_test/RUN_SERIAL.html) documentation.
-
-<a name="visual-system-tests"></a>
-
-## 🖼️ Visual System Tests
-
-<a name="presentation-and-input"></a>
-
-### 🎥 Presentation And Input
-
-Win95 visual system tests show their render window by default so local runs can
-be inspected while the BMP masks are compared. Set
-`JONES3D_SYSTEM_TEST_HIDE_WINDOW=1` to restore hidden-window behavior, and set
-`JONES3D_SYSTEM_TEST_FRAME_DELAY_MS=<milliseconds>` to adjust or disable the
-minimum visual frame interval. A value of `0` disables pacing. When the exact
-interval is not set, `JONES3D_SYSTEM_TEST_VISUAL_SPEED=<factor>` scales the
-default 100 ms interval; `2` is twice as fast, `0.5` is half speed, and `0`
-disables pacing. Window presentation, render, readback, and comparison work count
-toward the interval, so 320x240 and 640x480 sequences are presented at the same
-rate when the host can keep up.
-
-In windowed mode, the visible preview paints a read-only copy of the same
-backbuffer used by the BMP mask assertions. Exclusive fullscreen presentation
-is owned by the graphics backend and does not use that GDI preview.
-
-Injected keyboard and mouse system tests require their visible test window to
-hold foreground focus before sending input. If the host denies focus, or hidden
-window mode is enabled, these cases report that prerequisite as a skip. They
-attempt to restore the previous foreground window during teardown. Run them on
-an unlocked interactive desktop that allows the test window to become active.
-
-The DX6 depth-buffer mode-switch test uses the complete pixel format and memory
-placement selected by `std3D_Open()`, then checks the attached buffer after each
-recreation; it does not assume that a bare 16-bit depth format is supported.
-
-<a name="bmp-fixture-coverage"></a>
-
-### 🖼️ BMP Fixture Coverage
-
-Win95 `std3D` system-test BMP vectors live under
-`Libs/std/Tests/tv/std3D/<backend>` (dx9 and opengl; dx6 was dropped in M6.3). Most are backend-specific 320x240
-24-bit BMP masks; magenta pixels are ignored by the comparison helper, while all
-other pixels are expected rendered output. The DX6 explicit-mipmap cube, DX9
-automatic-mipmap cube, and combined DX9 mipmap/MSAA/anisotropic cube sequences
-use 640x480 masks so texture LOD and edge filtering remain useful to inspect
-without quadrupling the size of every visual vector. Both the explicit-chain
-and automatic-mipmap variants of the combined DX9 sequence have their own
-masks.
-
-`std3DTestVectorTest.c` audits the golden BMP corpus without opening a graphics
-device. It pins the expected DX6, DX9, and OpenGL file counts; verifies every
-expected filename, Windows 3.x BMP header, dimensions, 24-bit BI_RGB layout,
-and exact pixel payload; rejects blank or single-color images; and checks that
-adjacent animation frames differ while each sequence retains substantial frame
-diversity. This deterministic audit belongs to the `std` unit suite and can run in CI
-without graphics services. When adding or intentionally regenerating vectors,
-update the audit inventory in the same change.
-
-The feature cube vectors use a 32-frame sequence: rotate near the camera, move
-backward while rotating, rotate at the far distance, then move forward while
-rotating. The shared geometry-mode baseline uses nine 10-degree rotation frames
-for vertex, wireframe, white solid, textured, textured with per-vertex color,
-and solid with interpolated RGB vertex-color cases.
-
-The mipmap cube vectors use explicit UV-grid mip chains and project the full
-texture once onto each visible cube face. Every lower level is generated from
-its parent with a deterministic 2x2 box filter. DX9 uses the complete ten-level
-chain from 512x512 through 1x1; DX6 uses the complete nine-level chain from
-256x256 through 1x1 for devices that follow the legacy texture-size limit. The
-32-frame DX6 explicit-chain sequence uses 640x480 output, while the compact DX9
-explicit-chain baseline remains 320x240.
-
-DX9 also has a separate 32-frame 640x480 automatic-mipmap sequence. It enables
-`graphics.mipmapAutoGen`, uploads only the 512x512 top level, verifies that the
-cached texture uses `D3DUSAGE_AUTOGENMIPMAP`, and renders near/far frames that
-exercise the driver-generated levels. Direct3D keeps those generated sublevels
-driver-managed, so the test verifies their behavior through sampled output
-rather than attempting to read the hidden levels directly.
-
-DX9-only system vectors cover anisotropic filtering and MSAA. The MSAA coverage
-includes a triangle probe plus 32-frame cube masks for wireframe, white solid,
-textured, textured with vertex color, and solid with interpolated RGB vertex
-color. Tests request 16x MSAA and let the DX9 display layer select the highest
-supported standard level by falling back through 8x, 4x, and 2x. The tests are
-ignored when the host cannot create any of those windowed MSAA modes. A
-separate 32-frame 640x480 sequence combines the explicit mip chain, trilinear
-mip filtering when supported, anisotropic minification, and the selected MSAA
-level. A second sequence exercises the same MSAA and anisotropic path with the
-DX9 driver-generated mip chain. DX6 has no MSAA or anisotropic vectors.
-
-<a name="regenerating-backend-baselines"></a>
-
-### ♻️ Regenerating Backend Baselines
-
-Set `JONES3D_SYSTEM_TEST_UPDATE_VECTORS=1` only when intentionally regenerating
-BMP expectations from the current backend. The test writes the displayed back
-buffer before loading and comparing the corresponding vector, so rerun without
-the variable afterward to validate the generated files normally.
 
 <a name="validation-report"></a>
 
@@ -1028,7 +824,7 @@ Include the following in the change description or review reply:
 - Functions or macros covered, important cases, and any known coverage gaps.
 - Regression proof for fixes, or the reason it was unavailable, plus numerical
   tolerance rationale and coverage findings when collected.
-- Build trees (native, sanitizer, Windows), compiler, Debug/Release
+- Build trees (Null, Babylon, 64-bit Windows, sanitizer), compiler, Debug/Release
   configuration, guard/QOL settings and scope rationale, with the commands
   actually run.
 - For simulation changes: the trace runs (savegame, input script, frame count,
@@ -1063,17 +859,17 @@ Making them a required CI check is planned with the three-platform CI in M5.
 The `rdroidTests`, `soundTests`, `smushTests`, `sithTests`, and `sithDSSTests` targets are available and
 included in a full build. Use the matching target and CTest entry for a focused rebuild and run:
 
-```bat
-cmake --build build\codex\dx9-win32 --config Debug --target rdroidTests
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -R "^rdroid\.Math$"
-cmake --build build\codex\dx9-win32 --config Debug --target soundTests
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -R "^sound$"
-cmake --build build\codex\dx9-win32 --config Debug --target smushTests
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -R "^smush$"
-cmake --build build\codex\dx9-win32 --config Debug --target sithTests
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -R "^sith$"
-cmake --build build\codex\dx9-win32 --config Debug --target sithDSSTests
-ctest --test-dir build\codex\dx9-win32 -C Debug --output-on-failure -R "^sith\.DSS$"
+```bash
+cmake --build build/native --target rdroidTests
+ctest --test-dir build/native --output-on-failure -R "^rdroid\.Math$"
+cmake --build build/native --target soundTests
+ctest --test-dir build/native --output-on-failure -R "^sound$"
+cmake --build build/native --target smushTests
+ctest --test-dir build/native --output-on-failure -R "^smush$"
+cmake --build build/native --target sithTests
+ctest --test-dir build/native --output-on-failure -R "^sith$"
+cmake --build build/native --target sithDSSTests
+ctest --test-dir build/native --output-on-failure -R "^sith\.DSS$"
 ```
 
 These focused commands supplement the validation selected under
@@ -1129,11 +925,12 @@ and compressor state, including chained block calls.
 
 ### 🎞️ Smush Fixtures
 
-The `smush` suite (`smushTests`, CTest entry `smush`, labels `unit;smush;<backend>`) links the smush library and runs
+The `smush` suite (`smushTests`, CTest entry `smush`, labels `unit;smush`) links the smush library and runs
 every area against the real functions of the other areas; the only mocks are the LEC services (share table, allocator,
-timer), an in-memory file system, the executable's zlib `gz*` functions (through the `Zfilio_TestSetGz` seam) and a pure C
-`IDirectSound`. Each area has its own test file and CMake list under `Libs/smush/Tests`: `SmushCoreTest.c` (SmushPlay,
-LecShare, Timer, Memory, List, Bitmap, Blit), `SmushSoundTest.c` (Engine, Mixer, Dsnd), `SmushCodecTest.c` (D_bloc16,
+timer), an in-memory file system and the executable's zlib `gz*` functions (through the `Zfilio_TestSetGz` seam). The pure
+C `IDirectSound` mock went with the DirectSound driver `Dsnd.c` in M6.3. Each area has its own test file and CMake list
+under `Libs/smush/Tests`: `SmushCoreTest.c` (SmushPlay, LecShare, Timer, Memory, List, Bitmap, Blit), `SmushSoundTest.c`
+(Engine, Mixer, DsndNull), `SmushCodecTest.c` (D_bloc16,
 D_wave, Decode), `SmushStreamTest.c` (Cdstream, Framestream, Stdfile, Stdio, Zfilio, Readauto, Frame, Pcplay) and
 `SmushAsmTest.c`.
 

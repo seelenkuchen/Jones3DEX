@@ -1,12 +1,16 @@
 # Boot And Lifecycle
 
-This page documents how control enters OpenJones3D, how the subsystem stack is started, how worlds are opened, and how a frame flows from the outer Windows host loop into the gameplay and renderer layers.
+This page documents how control enters OpenJones3D, how the subsystem stack is started, how worlds are opened, and how a frame flows from the outer host loop into the gameplay and renderer layers.
 
 Primary source files:
 
-- `Jones3D/Platform/Win32/WinMain.c`
+- [`Jones3D/Platform/Null/main.c`](../../../Jones3D/Platform/Null/main.c)
+- [`Jones3D/Platform/Null/JonesHeadless.c`](../../../Jones3D/Platform/Null/JonesHeadless.c)
+- [`Jones3D/Platform/Babylon/main.cpp`](../../../Jones3D/Platform/Babylon/main.cpp)
+- [`Jones3D/Platform/Babylon/mainWindowed.cpp`](../../../Jones3D/Platform/Babylon/mainWindowed.cpp)
+- [`Jones3D/Platform/Babylon/JonesBabylon.c`](../../../Jones3D/Platform/Babylon/JonesBabylon.c)
 - [`Jones3D/Main/JonesMain.c`](../../../Jones3D/Main/JonesMain.c)
-- `Libs/wkernel/wkernel.c`
+- `Libs/wkernel/wkernelNull.c` and `Libs/wkernel/wkernelBabylon.cpp`
 - [`Libs/std/General/std.c`](../../../Libs/std/General/std.c)
 - [`Libs/std/General/stdPlatform.c`](../../../Libs/std/General/stdPlatform.c)
 - [`Libs/rdroid/Main/rdroid.c`](../../../Libs/rdroid/Main/rdroid.c)
@@ -15,18 +19,28 @@ Primary source files:
 
 ## Process Entry
 
-The game does not start in [`JonesMain_Startup()`](../../../Jones3D/Main/JonesMain.c#L254) directly. The real entry chain is:
+The game does not start in [`JonesMain_Startup()`](../../../Jones3D/Main/JonesMain.c#L180) directly. The columns share the run logic but have their own entry points.
 
-1. `WinMain()`, which resets the globals and calls `Indy3D_WinMain()` in `Jones3D/Platform/Win32/WinMain.c`
-2. `wkernel_SetProcessProc()`, `wkernel_SetStartupCallback()`, and `wkernel_SetShutdownCallback()`
-3. `wkernel_Run()`
-4. [`JonesMain_Startup()`](../../../Jones3D/Main/JonesMain.c#L254)
+**Null column (headless).**
 
-`Indy3D_WinMain()` creates the single-instance mutex, installs the top-level callbacks, and hands control to `wkernel_Run()`. `wkernel` is the outer host shell: it creates the main window, pumps Win32 messages, calls the startup callback once, and then repeatedly calls the registered process callback until the application requests exit.
+1. `main()` in `Jones3D/Platform/Null/main.c` calls `JonesHeadless_Run()`.
+2. `JonesHeadless_Run()` parses its options, calls `Jones3D_ResetAllGlobals()`, then starts the engine.
+3. [`JonesMain_Startup()`](../../../Jones3D/Main/JonesMain.c#L180) runs once.
+4. `JonesMain_Process()` runs in a loop until it returns -1 (engine quit) or 1 (finish); `--frames` and `--step` bound the run and drive the virtual clock.
+5. `JonesMain_Shutdown()` runs once.
 
-That means the runtime has a clear split:
+**Babylon column.** The composition root builds the Babylon objects first, installs them as the adapter context, and then runs the same sequence.
 
-- `wkernel` owns the outer process loop and window/event integration.
+1. `main()` in `Jones3D/Platform/Babylon/main.cpp` (headless) creates the SDL file system and clock, a Null platform for scripted input, a Null virtual clock and the cvar registry, sets the context and calls `JonesHeadless_Run()`. `mainWindowed.cpp` creates the SDL platform and game window instead and calls `JonesBabylon_Run()`.
+2. `JonesBabylon_Run()` calls `Jones3D_ResetAllGlobals()`, installs the activation callback through `wkernel_SetActivateCallback()`, and calls `JonesMain_Startup()`.
+3. It loops on `JonesMain_Process()` while the Babylon wkernel drains the platform event queue (`wkernel_PeekProcessEvents()`), turns a quit request or a closed window into the `WM_QUIT` answer, and hands focus changes to `JonesMain_OnAppActivate(NULL, bActive)`.
+4. `JonesMain_Shutdown()` runs.
+
+Until M6.3 the Windows entry was `WinMain()` in `Jones3D/Platform/Win32/WinMain.c`, which called `Indy3D_WinMain()`, `wkernel_Run()` and the Win32 message loop. That code went with the Win32 and DirectX game.
+
+The runtime still has a clear split:
+
+- The column's entry point and `wkernel` own the outer process loop and window/event integration.
 - `JonesMain` owns game startup, display startup, menus, level loading, and the current per-frame game callback.
 
 ## Host Services
@@ -92,7 +106,7 @@ There are two important architectural points here:
 
 OpenJones3D keeps the original registry-facing startup module, but layers a JSON config system on top of it.
 
-[`stdConfig_Startup()`](../../../Libs/std/General/stdConfig.c#L65) opens or creates `Jones.cfg`, enables auto-save, and installs a mapping table between JSON keys and original registry values. Reads first consult JSON; if a key is missing, `stdConfig` falls back to the mapped registry value and then writes that value into the JSON file.
+[`stdConfig_Startup()`](../../../Libs/std/General/stdConfig.c#L65) opens or creates `Jones.cfg`, enables auto-save, and installs a mapping table between JSON keys and original registry values. Reads first consult JSON; if a key is missing, `stdConfig` falls back to the mapped registry value and then writes that value into the JSON file. Both columns link the Null registry (`Libs/w32util/wuRegistryNull.c`), which never stores anything, so `Jones.cfg` is the only source and the registry fallback just propagates defaults.
 
 Architecturally, that matters because configuration is no longer an application-only detail. Runtime subsystems such as rendering, sound, physics, HUD, and gameplay helpers pull settings from `stdConfig`, which makes them easier to configure and easier to extend than the original registry-only model.
 
@@ -120,12 +134,7 @@ JonesDisplay
   -> rdOpen
 ```
 
-The exact implementation under `stdDisplay` and `std3D` depends on the build:
-
-- DirectX 6.1c build: `Libs/std/Win95/DX6/`
-- DirectX 9 build: `Libs/std/Win95/DX9/`
-
-That backend split is discussed in more detail in [Rendering-And-Visibility.md](../05-building-blocks/Rendering-And-Visibility.md) and [QOL-And-Compatibility.md](../08-crosscutting/QOL-And-Compatibility.md).
+Since M6.3 all three hosts use the Null display and 3D backends in `Libs/std/Null/` (`stdDisplayNull.c`, `std3DNull.c`): the game opens and selects devices but nothing is drawn. The Babylon render module replaces them in M6.6. The backend split is discussed in more detail in [Rendering-And-Visibility.md](../05-building-blocks/Rendering-And-Visibility.md) and [QOL-And-Compatibility.md](../08-crosscutting/QOL-And-Compatibility.md).
 
 ## Static World And Gameplay World
 

@@ -21,11 +21,11 @@ This is a tool format, not a game asset. Nothing in the game reads it.
 ## Who Writes And Reads
 
 - Writer: `Jones3D-headless --capture <file>`
-  ([`JonesHeadless.c`](../../Jones3D/Platform/Null/JonesHeadless.c)). On Windows the DX9 build
-  accepts `Jones3D.exe -capture <file>` (`WinMain.c`);
-  it starts with the frame window off and the `capture frames on|off` console command switches it
-  ([`JonesConsole.c`](../../Jones3D/Display/JonesConsole.c)); adding `-captureframes` starts it on
-  instead.
+  ([`JonesHeadless.c`](../../Jones3D/Platform/Null/JonesHeadless.c)); the Babylon column writes the
+  `babylon` column name and the Null column writes `null`. The windowed `Jones3D` does not parse
+  `-capture` yet, so nothing writes the `dx9` column name that the removed DX9 build used. The
+  console command `capture frames on|off` ([`JonesConsole.c`](../../Jones3D/Display/JonesConsole.c))
+  still switches the frame window.
 - Reader: the replay tool (M6.0c).
 
 The game remembers the request in `JonesMain_SetCapture()`
@@ -33,7 +33,8 @@ The game remembers the request in `JonesMain_SetCapture()`
 after the host services exist and before the first renderer call. It closes the capture in
 `JonesMain_Shutdown()`, before the host services go away.
 
-The header carries the name of the column that wrote the file: `null`, `babylon` or `dx9`.
+The header carries the name of the column that wrote the file: `null` or `babylon`. Captures written by
+the removed DirectX 9 build carry `dx9`.
 
 ## Replay
 
@@ -347,6 +348,6 @@ Out-parameters are recorded only where the payload lists them. `std3D_GetTexture
 `std3D_AllocSystemTexture` records num 0 when `apVBuffers` is NULL or `numMipLevels` is above
 `UINT32_MAX`.
 
-The five DX9-only diagnostic functions of `std3D.h` (`std3D_IsShaderSystemActive`,
-`std3D_IsAnisotropicFilteringSupported`, `std3D_IsMipmapAutoGenSupported`, `std3D_IsMSAASupported`,
-`std3D_TestSetUseBuffers`) are not part of the stream.
+The four diagnostic functions still declared in `std3D.h` (`std3D_IsShaderSystemActive`,
+`std3D_IsAnisotropicFilteringSupported`, `std3D_IsMipmapAutoGenSupported`, `std3D_IsMSAASupported`)
+are not part of the stream; no backend defines them since M6.3.

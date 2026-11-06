@@ -39,11 +39,12 @@ Dependencies only point down. Babylon depends on nothing above it, and nothing i
 or Sith concept ([ADR-0006](../09-decisions/ADR-0006-babylon-engine-in-repo.md),
 [ADR-0007](../09-decisions/ADR-0007-adapter-between-game-and-babylon.md)).
 
-**Today (end of M5):** three platform columns exist side by side, chosen at configure time. The Win32 and
-DirectX 9 column and the Null column are the M3 and M4 backends described in
-[Platform-Layer.md](Platform-Layer.md). The **Babylon column** (`-DJONES3D_PLATFORM_BABYLON=ON`, non-Windows)
+**Today (M6.3):** two platform columns exist, chosen at configure time. The **Null column** is the M4 backend
+described in [Platform-Layer.md](Platform-Layer.md). The **Babylon column**
+(`-DJONES3D_PLATFORM_BABYLON=ON`; the default and only choice on Windows, which builds it as a 64-bit program)
 is the Null column with time, files, input and the window moved onto Babylon; rendering and sound still use
-the Null backends until M6 and M7. Both non-Windows columns produce identical headless traces.
+the Null backends until M6 and M7. The Win32 and DirectX columns were removed in M6.3. All columns produce
+identical headless traces, byte for byte.
 
 ## 5.2 Level 2: Babylon Engine
 

@@ -1,6 +1,6 @@
 # Rendering And Visibility
 
-This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the split between the legacy DirectX 6.1c backend and the DirectX 9 backend.
+This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)); until the Babylon renderer lands (M6.6) the Null backend accepts every call and draws nothing.
 
 Primary source files:
 
@@ -10,9 +10,8 @@ Primary source files:
 - [`Libs/rdroid/Main/rdroid.c`](../../../Libs/rdroid/Main/rdroid.c)
 - [`Libs/rdroid/Raster/rdCache.c`](../../../Libs/rdroid/Raster/rdCache.c)
 - [`Libs/std/General/std3D.h`](../../../Libs/std/General/std3D.h)
-- `Libs/std/Win95/DX6/std3DX6.c`
-- `Libs/std/Win95/DX9/std3DX9.c`
-- `Libs/std/Win95/DX9/stdShaderDX9.c`
+- `Libs/std/Null/std3DNull.c` and `Libs/std/Null/stdDisplayNull.c`
+- the Babylon render module (M6.6)
 
 ## Layer Split
 
@@ -30,7 +29,7 @@ Rendering is divided across three layers:
 
    Own the actual graphics API backend, device state, texture allocation, projection setup, scene begin/end, and buffer presentation.
 
-The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it to Direct3D.
+The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it to the selected backend (Null today, Babylon from M6.6).
 
 ## Camera System
 
@@ -693,9 +692,9 @@ From the rest of the engine's perspective, `std3D` is the hardware abstraction l
 
 ## DirectX 6.1c Backend
 
-The legacy backend lives under `Libs/std/Win95/DX6/`.
+The legacy backend lived under `Libs/std/Win95/DX6/` and was removed in M6.3. It is described here as the reference the Babylon renderer replaces.
 
-Architectural characteristics:
+It had these architectural characteristics:
 
 - built around older DirectDraw/Direct3D interfaces
 - explicit viewport object usage
@@ -706,9 +705,9 @@ This path represents the original renderer architecture most closely.
 
 ## DirectX 9 Backend
 
-The modern backend lives under `Libs/std/Win95/DX9/`.
+The modern backend lived under `Libs/std/Win95/DX9/` and was removed in M6.3. Its recorded screenshots and render captures are the visual and call-stream reference for the Babylon renderer (M6.1).
 
-Architectural extensions introduced there include:
+Its architectural extensions included:
 
 - Direct3D 9 device/runtime management
 - optional vertex and index buffer paths
@@ -723,25 +722,25 @@ metadata describe the actual created surfaces. For example, a host may accept
 an RGB565 fullscreen request but create a 32-bit swap chain; the enumerated
 16-bit mode remains available for later selections.
 
-The shader system owns:
+The shader system owned:
 
 - compiled shader objects
 - shader parameter tables
 - vertex declarations
 - global shader constants such as viewport and fog data
 
-This is not just a backend port. It is a meaningful extension of the renderer architecture while still preserving the same upper-layer scene traversal and submission model.
+This was not just a backend port. It was a meaningful extension of the renderer architecture while still preserving the same upper-layer scene traversal and submission model.
 
 ## Where OpenJones3D Extends The Original Renderer
 
-The biggest architectural extensions are:
+The biggest architectural extensions were:
 
-- DirectX 9 backend alongside the original DirectX 6.1c backend
-- shader layer for the DX9 path
-- VBO/IBO support in the DX9 path
+- DirectX 9 backend alongside the original DirectX 6.1c backend (both removed in M6.3)
+- shader layer for the DX9 path (removed with it)
+- VBO/IBO support in the DX9 path (removed with it)
 - wider texture-format handling, including true-color textures
 - breadth-first off-screen thing/light traversal
 - longer default collection distances
-- modern filtering options, automatic mipmap generation, and MSAA support in the lower graphics layer
+- modern filtering options, automatic mipmap generation, and MSAA support in the lower graphics layer (removed with DX9)
 
 Crucially, those changes sit underneath or alongside the original scene-graph/sector-portal logic instead of replacing the entire renderer design. The renderer still thinks in terms of sectors, surfaces, adjoins, clip frusta, thing sectors, and per-vertex dynamic lights.

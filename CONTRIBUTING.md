@@ -263,7 +263,7 @@ are set at the start of milestone M5 and documented in `Babylon/`. Until then:
 - Every interface has a Null backend that honors its contract without a device.
 - Ownership is expressed in C++ types (RAII, owning smart pointers) inside Babylon. Whatever crosses an
   interface states who owns it.
-- No platform types (Windows, DirectX, SDL) in Babylon's public headers.
+- No platform types (Windows, SDL, graphics APIs) in Babylon's public headers.
 - Babylon's tests live in `Babylon/` and run against every backend, including Null.
 - Adapter files in `Libs/` may be C++ and export the recovered functions as `extern "C"`.
 
@@ -367,10 +367,10 @@ tests must use saved fixtures without invoking `Indy3D.exe` or depending on game
 ### Build And Validation Requirements
 
 Build and run the unit tests natively (Clang) for every engine change; see
-[Docs/Testing.md](Docs/Testing.md#running-tests) for the commands. Code that the legacy Win32 and DirectX 9
-build compiles (until milestone M6) also needs a Windows build, with MinGW or MSVC. Changes to the simulation
-also need a headless trace comparison against the retail profile. Changes to Babylon need its tests against
-every backend.
+[Docs/Testing.md](Docs/Testing.md#running-tests) for the commands. Code that compiles differently on
+Windows (paths, CRT calls, `_WIN32` branches) also needs a 64-bit Windows build, with MinGW x86_64 or
+MSVC x64. Changes to the simulation also need a headless trace comparison against the retail profile.
+Changes to Babylon need its tests against every backend.
 
 Exercise changed guard/QOL branches with the corresponding additional profiles. Verify that the intended
 CTest entries were discovered and report unavailable prerequisites, ignored cases, and unresolved failures

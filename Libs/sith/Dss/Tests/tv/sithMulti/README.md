@@ -6,8 +6,9 @@ inside the retail `Indy3D.exe` on a synthetic engine state. It is consumed by `T
 `Libs/sith/Dss/Tests/sithMultiTest.c`. The tests read only this file; they never launch or depend on `Indy3D.exe` or
 game assets.
 
-Multiplayer is dormant in the game (there is no UI for it and the DirectX 9 build uses a stub of the comm layer), so
-the comm layer and every other engine function the module calls are stubbed and their calls recorded.
+Multiplayer is dormant in the game (there is no UI for it and the comm layer is a stub, `Libs/std/Null/stdCommNull.c`,
+in every column), so the comm layer and every other engine function the module calls are stubbed and their calls
+recorded.
 
 ### Reference
 
@@ -193,8 +194,9 @@ count without rounding it to float; the `Respawn_edge_*` cases) differed in the 
 - The tests redirect the engine globals that `sithMulti.c` reaches through `J3D_DECL_FAR_VAR` to static memory
   (`sithMultiTestAddrs.h` on top of `sithDSSTestAddrs.h`, force-included) and are linked at the fixed high base of
   the DSS tests.
-- The reconstructed functions reproduce every case except the ones listed under Known Differences, in Debug and
-  Release for both DirectX 6 and DirectX 9 builds.
+- The reconstructed functions reproduced every case except the ones listed under Known Differences, in Debug and
+  Release for both DirectX 6 and DirectX 9 builds. Those builds were removed in M6.3; this is a record of the
+  validation they provided.
 
 ### SHA-256
 

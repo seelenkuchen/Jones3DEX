@@ -37,10 +37,12 @@ This repository does **not** include any game assets. You need a legal copy of t
 
 Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
 
-- **Playable today:** on Windows, through the legacy Win32 and DirectX 9 build inherited from OpenJones3D.
-- **Runs headless today:** on Linux and other systems, 32-bit and 64-bit, without a window or sound. This is
-  what the behavior checks use.
-- **Next:** the Babylon Engine foundation (M5), then its renderer (M6), then playable on all three platforms (M7).
+- **Runs headless today:** on Linux and other systems, 32-bit and 64-bit, and on 64-bit Windows, without a
+  window or sound. This is what the behavior checks use.
+- **Not playable for now:** the Win32 and DirectX 9 build inherited from OpenJones3D is gone
+  ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)). The windowed `Jones3D` of the Babylon
+  column opens a window but shows nothing until the Babylon renderer draws (M6).
+- **Next:** the Babylon renderer (M6), then playable on all three platforms (M7).
 
 ## Where it comes from
 
@@ -53,33 +55,15 @@ with OpenJones3D is tagged `upstream-compatible-final`. The reasons are in
 [ADR-0001](Docs/arc42/09-decisions/ADR-0001-hard-fork.md) and
 [ADR-0004](Docs/arc42/09-decisions/ADR-0004-drop-binary-compatibility.md).
 
-Inherited from OpenJones3D, among others: a DirectX 9 renderer with widescreen and high resolutions,
-`Jones.cfg` instead of the Windows Registry, high-precision frame timing, more sound channels, restored console
-commands and COG functions, and many bug and crash fixes. See [CHANGELOG.md](CHANGELOG.md).
+Inherited from OpenJones3D, among others: widescreen and high resolutions (in its DirectX 9 renderer, which
+the Babylon renderer replaces), `Jones.cfg` instead of the Windows Registry, high-precision frame timing, more
+sound channels, restored console commands and COG functions, and many bug and crash fixes. See
+[CHANGELOG.md](CHANGELOG.md).
 
 <a id="building"></a>
 ## Building
 
 CMake 3.15 or newer is required.
-
-### Windows (legacy Win32 and DirectX 9 build)
-
-With Visual Studio:
-
-```bat
-cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
-cmake --build build --config Release
-```
-
-With MinGW (i686), from any host:
-
-```bash
-cmake -S . -B build/mingw -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-i686.cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build/mingw
-```
-
-Copy `Jones3D.exe` into the game's `Resource` directory and start it there. This build is removed once the
-Babylon renderer reaches parity (M6).
 
 ### Linux and other systems (headless)
 
@@ -98,6 +82,25 @@ cd <game>/Resource
 
 Clang is the tested compiler. GCC works but needs extra flags for now, see
 [chapter 11](Docs/arc42/11-risks-and-technical-debt.md). More build profiles and the test workflow are in [Docs/Testing.md](Docs/Testing.md).
+
+### Windows (64-bit)
+
+Windows builds the Babylon column, as a 64-bit program only. With Visual Studio:
+
+```bat
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DJONES3D_PLATFORM_BABYLON=ON
+cmake --build build --config Release
+```
+
+With MinGW-w64 (x86_64), from a Linux host:
+
+```bash
+cmake -S . -B build/win64 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-x86_64.cmake -DCMAKE_BUILD_TYPE=Release
+cmake --build build/win64
+```
+
+Both produce `Jones3D-headless.exe` and the windowed `Jones3D.exe`, which shows nothing until the Babylon
+renderer lands (M6). 32-bit Windows is not supported.
 
 ## Documentation
 
