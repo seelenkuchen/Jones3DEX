@@ -92,6 +92,11 @@ namespace
             return m_id;
         }
 
+        SDL_Window* sdlWindow() const
+        {
+            return m_window;
+        }
+
         // SDL hides the cursor and reports only relative motion in this
         // mode; a window system that cannot do it makes the call fail, which
         // is one warning and the mode unchanged.
@@ -258,6 +263,12 @@ namespace
     };
 
 }
+
+    SDL_Window* sdlWindowOf(Window& window)
+    {
+        SdlWindow* const sdlWindow = dynamic_cast<SdlWindow*>(&window);
+        return sdlWindow != nullptr ? sdlWindow->sdlWindow() : nullptr;
+    }
 
     std::unique_ptr<Platform> createSdlPlatform()
     {

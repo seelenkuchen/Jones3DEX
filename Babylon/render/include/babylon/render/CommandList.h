@@ -206,9 +206,17 @@ namespace babylon::render
         bool operator==(const CopyTexture&) const = default;
     };
 
+    struct UpdateBuffer
+    {
+        BufferHandle buffer;
+        std::uint32_t offset = 0;
+        std::vector<std::byte> data;
+        bool operator==(const UpdateBuffer&) const = default;
+    };
+
     using Command = std::variant<BeginPass, EndPass, SetPipeline, SetViewport, SetScissor,
         BindVertexBuffer, BindIndexBuffer, BindTexture, PushUniforms, Draw, DrawIndexed,
-        CopyTexture>;
+        CopyTexture, UpdateBuffer>;
 
     // The commands of one frame, recorded on the CPU and handed to the GPU
     // in one Device::submit(). Made only by Device::beginFrame(); valid for
@@ -218,7 +226,7 @@ namespace babylon::render
     //
     // Structure: render commands (setPipeline to drawIndexed) are recorded
     // only inside a pass, between beginPass() and endPass(); passes don't
-    // nest; copyTexture() only outside a pass. A draw needs a setPipeline()
+    // nest; copyTexture() and updateBuffer() only outside a pass. A draw needs a setPipeline()
     // earlier in the same pass, drawIndexed() also a bindIndexBuffer(). Each
     // pass starts with the viewport covering its targets, no scissor and
     // nothing bound. A call that breaks a rule, has a slot out of range or
@@ -273,6 +281,16 @@ namespace babylon::render
         void copyTexture(TextureHandle source, const TextureRegion& sourceRegion,
             TextureHandle destination, std::uint32_t destinationMip,
             std::uint32_t destinationX, std::uint32_t destinationY);
+
+        // Copies the bytes into the list; at submit they replace data.size()
+        // bytes of the buffer at offset, at this point of the list: passes
+        // recorded before it see the old contents, passes after it the new
+        // ones. So a frame can stream the vertices of many draws through one
+        // buffer, at different offsets or the same one. Refused with one
+        // warning inside a pass and for empty data; a stale buffer or a range
+        // past the end is dropped at submit.
+        void updateBuffer(BufferHandle buffer, std::uint32_t offset,
+            std::span<const std::byte> data);
 
         // The commands recorded so far, in call order. A successful submit
         // hands them to the device and leaves this empty.

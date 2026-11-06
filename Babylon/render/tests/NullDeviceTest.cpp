@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -397,4 +398,48 @@ TEST_CASE("Null device handles reuse slots with a new generation")
     noWarning(sink);
     CHECK(device->readBuffer(first, 0, 4).empty());
     oneWarning(sink);
+}
+
+TEST_CASE("The Null device executes buffer updates between the draws they feed")
+{
+    CaptureSink sink;
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    const BufferHandle vertices = device->createBuffer(BufferDesc{ 32 * 3, BufferUsage::Vertex });
+    const PipelineHandle pipeline =
+        device->createPipeline(transformedVertexPipeline(TextureFormat::Bgra8, std::nullopt));
+    REQUIRE_FALSE(pipeline.isNull());
+    device->clearRecorded();
+
+    // Two draws stream their vertices through the same bytes of one
+    // buffer: each update sits right before the pass of its draw.
+    const std::vector<std::byte> firstDraw = bytes(32 * 3, 1);
+    const std::vector<std::byte> secondDraw = bytes(32 * 3, 2);
+    PassDesc pass;
+    pass.colorTargets = { attachment(TextureHandle{}) };
+    CommandList frame = device->beginFrame();
+    for ( const std::vector<std::byte>* data : { &firstDraw, &secondDraw } )
+    {
+        frame.updateBuffer(vertices, 0, *data);
+        REQUIRE(frame.beginPass(pass));
+        frame.setPipeline(pipeline);
+        frame.bindVertexBuffer(0, vertices);
+        frame.draw(3);
+        REQUIRE(frame.endPass());
+    }
+    REQUIRE(device->submit(frame));
+    noWarning(sink);
+
+    std::vector<RecordedCommand> expected;
+    for ( const std::vector<std::byte>* data : { &firstDraw, &secondDraw } )
+    {
+        expected.emplace_back(UpdateBuffer{ vertices, 0, *data });
+        expected.emplace_back(BeginPass{ pass });
+        expected.emplace_back(SetPipeline{ pipeline });
+        expected.emplace_back(BindVertexBuffer{ 0, vertices, 0 });
+        expected.emplace_back(Draw{ 3, 0 });
+        expected.emplace_back(EndPass{});
+    }
+    expected.emplace_back(FrameSubmitted{ 1, false });
+    CHECK(device->recorded() == expected);
+    CHECK(device->readBuffer(vertices, 0, 32 * 3) == secondDraw);
 }

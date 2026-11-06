@@ -250,4 +250,26 @@ namespace babylon::render
             destinationX, destinationY });
     }
 
+    void CommandList::updateBuffer(BufferHandle buffer, std::uint32_t offset,
+        std::span<const std::byte> data)
+    {
+        if ( !checkRecording("updateBuffer", false) )
+        {
+            return;
+        }
+        if ( m_inPass )
+        {
+            // Like copies, buffer writes run outside render passes.
+            log::warning("render: updateBuffer: recorded inside a pass");
+            return;
+        }
+        if ( data.empty() )
+        {
+            log::warning("render: updateBuffer: no bytes to write");
+            return;
+        }
+        m_commands.emplace_back(UpdateBuffer{ buffer, offset,
+            std::vector<std::byte>(data.begin(), data.end()) });
+    }
+
 }

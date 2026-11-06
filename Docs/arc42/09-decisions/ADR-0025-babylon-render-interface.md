@@ -50,3 +50,23 @@ honors the whole contract, and contract tests that run against every backend
 - Uniforms are copied into the list per push, which is simple but allocates; an arena can replace it later
   without changing the interface.
 - World-space meshes later need only new pipelines and buffers, not a new interface.
+
+## Amendment (2026-11-06): buffer updates in the command list, and the SDL GPU backend
+
+- Review found that uploads, being device calls before the submit, can't feed several draws of one frame
+  through the same buffer: the last upload wins for all of them. `CommandList::updateBuffer(buffer, offset,
+  bytes)` copies the bytes into the list and writes them at its place in the list, outside passes only, so
+  a draw sees the bytes written before its pass and later updates of the same range don't reach it. It is
+  checked like the other commands: refused while recording inside a pass or with no bytes, dropped at
+  submit for a stale buffer or a range past the end. This lifts the consequence above that uploads inside
+  a frame's recording are not expressible.
+- The SDL GPU backend (`createSdlGpuDevice(platform::Window*)`) adds `platform` and `SDL3-static` to the
+  module's dependencies. It gets the `SDL_Window*` through `platform::sdlWindowOf()`, declared in
+  `SdlPlatform.h` with a forward declaration of `SDL_Window`, so no public header includes SDL. A
+  `nullptr` window makes a headless device whose swapchain passes draw nothing.
+- On that backend B4G4R4A4 is sampled only, never a color target: Vulkan has the format only with blue in
+  the top bits, which SDL fixes up by swizzling when sampling, so uploads, copies and readback keep the
+  layout of `Texture.h` but clears and draws would put the components in the wrong bits. The game needs
+  ARGB4444 only for textures it uploads.
+- The backend reports fixed limits on every driver (8192 texels, 128 MiB buffers), since SDL GPU has no
+  limit queries; both are within what every Vulkan, Direct3D 12 and Metal device supports.

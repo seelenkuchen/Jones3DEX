@@ -81,6 +81,20 @@ namespace babylon::render
             return true;
         }
 
+        // Calls visit(value) for every live value, for backends that release
+        // what is left when the device goes.
+        template <class Visit>
+        void forEach(Visit visit)
+        {
+            for ( Slot& slot : m_slots )
+            {
+                if ( slot.value.has_value() )
+                {
+                    visit(*slot.value);
+                }
+            }
+        }
+
     private:
         struct Slot
         {

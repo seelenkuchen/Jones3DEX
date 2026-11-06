@@ -289,9 +289,9 @@ namespace
     {
         for ( Command& command : commands )
         {
-            // Clears of texture targets and copies change the contents in
-            // memory; the swapchain of a headless device has none, and draws
-            // are not rasterized.
+            // Clears of texture targets, copies and buffer updates change the
+            // contents in memory; the swapchain of a headless device has none,
+            // and draws are not rasterized.
             if ( const auto* const begin = std::get_if<BeginPass>(&command) )
             {
                 for ( const ColorAttachment& attachment : begin->desc.colorTargets )
@@ -331,6 +331,12 @@ namespace
                         from.data() + (region.y + row) * sourceStride + region.x * texel,
                         length);
                 }
+            }
+            else if ( const auto* const update = std::get_if<UpdateBuffer>(&command) )
+            {
+                NullBuffer& target = *m_state->buffers.find(update->buffer);
+                std::memcpy(target.bytes.data() + update->offset, update->data.data(),
+                    update->data.size());
             }
             std::visit([this](auto& recorded) { m_state->recorded.emplace_back(std::move(recorded)); },
                 command);

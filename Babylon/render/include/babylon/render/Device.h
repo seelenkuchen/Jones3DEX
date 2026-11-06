@@ -66,6 +66,7 @@ namespace babylon::render
     //   silent no-op.
     // - Uploads take effect in submit order: a list submitted after an
     //   upload sees the new contents, one submitted before it the old ones.
+    //   CommandList::updateBuffer() takes effect at its place in its list.
     // - A resource may be destroyed right after the submit of a list that
     //   uses it; the backend keeps what the GPU still needs.
     //
@@ -142,8 +143,9 @@ namespace babylon::render
         // target formats differ from the pass's, or a copy or draw out of
         // bounds is dropped with one warning. A dropped beginPass drops its
         // whole pass; after any other command of a pass was dropped, the
-        // pass's later draws are dropped too, without further warnings. The
-        // rest executes in order, and true is returned.
+        // pass's later draws are dropped too, without further warnings. An
+        // updateBuffer of a stale buffer or past its end is dropped the same
+        // way. The rest executes in order, and true is returned.
         [[nodiscard]] bool submit(CommandList& list);
 
     private:

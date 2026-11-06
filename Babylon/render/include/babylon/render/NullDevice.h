@@ -42,7 +42,7 @@ namespace babylon::render
     // executed command (the Command alternatives), or the end of a frame.
     using RecordedCommand = std::variant<PipelineCreated, BeginPass, EndPass, SetPipeline,
         SetViewport, SetScissor, BindVertexBuffer, BindIndexBuffer, BindTexture, PushUniforms,
-        Draw, DrawIndexed, CopyTexture, FrameSubmitted>;
+        Draw, DrawIndexed, CopyTexture, UpdateBuffer, FrameSubmitted>;
 
     // How a Null device is made.
     struct NullDeviceDesc
@@ -55,9 +55,9 @@ namespace babylon::render
     // Device that touches no GPU, for tests and headless runs. It honors the
     // whole Device contract: the same checks and warnings, handle
     // lifetimes, and texture and buffer contents kept in memory, so uploads,
-    // clears of texture targets and copies are applied and readTexture() and
-    // readBuffer() return real bytes. It does not rasterize: draws change no
-    // contents. It is headless (no swapchain), accepts blobs in every shader
+    // clears of texture targets, copies and buffer updates are applied and
+    // readTexture() and readBuffer() return real bytes. It does not
+    // rasterize: draws change no contents. It is headless (no swapchain), accepts blobs in every shader
     // format without looking at the code, supports every format for every
     // usage its kind allows except NullDeviceDesc::unsupportedFormats, and
     // reports maxTextureDimension 8192 and maxBufferSize 256 MiB. New

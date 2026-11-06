@@ -758,6 +758,20 @@ namespace
                 name = "copyTexture";
                 reason = checkCopy(*copy);
             }
+            else if ( const auto* const update = std::get_if<UpdateBuffer>(&command) )
+            {
+                name = "updateBuffer";
+                const BufferDesc* const desc = findBuffer(update->buffer);
+                if ( desc == nullptr )
+                {
+                    reason = describe(update->buffer);
+                }
+                else if ( std::uint64_t{ update->offset } + update->data.size() > desc->size )
+                {
+                    reason = std::format("{} bytes at {} in a buffer of {}: past the end",
+                        update->data.size(), update->offset, desc->size);
+                }
+            }
             // SetViewport, SetScissor and PushUniforms need no resources: the
             // command list checked them completely.
 

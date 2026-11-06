@@ -8,11 +8,14 @@
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>
 #include <babylon/render/NullDevice.h>
+#include <babylon/render/SdlGpuDevice.h>
 #include <babylon/render/Texture.h>
 
 #include <babylon/log/CaptureSink.h>
 #include <babylon/log/Log.h>
 #include <babylon/log/Sink.h>
+
+#include "../backends/sdl/tests/KeepGpuDriverLoaded.h"
 
 #include <doctest.h>
 
@@ -36,9 +39,7 @@ namespace
 
     // The backends the Device contract runs against. Each factory makes a
     // fresh device; one that returns nullptr has no device here (no GPU
-    // driver) and is reported as skipped, never as passed. The SDL GPU
-    // backend joins with one line:
-    //     { "sdl-gpu headless", [] { return createSdlGpuDevice(nullptr); } },
+    // driver) and is reported as skipped, never as passed.
     struct DeviceFactory
     {
         const char* name;
@@ -52,6 +53,11 @@ namespace
                 return std::unique_ptr<Device>(
                     createNullDevice(NullDeviceDesc{ { TextureFormat::B4G4R4A4 } }));
             } },
+        { "sdl-gpu headless", []
+            {
+                test::keepGpuDriverLoaded();
+                return createSdlGpuDevice(nullptr);
+            } },
     };
 
     // Runs check once per backend, each on its own device, with the
@@ -60,11 +66,11 @@ namespace
     {
         for ( const DeviceFactory& factory : kDeviceFactories )
         {
-            INFO("device: " << factory.name);
+            INFO("device: " << std::string(factory.name));
             const std::unique_ptr<Device> device = factory.create();
             if ( device == nullptr )
             {
-                MESSAGE("skipped, no device: " << factory.name);
+                MESSAGE("skipped, no device: " << std::string(factory.name));
                 continue;
             }
             check(*device);
@@ -689,12 +695,12 @@ TEST_CASE("A command list belongs to the device that made it")
 {
     for ( const DeviceFactory& factory : kDeviceFactories )
     {
-        INFO("device: " << factory.name);
+        INFO("device: " << std::string(factory.name));
         const std::unique_ptr<Device> first = factory.create();
         const std::unique_ptr<Device> second = factory.create();
         if ( first == nullptr || second == nullptr )
         {
-            MESSAGE("skipped, no two devices: " << factory.name);
+            MESSAGE("skipped, no two devices: " << std::string(factory.name));
             continue;
         }
         CaptureSink sink;
@@ -794,5 +800,86 @@ TEST_CASE("Frames run without a window, the swapchain passes included")
         }
         noWarning(sink);
         device.destroyTexture(depth);
+    });
+}
+
+TEST_CASE("updateBuffer writes in list order, outside passes and within the buffer")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const BufferHandle buffer = device.createBuffer(BufferDesc{ 64, BufferUsage::Vertex });
+        const TextureHandle target = device.createTexture(TextureDesc{ 4, 4, 1,
+            TextureFormat::Rgba8, TextureUsage::ColorTarget });
+        REQUIRE_FALSE(buffer.isNull());
+        REQUIRE_FALSE(target.isNull());
+        const std::vector<std::byte> initial = pattern(64, 11);
+        REQUIRE(device.uploadBuffer(buffer, 0, initial));
+
+        // Each write lands at its place in the list, later ones over earlier
+        // ones, passes between them or not; the upload before the submit
+        // comes first.
+        const std::vector<std::byte> first = pattern(16, 12);
+        const std::vector<std::byte> second = pattern(16, 13);
+        const std::vector<std::byte> third = pattern(4, 14);
+        CommandList frame = device.beginFrame();
+        frame.updateBuffer(buffer, 0, first);
+        REQUIRE(frame.beginPass(clearPass(target, 0, ClearColor{})));
+        REQUIRE(frame.endPass());
+        frame.updateBuffer(buffer, 8, second);
+        REQUIRE(frame.beginPass(clearPass(target, 0, ClearColor{})));
+        REQUIRE(frame.endPass());
+        frame.updateBuffer(buffer, 0, third);
+        REQUIRE(device.submit(frame));
+        std::vector<std::byte> expected = initial;
+        std::copy(first.begin(), first.end(), expected.begin());
+        std::copy(second.begin(), second.end(), expected.begin() + 8);
+        std::copy(third.begin(), third.end(), expected.begin());
+        CHECK(device.readBuffer(buffer, 0, 64) == expected);
+        noWarning(sink);
+
+        // An upload after the submit replaces what the list wrote.
+        const std::vector<std::byte> later = pattern(8, 15);
+        REQUIRE(device.uploadBuffer(buffer, 0, later));
+        std::copy(later.begin(), later.end(), expected.begin());
+        CHECK(device.readBuffer(buffer, 0, 64) == expected);
+        noWarning(sink);
+
+        // Refused while recording: inside a pass, no bytes, after submit.
+        CommandList refused = device.beginFrame();
+        REQUIRE(refused.beginPass(clearPass(target, 0, ClearColor{})));
+        refused.updateBuffer(buffer, 0, first);
+        oneWarning(sink);
+        CHECK(refused.commands().size() == 1);
+        REQUIRE(refused.endPass());
+        refused.updateBuffer(buffer, 0, {});
+        oneWarning(sink);
+        CHECK(refused.commands().size() == 2);
+        REQUIRE(device.submit(refused));
+        noWarning(sink);
+        refused.updateBuffer(buffer, 0, first);
+        oneWarning(sink);
+
+        // Dropped at submit: past the end and a stale buffer, one warning
+        // each, nothing written, the rest of the list executed.
+        const BufferHandle stale = device.createBuffer(BufferDesc{ 64, BufferUsage::Vertex });
+        device.destroyBuffer(stale);
+        const std::vector<std::byte> last = pattern(4, 16);
+        CommandList bad = device.beginFrame();
+        bad.updateBuffer(buffer, 60, pattern(8, 17));
+        bad.updateBuffer(stale, 0, pattern(8, 18));
+        bad.updateBuffer(buffer, 60, last);
+        CHECK(device.submit(bad));
+        REQUIRE(sink.records().size() == 2);
+        CHECK(sink.records()[0].level == Level::Warning);
+        CHECK(sink.records()[1].level == Level::Warning);
+        sink.clear();
+        std::copy(last.begin(), last.end(), expected.begin() + 60);
+        CHECK(device.readBuffer(buffer, 0, 64) == expected);
+        noWarning(sink);
+
+        device.destroyBuffer(buffer);
+        device.destroyTexture(target);
+        noWarning(sink);
     });
 }
