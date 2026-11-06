@@ -52,6 +52,7 @@ namespace
             case TextureFormat::B4G4R4A4: return "B4G4R4A4";
             case TextureFormat::D24S8: return "D24S8";
             case TextureFormat::D32F: return "D32F";
+            case TextureFormat::R10G10B10A2: return "R10G10B10A2";
         }
         return "?";
     }

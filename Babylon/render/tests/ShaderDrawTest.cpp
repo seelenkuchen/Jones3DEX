@@ -177,6 +177,7 @@ namespace
     struct Drawn
     {
         TextureHandle target;
+        TextureHandle second;   // the second color target, if the scene has one
         std::vector<PipelineHandle> pipelines;
         std::vector<PipelineDesc> pipelineDescs;
         std::vector<Command> commands;
@@ -304,6 +305,86 @@ namespace
         REQUIRE(list.endPass());
         submit(device, list, drawn, 1);
         return drawn;
+    }
+
+    // The second color target of drawTwoTargets(): R10G10B10A2 where the
+    // device can render to it, else Rgba8.
+    TextureFormat secondTargetFormat(Device& device)
+    {
+        return device.supportsFormat(TextureFormat::R10G10B10A2, TextureUsage::ColorTarget)
+            ? TextureFormat::R10G10B10A2 : TextureFormat::Rgba8;
+    }
+
+    // A red quad on rows and columns 16..47 into two color targets at once
+    // (twotargets.frag.hlsl): red into the Rgba8 target, cleared to black,
+    // and blue into the second, cleared to (0, 1, 0, 0).
+    Drawn drawTwoTargets(Device& device)
+    {
+        Drawn drawn;
+        drawn.target = colorTarget(device);
+        const TextureFormat secondFormat = secondTargetFormat(device);
+        drawn.second = device.createTexture(TextureDesc{ kSize, kSize, 1, secondFormat,
+            TextureUsage::ColorTarget });
+        REQUIRE_FALSE(drawn.second.isNull());
+        std::vector<ColorVertex> quad;
+        appendQuad(quad, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, kRed);
+        const BufferHandle vertices = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(quad.size() * sizeof(ColorVertex)), BufferUsage::Vertex });
+        REQUIRE_FALSE(vertices.isNull());
+        PipelineDesc desc = colorPipeline(false);
+        desc.fragmentShader = shaders::twotargetsFrag();
+        desc.colorTargets.push_back(ColorTargetDesc{ secondFormat, {} });
+        const PipelineHandle pipeline = createPipeline(device, drawn, desc);
+
+        CommandList list = device.beginFrame();
+        list.updateBuffer(vertices, 0, bytesOf(quad));
+        PassDesc pass = clearedPass(drawn.target);
+        pass.colorTargets.push_back(ColorAttachment{ drawn.second, 0, LoadOp::Clear,
+            StoreOp::Store, ClearColor{ 0.0f, 1.0f, 0.0f, 0.0f } });
+        REQUIRE(list.beginPass(pass));
+        list.setPipeline(pipeline);
+        list.bindVertexBuffer(0, vertices);
+        list.draw(6);
+        REQUIRE(list.endPass());
+        submit(device, list, drawn, 1);
+        return drawn;
+    }
+
+    // One texel of the second target of drawTwoTargets(), written out by
+    // hand from Texture.h: the clear (0, 1, 0, 0) or opaque blue.
+    std::vector<std::byte> secondTexel(TextureFormat format, bool blue)
+    {
+        const auto bytes = [](std::array<unsigned, 4> values)
+        {
+            return std::vector<std::byte>{ std::byte(values[0]), std::byte(values[1]),
+                std::byte(values[2]), std::byte(values[3]) };
+        };
+        if ( format == TextureFormat::R10G10B10A2 )
+        {
+            return blue ? bytes({ 0x00, 0x00, 0xF0, 0xFF }) : bytes({ 0x00, 0xFC, 0x0F, 0x00 });
+        }
+        return blue ? bytes({ 0x00, 0x00, 0xFF, 0xFF }) : bytes({ 0x00, 0xFF, 0x00, 0x00 });
+    }
+
+    // Checks the second target of drawTwoTargets() texel by texel: blue
+    // inside the quad when drawn, the clear everywhere else.
+    void checkSecondTarget(const std::vector<std::byte>& bytes, TextureFormat format, bool drawn)
+    {
+        REQUIRE(bytes.size() == std::size_t{ kSize } * kSize * 4);
+        int wrong = 0;
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = 0; x < kSize; ++x )
+            {
+                const bool inside = drawn && x >= 16 && x < 48 && y >= 16 && y < 48;
+                const std::vector<std::byte> want = secondTexel(format, inside);
+                if ( std::memcmp(bytes.data() + (std::size_t{ y } * kSize + x) * 4, want.data(), 4) != 0 )
+                {
+                    ++wrong;
+                }
+            }
+        }
+        CHECK(wrong == 0);
     }
 
     struct Image
@@ -438,6 +519,7 @@ TEST_CASE("babylon_add_shaders reflects the resource counts and builds every for
         { "colorFrag", shaders::colorFrag(), 0, 0 },
         { "texturedVert", shaders::texturedVert(), 0, 0 },
         { "texturedFrag", shaders::texturedFrag(), 1, 1 },
+        { "twotargetsFrag", shaders::twotargetsFrag(), 0, 0 },
     };
     for ( const Expected& expected : shadersExpected )
     {
@@ -470,6 +552,15 @@ TEST_CASE("The Null device accepts the shader pipelines and records their frames
     SUBCASE("triangle") { runOnNull(drawTriangle); }
     SUBCASE("textured quad") { runOnNull(drawTexturedQuad); }
     SUBCASE("depth-tested quads") { runOnNull(drawDepthQuads); }
+    SUBCASE("two color targets")
+    {
+        runOnNull(drawTwoTargets);
+        CaptureSink sink;
+        const std::unique_ptr<NullDevice> device = createNullDevice();
+        const Drawn drawn = drawTwoTargets(*device);
+        checkSecondTarget(device->readTexture(drawn.second, 0), secondTargetFormat(*device), false);
+        CHECK(sink.records().empty());
+    }
 }
 
 TEST_CASE("SDL GPU draws a vertex-colored triangle")
@@ -534,6 +625,29 @@ TEST_CASE("SDL GPU keeps the nearer of two quads with a LESS depth test")
         }
         return x < 40 ? kRed : kBlue;
     }, 0);
+}
+
+TEST_CASE("SDL GPU draws into two color targets in one pass")
+{
+    test::keepGpuDriverLoaded();
+    CaptureSink sink;
+    const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+    if ( device == nullptr )
+    {
+        test::noGpuDevice("no GPU device: " + joined(sink));
+        return;
+    }
+    const Drawn drawn = drawTwoTargets(*device);
+    const Image image{ device->readTexture(drawn.target, 0) };
+    const std::vector<std::byte> second = device->readTexture(drawn.second, 0);
+    INFO("captured log: " << joined(sink));
+    CHECK(sink.records().empty());
+    checkImage(image, [](std::uint32_t x, std::uint32_t y)
+    {
+        return x >= 16 && x < 48 && y >= 16 && y < 48 ? kRed : kBlack;
+    }, 0);
+    MESSAGE("second target format " << static_cast<int>(secondTargetFormat(*device)));
+    checkSecondTarget(second, secondTargetFormat(*device), true);
 }
 
 namespace

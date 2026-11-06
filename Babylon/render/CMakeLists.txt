@@ -27,7 +27,8 @@ if (TARGET babylon_render_tests)
         babylon_add_shaders(babylon_render_tests
             NAMESPACE babylon::render::test::shaders
             SOURCES tests/shaders/color.vert.hlsl tests/shaders/color.frag.hlsl
-                tests/shaders/textured.vert.hlsl tests/shaders/textured.frag.hlsl)
+                tests/shaders/textured.vert.hlsl tests/shaders/textured.frag.hlsl
+                tests/shaders/twotargets.frag.hlsl)
         target_sources(babylon_render_tests PRIVATE tests/ShaderDrawTest.cpp)
     endif()
 endif()

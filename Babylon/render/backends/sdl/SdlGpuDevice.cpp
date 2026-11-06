@@ -53,7 +53,9 @@ namespace
     // SDL's format with the same bit layout as the one in Texture.h. SDL
     // names the 16-bit formats from the lowest bits up, as Texture.h does:
     // its B5G6R5 is Vulkan's R5G6B5_UNORM_PACK16 and DXGI's B5G6R5_UNORM,
-    // blue in bits 0-4 in both.
+    // blue in bits 0-4 in both. R10G10B10A2 is Vulkan's
+    // A2B10G10R10_UNORM_PACK32, DXGI's R10G10B10A2_UNORM and Metal's
+    // RGB10A2Unorm, red in bits 0-9 in all three.
     SDL_GPUTextureFormat toSdl(TextureFormat format)
     {
         switch ( format )
@@ -65,6 +67,7 @@ namespace
             case TextureFormat::B4G4R4A4: return SDL_GPU_TEXTUREFORMAT_B4G4R4A4_UNORM;
             case TextureFormat::D24S8: return SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
             case TextureFormat::D32F: return SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+            case TextureFormat::R10G10B10A2: return SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM;
         }
         return SDL_GPU_TEXTUREFORMAT_INVALID;
     }

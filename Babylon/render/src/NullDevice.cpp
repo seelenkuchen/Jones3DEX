@@ -58,6 +58,11 @@ namespace
             return std::array<std::byte, 4>{ byte(v), byte(v >> 8), std::byte{ 0 },
                 std::byte{ 0 } };
         };
+        const auto dword = [&byte](std::uint32_t v)
+        {
+            return std::array<std::byte, 4>{ byte(v), byte(v >> 8), byte(v >> 16),
+                byte(v >> 24) };
+        };
         switch ( format )
         {
             case TextureFormat::Rgba8:
@@ -75,6 +80,9 @@ namespace
             case TextureFormat::B4G4R4A4:
                 return word(toUnorm(color.b, 4) | (toUnorm(color.g, 4) << 4)
                     | (toUnorm(color.r, 4) << 8) | (toUnorm(color.a, 4) << 12));
+            case TextureFormat::R10G10B10A2:
+                return dword(toUnorm(color.r, 10) | (toUnorm(color.g, 10) << 10)
+                    | (toUnorm(color.b, 10) << 20) | (toUnorm(color.a, 2) << 30));
             default:
                 return {};
         }

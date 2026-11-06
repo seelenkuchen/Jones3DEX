@@ -402,6 +402,8 @@ TEST_CASE("A cleared color target reads back as the clear color in its format")
         { TextureFormat::B5G6R5, bytesOf({ 0x00, 0xF8 }), bytesOf({ 0xFF, 0x07 }) },
         { TextureFormat::B5G5R5A1, bytesOf({ 0x00, 0xFC }), bytesOf({ 0xFF, 0x03 }) },
         { TextureFormat::B4G4R4A4, bytesOf({ 0x00, 0xFF }), bytesOf({ 0xFF, 0x00 }) },
+        { TextureFormat::R10G10B10A2, bytesOf({ 0xFF, 0x03, 0x00, 0xC0 }),
+            bytesOf({ 0x00, 0xFC, 0xFF, 0x3F }) },
     };
 
     forEachDevice([&expectations](Device& device)
@@ -438,6 +440,50 @@ TEST_CASE("A cleared color target reads back as the clear color in its format")
             noWarning(sink);
             device.destroyTexture(target);
         }
+    });
+}
+
+TEST_CASE("A pass with several color targets clears each to its own color")
+{
+    // The expected texels are written out by hand from Texture.h.
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const TextureUsage usage = TextureUsage::Sampled | TextureUsage::ColorTarget;
+        const TextureFormat second = device.supportsFormat(TextureFormat::R10G10B10A2, usage)
+            ? TextureFormat::R10G10B10A2 : TextureFormat::Rgba8;
+        const TextureHandle color = device.createTexture(TextureDesc{ 4, 2, 1,
+            TextureFormat::Bgra8, usage });
+        const TextureHandle other = device.createTexture(TextureDesc{ 4, 2, 1, second, usage });
+        const TextureHandle loaded = device.createTexture(TextureDesc{ 4, 2, 1,
+            TextureFormat::Rgba8, usage });
+        REQUIRE_FALSE(color.isNull());
+        REQUIRE_FALSE(other.isNull());
+        REQUIRE_FALSE(loaded.isNull());
+        const std::vector<std::byte> loadedBytes = pattern(32, 5);
+        REQUIRE(device.uploadTexture(loaded, 0, loadedBytes));
+
+        CommandList frame = device.beginFrame();
+        PassDesc pass;
+        pass.colorTargets = {
+            ColorAttachment{ color, 0, LoadOp::Clear, StoreOp::Store, ClearColor{ 1, 0, 0, 1 } },
+            ColorAttachment{ other, 0, LoadOp::Clear, StoreOp::Store, ClearColor{ 0, 1, 1, 0 } },
+            ColorAttachment{ loaded, 0, LoadOp::Load, StoreOp::Store, ClearColor{ 1, 1, 1, 1 } },
+        };
+        REQUIRE(frame.beginPass(pass));
+        REQUIRE(frame.endPass());
+        CHECK(device.submit(frame));
+        noWarning(sink);
+
+        CHECK(device.readTexture(color, 0) == repeated(bytesOf({ 0x00, 0x00, 0xFF, 0xFF }), 8));
+        CHECK(device.readTexture(other, 0) == (second == TextureFormat::R10G10B10A2
+            ? repeated(bytesOf({ 0x00, 0xFC, 0xFF, 0x3F }), 8)
+            : repeated(bytesOf({ 0x00, 0xFF, 0xFF, 0x00 }), 8)));
+        CHECK(device.readTexture(loaded, 0) == loadedBytes);
+        noWarning(sink);
+        device.destroyTexture(color);
+        device.destroyTexture(other);
+        device.destroyTexture(loaded);
     });
 }
 

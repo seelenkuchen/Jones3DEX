@@ -70,3 +70,15 @@ honors the whole contract, and contract tests that run against every backend
   ARGB4444 only for textures it uploads.
 - The backend reports fixed limits on every driver (8192 texels, 128 MiB buffers), since SDL GPU has no
   limit queries; both are within what every Vulkan, Direct3D 12 and Metal device supports.
+
+## Amendment (2026-11-06): a 10-bit color format for normal targets
+
+- `TextureFormat::R10G10B10A2` (one little-endian 32-bit word per texel: red in bits 0-9, green 10-19, blue
+  20-29, alpha 30-31) joins the formats, for render targets that hold normals: three components with 10 bits
+  each fit the 4 bytes of `Rgba8` with four times its precision. It maps to Vulkan's
+  `A2B10G10R10_UNORM_PACK32`, DXGI's `R10G10B10A2_UNORM` and Metal's `RGB10A2Unorm`, all with red in the low
+  bits; Vulkan requires it as a sampled and color-attachment format. The Null backend clears it like the other
+  color formats. It is appended after `D32F`, so the values of the existing formats don't change.
+- Passes and pipelines with several color targets (up to `kMaxColorTargets`) were already part of the
+  interface; contract tests now clear several targets of different formats in one pass on every backend, and
+  a shader test draws into two targets at once.
