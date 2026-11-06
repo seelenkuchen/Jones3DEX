@@ -16,7 +16,7 @@
 #include <babylon/log/Sink.h>
 
 #include "../backends/sdl/tests/KeepGpuDriverLoaded.h"
-#include "GpuRequirement.h"
+#include "../backends/sdl/tests/GpuRequirement.h"
 
 #include <doctest.h>
 

@@ -16,7 +16,7 @@
 #include <babylon/platform/SdlPlatform.h>
 #include <babylon/platform/Window.h>
 
-#include "../../../tests/GpuRequirement.h"
+#include "GpuRequirement.h"
 #include "KeepGpuDriverLoaded.h"
 
 #include <doctest.h>
