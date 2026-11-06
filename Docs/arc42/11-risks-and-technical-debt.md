@@ -29,3 +29,6 @@
 | Multiplayer sends `wchar_t` arrays | `sithMulti.c` | Out of scope while multiplayer has no backend |
 | The Windows column still compiles a Win32 SMUSH timer | `Libs/smush/insane/Timer/TimerWin32.c` | Replace with the Babylon thread module when it lands (M11 and later); until then this is the only Win32 file in the Babylon column |
 | `ctest -L check` does not run under the wine toolchain | CMake prefixes the `python3` boundary checks with the emulator | Run the boundary checks in a native build tree; the unit and Babylon suites run under wine |
+| SDL GPU limits are fixed constants, not queried | `SdlGpuDevice.cpp` reports 8192 texels and 128 MiB per buffer on every driver because SDL GPU has no limit queries | Revisit when SDL exposes limits |
+| SDL GPU pipelines and draws are untested | The render contract tests create no pipeline and submit no real draw on SDL GPU until shaders exist in M6.5 | Add shader, pipeline and draw contract cases in M6.5 |
+| Lavapipe leak workaround in tests | `KeepGpuDriverLoaded.h` keeps Mesa's lavapipe loaded because it leaks memory under `pthread_once` | Tests only; remove when lavapipe or the Vulkan loader frees that memory |

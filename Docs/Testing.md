@@ -30,6 +30,8 @@ builds in two columns: the Null column (non-Windows) and the Babylon column
     - [🎞️ Trace Tests](#trace-tests)
     - [🎥 Render Capture](#render-capture)
     - [🖼️ Renderer Reference Masks](#renderer-reference-masks)
+    - [🖥️ System And Device Tests](#system-and-device-tests)
+        - [🧪 Babylon Render Contract Tests](#babylon-render-contract-tests)
 - [📦 Original-Engine I/O Test Vectors](#original-engine-io-test-vectors)
 - [▶️ Running Tests](#running-tests)
     - [🐧 Native Unit Builds](#native-unit-builds)
@@ -476,13 +478,27 @@ When a production contract necessarily terminates the process, test it in a chil
 
 ### 🖥️ System And Device Tests
 
-System tests are integration-style tests that touch host or device services such as windows, input devices, the GPU, audio devices, or filesystem locations outside small test vectors. None are built since M6.3 removed the Win32 and DirectX system tests; the Babylon render module (M6.4) is expected to bring the next ones. Keep them in separate executables from deterministic unit tests and label them with `system`; add more specific labels such as `device`, `audio`, or `gui` as appropriate.
+System tests are integration-style tests that touch host or device services such as windows, input devices, the GPU, audio devices, or filesystem locations outside small test vectors. The Babylon render module (M6.4) brings the first ones, its contract tests; the Win32 and DirectX system tests went with M6.3. Keep them in separate executables from deterministic unit tests and label them with `system`; add more specific labels such as `device`, `audio`, or `gui` as appropriate.
 
 System/device tests may use Unity ignore results when the host cannot provide the needed service, for example a headless CI worker without a render device. They should still fail normally when the service was available and the engine behavior is wrong.
 
 When multiple system tests share host setup, keep that setup in a small local support file and keep the test cases themselves in the owning module files.
 
 Tests that can change fullscreen display modes, reset or recreate graphics devices, or disturb desktop input focus are disruptive: keep them in separate source files named `*DisruptiveSystemTest.c`, label them `disruptive`, keep them out of default builds, and make host capability failures explicit with Unity ignore messages.
+
+<a name="babylon-render-contract-tests"></a>
+
+#### 🧪 Babylon Render Contract Tests
+
+`Babylon/render/tests/RenderContractTest.cpp` runs the same `Device` contract against the Null device
+(also one without B4G4R4A4 support) and the headless SDL GPU device. `NullDeviceTest.cpp` covers the Null
+backend's record and `SdlGpuDeviceTest.cpp` the SDL GPU device's driver, formats and swapchain; CTest runs
+them as `babylon.render`. The SDL GPU cases need a Vulkan device: on Linux CI that is Mesa's lavapipe from
+the `mesa-vulkan-drivers` package, and `SDL_VIDEO_DRIVER=offscreen` (set by the test properties) lets SDL
+video start without a display. On a host without a GPU device the SDL cases print a skip message and count as
+passed, so they validate nothing there; setting `BABYLON_REQUIRE_GPU=1`, as the Linux CI columns do, turns that skip into a failure. Windows and the
+macOS column leave the variable unset because they have no lavapipe (WARP comes later), so their SDL GPU
+cases skip. Pipelines and draws on SDL GPU are not exercised until shaders exist in M6.5.
 
 <a name="original-engine-io-test-vectors"></a>
 

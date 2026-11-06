@@ -48,7 +48,8 @@ identical headless traces, byte for byte.
 
 ## 5.2 Level 2: Babylon Engine
 
-Modules marked M5 exist and are used by the Babylon column; the others are still planned.
+Modules marked M5 exist and are used by the Babylon column. Render exists from M6.4 but the game does not
+use it until M6.6; the others are still planned.
 
 | Module | Role | Backends | Adapter that uses it | State |
 |---|---|---|---|---|
@@ -59,7 +60,7 @@ Modules marked M5 exist and are used by the Babylon column; the others are still
 | Time | Monotonic clock and a caller-driven Null clock | SDL3, Null | `stdPlatformTimeBabylon.cpp` | M5 |
 | Files | Files, directory listing, base, current and user directories | SDL3, Null | `stdFileBabylon.cpp`, `stdFileUtilBabylon.cpp`, `stdBabylonPath.cpp` | M5 |
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
-| Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D`, `stdDisplay` | M6 |
+| Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D`, `stdDisplay` (from M6.6) | M6.4 (interface and both backends; game use in M6.6) |
 | Audio | Devices, voices, 3D positioning, streaming | miniaudio, Null | `Driver_*` | M7 |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
@@ -72,6 +73,65 @@ modules it declares ([ADR-0015](../09-decisions/ADR-0015-babylon-modules-as-cmak
 
 Every module has a Null backend that honors the interface's contract without a device. Null backends let
 the whole game run headless, which is how traces are recorded ([chapter 8](../08-crosscutting/README.md)).
+
+### The render module (M6.4)
+
+`Babylon/render/` is the Babylon replacement for the DirectX 9 `std3D` and `stdDisplay` backends
+([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)). It depends on `log`, on `platform` (the SDL GPU
+backend's window) and on SDL3. The game does not use it yet: `std3D` and `stdDisplay` stay on the
+Null renderer until M6.6, and shaders, with pipelines and draws on SDL GPU, arrive in M6.5.
+
+**Device and handles.** One interface, `babylon::render::Device`, owns every texture, buffer, sampler and
+pipeline and executes frames. Callers see descs in game-agnostic terms (`TextureDesc` with mips, a byte
+layout fixed in `Texture.h`, and `Sampled`, `ColorTarget` or `DepthTarget` usage; `BufferDesc` with
+`Vertex`, `Index` or `Storage` usage; `SamplerDesc`; `PipelineDesc` with vertex layout, primitive, blend
+per color target, depth and cull) and typed handles, never a backend object. A handle is a slot index plus
+that slot's generation; destroying the resource bumps the generation, so the device detects a stale handle
+instead of touching a reused slot. Every failure logs exactly one `babylon::log::warning` line and changes
+nothing; nothing throws, and a failed create returns the null handle.
+
+**CommandList.** A frame is recorded on the CPU into a concrete `CommandList`, the same class on every
+backend. It records render passes with load and store operations and clear values (the null texture handle
+names the swapchain), pipeline and resource bindings, uniform pushes, draws, texture copies and buffer
+updates. Recording makes no virtual call: the list checks the frame's structure (render commands only
+inside a pass, copies and updates only outside, a pipeline before a draw, slots in range) and refuses a
+misuse with one warning. Everything that needs the device's live resources is left to `Device::submit()`.
+A draw of zero vertices or indices is no error and records nothing. `CommandList::updateBuffer()` copies
+the bytes into the list and writes them at their place, so several draws of one frame can stream through
+one buffer.
+
+**Submit-time checks.** `Device::submit()` is the shared, non-virtual entry point. It first refuses a list
+that belongs to another device or frame, one already submitted, or one with a pass still open. It then
+checks every command against the live resources: stale or null handles, missing texture or buffer usage, a
+pipeline whose target formats differ from the pass's, a vertex or index buffer bound past its end, vertex
+or index ranges past the buffer, copies between different formats or out of bounds, and buffer updates
+past the end. A rejected command is dropped with one warning; a dropped `beginPass` drops its whole pass,
+and after another dropped command the pass's later draws are dropped silently. The accepted commands run in
+order, and `submit()` presents when a pass drew to the swapchain of a device that has one.
+
+**Null backend.** `createNullDevice()` touches no GPU and is for tests and headless runs. It honors the
+whole `Device` contract: it keeps texture and buffer contents in memory, applies uploads, clears of texture
+targets, copies and buffer updates, and returns real bytes from `readTexture()` and `readBuffer()`. It does
+not rasterize, so draws change no contents. It is headless (no swapchain), accepts shader blobs in every
+format without looking at the code, reports maxTextureDimension 8192 and maxBufferSize 256 MiB, and
+zero-fills new resources. It records every pipeline creation and every executed command of a submitted
+list, followed by one `FrameSubmitted`, so tests can compare a whole frame.
+
+**SDL GPU backend.** `createSdlGpuDevice(platform::Window*)` uses SDL3 GPU (Vulkan, Direct3D 12 or Metal,
+whichever SDL finds) and takes shaders in the formats the driver reports. A null window makes a headless
+device; with a window from the SDL platform backend it claims the window for its swapchain (the window must
+outlive the device) and presents the image when a pass drew to it. It initializes SDL's video subsystem, so
+without a display `SDL_VIDEO_DRIVER=offscreen` supplies a headless one. B4G4R4A4 can only be sampled here,
+never a color target: Vulkan stores it with the components in other bits and SDL fixes that up only when
+sampling, so uploads, copies and readback keep the layout of `Texture.h`, but clears and draws would write
+the wrong bits. SDL GPU has no limit queries, so the backend reports fixed limits of 8192 texels and 128 MiB
+per buffer. Uploads and readbacks run in their own command buffers, ordered with submits; a readback waits
+for the GPU. Pipelines and draws on this backend are untested until shaders exist in M6.5; the contract
+tests cover device info, texture and buffer creation and contents, clears, copies, buffer updates and the
+swapchain.
+
+The render contract tests live in `Babylon/render/tests/` and run against both backends
+([Testing.md](../../Testing.md)).
 
 ## 5.3 Level 2: game subsystems
 
