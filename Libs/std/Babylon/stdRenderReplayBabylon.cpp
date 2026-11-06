@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -12,8 +13,6 @@
 #include "stdRenderBabylon.h"
 #include "stdRenderReplayBabylon.h"
 
-// The engine fopen shim resolves Windows paths; an image output directory is an ordinary host path.
-#undef fopen
 
 namespace
 {
@@ -122,14 +121,17 @@ namespace
         StdRenderReplayBabylon_PutU32(&aHeader[34], static_cast<std::uint32_t>(imageBytes));
 
         const std::string path = StdRenderReplayBabylon_FramePath(pDirectory, frameIndex);
-        std::FILE* pFile = std::fopen(path.c_str(), "wb");
-        if ( !pFile )
+        // std::ofstream: an image output directory is an ordinary host path (no engine fopen shim), and
+        // MSVC's /sdl rejects fopen.
+        std::ofstream file(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
+        if ( !file )
         {
             STDLOG_ERROR("Render replay: could not open '%s'.\n", path.c_str());
             return false;
         }
 
-        bool bOk = std::fwrite(aHeader, 1u, sizeof(aHeader), pFile) == sizeof(aHeader);
+        file.write(reinterpret_cast<const char*>(aHeader), sizeof(aHeader));
+        bool bOk = static_cast<bool>(file);
         std::vector<std::uint8_t> row(static_cast<std::size_t>(rowBytes));
         for ( std::uint32_t y = 0; bOk && y < height; ++y )
         {
@@ -143,10 +145,12 @@ namespace
                 row[x * 3u + 2u] = pSrc[x * 4u + 2u];
             }
 
-            bOk = std::fwrite(row.data(), 1u, row.size(), pFile) == row.size();
+            file.write(reinterpret_cast<const char*>(row.data()), static_cast<std::streamsize>(row.size()));
+            bOk = static_cast<bool>(file);
         }
 
-        if ( std::fclose(pFile) != 0 )
+        file.close();
+        if ( !file )
         {
             bOk = false;
         }
