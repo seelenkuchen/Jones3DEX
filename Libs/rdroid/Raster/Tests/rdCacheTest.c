@@ -10,7 +10,9 @@
 #include <j3dcore/Tests/j3dTest.h>
 #include <rdroid/Math/Tests/rdMathTestHost.h>
 
+#include <rdroid/Engine/rdCamera.h>
 #include <rdroid/Main/rdroid.h>
+#include <rdroid/Primitives/rdModel3.h>
 #include <rdroid/Raster/rdCache.h>
 
 #include <std/General/std.h>
@@ -309,8 +311,11 @@ TEST_SETUP(rdCache)
     rdCacheTest_numDraws = 0;
 }
 
+static void rdCacheTest_RestoreModelCamera(void);
+
 TEST_TEAR_DOWN(rdCache)
 {
+    rdCacheTest_RestoreModelCamera();
     stdRenderCapture_ResetGlobals();
     rdCache_AdvanceFrame();
     rdroid_g_curGeometryMode = rdCacheTest_savedGeometryMode;
@@ -448,10 +453,285 @@ TEST(rdCache, LitAlphaFacesAreDrawnLit)
     rdCacheTest_AssertDraw(0, true, 0, 3u, aIndices, 3u);
 }
 
+// Added: models through rdCache (option A L3). A one-face mesh is drawn by rdModel3_Draw under a
+// camera whose view matrix rotates (x, y, z) to (-z, y, x) and moves it 10 forward, with lit faces on
+// and off. With them on, the face is a lit draw whose normals are the mesh's vertex normals (Gouraud)
+// or its face normal (flat shaded) rotated the same way, negated for a back face; its StdVertexTL part
+// is the classic draw's, byte for byte. With them off, every draw is classic.
+// rdModel3.c links rdPuppet and rdThing, whose sprite, particle and polyline drawing reads sith's
+// current world (a layering break of the recovered code). rdroidTests doesn't link sith, so the
+// symbol is defined here; nothing these tests run reads it.
+struct sSithWorld* sithWorld_g_pCurrentWorld = NULL;
+
+static rdCanvas rdCacheTest_canvas;
+static tVBuffer rdCacheTest_vbuffer;
+static rdCamera rdCacheTest_camera;
+static rdClipFrustum rdCacheTest_frustum;
+
+// Model space. Under the camera the vertices are at (0, 10, 0), (0, 10, 1), (-1, 10, 0), (-1, 10, 1).
+static const rdVector3 rdCacheTest_aModelVerts[4] = {
+    { 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 1.0f },
+};
+
+// Rotated: (0, -1, 0), (0, -0.8, 0.6), (-0.6, -0.8, 0), (0, -1, 0).
+static const rdVector3 rdCacheTest_aModelNormals[4] = {
+    { 0.0f, -1.0f, 0.0f }, { 0.6f, -0.8f, 0.0f }, { 0.0f, -0.8f, 0.6f }, { 0.0f, -1.0f, 0.0f },
+};
+
+static const rdVector2 rdCacheTest_aModelTexVerts[4] = {
+    { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 1.0f },
+};
+
+static const rdVector4 rdCacheTest_aModelColors[4] = {
+    { 0.25f, 0.5f, 0.75f, 1.0f }, { 0.5f, 0.5f, 0.5f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f },
+};
+
+static rdVector4 rdCacheTest_aModelIntensities[4];
+static int rdCacheTest_aModelFaceVerts[3];
+static int rdCacheTest_aModelFaceTexVerts[3] = { 0, 1, 2 };
+static rdFace rdCacheTest_modelFace;
+static rdModel3Mesh rdCacheTest_mesh;
+static rdModel3HNode rdCacheTest_node;
+static rdModel3 rdCacheTest_model;
+static rdMatrix34 rdCacheTest_jointMatrix;
+static uint32_t rdCacheTest_jointAmputation;
+static rdThing rdCacheTest_thing;
+
+static bool rdCacheTest_bModelCamera; // set until the tear down restores what the setup replaced
+static rdCamera* rdCacheTest_pSavedCamera;
+static rdMatrix34 rdCacheTest_savedCamMatrix;
+static rdRoidFlags rdCacheTest_savedRenderOptions;
+static bool rdCacheTest_bSavedLitFaces;
+
+static void rdCacheTest_SetupModelCamera(void)
+{
+    memset(&rdCacheTest_vbuffer, 0, sizeof(rdCacheTest_vbuffer));
+    rdCacheTest_vbuffer.rasterInfo.colorInfo.bpp = 32;
+
+    memset(&rdCacheTest_canvas, 0, sizeof(rdCacheTest_canvas));
+    rdCacheTest_canvas.pVBuffer = &rdCacheTest_vbuffer;
+    rdCacheTest_canvas.center.x = 320.0f;
+    rdCacheTest_canvas.center.y = 240.0f;
+
+    memset(&rdCacheTest_frustum, 0, sizeof(rdCacheTest_frustum));
+    rdCacheTest_frustum.bClipFar    = 1;
+    rdCacheTest_frustum.nearPlane   = 1.0f;
+    rdCacheTest_frustum.farPlane    = 100.0f;
+    rdCacheTest_frustum.leftPlane   = -1.0f;
+    rdCacheTest_frustum.rightPlane  = 1.0f;
+    rdCacheTest_frustum.topPlane    = 1.0f;
+    rdCacheTest_frustum.bottomPlane = -1.0f;
+
+    memset(&rdCacheTest_camera, 0, sizeof(rdCacheTest_camera));
+    rdCacheTest_camera.pCanvas          = &rdCacheTest_canvas;
+    rdCacheTest_camera.focalLength      = 100.0f;
+    rdCacheTest_camera.aspectRatio      = 1.0f;
+    rdCacheTest_camera.invNearClipPlane = 1.0f;
+    rdCacheTest_camera.invFarClipPlane  = 0.01f;
+    rdCacheTest_camera.pFrustum         = &rdCacheTest_frustum;
+
+    rdMatrix34 view = { { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 10.0f, 0.0f } };
+    rdCacheTest_camera.viewMatrix = view;
+
+    rdCacheTest_pSavedCamera       = rdCamera_g_pCurCamera;
+    rdCacheTest_savedCamMatrix     = rdCamera_g_camMatrix;
+    rdCacheTest_savedRenderOptions = rdroid_g_curRenderOptions;
+    rdCacheTest_bSavedLitFaces     = rdGetLitFaces();
+    rdCamera_g_pCurCamera          = &rdCacheTest_camera;
+    rdCacheTest_bModelCamera       = true;
+
+    // The camera in front of the faces whose normal points to -y: they are front faces.
+    memset(&rdCamera_g_camMatrix, 0, sizeof(rdCamera_g_camMatrix));
+    rdCamera_g_camMatrix.dvec.y = -10.0f;
+    rdroid_g_curRenderOptions   = RDROID_BACKFACE_CULLING_ENABLED;
+}
+
+static void rdCacheTest_RestoreModelCamera(void)
+{
+    if ( !rdCacheTest_bModelCamera )
+    {
+        return;
+    }
+
+    rdCacheTest_bModelCamera  = false;
+    rdCamera_g_pCurCamera     = rdCacheTest_pSavedCamera;
+    rdCamera_g_camMatrix      = rdCacheTest_savedCamMatrix;
+    rdroid_g_curRenderOptions = rdCacheTest_savedRenderOptions;
+    rdSetLitFaces(rdCacheTest_bSavedLitFaces);
+}
+
+// Draws the one-face mesh (vertices v0, v1, v2) with lit faces on or off and reads its draws.
+static void rdCacheTest_DrawModelFace(bool bLitFaces, const int* aVerts, rdLightMode lightMode, rdFaceFlags flags, const rdVector3* pNormal)
+{
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        rdCacheTest_aModelFaceVerts[i] = aVerts[i];
+    }
+
+    memset(&rdCacheTest_modelFace, 0, sizeof(rdCacheTest_modelFace));
+    rdCacheTest_modelFace.flags        = flags | RD_FF_TEX_FILTER_NEAREST;
+    rdCacheTest_modelFace.geometryMode = RD_GEOMETRY_FULL;
+    rdCacheTest_modelFace.lightingMode = lightMode;
+    rdCacheTest_modelFace.numVertices  = 3u;
+    rdCacheTest_modelFace.aVertices    = rdCacheTest_aModelFaceVerts;
+    rdCacheTest_modelFace.aTexVertices = rdCacheTest_aModelFaceTexVerts;
+    rdCacheTest_modelFace.matCelNum    = -1;
+    rdCacheTest_modelFace.normal       = *pNormal;
+
+    memset(&rdCacheTest_mesh, 0, sizeof(rdCacheTest_mesh));
+    rdCacheTest_mesh.geoMode           = RD_GEOMETRY_FULL;
+    rdCacheTest_mesh.lightMode         = RD_LIGHTING_GOURAUD;
+    rdCacheTest_mesh.apVertices        = (rdVector3*)rdCacheTest_aModelVerts;
+    rdCacheTest_mesh.apTexVertices     = (rdVector2*)rdCacheTest_aModelTexVerts;
+    rdCacheTest_mesh.aVertColors       = (rdVector4*)rdCacheTest_aModelColors;
+    rdCacheTest_mesh.aLightIntensities = rdCacheTest_aModelIntensities;
+    rdCacheTest_mesh.meshColor.red     = 1.0f;
+    rdCacheTest_mesh.meshColor.green   = 1.0f;
+    rdCacheTest_mesh.meshColor.blue    = 1.0f;
+    rdCacheTest_mesh.meshColor.alpha   = 1.0f;
+    rdCacheTest_mesh.aFaces            = &rdCacheTest_modelFace;
+    rdCacheTest_mesh.aVertNormals      = (rdVector3*)rdCacheTest_aModelNormals;
+    rdCacheTest_mesh.numVertices       = 4u;
+    rdCacheTest_mesh.numTexVertices    = 4u;
+    rdCacheTest_mesh.numFaces          = 1u;
+
+    memset(&rdCacheTest_node, 0, sizeof(rdCacheTest_node));
+    rdCacheTest_node.meshIdx = 0;
+
+    memset(&rdCacheTest_model, 0, sizeof(rdCacheTest_model));
+    rdCacheTest_model.aGeos[0].numMeshes = 1u;
+    rdCacheTest_model.aGeos[0].aMeshes   = &rdCacheTest_mesh;
+    rdCacheTest_model.numGeos            = 1u;
+    rdCacheTest_model.numHNodes          = 1u;
+    rdCacheTest_model.aHierarchyNodes    = &rdCacheTest_node;
+
+    // The joint matrices are this frame's, so rdModel3_Draw uses them as they are: identity.
+    memset(&rdCacheTest_jointMatrix, 0, sizeof(rdCacheTest_jointMatrix));
+    rdCacheTest_jointMatrix.rvec.x = 1.0f;
+    rdCacheTest_jointMatrix.lvec.y = 1.0f;
+    rdCacheTest_jointMatrix.uvec.z = 1.0f;
+    rdCacheTest_jointAmputation    = 0;
+
+    memset(&rdCacheTest_thing, 0, sizeof(rdCacheTest_thing));
+    rdCacheTest_thing.type                   = RD_THING_MODEL3;
+    rdCacheTest_thing.data.pModel3           = &rdCacheTest_model;
+    rdCacheTest_thing.rdFrameNum             = (int)rdCache_GetFrameNum();
+    rdCacheTest_thing.paJointMatrices        = &rdCacheTest_jointMatrix;
+    rdCacheTest_thing.paJointAmputationFlags = &rdCacheTest_jointAmputation;
+    rdCacheTest_thing.geosetNum              = 0;
+    rdCacheTest_thing.frustumCull            = RDFRUSTUMCULL_INSIDE;
+
+    rdSetLitFaces(bLitFaces);
+    rdMatrix34 placement = rdCacheTest_jointMatrix;
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdCacheTest_thing, &placement));
+
+    TEST_ASSERT_TRUE(stdRenderCapture_Open("rdCacheTest.rcap", "null"));
+    rdCache_Flush();
+    rdCache_FlushAlpha();
+    stdRenderCapture_Close();
+    rdCacheTest_ParseDraws();
+}
+
+// The face drawn with lit faces on and then off: one lit draw, then one classic draw with the same
+// StdVertexTL bytes. aNormals are the lit draw's expected normals.
+static void rdCacheTest_AssertModelFace(const int* aVerts, rdLightMode lightMode, rdFaceFlags flags, const rdVector3* pNormal, const rdVector3* aNormals)
+{
+    rdCacheTest_DrawModelFace(true, aVerts, lightMode, flags, pNormal);
+    TEST_ASSERT_EQUAL_size_t(1u, rdCacheTest_numDraws);
+    RdCacheTestDraw lit = rdCacheTest_aDraws[0];
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAWLIT, lit.id);
+    TEST_ASSERT_EQUAL_size_t(3u, lit.numVerts);
+
+    rdCacheTest_DrawModelFace(false, aVerts, lightMode, flags, pNormal);
+    TEST_ASSERT_EQUAL_size_t(1u, rdCacheTest_numDraws);
+    const RdCacheTestDraw* pClassic = &rdCacheTest_aDraws[0];
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAW, pClassic->id);
+    TEST_ASSERT_EQUAL_size_t(3u, pClassic->numVerts);
+    TEST_ASSERT_EQUAL_INT32(pClassic->rdflags, lit.rdflags);
+    TEST_ASSERT_EQUAL_size_t(pClassic->numIndices, lit.numIndices);
+    TEST_ASSERT_EQUAL_UINT16_ARRAY(pClassic->aIndices, lit.aIndices, lit.numIndices);
+
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        TEST_ASSERT_EQUAL_MEMORY(&pClassic->aVerts[i].tl, &lit.aVerts[i].tl, sizeof(StdVertexTL));
+
+        // The view position: (x, y, z) of the model is (-z, y + 10, x) under the camera
+        const rdVector3* pModel = &rdCacheTest_aModelVerts[aVerts[i]];
+        TEST_ASSERT_EQUAL_FLOAT(-pModel->z, lit.aVerts[i].vx);
+        TEST_ASSERT_EQUAL_FLOAT(pModel->y + 10.0f, lit.aVerts[i].vy);
+        TEST_ASSERT_EQUAL_FLOAT(pModel->x, lit.aVerts[i].vz);
+
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, aNormals[i].x, lit.aVerts[i].nx);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, aNormals[i].y, lit.aVerts[i].ny);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, aNormals[i].z, lit.aVerts[i].nz);
+    }
+}
+
+TEST(rdCache, GouraudModelFacesCarryTheirVertexNormalsInViewSpace)
+{
+    rdCacheTest_SetupModelCamera();
+    const int aVerts[3]          = { 0, 1, 2 };
+    const rdVector3 faceNormal   = { 0.0f, -1.0f, 0.0f };
+    const rdVector3 aExpected[3] = { { 0.0f, -1.0f, 0.0f }, { 0.0f, -0.8f, 0.6f }, { -0.6f, -0.8f, 0.0f } };
+    rdCacheTest_AssertModelFace(aVerts, RD_LIGHTING_GOURAUD, 0, &faceNormal, aExpected);
+}
+
+TEST(rdCache, FlatModelFacesCarryTheirFaceNormalInViewSpace)
+{
+    // A diffuse face: the face normal (0, -0.6, -0.8), rotated to (0.8, -0.6, 0), at every vertex.
+    rdCacheTest_SetupModelCamera();
+    const int aVerts[3]          = { 1, 3, 2 };
+    const rdVector3 faceNormal   = { 0.0f, -0.6f, -0.8f };
+    const rdVector3 aExpected[3] = { { 0.8f, -0.6f, 0.0f }, { 0.8f, -0.6f, 0.0f }, { 0.8f, -0.6f, 0.0f } };
+    rdCacheTest_AssertModelFace(aVerts, RD_LIGHTING_DIFFUSE, 0, &faceNormal, aExpected);
+}
+
+TEST(rdCache, BackFacesOfModelsCarryNegatedNormals)
+{
+    // A double-sided face seen from behind (its normal points away from the camera): drawn, with
+    // the rotated vertex normals negated.
+    rdCacheTest_SetupModelCamera();
+    const int aVerts[3]          = { 0, 2, 3 };
+    const rdVector3 faceNormal   = { 0.0f, 1.0f, 0.0f };
+    const rdVector3 aExpected[3] = { { 0.0f, 1.0f, 0.0f }, { 0.6f, 0.8f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+    rdCacheTest_AssertModelFace(aVerts, RD_LIGHTING_GOURAUD, RD_FF_DOUBLE_SIDED, &faceNormal, aExpected);
+}
+
+TEST(rdCache, TranslucentModelFacesAreDrawnLitFromTheAlphaList)
+{
+    rdCacheTest_SetupModelCamera();
+    const int aVerts[3]          = { 0, 1, 3 };
+    const rdVector3 faceNormal   = { 0.0f, -1.0f, 0.0f };
+    const rdVector3 aExpected[3] = { { 0.0f, -1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f } };
+    rdCacheTest_AssertModelFace(aVerts, RD_LIGHTING_DIFFUSE, RD_FF_TEX_TRANSLUCENT, &faceNormal, aExpected);
+}
+
+TEST(rdCache, ModelFacesStayClassicWithLitFacesOff)
+{
+    // Lit faces off: whatever the face, rdCache makes no lit draw (record 35), only classic ones.
+    rdCacheTest_SetupModelCamera();
+    const int aVerts[3]        = { 0, 1, 2 };
+    const rdVector3 faceNormal = { 0.0f, -1.0f, 0.0f };
+    const rdFaceFlags aFlags[3] = { 0, RD_FF_DOUBLE_SIDED, RD_FF_TEX_TRANSLUCENT };
+    for ( size_t i = 0; i < STD_ARRAYLEN(aFlags); ++i )
+    {
+        rdCacheTest_DrawModelFace(false, aVerts, RD_LIGHTING_GOURAUD, aFlags[i], &faceNormal);
+        TEST_ASSERT_EQUAL_size_t(1u, rdCacheTest_numDraws);
+        TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAW, rdCacheTest_aDraws[0].id);
+    }
+
+    TEST_ASSERT_FALSE(rdGetLitFaces());
+}
+
 TEST_GROUP_RUNNER(rdCache)
 {
     RUN_TEST_CASE(rdCache, LitFacesAreDrawnLitAndApartFromClassicOnes);
     RUN_TEST_CASE(rdCache, ClassicFacesStayOnTheClassicDraw);
     RUN_TEST_CASE(rdCache, AnEntryLeftUnaddedDoesNotMakeTheNextOneLit);
     RUN_TEST_CASE(rdCache, LitAlphaFacesAreDrawnLit);
+    RUN_TEST_CASE(rdCache, GouraudModelFacesCarryTheirVertexNormalsInViewSpace);
+    RUN_TEST_CASE(rdCache, FlatModelFacesCarryTheirFaceNormalInViewSpace);
+    RUN_TEST_CASE(rdCache, BackFacesOfModelsCarryNegatedNormals);
+    RUN_TEST_CASE(rdCache, TranslucentModelFacesAreDrawnLitFromTheAlphaList);
+    RUN_TEST_CASE(rdCache, ModelFacesStayClassicWithLitFacesOff);
 }

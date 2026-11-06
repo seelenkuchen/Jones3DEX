@@ -1635,9 +1635,10 @@ TEST_TEAR_DOWN(stdRenderReplayBabylonOption)
 TEST(stdRenderReplayBabylonOption, TakesTheOptionsAndKeepsTheRest)
 {
     char aProgram[] = "Jones3D-replay", aRender[] = "--render", aGpu[] = "gpu", aFramesOut[] = "--frames-out",
-        aDir[] = "frames", aEvery[] = "--every", aThree[] = "3", aCapture[] = "--capture", aOut[] = "out.rcap";
-    char* argv[] = { aProgram, aRender, aGpu, aFramesOut, aDir, aEvery, aThree, aCapture, aOut, nullptr };
-    int argc = 9;
+        aDir[] = "frames", aEvery[] = "--every", aThree[] = "3", aCapture[] = "--capture", aOut[] = "out.rcap",
+        aNormals[] = "--normals";
+    char* argv[] = { aProgram, aRender, aGpu, aFramesOut, aDir, aNormals, aEvery, aThree, aCapture, aOut, nullptr };
+    int argc = 10;
     StdRenderBabylonDeviceType type = StdRenderBabylonDeviceType::Null;
     StdRenderReplayBabylonFrameOutput output;
     const char* pError = nullptr;
@@ -1648,6 +1649,7 @@ TEST(stdRenderReplayBabylonOption, TakesTheOptionsAndKeepsTheRest)
     TEST_ASSERT_NULL(pError);
     TEST_ASSERT_EQUAL_STRING("frames", output.pDirectory);
     TEST_ASSERT_EQUAL_UINT32(3u, output.every);
+    TEST_ASSERT_TRUE(output.bNormals);
     TEST_ASSERT_EQUAL_INT(3, argc);
     TEST_ASSERT_EQUAL_PTR(aProgram, argv[0]);
     TEST_ASSERT_EQUAL_PTR(aCapture, argv[1]);
@@ -1680,6 +1682,20 @@ TEST(stdRenderReplayBabylonOption, EveryNeedsFramesOut)
     TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argv, true, &output, &pError));
     TEST_ASSERT_NOT_NULL(pError);
     TEST_ASSERT_EQUAL_INT(3, argc);
+}
+
+TEST(stdRenderReplayBabylonOption, NormalsNeedFramesOut)
+{
+    char aProgram[] = "p", aNormals[] = "--normals";
+    char* argv[] = { aProgram, aNormals, nullptr };
+    int argc = 2;
+    StdRenderReplayBabylonFrameOutput output;
+    const char* pError = nullptr;
+
+    TEST_ASSERT_FALSE(stdRenderReplayBabylon_TakeFrameOptions(&argc, argv, true, &output, &pError));
+    TEST_ASSERT_NOT_NULL(pError);
+    TEST_ASSERT_EQUAL_INT(2, argc);
+    TEST_ASSERT_FALSE(output.bNormals);
 }
 
 TEST(stdRenderReplayBabylonOption, AMissingOrBadValueIsRefused)
@@ -1716,6 +1732,7 @@ TEST_GROUP_RUNNER(stdRenderReplayBabylonOption)
     RUN_TEST_CASE(stdRenderReplayBabylonOption, TakesTheOptionsAndKeepsTheRest);
     RUN_TEST_CASE(stdRenderReplayBabylonOption, FramesOutNeedsTheGpu);
     RUN_TEST_CASE(stdRenderReplayBabylonOption, EveryNeedsFramesOut);
+    RUN_TEST_CASE(stdRenderReplayBabylonOption, NormalsNeedFramesOut);
     RUN_TEST_CASE(stdRenderReplayBabylonOption, AMissingOrBadValueIsRefused);
 }
 
@@ -2260,11 +2277,11 @@ TEST(std3DBabylonGpu, ReplayWritesFrameImages)
     }
 
     char aProgram[] = "Jones3D-replay", aRender[] = "--render", aGpu[] = "gpu", aFramesOut[] = "--frames-out",
-        aEvery[] = "--every", aOne[] = "1";
+        aEvery[] = "--every", aOne[] = "1", aNormals[] = "--normals";
     char aDir[128];
     std::snprintf(aDir, sizeof(aDir), "%s", kReplayFramesDir);
-    char* argv[] = { aProgram, aRender, aGpu, aFramesOut, aDir, aEvery, aOne, nullptr };
-    int argc = 7;
+    char* argv[] = { aProgram, aRender, aGpu, aFramesOut, aDir, aEvery, aOne, aNormals, nullptr };
+    int argc = 8;
     StdRenderBabylonDeviceType type = StdRenderBabylonDeviceType::Null;
     StdRenderReplayBabylonFrameOutput output;
     const char* pError = nullptr;
@@ -2306,6 +2323,16 @@ TEST(std3DBabylonGpu, ReplayWritesFrameImages)
     TEST_ASSERT_EQUAL_INT(0, (uint8_t)bmp[at + 0u]);
     TEST_ASSERT_EQUAL_INT(0, (uint8_t)bmp[at + 1u]);
     TEST_ASSERT_EQUAL_INT(255, (uint8_t)bmp[at + 2u]);
+
+    // --normals: the normal target next to it, the same size. The classic quad wrote the constant
+    // normal (0, 0, 1), encoded (0.5, 0.5, 1): blue 255, green and red a half (127 or 128).
+    const std::vector<char> normals = ReadFile((std::string(kReplayFramesDir) + "/normals_00000.bmp").c_str());
+    TEST_ASSERT_EQUAL_size_t(bmp.size(), normals.size());
+    TEST_ASSERT_EQUAL_MEMORY(bmp.data(), normals.data(), 54u);
+    TEST_ASSERT_EQUAL_INT(255, (uint8_t)normals[at + 0u]);
+    TEST_ASSERT_INT_WITHIN(1, 127, (uint8_t)normals[at + 1u]);
+    TEST_ASSERT_INT_WITHIN(1, 127, (uint8_t)normals[at + 2u]);
+    TEST_ASSERT_TRUE((uint8_t)normals[at + 1u] >= 127u && (uint8_t)normals[at + 2u] >= 127u);
 }
 
 

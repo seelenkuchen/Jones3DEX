@@ -289,7 +289,15 @@ int J3DAPI JonesDisplay_Open(JonesDisplaySettings* pSettings)
         stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_MAXLIGHTCOLLECTDISTANCE, maxLightColectDist);
     }
 
+    // Added: Load the lit faces setting from config (presentation: not part of the simulation profile)
+    bool bLitFaces = stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+    if ( !stdConfig_Contains(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED) )
+    {
+        stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, bLitFaces);
+    }
+
     rdSetGeometryMode(pSettings->geoMode);
+    rdSetLitFaces(bLitFaces); // Added
     sithRender_SetLightingMode(pSettings->lightMode);
     sithRender_SetRenderFlags(sithRender_GetRenderFlags() | RDROID_USE_AMBIENT_CAMERA_LIGHT);
 

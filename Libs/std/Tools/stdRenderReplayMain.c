@@ -12,7 +12,7 @@
 // Added: the Babylon column's entry (std/Babylon/stdRenderReplayBabylonMain.cpp) also takes the
 // --render and --frames-out options before calling the shared run below.
 #ifdef STDRENDERREPLAYMAIN_ENTRY
-#define STDRENDERREPLAY_RENDER_USAGE " [--render null|gpu, default null] [--frames-out <dir> [--every <n>, default 1]]"
+#define STDRENDERREPLAY_RENDER_USAGE " [--render null|gpu, default null] [--frames-out <dir> [--every <n>, default 1] [--normals]]"
 #else
 #define STDRENDERREPLAY_RENDER_USAGE ""
 #endif

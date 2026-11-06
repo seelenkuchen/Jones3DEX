@@ -6,6 +6,7 @@ add_executable(rdroidTests
     ../Math/Tests/rdMatrixTest.c
     ../Engine/Tests/rdClipTest.c
     ../Raster/Tests/rdCacheTest.c
+    ../Raster/Tests/rdFaceTest.c
     ../Math/rdVector.c
     ../Math/rdMatrix.c
 )

@@ -6,12 +6,14 @@
 #include <rdroid/Engine/rdLight.h>
 #include <rdroid/Engine/rdMaterial.h>
 #include <rdroid/Engine/rdPuppet.h>
+#include <rdroid/Main/rdroid.h>
 #include <rdroid/Math/rdMath.h>
 #include <rdroid/Math/rdMatrix.h>
 #include <rdroid/Math/rdVector.h>
 #include <rdroid/Primitives/rdModel3.h>
 #include <rdroid/Primitives/rdPrimit3.h>
 #include <rdroid/Raster/rdCache.h>
+#include <rdroid/Raster/rdFace.h>
 
 #include <sith/AI/sithAIUtil.h>
 #include <sith/Cog/sithCog.h>
@@ -78,6 +80,11 @@ typedef struct sSithRenderSectorQueue
 
 #define SITHRENDER_MAXSCREENSHOTS 100u
 
+// Added: option A L3 (ADR-0023). Surfaces whose normals are less than this many degrees apart share a
+// smoothed normal at the vertices they share (rdFace_CalcSmoothNormals); wider edges stay hard. A
+// starting value: it is tuned on cave levels with per-pixel lighting (M10).
+#define SITHRENDER_SMOOTHNORMAL_MAXANGLE 45.0f
+
 // Render state vars
 static int sithRender_renderflags;
 rdLightMode sithRender_lightMode;
@@ -127,6 +134,14 @@ static rdVector3 sithRender_aClipVertices[MAX_CLIP_VERTICIES]               = { 
 static rdVector3 sithRender_aTransformedClipVertices[MAX_CLIP_VERTICIES]    = { 0 }; // Added: Init to 0
 static rdVector3 sithRender_aSurfaceTransformedVertices[MAX_CLIP_VERTICIES] = { 0 }; // Added: Init to 0
 
+// Added: the lit path's smoothed corner normals of the world surfaces, in world space, made by
+// sithRender_Open and freed by sithRender_Close (option A L3, ADR-0023). Surface s's corners start at
+// sithRender_aSurfaceFirstCorner[s]. Renderer-side only: not part of the world, savegames or anything
+// the simulation reads. NULL when they could not be made; lit surfaces then use their face normal.
+static size_t sithRender_numSmoothSurfaces;
+static size_t* sithRender_aSurfaceFirstCorner;
+static rdVector3* sithRender_aCornerNormals;
+
 // Thing render vars
 static int (J3DAPI* sithRender_pExtraThingRenderFunc)(SithThing* pThing);
 
@@ -157,6 +172,10 @@ static void sithRender_BuildDynamicLights(void);
 static void sithRender_RenderThings(void);
 static int J3DAPI sithRender_RenderThing(SithThing* pThing);
 static void sithRender_RenderAlphaAdjoins(void);
+
+static void sithRender_BuildSmoothNormals(void); // Added
+static void sithRender_FreeSmoothNormals(void); // Added
+static int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSector, const SithSurface* pSurf, bool bLit); // Added
 
 void sithRender_ResetGlobals(void)
 {
@@ -208,6 +227,9 @@ int sithRender_Open(void)
         return 1;
     }
 
+    // Added: the lit path's smooth normals. Presentation only: a failure leaves the face normals.
+    sithRender_BuildSmoothNormals();
+
     sithRender_bResetCameraAspect = false;
     return 0;
 }
@@ -220,6 +242,7 @@ void sithRender_Close(void)
     }
 
     sithRender_aAdjoinTable = NULL;
+    sithRender_FreeSmoothNormals(); // Added
     sithRenderSky_Close();
 }
 
@@ -795,7 +818,10 @@ void sithRender_RenderSectors(void)
                     pSurf->renderTick = sithMain_g_curRenderTick;
                 }
 
-                rdCacheProcEntry* pPoly = rdCache_GetProcEntry();
+                // Added: with lit faces on, non-sky surfaces carry view-space positions and normals
+                bool bSky               = (pSurf->flags & (SITH_SURFACE_CEILINGSKY | SITH_SURFACE_HORIZONSKY)) != 0;
+                bool bLit               = !bSky && rdGetLitFaces();
+                rdCacheProcEntry* pPoly = bLit ? rdCache_GetLitProcEntry() : rdCache_GetProcEntry(); // Altered: was rdCache_GetProcEntry
                 if ( !pPoly )
                 {
                     // TODO: Add maybe log
@@ -803,7 +829,7 @@ void sithRender_RenderSectors(void)
                 }
 
                 // Render sky surface
-                if ( (pSurf->flags & (SITH_SURFACE_CEILINGSKY | SITH_SURFACE_HORIZONSKY)) != 0 )
+                if ( bSky )
                 {
                     // Clip vertices and transform to camera space
                     sithRender_clipFaceView.aVertices  = sithRender_aClipVertices;
@@ -840,7 +866,7 @@ void sithRender_RenderSectors(void)
                 else // Not a sky surface
                 {
                     // Clip vertices and transform to NDC screen space
-                    if ( !rdClip_FaceToPlane(pSector->pClipFrustum, pPoly, &pSurf->face, sithWorld_g_pCurrentWorld->aTransformedVertices, sithWorld_g_pCurrentWorld->aTexVerticies, sithWorld_g_pCurrentWorld->aVertDynamicLights, pSurf->aIntensities) )
+                    if ( !sithRender_SurfaceFaceToPlane(pPoly, pSector, pSurf, bLit) ) // Altered: was rdClip_FaceToPlane; the lit path also fills the view-space normals
                     {
                         // Face is fully outside frustrum
                         continue;
@@ -1399,7 +1425,8 @@ void sithRender_RenderAlphaAdjoins(void)
             pSurf->renderTick = sithMain_g_curRenderTick;
         }
 
-        rdCacheProcEntry* pPoly = rdCache_GetAlphaProcEntry();
+        bool bLit               = rdGetLitFaces(); // Added
+        rdCacheProcEntry* pPoly = bLit ? rdCache_GetLitAlphaProcEntry() : rdCache_GetAlphaProcEntry(); // Altered: was rdCache_GetAlphaProcEntry
         if ( !pPoly )
         {
             // TODO: Maybe add log
@@ -1408,7 +1435,7 @@ void sithRender_RenderAlphaAdjoins(void)
 
         pPoly->lightingMode = pSurf->face.lightingMode >= sithRender_lightMode ? sithRender_lightMode : pSurf->face.lightingMode;
 
-        if ( !rdClip_FaceToPlane(pSector->pClipFrustum, pPoly, &pSurf->face, sithWorld_g_pCurrentWorld->aTransformedVertices, sithWorld_g_pCurrentWorld->aTexVerticies, sithWorld_g_pCurrentWorld->aVertDynamicLights, pSurf->aIntensities) )
+        if ( !sithRender_SurfaceFaceToPlane(pPoly, pSector, pSurf, bLit) ) // Altered: was rdClip_FaceToPlane
         {
             // Face is fully outside frustrum
             continue;
@@ -1431,6 +1458,120 @@ void sithRender_RenderAlphaAdjoins(void)
     {
         rdCache_FlushAlpha();
     }
+}
+
+void sithRender_BuildSmoothNormals(void)
+{
+    // Added: option A L3 (ADR-0023). Levels store a face normal per surface only; the lit path's
+    // vertex normals are the surfaces' corners smoothed across edges under
+    // SITHRENDER_SMOOTHNORMAL_MAXANGLE. Sky surfaces are drawn classic and never smooth a neighbour.
+    // Only renderer-side memory is touched: no world, thing or RNG state.
+    sithRender_FreeSmoothNormals();
+
+    const SithWorld* pWorld = sithWorld_g_pCurrentWorld;
+    if ( !pWorld || !pWorld->aSurfaces || pWorld->numSurfaces == 0 )
+    {
+        return;
+    }
+
+    size_t numCorners = 0;
+    for ( size_t i = 0; i < pWorld->numSurfaces; ++i )
+    {
+        numCorners += pWorld->aSurfaces[i].face.numVertices;
+    }
+
+    const rdFace** apFaces = (const rdFace**)STDMALLOC(sizeof(const rdFace*) * pWorld->numSurfaces);
+    bool* abSky            = (bool*)STDMALLOC(sizeof(bool) * pWorld->numSurfaces);
+    sithRender_aSurfaceFirstCorner = (size_t*)STDMALLOC(sizeof(size_t) * pWorld->numSurfaces);
+    sithRender_aCornerNormals      = (rdVector3*)STDMALLOC(sizeof(rdVector3) * (numCorners ? numCorners : 1u));
+
+    bool bBuilt = false;
+    if ( apFaces && abSky && sithRender_aSurfaceFirstCorner && sithRender_aCornerNormals )
+    {
+        for ( size_t i = 0; i < pWorld->numSurfaces; ++i )
+        {
+            apFaces[i] = &pWorld->aSurfaces[i].face;
+            abSky[i]   = (pWorld->aSurfaces[i].flags & (SITH_SURFACE_CEILINGSKY | SITH_SURFACE_HORIZONSKY)) != 0;
+        }
+
+        bBuilt = rdFace_CalcSmoothNormals(apFaces, abSky, pWorld->numSurfaces, pWorld->numVertices, SITHRENDER_SMOOTHNORMAL_MAXANGLE, sithRender_aSurfaceFirstCorner, sithRender_aCornerNormals);
+    }
+
+    if ( apFaces )
+    {
+        stdMemory_Free((void*)apFaces);
+    }
+
+    if ( abSky )
+    {
+        stdMemory_Free(abSky);
+    }
+
+    if ( !bBuilt )
+    {
+        SITHLOG_WARNING("sithRender: could not make the smooth surface normals; lit surfaces use their face normals.\n");
+        sithRender_FreeSmoothNormals();
+        return;
+    }
+
+    sithRender_numSmoothSurfaces = pWorld->numSurfaces;
+}
+
+void sithRender_FreeSmoothNormals(void)
+{
+    // Added
+    if ( sithRender_aSurfaceFirstCorner )
+    {
+        stdMemory_Free(sithRender_aSurfaceFirstCorner);
+    }
+
+    if ( sithRender_aCornerNormals )
+    {
+        stdMemory_Free(sithRender_aCornerNormals);
+    }
+
+    sithRender_aSurfaceFirstCorner = NULL;
+    sithRender_aCornerNormals      = NULL;
+    sithRender_numSmoothSurfaces   = 0;
+}
+
+int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSector, const SithSurface* pSurf, bool bLit)
+{
+    // Added: rdClip_FaceToPlane of a world surface, or with bLit (an entry of a lit getter)
+    // rdClip_FaceToPlaneLit with the view-space normals: the smoothed corner normals where they
+    // exist, else the face normal, rotated by the view matrix like aTransformedVertices.
+    const SithWorld* pWorld = sithWorld_g_pCurrentWorld;
+    if ( !bLit )
+    {
+        return rdClip_FaceToPlane(pSector->pClipFrustum, pPoly, &pSurf->face, pWorld->aTransformedVertices, pWorld->aTexVerticies, pWorld->aVertDynamicLights, pSurf->aIntensities);
+    }
+
+    const rdMatrix34* pView = &rdCamera_g_pCurCamera->viewMatrix;
+
+    rdVector3 viewNormal;
+    rdMatrix_TransformVector34(&viewNormal, &pSurf->face.normal, pView);
+    if ( !rdClip_FaceToPlaneLit(pSector->pClipFrustum, pPoly, &pSurf->face, pWorld->aTransformedVertices, pWorld->aTexVerticies, pWorld->aVertDynamicLights, pSurf->aIntensities, NULL, &viewNormal) )
+    {
+        return 0;
+    }
+
+    // rdClip_FaceToPlaneLit keeps every vertex in order, so corner i is vertex i of the entry
+    if ( sithRender_aCornerNormals && pSurf >= pWorld->aSurfaces )
+    {
+        size_t surfNum = (size_t)(pSurf - pWorld->aSurfaces);
+        if ( surfNum < sithRender_numSmoothSurfaces && surfNum < pWorld->numSurfaces )
+        {
+            const rdVector3* aCorners = &sithRender_aCornerNormals[sithRender_aSurfaceFirstCorner[surfNum]];
+            for ( size_t i = 0; i < pSurf->face.numVertices; ++i )
+            {
+                rdVector3 cornerNormal;
+                rdMatrix_TransformVector34(&cornerNormal, &aCorners[i], pView);
+                rdVector_Normalize3(&pPoly->aViewNormals[i], &cornerNormal);
+            }
+        }
+    }
+
+    return 1;
 }
 
 void J3DAPI sithRender_SetExtraThingRenderFunc(int (J3DAPI* pfFunc)(SithThing* pThing))

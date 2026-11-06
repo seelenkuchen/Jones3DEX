@@ -11,6 +11,8 @@ tHostServices* rdroid_g_pHS;
 rdGeometryMode rdroid_g_curGeometryMode;
 rdRoidFlags rdroid_g_curRenderOptions;
 
+static bool rdroid_bLitFaces; // Added: see rdSetLitFaces
+
 static bool rdroid_bRDroidStartup;
 static bool rdroid_bRDroidOpen;
 
@@ -20,6 +22,7 @@ void rdroid_ResetGlobals(void)
     memset(&rdroid_g_pHS, 0, sizeof(rdroid_g_pHS));
     memset(&rdroid_g_curGeometryMode, 0, sizeof(rdroid_g_curGeometryMode));
     memset(&rdroid_g_curRenderOptions, 0, sizeof(rdroid_g_curRenderOptions));
+    rdroid_bLitFaces = false; // Added
 }
 
 void J3DAPI rdSetServices(tHostServices* pHS)
@@ -115,4 +118,16 @@ rdLightMode rdGetLightingMode(void)
 void J3DAPI rdSetLightingMode(rdLightMode mode)
 {
     rdroid_g_curLightingMode = mode;
+}
+
+bool rdGetLitFaces(void)
+{
+    // Added
+    return rdroid_bLitFaces;
+}
+
+void rdSetLitFaces(bool bEnable)
+{
+    // Added
+    rdroid_bLitFaces = bEnable;
 }
