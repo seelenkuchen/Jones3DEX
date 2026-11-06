@@ -38,18 +38,23 @@ the removed DirectX 9 build carry `dx9`.
 
 ## Replay
 
-The replay tool is `Jones3D-replay` (plain Null column). It reads a capture and makes the recorded
-calls again through the public renderer functions, so a capture written during the replay has the
-same bytes as the original:
+The replay tool is `Jones3D-replay`. The Null column builds it against the Null backend; the
+Babylon column builds it against the Babylon `std3D` backend and adds `--render null|gpu` and,
+with `gpu`, `--frames-out <dir> [--every <n>]` for image output. It reads a capture and makes the
+recorded calls again through the public renderer functions, so a capture written during the replay
+has the same bytes as the original:
 
 ```bash
 <build>/Libs/std/Jones3D-replay capture.rcap [--capture replay.rcap]
+<build>/Libs/std/Jones3D-replay capture.rcap --render gpu --frames-out <dir> [--every <n>]
 ```
 
 It exits `0` when the replay finishes, `1` for a malformed or inconsistent input file (or a file
 that cannot be opened), and `2` for wrong arguments. Records the replay does not reproduce (the
 skipped calls and unknown record ids) are counted as skipped and make the output differ; a call
-that returns different values is counted as a mismatch.
+that returns different values is counted as a mismatch. With `--render gpu --frames-out <dir>` the
+Babylon replay reads the back buffer after each replayed `stdDisplay_Update` and writes
+`frame_<NNNNN>.bmp` for every nth frame selected by `--every`.
 
 ## Header
 

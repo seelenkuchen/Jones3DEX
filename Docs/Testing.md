@@ -359,7 +359,11 @@ cd <game>/Resource
 
 Every column builds `Jones3D-headless`: the Null column, the Babylon column
 (`-DJONES3D_PLATFORM_BABYLON=ON`) on Linux and macOS, and the Babylon column on 64-bit
-Windows. The same run must give the same state file, byte for byte, in all of them; the
+Windows. In the Babylon column `--render null|gpu` picks what `std3D` draws with: `null`,
+the default, is a Null device that keeps no command record, so a trace run needs no GPU;
+`gpu` is the SDL GPU device without a window (set `SDL_VIDEO_DRIVER=offscreen` where there
+is no display). The option does not change the state trace. The same run must give the same
+state file, byte for byte, in all of them; the
 runner writes the state file in binary mode so Windows line endings do not differ. On
 Linux the Windows build runs under wine (`wine <build>/Jones3D/Jones3D-headless.exe ...`).
 `--input <file>` feeds a scripted-input file of `frame <n>: cmd <command>` and
@@ -442,6 +446,12 @@ Replay a capture and optionally record the replayed calls into a second file:
 <build>/Libs/std/Jones3D-replay capture.rcap [--capture replay.rcap]
 ```
 
+The Babylon column's `Jones3D-replay` also takes `--render null|gpu` and, with `gpu`,
+`--frames-out <dir> [--every <n>]`: after each replayed `stdDisplay_Update` it reads the
+back buffer and writes `frame_<NNNNN>.bmp` (every nth frame with `--every`), so an
+M6.1-style capture renders to image frames for visual comparison. The captures themselves
+contain game data and stay local; they are not committed.
+
 The replay exits `0` when it finishes, `1` for a malformed or inconsistent
 input file (or a file that cannot be opened), and `2` for wrong arguments. A
 replay with `--capture` produces the same bytes as the original unless the
@@ -516,6 +526,22 @@ which takes about 50 seconds; later configures reuse the cache in `${BABYLON_CAC
 `BABYLON_SHADERCROSS` set to an existing tool. macOS and arm64 hosts have no prebuilt DXC: they set
 `BABYLON_DXC_ROOT` to a DXC they built, or configure with `BABYLON_BUILD_SHADERS=OFF` and leave out what
 needs shaders.
+
+<a name="std3d-on-babylon-tests"></a>
+
+#### 🧪 std3D On Babylon Tests
+
+`std.std3DOnBabylon` builds `std3DBabylonTests` from `Libs/std/Babylon/Tests/std3DBabylonTest.cpp`
+and the C replay suite `stdRenderReplayTest.c`, against `std3DBabylon.cpp`, `stdRenderBabylon.cpp`
+and `stdRenderReplayBabylon.cpp`. The Null group drives the public `std3D_*` calls and the capture
+forwarders on a `babylon::render::NullDevice` and checks the recorded command stream and the texture
+contents byte for byte against values derived from the DX9 backend's rules. The GPU group repeats the
+texture readback and renders synthetic scenes on the SDL GPU device, comparing back-buffer pixels for
+formats, alpha test and blending, Z, fog, lines, points and perspective; it also checks the windowed
+present and that the replay writes BMP frames. Like the render contract tests, the GPU cases need a
+Vulkan device (Mesa's lavapipe in Linux CI), skip without one, and fail instead when
+`BABYLON_REQUIRE_GPU=1` is set. CTest runs the suite as `std.std3DOnBabylon` with
+`SDL_VIDEO_DRIVER=offscreen` (`dummy` on macOS).
 
 <a name="original-engine-io-test-vectors"></a>
 

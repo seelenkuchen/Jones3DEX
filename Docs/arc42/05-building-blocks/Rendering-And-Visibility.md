@@ -1,6 +1,6 @@
 # Rendering And Visibility
 
-This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)); until the Babylon renderer lands (M6.6) the Null backend accepts every call and draws nothing.
+This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column's `std3D` draws on the Babylon render device (see [Babylon std3D Backend](#babylon-std3d-backend-m66)); the Null column still accepts every call and draws nothing. `stdDisplay` stays Null until M6.7, so the 2D layer, HUD text and menus are still missing.
 
 Primary source files:
 
@@ -11,7 +11,9 @@ Primary source files:
 - [`Libs/rdroid/Raster/rdCache.c`](../../../Libs/rdroid/Raster/rdCache.c)
 - [`Libs/std/General/std3D.h`](../../../Libs/std/General/std3D.h)
 - `Libs/std/Null/std3DNull.c` and `Libs/std/Null/stdDisplayNull.c`
-- the Babylon render module (M6.6)
+- [`Libs/std/Babylon/std3DBabylon.cpp`](../../../Libs/std/Babylon/std3DBabylon.cpp) and [`Libs/std/Babylon/stdRenderBabylon.h`](../../../Libs/std/Babylon/stdRenderBabylon.h)
+- [`Libs/std/Babylon/Shaders/std3d.vert.hlsl`](../../../Libs/std/Babylon/Shaders/std3d.vert.hlsl), `std3d.frag.hlsl`, `std3d_wireframe.frag.hlsl` and `present.*.hlsl`
+- [`Jones3D/Platform/Babylon/main.cpp`](../../../Jones3D/Platform/Babylon/main.cpp) and [`mainWindowed.cpp`](../../../Jones3D/Platform/Babylon/mainWindowed.cpp)
 
 ## Layer Split
 
@@ -29,7 +31,7 @@ Rendering is divided across three layers:
 
    Own the actual graphics API backend, device state, texture allocation, projection setup, scene begin/end, and buffer presentation.
 
-The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it to the selected backend (Null today, Babylon from M6.6).
+The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it to the selected backend (Null, or the Babylon render device in the Babylon column since M6.6).
 
 ## Camera System
 
@@ -688,7 +690,7 @@ The architecture here is important:
 - render-state translation
 - low-level draw calls
 
-From the rest of the engine's perspective, `std3D` is the hardware abstraction layer for rendering.
+From the rest of the engine's perspective, `std3D` is the hardware abstraction layer for rendering. In the Babylon column since M6.6 `std3D` draws on the Babylon render device; `stdDisplay` stays Null until M6.7, which is why the back buffer and present path exist but the 2D layer does not yet draw.
 
 ## DirectX 6.1c Backend
 
@@ -730,6 +732,49 @@ The shader system owned:
 - global shader constants such as viewport and fog data
 
 This was not just a backend port. It was a meaningful extension of the renderer architecture while still preserving the same upper-layer scene traversal and submission model.
+
+## Babylon std3D Backend (M6.6)
+
+The Babylon column's `std3D` backend ([`std3DBabylon.cpp`](../../../Libs/std/Babylon/std3DBabylon.cpp)) implements the same `std3DBackend_*` functions as the removed DirectX 9 backend, ported from `std3DX9.c`, with the capture forwarders of `std3DCapture.c` still in front ([ADR-0024](../09-decisions/ADR-0024-render-capture-by-renamed-backends.md)).
+
+### Device And Frame Owner
+
+The render device is created by the composition root and passed in the `StdBabylonContext` ([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)). The headless `main.cpp` uses a Null device that records no commands by default, or the SDL GPU device without a window with `--render gpu`; `mainWindowed.cpp` uses the SDL GPU device on the game window and falls back to the Null device without a GPU.
+
+[`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) owns the frame: the command list being recorded and the back buffer. The back buffer is a `Bgra8` color target that is also sampled, plus a depth target that is `D24S8`, or `D32F` where the device lacks `D24S8`, at the display size. On a device with a swapchain, submitting the frame first records a present pass: a full-screen triangle from `present.*.hlsl` samples the color target with a nearest, clamped sampler. `copyTexture` cannot name the swapchain, so a pass is the only way the render interface offers to put an offscreen target on the screen. Until M6.7 `std3D_EndScene` submits the frame; later `stdDisplay_Update` will.
+
+### Textures And Cache
+
+Five DX9 texture formats are offered, each matched to a Babylon format with the same bit layout:
+
+- `X8R8G8B8` and `A8R8G8B8` map to `Bgra8` (opaque and alpha variants)
+- `R5G6B5` maps to `B5G6R5`
+- `A1R5G5B5` maps to `B5G5R5A1`
+- `A4R4G4B4` maps to `B4G4R4A4`
+
+`R8G8B8` is left out because no GPU API samples 24-bit texels. Texture allocation keeps owned system-memory copies of every mip, and the cache uploads every mip whose dimensions halve as Babylon's chain expects; a level that does not ends the chain with a warning. Pixels whose `ColorInfo` already matches the format's layout are copied unchanged, others are converted through `stdColor`, and formats without alpha get alpha 255. The texture cache follows `std3DX9.c`: frame counts, the linked cache list, and a purge of old entries when a texture does not fit the device's reported free memory.
+
+### Pipelines, Samplers And Draws
+
+`std3D_GetPipeline` caches one pipeline per primitive and Z-write bit: three primitives (triangle list, line strip, point list) times Z write on or off. Triangles use `std3d.frag.hlsl`, lines and points the wireframe shader. All of them blend source alpha over inverse source alpha, test Z with `LessOrEqual`, write Z as `STD3D_RS_ZWRITE_DISABLED` says, and cull nothing, as `std3DX9.c` set the Direct3D state.
+
+`std3D_GetSampler` caches 16 samplers, indexed by four bits worked out at each draw: linear filtering, linear mip filtering, clamp U and clamp V. It creates each one on first use. Anisotropic requests filter linearly because no device here filters anisotropically, as in `std3DX9.c`; the mip filter is linear for trilinear and nearest otherwise.
+
+A draw streams its vertices, and for triangles its indices, into the frame's vertex and index buffers with `CommandList::updateBuffer` at growing offsets. `updateBuffer` cannot be recorded inside a pass, so the draw is streamed right away and the pass is recorded when it ends, at `std3D_EndScene` and at a `std3D_ClearZBuffer` inside a scene. The scene's Direct3D clears become the pass load operations, and the buffers start smaller than the DX9 64 MiB ones and grow when a frame needs more, destroying the old buffer after the frame's submit.
+
+### Shaders
+
+The game shaders (`std3d.vert.hlsl`, `std3d.frag.hlsl` and `std3d_wireframe.frag.hlsl`) are ports of the DX9 `default_vs.hlsl`, `default_ps.hlsl`, `default_wf_ps.hlsl` and `common.hlsli`, kept with their DX9 behavior; `present.*.hlsl` is the new full-screen present pass:
+
+- The vertices are `StdVertexTL`, already transformed, with screen x and y in pixels, z in 0..1 and `rhw = 1 / w`. The vertex shader rebuilds clip space with `w = 1 / rhw`, so the GPU interpolates perspective-correctly and divides back to the same screen position and z.
+- Screen position gets a half-pixel shift. Direct3D 9 puts pixel centers at integer screen coordinates, while SDL GPU (Direct3D 12, Vulkan, Metal) puts them at integer + 0.5; the shift makes the same pixels be covered and sampled.
+- Colors arrive as bytes `B, G, R, A` and are swizzled with `.zyxw`, matching Direct3D 9's `D3DCOLOR`.
+- The fragment color is texture times diffuse; untextured draws sample the white texture. Specular is not added, because `std3DX9.c` disabled `D3DRS_SPECULARENABLE` and its pixel shader ignored it.
+- Fog is linear in `w`, as DX9 passed it: `saturate((w - start) * (1 / (end - start)))` lerps RGB to the fog color and keeps alpha.
+- The alpha test is fixed-function DX9 behavior in the shader: when `STD3D_RS_ALPHAREF_SET` is set, fragments with alpha not greater than `160 / 255` are discarded (`D3DCMP_GREATER`).
+- Lines and points use the wireframe shader's constant opaque white times diffuse, with no texture and no fog.
+
+The vertex shader's outputs are ordered so the pixel shader's inputs are a prefix of them: diffuse, texture coordinate and `w` come first and the unread specular color last. Direct3D 12 links a pixel shader only when its inputs match the vertex outputs in the same registers, and the DXIL comes through SPIR-V, which drops inputs a pixel shader never reads; the earlier specular gap made D3D12 refuse every game pipeline with `E_INVALIDARG`.
 
 ## Where OpenJones3D Extends The Original Renderer
 

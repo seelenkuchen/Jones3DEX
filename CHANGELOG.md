@@ -11,10 +11,13 @@
     and the post-build copy options (`JONES3D_ENABLE_POST_BUILD_COPY`, `JONES3D_POST_BUILD_COPY_DIR`) are removed.
   - The Babylon Engine (`Babylon/`) and a Babylon platform column (`-DJONES3D_PLATFORM_BABYLON=ON`, Linux and
     macOS, and the only choice on Windows): time, files, input and the window run on Babylon. It adds a windowed
-    `Jones3D` that opens a window, runs the game and quits cleanly; it renders nothing yet.
+    `Jones3D` that opens a window and runs the game; since M6.6 it draws the 3D scene with the new Babylon
+    renderer, while the 2D layer, HUD text and menus are still missing until M6.7.
   - Windows builds are now 64-bit only. The Win32, DirectX 9 and DirectX 6 builds are gone, along with the
-    DirectSound drivers and the bundled DirectX SDK; 32-bit Windows is not supported. Until the Babylon renderer
-    lands, the windowed Windows build shows nothing.
+    DirectSound drivers and the bundled DirectX SDK; 32-bit Windows is not supported. The windowed Windows build
+    draws the 3D scene since M6.6; the 2D layer, HUD text and menus follow in M6.7.
+  - `Jones3D-headless` and `Jones3D-replay` in the Babylon column accept `--render null|gpu`;
+    `Jones3D-replay --render gpu --frames-out <dir>` renders a capture to BMP frames.
   - `Jones3D-headless` and the windowed `Jones3D` accept `--load <save.nds>`; headless state files start with the
     run's simulation settings (`cvar game.profile enhanced`).
   - Native builds use the same random number generator as the original (Microsoft's `rand`), so AI, COG
