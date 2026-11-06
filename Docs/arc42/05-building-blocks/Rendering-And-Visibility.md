@@ -1,6 +1,6 @@
 # Rendering And Visibility
 
-This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column's `std3D` draws on the Babylon render device (see [Babylon std3D Backend](#babylon-std3d-backend-m66)), and since M6.7 its `stdDisplay` draws and presents on the same device (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)), so the 2D layer, HUD and console text, and the intro movie are there too; the Null column still accepts every call and draws nothing.
+This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column's `std3D` draws on the Babylon render device (see [Babylon std3D Backend](#babylon-std3d-backend-m66)), and since M6.7 its `stdDisplay` draws and presents on the same device (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)), so the 2D layer, HUD and console text are there too; since M6.8 the game also plays its intro movie and cutscenes through it. The Null column still accepts every call and draws nothing.
 
 Primary source files:
 

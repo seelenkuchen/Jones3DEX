@@ -4,7 +4,7 @@
 
 Jones3D EX uses Unity with Unity Fixture for C tests and CTest as the test runner.
 Tests are enabled by default through `JONES3D_BUILD_TESTS`. Babylon's C++ tests
-live in `Babylon/`; their framework is chosen in milestone M5. Behavior of the
+live in `Babylon/` and use doctest, chosen in milestone M5. Behavior of the
 whole game is checked with [headless traces](#trace-tests). Contributors and
 LLM agents should follow the same workflow and coverage requirements below.
 
@@ -28,10 +28,14 @@ builds in two columns: the Null column (non-Windows) and the Babylon column
     - [🧹 Test Isolation And Cleanup](#test-isolation-and-cleanup)
 - [🧭 Test Scope](#test-scope)
     - [🎞️ Trace Tests](#trace-tests)
-    - [🎥 Render Capture](#render-capture)
-    - [🖼️ Renderer Reference Masks](#renderer-reference-masks)
-    - [🖥️ System And Device Tests](#system-and-device-tests)
+    - [🎥 Renderer Testing](#renderer-testing)
+        - [🎥 Render Capture And Replay](#render-capture)
         - [🧪 Babylon Render Contract Tests](#babylon-render-contract-tests)
+        - [🧪 std3D And stdDisplay On Babylon Tests](#std3d-on-babylon-tests)
+        - [🖼️ Screenshot Pages](#screenshot-pages)
+        - [🖼️ Renderer Reference Masks](#renderer-reference-masks)
+    - [🔬 Deterministic Unit And Regression Tests](#deterministic-unit-and-regression-tests)
+    - [🖥️ System And Device Tests](#system-and-device-tests)
 - [📦 Original-Engine I/O Test Vectors](#original-engine-io-test-vectors)
 - [▶️ Running Tests](#running-tests)
     - [🐧 Native Unit Builds](#native-unit-builds)
@@ -72,10 +76,9 @@ them, then report the results and remaining gaps.
    for simulation changes, and every backend for Babylon changes. Build
    production code as well as tests, then exercise changed runtime-guard or QOL
    branches in their configuration.
-5. **Check host-dependent behavior.** No [system or device tests](#system-and-device-tests)
-   are built since M6.3, so behavior that needs a window, display or audio device
-   is checked by hand; record what was checked. Record unavailable prerequisites
-   and ignored cases; they do not count as exercised behavior. Verify the
+5. **Check host-dependent behavior.** The [renderer tests](#renderer-testing) cover the GPU; behavior
+   that needs another window, display or audio device is checked by hand; record what was checked. Record
+   unavailable prerequisites and ignored cases; they do not count as exercised behavior. Verify the
    registration's [timeout and device scheduling](#timeouts-and-shared-devices).
 6. **Review and report.** Inspect the final diff and fixture provenance. Rerun
    regenerated vectors with update modes disabled, then provide the
@@ -396,11 +399,20 @@ or Enhanced profile at run time waits for the QOL options to become runtime
 options; until then, the profile is the build's `JONES3D_QOL_IMPROVEMENTS`
 setting.
 
+<a name="renderer-testing"></a>
+
+### 🎥 Renderer Testing
+
+The renderer is tested at three levels: the recorded call stream (the render capture and its replay), the Babylon
+`Device` contract against both backends, and the `std3D`/`stdDisplay` adapters on the Babylon device. The GPU
+cases need a Vulkan device: Linux CI uses Mesa's lavapipe, and `BABYLON_REQUIRE_GPU=1` turns a missing device
+from a skip into a failure.
+
 <a name="render-capture"></a>
 
-### 🎥 Render Capture
+#### 🎥 Render Capture And Replay
 
-A render capture records every call the game makes to the 85 renderer functions,
+A render capture records every call the game makes to the 86 renderer functions,
 with its arguments, return value and recorded out-parameters, into an RCAP file
 ([RCAP](Formats/RCAP.md)). The stream is what the replay tool (M6.0c) replays
 against a new renderer backend; the design is in
@@ -422,7 +434,8 @@ The M6.1 references were recorded with the DX9 Windows build, which M6.3 removed
 the console command `capture frames on|off`, partly under wine with Xvfb and
 `xdotool` ([ADR-0011](arc42/09-decisions/ADR-0011-retire-win32-directx.md),
 [M6.1 references](References/M6.1/README.md)). A capture holds the calls of the
-backend that recorded it, and replay needs a matching backend (M6.6).
+backend that recorded it; the DX9 captures replay through the Babylon adapter, which implements those calls
+since M6.6.
 
 The console command `capture` stays: it prints the state, for example
 `Render capture: open, frames on`, and `capture frames on|off` sets the frame
@@ -470,41 +483,6 @@ records, intro 267,535 and indoor 310,790. Rendering them with `--render gpu` dr
 lavapipe (canyon 32, intro 2,014 and indoor 1,077), including the 2D layer and the intro movie. The
 [M6.7 progress screenshots](References/M6.7/README.md) pair replayed frames with the DX9 references.
 
-<a name="renderer-reference-masks"></a>
-
-### 🖼️ Renderer Reference Masks
-
-The DirectX 9 rendering masks of the removed `std3D` system tests are kept in
-`Libs/std/Tests/tv/std3D/` as references for the tests of the new renderer.
-Nothing builds or audits them today; their scenes, sizes and provenance are in
-[that directory's README](../Libs/std/Tests/tv/README.md). Magenta pixels in a
-mask are ignored by a comparison; all other pixels are expected output.
-
-<a name="deterministic-unit-and-regression-tests"></a>
-
-### 🔬 Deterministic Unit And Regression Tests
-
-Start with deterministic unit and regression tests for parser, file, math, resource, and state-machine behavior.
-Integration tests can still live near the module that owns the scenario, but should use CTest labels such as `integration`, `network`, `slow`, or `gui` when they require extra orchestration.
-
-For parsers and file formats, prefer deterministic fuzz-style corpora in the normal unit tests before adding a separate fuzzing harness. Good examples are generated malformed JSON strings, exhaustive small truncation sweeps for binary containers, boundary-size argument lists, and generated round-trip vectors. These tests should be reproducible, fast enough for every CTest run, and should not use process-wide random seeds.
-
-When a production contract necessarily terminates the process, test it in a child process: re-enter the same test executable in a private temporary directory and check the child's result. Keep child-only modes out of the normal Unity runner and suppress host error-reporting dialogs so CI cannot block on them. (The `stdPlatform` minidump death test did this until M6.3 removed the Win32 exception filter it tested.)
-
-`stdBmpTest.c` and its vectors (generated images plus selected public-domain images from BMP Suite 2.8, recorded in `Libs/std/General/Tests/tv/stdBmp/README.md`) are kept but not built since M6.3: `stdBmp_WriteVBuffer` and `stdBmp_Load` lived in the removed Win32 backend. Prefer extending that attributed corpus over copying unknown BMP files from the web when the BMP code returns.
-
-<a name="system-and-device-tests"></a>
-
-### 🖥️ System And Device Tests
-
-System tests are integration-style tests that touch host or device services such as windows, input devices, the GPU, audio devices, or filesystem locations outside small test vectors. The Babylon render module (M6.4) brings the first ones, its contract tests; the Win32 and DirectX system tests went with M6.3. Keep them in separate executables from deterministic unit tests and label them with `system`; add more specific labels such as `device`, `audio`, or `gui` as appropriate.
-
-System/device tests may use Unity ignore results when the host cannot provide the needed service, for example a headless CI worker without a render device. They should still fail normally when the service was available and the engine behavior is wrong.
-
-When multiple system tests share host setup, keep that setup in a small local support file and keep the test cases themselves in the owning module files.
-
-Tests that can change fullscreen display modes, reset or recreate graphics devices, or disturb desktop input focus are disruptive: keep them in separate source files named `*DisruptiveSystemTest.c`, label them `disruptive`, keep them out of default builds, and make host capability failures explicit with Unity ignore messages.
-
 <a name="babylon-render-contract-tests"></a>
 
 #### 🧪 Babylon Render Contract Tests
@@ -538,7 +516,7 @@ needs shaders.
 
 <a name="std3d-on-babylon-tests"></a>
 
-#### 🧪 std3D On Babylon Tests
+#### 🧪 std3D And stdDisplay On Babylon Tests
 
 `std.std3DOnBabylon` builds `std3DBabylonTests` from `Libs/std/Babylon/Tests/std3DBabylonTest.cpp`,
 `Libs/std/Babylon/Tests/stdDisplayBabylonTest.cpp` and the C replay suite `stdRenderReplayTest.c`, against
@@ -583,10 +561,54 @@ calls: the one display device, the headless and windowed video mode lists and as
 back-buffer locks (readback only when the GPU changed, upload on a write unlock, no upgrade from read-only,
 DX9 nesting), the hardware and software VBuffers, whole and partial fills, RGB565 conversion and `SaveScreen`.
 The GPU group draws a 3D frame with `std3D`, writes 2D pixels into it through the back-buffer lock and reads
-both layers back, so the CPU pixels lie between the frame's draws. Like the render contract tests, the GPU
-cases need a Vulkan device (Mesa's lavapipe in Linux CI), skip without one, and fail instead when
-`BABYLON_REQUIRE_GPU=1` is set. CTest runs the suite as `std.std3DOnBabylon` with
-`SDL_VIDEO_DRIVER=offscreen` (`dummy` on macOS).
+both layers back, so the CPU pixels lie between the frame's draws. The GPU cases use the same device and skip
+rule as the render contract tests. CTest runs the suite as `std.std3DOnBabylon` with `SDL_VIDEO_DRIVER=offscreen`
+(`dummy` on macOS).
+
+<a name="screenshot-pages"></a>
+
+#### 🖼️ Screenshot Pages
+
+The committed screenshots are references, not test vectors. [M6.1](References/M6.1/README.md) holds the DX9
+reference shots, and [M6.6](References/M6.6/README.md), [M6.7](References/M6.7/README.md),
+[M6.8](References/M6.8/README.md) and [M6.9b](References/M6.9b/README.md) the replayed Babylon frames,
+with their PSNR and differing-pixel counts. The captures themselves contain game data and stay in the private
+reference repository; the screenshots under `Docs/References/` are committed.
+
+<a name="renderer-reference-masks"></a>
+
+#### 🖼️ Renderer Reference Masks
+
+The DirectX 9 rendering masks of the removed `std3D` system tests are kept in
+`Libs/std/Tests/tv/std3D/` as references for the tests of the new renderer.
+Nothing builds or audits them today; their scenes, sizes and provenance are in
+[that directory's README](../Libs/std/Tests/tv/README.md). Magenta pixels in a
+mask are ignored by a comparison; all other pixels are expected output.
+
+<a name="deterministic-unit-and-regression-tests"></a>
+
+### 🔬 Deterministic Unit And Regression Tests
+
+Start with deterministic unit and regression tests for parser, file, math, resource, and state-machine behavior.
+Integration tests can still live near the module that owns the scenario, but should use CTest labels such as `integration`, `network`, `slow`, or `gui` when they require extra orchestration.
+
+For parsers and file formats, prefer deterministic fuzz-style corpora in the normal unit tests before adding a separate fuzzing harness. Good examples are generated malformed JSON strings, exhaustive small truncation sweeps for binary containers, boundary-size argument lists, and generated round-trip vectors. These tests should be reproducible, fast enough for every CTest run, and should not use process-wide random seeds.
+
+When a production contract necessarily terminates the process, test it in a child process: re-enter the same test executable in a private temporary directory and check the child's result. Keep child-only modes out of the normal Unity runner and suppress host error-reporting dialogs so CI cannot block on them. (The `stdPlatform` minidump death test did this until M6.3 removed the Win32 exception filter it tested.)
+
+`stdBmpTest.c` and its vectors (generated images plus selected public-domain images from BMP Suite 2.8, recorded in `Libs/std/General/Tests/tv/stdBmp/README.md`) are kept but not built since M6.3: `stdBmp_WriteVBuffer` and `stdBmp_Load` lived in the removed Win32 backend. Prefer extending that attributed corpus over copying unknown BMP files from the web when the BMP code returns.
+
+<a name="system-and-device-tests"></a>
+
+### 🖥️ System And Device Tests
+
+System tests are integration-style tests that touch host or device services such as windows, input devices, the GPU, audio devices, or filesystem locations outside small test vectors. The Babylon render contract tests ([above](#renderer-testing)) are the first ones; the Win32 and DirectX system tests went with M6.3. Keep them in separate executables from deterministic unit tests and label them with `system`; add more specific labels such as `device`, `audio`, or `gui` as appropriate.
+
+System/device tests may use Unity ignore results when the host cannot provide the needed service, for example a headless CI worker without a render device. They should still fail normally when the service was available and the engine behavior is wrong.
+
+When multiple system tests share host setup, keep that setup in a small local support file and keep the test cases themselves in the owning module files.
+
+Tests that can change fullscreen display modes, reset or recreate graphics devices, or disturb desktop input focus are disruptive: keep them in separate source files named `*DisruptiveSystemTest.c`, label them `disruptive`, keep them out of default builds, and make host capability failures explicit with Unity ignore messages.
 
 <a name="original-engine-io-test-vectors"></a>
 
@@ -783,8 +805,8 @@ ctest --test-dir build/asan --output-on-failure -L unit
 Windows builds the Babylon column only, as a 64-bit program. Configuring with
 `-DJONES3D_PLATFORM_BABYLON=OFF` or for 32-bit Windows is a configure error.
 The column uses the real Microsoft CRT and, like the other Babylon hosts, the
-polled SMUSH timer (`TimerPolled.c`) and the silent SMUSH sound driver (`DsndSilent.c`). Until M6.6 it runs the Null renderer: the windowed `Jones3D.exe`
-shows nothing.
+polled SMUSH timer (`TimerPolled.c`) and the silent SMUSH sound driver (`DsndSilent.c`). The windowed
+`Jones3D.exe` renders the game, without sound or saving until M7.
 
 With MinGW-w64 (x86_64) from Linux, the tests run under wine; the toolchain file
 sets wine as `CMAKE_CROSSCOMPILING_EMULATOR`, so CTest starts every test

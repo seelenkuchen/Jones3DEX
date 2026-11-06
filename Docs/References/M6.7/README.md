@@ -60,5 +60,7 @@ Recorded 2026-11-06 at `1045fe16` (M6.7).
 
 ## Not yet
 
-- Cutscene timing: frames are compared by image, so the movie's playback speed isn't checked here (M6.8).
-- A windowed run with the real swapchain; the parity review with the owner (M6.9).
+- Cutscene timing: frames are compared by image; movie playback was added in M6.8, but its speed is not checked
+  here.
+- A windowed run with the real swapchain.
+- The owner reviewed this page and the M6.6, M6.8 and M6.9b pages in the M6.9 parity review.

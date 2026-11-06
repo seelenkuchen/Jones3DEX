@@ -39,10 +39,12 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
 
 - **Runs headless today:** on Linux and other systems, 32-bit and 64-bit, and on 64-bit Windows, without a
   window or sound. This is what the behavior checks use.
-- **Not playable for now:** the Win32 and DirectX 9 build inherited from OpenJones3D is gone
-  ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)). The windowed `Jones3D` of the Babylon
-  column opens a window but shows nothing until the Babylon renderer draws (M6).
-- **Next:** the Babylon renderer (M6), then playable on all three platforms (M7).
+- **Renders the game:** the Babylon column draws the 3D scene, the 2D layer, HUD and console text, and the intro
+  movie on Vulkan, Direct3D 12 or Metal, whichever the system provides.
+- **Not playable yet:** the Win32 and DirectX 9 build inherited from OpenJones3D is gone
+  ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)). Windowed play still lacks sound and
+  saving until M7.
+- **Next:** sound, dialogs and saving (M7), then playable on all three platforms.
 
 ## Where it comes from
 
@@ -99,8 +101,8 @@ cmake -S . -B build/win64 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-x86_64.cma
 cmake --build build/win64
 ```
 
-Both produce `Jones3D-headless.exe` and the windowed `Jones3D.exe`, which shows nothing until the Babylon
-renderer lands (M6). 32-bit Windows is not supported.
+Both produce `Jones3D-headless.exe` and the windowed `Jones3D.exe`, which renders the game but lacks sound and
+saving until M7. 32-bit Windows is not supported.
 
 ## Documentation
 

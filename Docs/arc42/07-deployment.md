@@ -6,7 +6,7 @@
 |---|---|---|---|
 | Headless Null | Null platform, non-Windows, 32-bit or 64-bit | Works | `Jones3D-headless` |
 | Headless Babylon | Babylon files, clock and input; Linux, macOS, 64-bit Windows | Works; the 64-bit Windows program runs under wine in development | `Jones3D-headless` (`Jones3D-headless.exe` on Windows) |
-| Windowed Babylon | Babylon on SDL3 and SDL3 GPU, x86-64; Linux, macOS, 64-bit Windows | Opens a window; the Null renderer draws nothing until M6.6 | `Jones3D` (`Jones3D.exe` on Windows) |
+| Windowed Babylon | Babylon on SDL3 and SDL3 GPU, x86-64; Linux, macOS, 64-bit Windows | Opens a window and renders the game; sound and saving come in M7 | `Jones3D` (`Jones3D.exe` on Windows) |
 
 The Win32 and DirectX 6/9 builds were removed in M6.3 ([ADR-0011](09-decisions/ADR-0011-retire-win32-directx.md));
 32-bit Windows is a configure error. CI builds and tests every Babylon build on its own operating system from

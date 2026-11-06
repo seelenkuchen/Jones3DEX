@@ -5,12 +5,11 @@
 | Risk | Effect | Mitigation |
 |---|---|---|
 | The retail reference is incomplete | Traces prove sameness with a build, not with retail, wherever the reference build already differs | Keep the decompilation as tie-breaker; record each known difference here |
-| Simulation code depends on frame rate or wall-clock time | Traces differ between machines, or a high frame rate changes gameplay | Fixed game time in headless runs; find and isolate time sources during M5 |
+| Simulation code depends on frame rate or wall-clock time | Traces differ between machines, or a high frame rate changes gameplay | Fixed game time in headless runs; time sources are behind the Babylon clock (M5) |
 | A fixed simulation step for high frame rates (M9) changes gameplay | Only player physics uses fixed slices today; the rest advances by the measured frame time, so interpolated rendering as in Doom ports isn't presentation-only | Investigate in M9 which systems depend on frame time; if adopted, an option (on by default, off in the Retail profile) with the retail trace unchanged ([research](../Research/Engine-Patterns.md)) |
-| The renderer changes game state | `sithRender` marks every sector it draws as seen (`SITH_SECTOR_SEEN`); a new render path that skips the original visibility pass changes the simulation | Keep the original visibility pass in every render path; list render side effects and cover them by trace checks before M6 and M10 |
-| SDL GPU backend differences | The same frame can render differently on Vulkan, Direct3D 12 and Metal; against the DX9 screenshots the canyon frames differ in under 0.8% of pixels, along edges ([M6.6 references](../References/M6.6/README.md)) | D3D12 is checked in CI (the Windows runner has a D3D12 device); Metal is untested; the parity review (M6.9) decides what counts as a match |
+| The renderer changes game state | `sithRender` marks every sector it draws as seen (`SITH_SECTOR_SEEN`); a new render path that skips the original visibility pass changes the simulation | Keep the original visibility pass in every render path; list render side effects and cover them by trace checks in M6 and before M10 |
+| SDL GPU backend differences | The same frame can render differently on Vulkan, Direct3D 12 and Metal; against the DX9 screenshots the canyon frames differ in under 0.8% of pixels, along edges ([M6.6 references](../References/M6.6/README.md)) | D3D12 is checked in CI (the Windows runner has a D3D12 device); Metal is untested; the M6.9 parity review accepted the M6.6 to M6.9b screenshot pages as a match |
 | Threading (M11 and later) breaks determinism | Traces become flaky | Threading comes last, behind traces for everything else |
-| SDL3 GPU shader pipeline | The renderer needs offline shader compilation for several formats | Settle the shader toolchain at the start of M6 |
 | AGPL code leaks into Babylon | Babylon's MPL-2.0 license is no longer valid | Include and license checks in CI; Babylon is written fresh |
 | Copyrightability of AI-assisted code is legally unsettled | Weakens every license claim, Babylon's included | Human review and authorship of design; keep records of decisions |
 | Small team | Long milestones stall | Thin slices, each one built, tested and committed |
@@ -20,8 +19,8 @@
 | Debt | Where | Plan |
 |---|---|---|
 | QOL behavior as one compile-time profile | `J3D_QOL_IMPROVEMENTS`, `J3D_SPEEDRUN_BUILD` | Individual runtime options ([ADR-0003](09-decisions/ADR-0003-fidelity-split.md)) |
-| Platform types in shared headers | For example `std3D_DrawLineStrip(LPD3DTLVERTEX, size_t)` | Removed as subsystems move behind Babylon in M5 |
-| Win32 dialogs (removed in M6.3) | `jonesConfig.c`, `JonesDialog.c` | Replaced by in-game screens in M7 |
+| DirectDraw type names in shared headers | `LPDDCOLORKEY` in `std3D.h`, `stdColor.h`, `stdDisplay.h` and `stdRenderBackendApi.h` (the Direct3D vertex types are gone since M6.3) | Rename to a neutral colour-key type |
+| Settings and message dialogs are Null stubs | `Jones3D/Platform/Null/JonesPlatformNull.c` (the Win32 dialogs went in M6.3) | Replaced by in-game screens in M7 |
 | Sound parser can read before its input buffer | `AudioLib_ParseWaveFileHeader` | Fix with a regression test; a malformed sound file triggers it |
 | Lip-sync pointer restored from sound banks | `Sound.c` | Force to NULL on load; a wild pointer on 64-bit |
 | Cutscene blitter relies on 32-bit pointer wrap | `Libs/smush/insane/Bitmap/BlitAsm.c` | Not reached by the game: its only caller (`mixer_Blit` through `blit_Wrapper`) passes row 0 and clip-bounded rows, and SmushPlay's movies blit through the game's callback instead (M6.8). Only the captured vectors hit it |
@@ -35,5 +34,7 @@
 | macOS and arm64 have no prebuilt DXC | The first configure fails on those hosts unless DXC is supplied | Set `BABYLON_DXC_ROOT` to a locally built DXC, or `BABYLON_BUILD_SHADERS=OFF` |
 | Lavapipe leak workaround in tests | `KeepGpuDriverLoaded.h` keeps Mesa's lavapipe loaded because it leaks memory under `pthread_once` | Tests only; remove when lavapipe or the Vulkan loader frees that memory |
 | Savegame thumbnail surface missing in the Babylon column | `sithGamesaveNull.c` runs in both columns; `sithGamesave_Process` finds no `stdDisplay_g_backBuffer.surface.pSysSurface` and the save is refused, as in the Null column | Deferred to M7 by the owner (2026-11-06): saving in the Babylon column needs a thumbnail surface or another save path |
+| `rdCache` lit buffers are static arrays | `Libs/rdroid/Raster/rdCache.c`: the view vertices and normals of the classic and alpha lists, plus the lit hardware vertices, add about 200 MB of static memory | Size them for one frame or share one buffer between the classic and lit paths |
+| Headless `startMode` 0 quits after loading | `Jones3D/Platform/Null/JonesHeadless.c`, `Jones3D/Main/JonesMain.c`; predates M6 and is not investigated | Reproduce and fix when it blocks a headless check |
 | A back-buffer lock in the middle of a scene | `stdRenderBabylon_WriteBackBuffer` submits the frame recorded so far and uploads the CPU pixels, so that scene's later draws land over them instead of under | Debug drawing is the only mid-scene lock today; keep locks at frame boundaries or layer the 2D pass explicitly |
 | Display reset callbacks stored but never called | `stdDisplayBabylon.cpp` keeps the pre- and post-reset callbacks; only the release callback runs, from `stdDisplay_ClearMode` | The render device is never lost or reset; remove the registration or call them if a reset path arrives |

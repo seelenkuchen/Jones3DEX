@@ -59,9 +59,10 @@ build/native/Jones3D/Jones3D-headless --load <save>.nds --frames 1000 --state st
 ```
 
 Windows builds the Babylon column only, as a 64-bit program: MSVC x64 in CI (`windows-babylon`), or locally
-with MinGW through `cmake/mingw-x86_64.cmake` and the tests under wine (see Docs/Testing.md). Until M6.6 it runs
-the Null renderer and shows nothing. Code that differs on Windows (paths, CRT calls, `_WIN32` branches) needs a
-Windows build. Say so when you couldn't build it, and never describe unbuilt or untested code as validated.
+with MinGW through `cmake/mingw-x86_64.cmake` and the tests under wine (see Docs/Testing.md). The Babylon build
+renders the game; windowed play still lacks sound and saving until M7. Code that differs on Windows (paths, CRT
+calls, `_WIN32` branches) needs a Windows build. Say so when you couldn't build it, and never describe unbuilt
+or untested code as validated.
 
 ## Fidelity
 

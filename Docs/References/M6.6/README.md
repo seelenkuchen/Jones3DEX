@@ -21,9 +21,9 @@ texture filtering and rasterization rules of wined3d and lavapipe differ:
 
 ![](canyon/diff-s32.png)
 
-## Not yet in these frames
+## Not in these frames
 
 - The 2D layer: console text (for example the "Render capture: open, frames on" line in the DX9 shots), HUD text
-  and menus are drawn through `stdDisplay`, which is still the Null display until M6.7.
-- The `intro` and `indoor` captures stop at a `stdDisplay` record in the replay, so they render after M6.7.
-- The parity review with the owner (M6.9) decides what counts as a match.
+  and menus are drawn through `stdDisplay`, which was still the Null display at M6.6.
+- The `intro` and `indoor` captures stopped at a `stdDisplay` record in the replay, so they rendered after M6.7.
+- The owner reviewed this page and the M6.7 to M6.9b pages in the M6.9 parity review.

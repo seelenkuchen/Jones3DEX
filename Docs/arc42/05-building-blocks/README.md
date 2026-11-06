@@ -39,17 +39,17 @@ Dependencies only point down. Babylon depends on nothing above it, and nothing i
 or Sith concept ([ADR-0006](../09-decisions/ADR-0006-babylon-engine-in-repo.md),
 [ADR-0007](../09-decisions/ADR-0007-adapter-between-game-and-babylon.md)).
 
-**Today (M6.3):** two platform columns exist, chosen at configure time. The **Null column** is the M4 backend
+**Today (M6.10):** two platform columns exist, chosen at configure time. The **Null column** is the M4 backend
 described in [Platform-Layer.md](Platform-Layer.md). The **Babylon column**
 (`-DJONES3D_PLATFORM_BABYLON=ON`; the default and only choice on Windows, which builds it as a 64-bit program)
-is the Null column with time, files, input and the window moved onto Babylon; rendering and sound still use
-the Null backends until M6 and M7. The Win32 and DirectX columns were removed in M6.3. All columns produce
-identical headless traces, byte for byte.
+is the Null column with time, files, input, the window and rendering moved onto Babylon; sound still uses the
+Null backend until M7. The Win32 and DirectX columns were removed in M6.3. All columns produce identical
+headless traces, byte for byte.
 
 ## 5.2 Level 2: Babylon Engine
 
-Modules marked M5 exist and are used by the Babylon column. Render exists from M6.4 but the game does not
-use it until M6.6; the others are still planned.
+Modules marked M5 exist and are used by the Babylon column. Render exists from M6.4 and the game uses it since
+M6.6 (`std3D`) and M6.7 (`stdDisplay`); the others are still planned.
 
 | Module | Role | Backends | Adapter that uses it | State |
 |---|---|---|---|---|
@@ -60,7 +60,7 @@ use it until M6.6; the others are still planned.
 | Time | Monotonic clock and a caller-driven Null clock | SDL3, Null | `stdPlatformTimeBabylon.cpp` | M5 |
 | Files | Files, directory listing, base, current and user directories | SDL3, Null | `stdFileBabylon.cpp`, `stdFileUtilBabylon.cpp`, `stdBabylonPath.cpp` | M5 |
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
-| Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D`, `stdDisplay` (from M6.6) | M6.4 (interface and both backends; game use in M6.6) |
+| Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
 | Audio | Devices, voices, 3D positioning, streaming | miniaudio, Null | `Driver_*` | M7 |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
@@ -78,10 +78,10 @@ the whole game run headless, which is how traces are recorded ([chapter 8](../08
 
 `Babylon/render/` is the Babylon replacement for the DirectX 9 `std3D` and `stdDisplay` backends
 ([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)). It depends on `log`, on `platform` (the SDL GPU
-backend's window) and on SDL3. The game does not use it yet: `std3D` and `stdDisplay` stay on the
-Null renderer until M6.6. Shaders are compiled at build time with SDL_shadercross
-([ADR-0022](../09-decisions/ADR-0022-shaders-compiled-at-build-time.md)), and pipelines and draws run on
-both backends.
+backend's window) and on SDL3. `std3D` draws on it since M6.6 and `stdDisplay` presents the 2D layer on it since
+M6.7 (see [Rendering-And-Visibility.md](Rendering-And-Visibility.md)). Shaders are compiled at build time with
+SDL_shadercross ([ADR-0022](../09-decisions/ADR-0022-shaders-compiled-at-build-time.md)), and pipelines and draws
+run on both backends.
 
 **Device and handles.** One interface, `babylon::render::Device`, owns every texture, buffer, sampler and
 pipeline and executes frames. Callers see descs in game-agnostic terms (`TextureDesc` with mips, a byte

@@ -3,8 +3,9 @@
 Screenshots of the DX9 renderer, taken while the M6.1 reference captures were recorded (2026-11-04, build
 `acd4873c`). The MinGW DX9 build ran under wine on Xvfb at 640x480 with Mesa's software OpenGL, so the images show
 wine's DX9-to-OpenGL rendering: close to, but not pixel-identical with, DX9 on a Windows driver
-([ADR-0011](../../arc42/09-decisions/ADR-0011-retire-win32-directx.md)). The new renderer will be confirmed visually
-against them. The render captures themselves contain game data and are kept in a private repository.
+([ADR-0011](../../arc42/09-decisions/ADR-0011-retire-win32-directx.md)). The Babylon renderer was confirmed
+visually against them in the M6.6 to M6.9b pages and the M6.9 parity review. The render captures themselves
+contain game data and are kept in a private repository.
 
 The file names give the seconds since the game started.
 

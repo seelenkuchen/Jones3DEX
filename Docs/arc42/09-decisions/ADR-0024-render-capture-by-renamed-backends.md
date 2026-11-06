@@ -34,3 +34,9 @@ and closes it in `JonesMain_Shutdown` before they go away.
 - The five DX9-only diagnostic functions in `std3D.h` are not part of the stream.
 
 The file format is described in [RCAP](../../Formats/RCAP.md).
+
+## Amendment (2026-11-06): the interface has 86 functions
+
+The count above is from M6.0. `stdRenderBackendApi.h` now lists 86 renderer functions: 36 `std3D_*` and 50
+`stdDisplay_*`. M6.9b added `std3D_DrawRenderListLit` (capture id 35) and M6.9c added `std3D_SetLights`
+(capture id 36), both appended after `std3D_ResetGlobals`; older captures keep their record ids.

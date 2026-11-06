@@ -58,4 +58,10 @@ The references were recorded (M6.1), so the removal is complete:
   column.
 
 Windows configures the Babylon column as a 64-bit program by default; `JONES3D_PLATFORM_BABYLON=OFF` and
-32-bit Windows are configure errors. Until M6.6 the column runs the Null renderer and shows nothing.
+32-bit Windows are configure errors. Before M6.6 the column ran the Null renderer and showed nothing.
+
+## Done (2026-11-06): the Babylon renderer draws
+
+M6.6 put `std3D` and M6.7 put `stdDisplay` on the Babylon render device, and M6.8 added movie playback, so the
+Babylon column, including the 64-bit Windows build, renders the game. Sound and saving still come in M7; see the
+[roadmap](../../Roadmap.md).

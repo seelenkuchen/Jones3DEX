@@ -11,7 +11,7 @@ open/close control in [`stdDisplayCapture.h`](../../Libs/std/General/stdDisplayC
 
 ## Purpose
 
-A render capture records every call the game makes to the 85 renderer functions (`std3D_*` and
+A render capture records every call the game makes to the 86 renderer functions (`std3D_*` and
 `stdDisplay_*`): the arguments, the return value and the recorded out-parameters. A later replay
 tool reads the file and drives a renderer backend with the same calls, so a new backend can be
 checked against the old one call by call.

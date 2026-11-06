@@ -134,7 +134,11 @@ JonesDisplay
   -> rdOpen
 ```
 
-Since M6.3 all three hosts use the Null display and 3D backends in `Libs/std/Null/` (`stdDisplayNull.c`, `std3DNull.c`): the game opens and selects devices but nothing is drawn. The Babylon render module replaces them in M6.6. The backend split is discussed in more detail in [Rendering-And-Visibility.md](../05-building-blocks/Rendering-And-Visibility.md) and [QOL-And-Compatibility.md](../08-crosscutting/QOL-And-Compatibility.md).
+The Null column keeps the Null display and 3D backends in `Libs/std/Null/` (`stdDisplayNull.c`, `std3DNull.c`):
+the game opens and selects devices but nothing is drawn. The Babylon column uses the Babylon render device through
+`std3D` since M6.6 and `stdDisplay` since M6.7. The backend split is discussed in more detail in
+[Rendering-And-Visibility.md](../05-building-blocks/Rendering-And-Visibility.md) and
+[QOL-And-Compatibility.md](../08-crosscutting/QOL-And-Compatibility.md).
 
 ## Static World And Gameplay World
 
