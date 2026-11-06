@@ -14,6 +14,7 @@
 // clock that the std file and time adapters need, and each test puts its own render device in it.
 #include <unity_fixture.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -42,6 +43,7 @@
 #include <babylon/render/NullDevice.h>
 #include <babylon/render/SdlGpuDevice.h>
 #include <babylon/render/Texture.h>
+#include <babylon/shaders/std3DBabylonTests.h>
 #include <babylon/shaders/stdBabylonShaders.h>
 #include <babylon/time/Clock.h>
 #include <babylon/time/NullClock.h>
@@ -247,10 +249,13 @@ namespace
         return std::get<T>(recorded[index]);
     }
 
+    // A scene pass: the back buffer color, then the normal target, cleared to 0 with depth (M6.9a).
     render::PassDesc ScenePass(render::LoadOp colorLoad, render::LoadOp depthLoad)
     {
         render::PassDesc pass;
         pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetColorTarget(), 0, colorLoad,
+            render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetNormalTarget(), 0, depthLoad,
             render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
         pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(), depthLoad,
             render::StoreOp::Store, 1.0f, 0 };
@@ -267,9 +272,11 @@ namespace
     void AssertScenePassLoads(size_t index, render::LoadOp colorLoad, render::LoadOp depthLoad)
     {
         const render::BeginPass& begin = RecordedAt<render::BeginPass>(index);
-        TEST_ASSERT_EQUAL_size_t(1u, begin.desc.colorTargets.size());
+        TEST_ASSERT_EQUAL_size_t(2u, begin.desc.colorTargets.size());
         TEST_ASSERT_FALSE(begin.desc.colorTargets[0].target.isNull());
         TEST_ASSERT_TRUE(begin.desc.colorTargets[0].load == colorLoad);
+        TEST_ASSERT_FALSE(begin.desc.colorTargets[1].target.isNull());
+        TEST_ASSERT_TRUE(begin.desc.colorTargets[1].load == depthLoad);
         TEST_ASSERT_TRUE(begin.desc.depthTarget.has_value());
         TEST_ASSERT_FALSE(begin.desc.depthTarget->target.isNull());
         TEST_ASSERT_TRUE(begin.desc.depthTarget->load == depthLoad);
@@ -801,7 +808,9 @@ namespace
 
     // The pipeline std3DX9.c's Direct3D state amounts to (InitRenderState, SetRenderState): blending
     // SRCALPHA, INVSRCALPHA for color and alpha, Z test LESSEQUAL, Z write unless
-    // STD3D_RS_ZWRITE_DISABLED, no culling; StdVertexTL as the vertex layout.
+    // STD3D_RS_ZWRITE_DISABLED, no culling; StdVertexTL as the vertex layout. The normal target
+    // (R10G10B10A2 on the Null device) is the second color target: replaced with Z write, kept by
+    // blending ZERO, ONE without.
     render::PipelineDesc ExpectedPipeline(render::PrimitiveType primitive, bool bZWrite)
     {
         render::PipelineDesc desc;
@@ -824,7 +833,14 @@ namespace
         blend.srcAlpha = render::BlendFactor::SrcAlpha;
         blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
         blend.alphaOp  = render::BlendOp::Add;
-        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend } };
+        render::BlendState keep;
+        keep.enabled  = !bZWrite;
+        keep.srcColor = render::BlendFactor::Zero;
+        keep.dstColor = render::BlendFactor::One;
+        keep.srcAlpha = render::BlendFactor::Zero;
+        keep.dstAlpha = render::BlendFactor::One;
+        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend },
+            render::ColorTargetDesc{ render::TextureFormat::R10G10B10A2, bZWrite ? render::BlendState{} : keep } };
         desc.depthFormat  = render::TextureFormat::D24S8;
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
         desc.cull         = render::CullMode::None;
@@ -1153,6 +1169,236 @@ TEST(std3DBabylon, ACaptureReplaysIntoTheBabylonBackend)
     TEST_ASSERT_EQUAL_MEMORY(in.data(), out.data(), in.size());
 }
 
+
+TEST(std3DBabylon, TheNormalTargetComesWithTheBackBufferAndClearsWithDepth)
+{
+    OpenStd3D(32u, 16u);
+    const render::TextureHandle normal = stdRenderBabylon_GetNormalTarget();
+    TEST_ASSERT_FALSE(normal.isNull());
+    TEST_ASSERT_FALSE(normal == stdRenderBabylon_GetColorTarget());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2);
+
+    // The first scene clears it to 0 with depth; a later one without a depth clear loads it.
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    AssertBytes(std::vector<std::byte>(32u * 16u * 4u, std::byte{ 0 }), Null().readTexture(normal, 0));
+    const std::vector<std::byte> aPattern(32u * 16u * 4u, std::byte{ 0x5A });
+    TEST_ASSERT_TRUE(Null().uploadTexture(normal, 0, aPattern));
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    AssertBytes(aPattern, Null().readTexture(normal, 0));
+    std3D_ClearZBuffer();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    AssertBytes(std::vector<std::byte>(32u * 16u * 4u, std::byte{ 0 }), Null().readTexture(normal, 0));
+
+    // It goes and comes with the back buffer.
+    stdDisplay_SetDefaultResolution(8u, 8u);
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetNormalTarget() == normal);
+    TEST_ASSERT_TRUE(ReadTexture(normal, 0).empty());
+    TEST_ASSERT_EQUAL_size_t(8u * 8u * 4u, Null().readTexture(stdRenderBabylon_GetNormalTarget(), 0).size());
+}
+
+TEST(std3DBabylon, TheNormalTargetIsRgba8WithoutR10G10B10A2)
+{
+    UseNullDevice(render::NullDeviceDesc{ { render::TextureFormat::R10G10B10A2 } });
+    OpenStd3D();
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetNormalFormat() == render::TextureFormat::Rgba8);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    StdVertexTL aVerts[3] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFFFFFFu), Vertex(8.0f, 0.0f, 0.5f, 1.0f, 0xFFFFFFFFu),
+        Vertex(0.0f, 8.0f, 0.5f, 1.0f, 0xFFFFFFFFu) };
+    uint16_t aIndices[3] = { 0u, 1u, 2u };
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aIndices, 3u);
+    EndFrame();
+
+    // The pipeline names the format, and the device accepted the draw.
+    const render::PipelineCreated& created = RecordedAt<render::PipelineCreated>(0);
+    TEST_ASSERT_EQUAL_size_t(2u, created.desc.colorTargets.size());
+    TEST_ASSERT_TRUE(created.desc.colorTargets[1].format == render::TextureFormat::Rgba8);
+    bool bDrawn = false;
+    for ( const render::RecordedCommand& command : Null().recorded() )
+    {
+        bDrawn = bDrawn || std::holds_alternative<render::DrawIndexed>(command);
+    }
+    TEST_ASSERT_TRUE(bDrawn);
+}
+
+namespace
+{
+    // The post pass pipeline stdRenderBabylon_AddPostPass makes of a fragment shader: the present
+    // pass's full-screen triangle into Bgra8, nothing else.
+    render::PipelineDesc ExpectedPostPipeline(const render::ShaderDesc& fragmentShader)
+    {
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = fragmentShader;
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+        return desc;
+    }
+
+    // Checks the post pass recorded from index on: a pass on its own target, its pipeline, the inputs
+    // in slots 0 up with one sampler, one triangle. Returns the target.
+    render::TextureHandle AssertPostPass(size_t index, render::PipelineHandle pipeline, const std::vector<render::TextureHandle>& aInputs)
+    {
+        const render::BeginPass& begin = RecordedAt<render::BeginPass>(index);
+        TEST_ASSERT_EQUAL_size_t(1u, begin.desc.colorTargets.size());
+        TEST_ASSERT_FALSE(begin.desc.depthTarget.has_value());
+        const render::ColorAttachment& attachment = begin.desc.colorTargets[0];
+        TEST_ASSERT_FALSE(attachment.target.isNull());
+        TEST_ASSERT_FALSE(attachment.target == stdRenderBabylon_GetColorTarget());
+        TEST_ASSERT_TRUE(attachment.load == render::LoadOp::DontCare);
+        TEST_ASSERT_TRUE(attachment.store == render::StoreOp::Store);
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(index + 1u) == render::SetPipeline{ pipeline });
+        const render::SamplerHandle sampler = RecordedAt<render::BindTexture>(index + 2u).sampler;
+        TEST_ASSERT_FALSE(sampler.isNull());
+        for ( size_t slot = 0; slot < aInputs.size(); ++slot )
+        {
+            TEST_ASSERT_TRUE(RecordedAt<render::BindTexture>(index + 2u + slot)
+                == (render::BindTexture{ render::ShaderStage::Fragment, (uint32_t)slot, aInputs[slot], sampler }));
+        }
+        TEST_ASSERT_TRUE(RecordedAt<render::Draw>(index + 2u + aInputs.size()) == (render::Draw{ 3u, 0u }));
+        RecordedAt<render::EndPass>(index + 3u + aInputs.size());
+        return attachment.target;
+    }
+}
+
+TEST(std3DBabylon, AnEmptyPostChainPresentsTheBackBuffer)
+{
+    OpenStd3D();
+    TEST_ASSERT_EQUAL_size_t(0u, stdRenderBabylon_GetNumPostPasses());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+
+    // The scene pass and the submit, nothing else.
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+    AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
+    RecordedAt<render::EndPass>(1);
+    AssertSubmitted(2);
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+}
+
+TEST(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer)
+{
+    OpenStd3D(16u, 8u);
+    const render::ShaderDesc& invert = std3DBabylonTest::shaders::postInvertFrag();
+    TEST_ASSERT_EQUAL_UINT32(1u, invert.textureCount);
+    TEST_ASSERT_EQUAL_UINT32(0u, invert.uniformCount);
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(invert));
+    TEST_ASSERT_EQUAL_size_t(1u, stdRenderBabylon_GetNumPostPasses());
+    TEST_ASSERT_EQUAL_size_t(1u, Null().recorded().size());
+    const render::PipelineCreated& created = RecordedAt<render::PipelineCreated>(0);
+    TEST_ASSERT_TRUE(created.desc == ExpectedPostPipeline(invert));
+    const render::PipelineHandle pipeline = created.pipeline;
+
+    // The scene, then the pass reading the back buffer color, then the submit.
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(8u, Null().recorded().size());
+    AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
+    RecordedAt<render::EndPass>(1);
+    const render::TextureHandle output = AssertPostPass(2, pipeline, { stdRenderBabylon_GetColorTarget() });
+    AssertSubmitted(7);
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == output);
+    TEST_ASSERT_EQUAL_size_t(16u * 8u * 4u, Null().readTexture(output, 0).size());
+
+    // Reading the back buffer flushes without the chain and gets the back buffer.
+    TEST_ASSERT_TRUE(Null().uploadTexture(output, 0, std::vector<std::byte>(16u * 8u * 4u, std::byte{ 0x77 })));
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_EndScene();
+    std::vector<std::byte> aPixels(16u * 8u * 4u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), nullptr, nullptr));
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+    AssertSubmitted(2);
+    AssertBytes(Null().readTexture(stdRenderBabylon_GetColorTarget(), 0), aPixels);
+    AssertBytes(std::vector<std::byte>(16u * 8u * 4u, std::byte{ 0 }), aPixels);
+
+    // A present without anything recorded runs the chain too, on the same target.
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+    TEST_ASSERT_EQUAL_size_t(6u, Null().recorded().size());
+    TEST_ASSERT_TRUE(AssertPostPass(0, pipeline, { stdRenderBabylon_GetColorTarget() }) == output);
+
+    // Cleared, the chain is gone: its pipeline and targets, and the present reads the back buffer.
+    stdRenderBabylon_ClearPostPasses();
+    TEST_ASSERT_EQUAL_size_t(0u, stdRenderBabylon_GetNumPostPasses());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+    TEST_ASSERT_TRUE(ReadTexture(output, 0).empty());
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+    TEST_ASSERT_EQUAL_size_t(1u, Null().recorded().size());
+    AssertSubmitted(0);
+}
+
+TEST(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets)
+{
+    OpenStd3D();
+    const render::ShaderDesc& normalPass = std3DBabylonTest::shaders::postNormalFrag();
+    TEST_ASSERT_EQUAL_UINT32(2u, normalPass.textureCount);
+    // A shader that reads depth too: the Null device takes any blob, so invert's code serves.
+    render::ShaderDesc depthPass = std3DBabylonTest::shaders::postInvertFrag();
+    depthPass.textureCount = 3u;
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(normalPass));
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(depthPass));
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag()));
+    TEST_ASSERT_EQUAL_size_t(3u, stdRenderBabylon_GetNumPostPasses());
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+    const render::PipelineHandle aPipelines[3] = { RecordedAt<render::PipelineCreated>(0).pipeline,
+        RecordedAt<render::PipelineCreated>(1).pipeline, RecordedAt<render::PipelineCreated>(2).pipeline };
+    TEST_ASSERT_TRUE(RecordedAt<render::PipelineCreated>(1).desc == ExpectedPostPipeline(depthPass));
+
+    // In order, each reading the one before; two targets in turn.
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(2u + 6u + 7u + 5u + 1u, Null().recorded().size());
+    const render::TextureHandle normal = stdRenderBabylon_GetNormalTarget();
+    const render::TextureHandle depth  = stdRenderBabylon_GetDepthTarget();
+    const render::TextureHandle first  = AssertPostPass(2, aPipelines[0], { stdRenderBabylon_GetColorTarget(), normal });
+    const render::TextureHandle second = AssertPostPass(8, aPipelines[1], { first, normal, depth });
+    const render::TextureHandle third  = AssertPostPass(15, aPipelines[2], { second });
+    AssertSubmitted(20);
+    TEST_ASSERT_FALSE(first == second);
+    TEST_ASSERT_TRUE(third == first);
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == third);
+
+    // A new display size frees the targets; the mode set's present makes them at the new size.
+    stdDisplay_SetDefaultResolution(8u, 4u);
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
+    TEST_ASSERT_TRUE(ReadTexture(first, 0).empty());
+    TEST_ASSERT_TRUE(ReadTexture(second, 0).empty());
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+    TEST_ASSERT_EQUAL_size_t(8u * 4u * 4u, Null().readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
+}
+
+TEST(std3DBabylon, BadPostPassesAreRefused)
+{
+    // Not open.
+    TEST_ASSERT_FALSE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag()));
+    TEST_ASSERT_EQUAL_size_t(0u, stdRenderBabylon_GetNumPostPasses());
+    stdRenderBabylon_ClearPostPasses();
+
+    OpenStd3D();
+    render::ShaderDesc noTexture = std3DBabylonTest::shaders::postInvertFrag();
+    noTexture.textureCount = 0u;
+    render::ShaderDesc fourTextures = noTexture;
+    fourTextures.textureCount = 4u;
+    render::ShaderDesc uniforms = std3DBabylonTest::shaders::postInvertFrag();
+    uniforms.uniformCount = 1u;
+    render::ShaderDesc noCode = std3DBabylonTest::shaders::postInvertFrag();
+    noCode.blobs.clear();
+    for ( const render::ShaderDesc* pDesc : { &noTexture, &fourTextures, &uniforms, &noCode } )
+    {
+        TEST_ASSERT_FALSE(stdRenderBabylon_AddPostPass(*pDesc));
+    }
+    TEST_ASSERT_EQUAL_size_t(0u, stdRenderBabylon_GetNumPostPasses());
+    TEST_ASSERT_EQUAL_size_t(0u, Null().recorded().size());
+}
+
 TEST_GROUP_RUNNER(std3DBabylon)
 {
     RUN_TEST_CASE(std3DBabylon, StartupFailsWithoutARenderDevice);
@@ -1177,6 +1423,12 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, ProjectionAndFogFollowDX9);
     RUN_TEST_CASE(std3DBabylon, DisplayEnvironmentListsTheRenderDevice);
     RUN_TEST_CASE(std3DBabylon, ACaptureReplaysIntoTheBabylonBackend);
+    RUN_TEST_CASE(std3DBabylon, TheNormalTargetComesWithTheBackBufferAndClearsWithDepth);
+    RUN_TEST_CASE(std3DBabylon, TheNormalTargetIsRgba8WithoutR10G10B10A2);
+    RUN_TEST_CASE(std3DBabylon, AnEmptyPostChainPresentsTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets);
+    RUN_TEST_CASE(std3DBabylon, BadPostPassesAreRefused);
 }
 
 TEST_GROUP(stdRenderBabylonOption);
@@ -1949,6 +2201,193 @@ TEST(std3DBabylonGpu, ReplayWritesFrameImages)
     TEST_ASSERT_EQUAL_INT(255, (uint8_t)bmp[at + 2u]);
 }
 
+
+namespace
+{
+    // The normal target texel at (x, y) of a texture read back, as its four components in their
+    // own bits (R10G10B10A2: 0..1023 and alpha 0..3; Rgba8: 0..255).
+    std::array<int, 4> NormalTexel(const std::vector<std::byte>& aBytes, uint32_t x, uint32_t y)
+    {
+        const size_t at = ((size_t)y * stdRenderBabylon_GetBackBufferWidth() + x) * 4u;
+        TEST_ASSERT_TRUE(at + 4u <= aBytes.size());
+        const uint32_t word = (uint32_t)aBytes[at] | ((uint32_t)aBytes[at + 1u] << 8) | ((uint32_t)aBytes[at + 2u] << 16)
+            | ((uint32_t)aBytes[at + 3u] << 24);
+        if ( stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2 )
+        {
+            return { (int)(word & 0x3FFu), (int)((word >> 10) & 0x3FFu), (int)((word >> 20) & 0x3FFu), (int)(word >> 30) };
+        }
+        return { (int)(word & 0xFFu), (int)((word >> 8) & 0xFFu), (int)((word >> 16) & 0xFFu), (int)(word >> 24) };
+    }
+
+    // The constant normal (0, 0, 1) of std3d.frag.hlsl encoded as n * 0.5 + 0.5, alpha 1 (x and y
+    // are a half, which rounds either way), or the clear 0.
+    void AssertNormal(const std::vector<std::byte>& aBytes, uint32_t x, uint32_t y, bool bDrawn)
+    {
+        const bool b10   = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+        const int maxRgb = b10 ? 1023 : 255;
+        const int maxA   = b10 ? 3 : 255;
+        const std::array<int, 4> texel = NormalTexel(aBytes, x, y);
+        char aMessage[128];
+        std::snprintf(aMessage, sizeof(aMessage), "normal (%u, %u) is (%d, %d, %d, %d)", x, y, texel[0], texel[1], texel[2], texel[3]);
+        if ( !bDrawn )
+        {
+            for ( int i = 0; i < 4; ++i )
+            {
+                TEST_ASSERT_EQUAL_INT_MESSAGE(0, texel[i], aMessage);
+            }
+            return;
+        }
+        TEST_ASSERT_TRUE_MESSAGE(texel[0] == maxRgb / 2 || texel[0] == maxRgb / 2 + 1, aMessage);
+        TEST_ASSERT_TRUE_MESSAGE(texel[1] == maxRgb / 2 || texel[1] == maxRgb / 2 + 1, aMessage);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(maxRgb, texel[2], aMessage);
+        TEST_ASSERT_EQUAL_INT_MESSAGE(maxA, texel[3], aMessage);
+    }
+}
+
+TEST(std3DBabylonGpu, TheNormalTargetHoldsTheConstantNormalWhereZIsWritten)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    RenderScene([]
+    {
+        // With Z write: the normal. Without: none. Lines and points with Z write: the normal.
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 16.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 32.0f, 0.0f, 48.0f, 16.0f, 0.5f, 0x80FF0000u);
+        // A translucent quad without Z write over one with it leaves its normal.
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 16.0f, 48.0f, 0.5f, 0xFF00FF00u);
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 32.0f, 16.0f, 48.0f, 0.25f, 0x800000FFu);
+        // The wireframe state keeps the Z write of the state before it.
+        StdVertexTL aPoint[1] = { Vertex(40.0f, 40.0f, 0.5f, 1.0f, 0xFFFFFFFFu) };
+        std3D_SetRenderState((Std3DRenderState)0);
+        std3D_SetWireframeRenderState();
+        std3D_DrawPointList(aPoint, 1u);
+    });
+
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetNormalTarget(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, aNormals.size());
+    AssertNormal(aNormals, 8u, 8u, true);
+    AssertNormal(aNormals, 40u, 8u, false);
+    AssertNormal(aNormals, 8u, 40u, true);
+    AssertNormal(aNormals, 40u, 40u, true);
+    AssertNormal(aNormals, 24u, 24u, false);
+    AssertNormal(aNormals, 63u, 63u, false);
+
+    // The color is what it was without the normal target.
+    AssertPixel(8u, 8u, 255, 0, 0, 255);
+    AssertPixel(40u, 40u, 255, 255, 255, 255);
+    AssertClear(24u, 24u);
+}
+
+TEST(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag()));
+
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 16.0f, 0.5f, 0xFFFF4020u);
+    });
+
+    // The back buffer, and what stdDisplay and the replay read of it, is what the scene drew.
+    AssertPixel(8u, 8u, 255, 64, 32, 255, 0);
+    AssertClear(40u, 40u);
+    std::vector<std::byte> aBackBuffer(64u * 64u * 4u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aBackBuffer.data(), nullptr, nullptr));
+    AssertBytes(std3DBabylonGpuTest_pixels, aBackBuffer);
+
+    // The presented image is inverted, alpha kept.
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+    std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, std3DBabylonGpuTest_pixels.size());
+    AssertPixel(8u, 8u, 0, 191, 223, 255, 0);
+    AssertPixel(40u, 40u, 255, 255, 255, 0, 0);
+
+    // Inverted twice, the presented image is the back buffer again, byte for byte.
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag()));
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 16.0f, 0.5f, 0xFFFF4020u);
+    });
+    AssertBytes(std3DBabylonGpuTest_pixels, std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0));
+}
+
+TEST(std3DBabylonGpu, APostPassReadsTheNormalTarget)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postNormalFrag()));
+
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 16.0f, 0.5f, 0xFFFF0000u);
+    });
+
+    // The normal's red, green and blue with the scene's alpha: (0.5, 0.5, 1) where drawn, 0 elsewhere.
+    std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0);
+    AssertPixel(8u, 8u, 128, 128, 255, 255);
+    AssertClear(40u, 40u);
+}
+
+TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)
+{
+    std3DBabylonGpuTest_pPlatform = babylon::platform::createSdlPlatform();
+    if ( !std3DBabylonGpuTest_pPlatform )
+    {
+        if ( GpuRequired() )
+        {
+            TEST_FAIL_MESSAGE("no SDL platform (run with SDL_VIDEO_DRIVER=offscreen)");
+        }
+        TEST_IGNORE_MESSAGE("no SDL platform");
+    }
+
+    std3DBabylonGpuTest_pWindow =
+        std3DBabylonGpuTest_pPlatform->createWindow(babylon::platform::WindowDesc{ "std3DBabylonTest", { 64, 48 } });
+    TEST_ASSERT_NOT_NULL(std3DBabylonGpuTest_pWindow.get());
+    UseDevice(CreateGpuDevice(std3DBabylonGpuTest_pWindow.get()));
+    if ( !std3DBabylonTest_pDevice )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // Two windowed frames through a two-pass chain: every command accepted, no warning.
+    std::vector<std::string> aWarnings;
+    bool bOpened    = false;
+    bool bAdded     = false;
+    bool bSubmitted = true;
+    {
+        babylon::log::CaptureSink sink;
+        bOpened = stdRenderBabylon_Open(std3DBabylonTest_pDevice.get()) && stdRenderBabylon_SetBackBufferSize(32u, 24u, nullptr);
+        bAdded  = bOpened && stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag())
+            && stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postNormalFrag());
+        for ( int frame = 0; bAdded && frame < 2; ++frame )
+        {
+            render::ClearColor red{ 1.0f, 0.0f, 0.0f, 1.0f };
+            bSubmitted = stdRenderBabylon_ClearBackBuffer(red) && stdRenderBabylon_PresentFrame() && bSubmitted;
+        }
+
+        for ( const babylon::log::CapturedRecord& record : sink.records() )
+        {
+            aWarnings.push_back(record.message);
+        }
+    }
+
+    TEST_ASSERT_TRUE(bOpened);
+    TEST_ASSERT_TRUE(bAdded);
+    TEST_ASSERT_TRUE(bSubmitted);
+    for ( const std::string& warning : aWarnings )
+    {
+        TEST_FAIL_MESSAGE(warning.c_str());
+    }
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -1962,6 +2401,10 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, LinesAndPointsLightTheirPixels);
     RUN_TEST_CASE(std3DBabylonGpu, TexturingIsPerspectiveCorrect);
     RUN_TEST_CASE(std3DBabylonGpu, ReplayWritesFrameImages);
+    RUN_TEST_CASE(std3DBabylonGpu, TheNormalTargetHoldsTheConstantNormalWhereZIsWritten);
+    RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
+    RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

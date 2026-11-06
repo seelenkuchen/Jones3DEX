@@ -1,11 +1,17 @@
 // Added: the Babylon column's render frame owner, shared by the std3D adapter (std3DBabylon.cpp) and
 // the stdDisplay adapter (stdDisplayBabylon.cpp). It holds the render device of the adapter context
-// while open, the command list of the frame being recorded, and the back buffer: a Bgra8 color target
-// (also sampled) and a depth target (D24S8, or D32F where the device lacks D24S8) at the display size.
-// stdDisplay opens it (stdDisplay_Open), sizes the back buffer (stdDisplay_SetMode) and ends each frame
-// at stdDisplay_Update with stdRenderBabylon_PresentFrame; on a device with a swapchain that submit
-// first draws the back buffer to the swapchain with a full-screen pass, which presents it. std3D
-// records its scenes into the same frame.
+// while open, the command list of the frame being recorded, and the back buffer at the display size:
+// a Bgra8 color target (also sampled), a depth target (D24S8, or D32F where the device lacks D24S8;
+// also sampled where the device can) and a normal target (R10G10B10A2, or Rgba8 where the device
+// can't render to it; also sampled) that std3D's scene passes write beside the color. stdDisplay opens
+// it (stdDisplay_Open), sizes the back buffer (stdDisplay_SetMode) and ends each frame at
+// stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
+// chain, an ordered list of full-screen passes that is empty by default, and then, on a device with a
+// swapchain, draws the chain's output (the back buffer color when the chain is empty) to the
+// swapchain with a full-screen pass, which presents it. std3D records its scenes into the same frame.
+//
+// The chain never writes the back buffer: stdRenderBabylon_ReadBackBuffer, and with it stdDisplay's
+// lock and the replay's frame output, always read what the game drew.
 //
 // Adapter code, C++ only: callers are the adapter files and the composition roots. Not thread-safe:
 // call from the game thread.
@@ -18,8 +24,10 @@
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>
+#include <babylon/render/Pipeline.h>
 #include <babylon/render/Texture.h>
 
+#include <cstddef>
 #include <cstdint>
 
 // The render device a composition root creates, chosen with --render.
@@ -92,6 +100,13 @@ bool stdRenderBabylon_ClearBackBuffer(const babylon::render::ClearColor& color);
 babylon::render::TextureHandle stdRenderBabylon_GetColorTarget();
 babylon::render::TextureHandle stdRenderBabylon_GetDepthTarget();
 babylon::render::TextureFormat stdRenderBabylon_GetDepthFormat();
+
+// The normal target: per pixel the view-space normal of the geometry drawn there, its components
+// stored as n * 0.5 + 0.5 in red, green and blue, alpha 1; cleared to 0 (alpha 0: nothing drawn)
+// whenever the scene clears depth. Draws that write depth write it, the others leave it, so it
+// matches the depth target. A null handle without a back buffer.
+babylon::render::TextureHandle stdRenderBabylon_GetNormalTarget();
+babylon::render::TextureFormat stdRenderBabylon_GetNormalFormat();
 uint32_t stdRenderBabylon_GetBackBufferWidth();
 uint32_t stdRenderBabylon_GetBackBufferHeight();
 
@@ -118,6 +133,30 @@ bool stdRenderBabylon_FlushFrame();
 // the back buffer through stdRenderBabylon_WriteBackBuffer is presented too) and submits it like
 // stdRenderBabylon_SubmitFrame. Must be open.
 bool stdRenderBabylon_PresentFrame();
+
+// Appends a pass to the post-processing chain. The pass draws one full-screen triangle (the vertex
+// shader of the present pass, Shaders/present.vert.hlsl, gives the fragment shader the texture
+// coordinate in TEXCOORD0, (0, 0) at the top left) into a Bgra8 target of the back buffer's size,
+// with no blending, depth or uniforms. Its fragment shader reads fragment texture slots 0 to
+// textureCount - 1 with a nearest, clamping sampler: slot 0 the previous pass's output (the back
+// buffer color for the first pass), slot 1 the normal target, slot 2 the depth target. Passes run in
+// the order added, at every presenting submit (stdRenderBabylon_SubmitFrame and
+// stdRenderBabylon_PresentFrame, with or without a swapchain), never at stdRenderBabylon_FlushFrame.
+// Returns false, logging why and changing nothing, when not open, for a shader that reads no texture,
+// more than three or any uniform block, for one that reads depth on a device that can't sample it,
+// and when the pipeline can't be created.
+bool stdRenderBabylon_AddPostPass(const babylon::render::ShaderDesc& fragmentShader);
+
+// Removes every pass of the chain and frees its targets; the present pass then reads the back buffer
+// again. A no-op when not open. stdRenderBabylon_Close does it too.
+void stdRenderBabylon_ClearPostPasses();
+
+size_t stdRenderBabylon_GetNumPostPasses();
+
+// What the present pass draws to the swapchain: the output of the chain's last pass after a
+// presenting submit ran it, else the back buffer color target (null without a back buffer). Its
+// contents are those of the last presenting submit; tests read it back.
+babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame
 // may still name it. The null handle is ignored.

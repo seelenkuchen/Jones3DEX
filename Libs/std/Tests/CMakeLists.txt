@@ -279,6 +279,14 @@ if (J3D_PLATFORM_BABYLON)
         LINKER_LANGUAGE CXX
     )
 
+    # Added: the post-processing passes the tests add to stdRenderBabylon's chain (M6.9a).
+    babylon_add_shaders(std3DBabylonTests
+        NAMESPACE std3DBabylonTest::shaders
+        SOURCES
+            "${STD_BABYLON_SOURCE_DIR}/Tests/Shaders/post_invert.frag.hlsl"
+            "${STD_BABYLON_SOURCE_DIR}/Tests/Shaders/post_normal.frag.hlsl"
+    )
+
     source_group("Tested Sources" FILES ${STD3D_BABYLON_TESTED_SOURCES})
 
     # The SDL GPU cases need SDL's video subsystem: the offscreen driver needs no display and still

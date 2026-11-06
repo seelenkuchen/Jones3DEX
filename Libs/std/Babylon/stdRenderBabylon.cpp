@@ -5,6 +5,12 @@
 // triangle sampling the color target (Shaders/present.*.hlsl). Babylon's copyTexture can't name the
 // swapchain (its null handle means the swapchain only as a pass attachment), so a pass is the only
 // way the render interface offers to put an offscreen target on the screen.
+//
+// A presenting submit runs the post-processing chain first: each pass draws the same full-screen
+// triangle with its own fragment shader into one of two Bgra8 targets the chain owns, reading the
+// output of the pass before (the back buffer color for the first) and, as its shader declares, the
+// normal and depth targets. The present pass then samples the last output instead of the back
+// buffer. The back buffer itself is never written by the chain.
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>
@@ -35,7 +41,10 @@ namespace
 
         render::TextureHandle colorTarget;
         render::TextureHandle depthTarget;
-        render::TextureFormat depthFormat = render::TextureFormat::D24S8;
+        render::TextureHandle normalTarget;
+        render::TextureFormat depthFormat  = render::TextureFormat::D24S8;
+        render::TextureFormat normalFormat = render::TextureFormat::R10G10B10A2;
+        bool bDepthSampled = false; // the depth target is also Sampled, so post passes can read it
         uint32_t width  = 0;
         uint32_t height = 0;
 
@@ -43,7 +52,18 @@ namespace
         uint64_t backBufferVersion = 0;
 
         render::PipelineHandle presentPipeline;
-        render::SamplerHandle presentSampler;
+        render::SamplerHandle presentSampler; // also the post passes' sampler
+
+        // The post-processing chain: one pipeline per pass, in order, with the number of inputs its
+        // shader reads, and the two targets the passes write in turn (made at the first presenting
+        // submit that needs them, freed with the back buffer).
+        struct PostPass
+        {
+            render::PipelineHandle pipeline;
+            uint32_t numInputs = 0;
+        };
+        std::vector<PostPass> aPostPasses;
+        render::TextureHandle aPostTargets[2];
 
         std::vector<render::TextureHandle> aDeferredTextures;
         std::vector<render::BufferHandle> aDeferredBuffers;
@@ -66,6 +86,111 @@ namespace
         }
 
         stdRenderBabylon_state.aDeferredBuffers.clear();
+    }
+
+    // The nearest-filtering, clamping sampler of the present and post passes, made on first use.
+    bool stdRenderBabylon_EnsurePresentSampler()
+    {
+        if ( !stdRenderBabylon_state.presentSampler.isNull() )
+        {
+            return true;
+        }
+
+        render::SamplerDesc samplerDesc;
+        samplerDesc.minFilter = render::Filter::Nearest;
+        samplerDesc.magFilter = render::Filter::Nearest;
+        samplerDesc.addressU  = render::AddressMode::ClampToEdge;
+        samplerDesc.addressV  = render::AddressMode::ClampToEdge;
+        stdRenderBabylon_state.presentSampler = stdRenderBabylon_state.pDevice->createSampler(samplerDesc);
+        return !stdRenderBabylon_state.presentSampler.isNull();
+    }
+
+    void stdRenderBabylon_FreePostTargets()
+    {
+        for ( render::TextureHandle& target : stdRenderBabylon_state.aPostTargets )
+        {
+            stdRenderBabylon_DestroyTexture(target);
+            target = {};
+        }
+    }
+
+    // Makes the two post targets at the back buffer's size when they are missing. False, logging why,
+    // when one can't be created; there are none then.
+    bool stdRenderBabylon_EnsurePostTargets()
+    {
+        if ( !stdRenderBabylon_state.aPostTargets[0].isNull() )
+        {
+            return true;
+        }
+
+        render::TextureDesc desc;
+        desc.width     = stdRenderBabylon_state.width;
+        desc.height    = stdRenderBabylon_state.height;
+        desc.mipLevels = 1;
+        desc.format    = render::TextureFormat::Bgra8;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+        for ( render::TextureHandle& target : stdRenderBabylon_state.aPostTargets )
+        {
+            target = stdRenderBabylon_state.pDevice->createTexture(desc);
+            if ( target.isNull() )
+            {
+                STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u post-processing targets.\n", desc.width, desc.height);
+                stdRenderBabylon_FreePostTargets();
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // The texture the present pass samples: the last post pass's output, or the back buffer color.
+    render::TextureHandle stdRenderBabylon_PresentSource()
+    {
+        const size_t numPasses = stdRenderBabylon_state.aPostPasses.size();
+        if ( numPasses == 0 || stdRenderBabylon_state.aPostTargets[0].isNull() )
+        {
+            return stdRenderBabylon_state.colorTarget;
+        }
+
+        return stdRenderBabylon_state.aPostTargets[(numPasses - 1) % 2];
+    }
+
+    // The post-processing chain into the frame: pass i reads the output of pass i - 1 (the back buffer
+    // color for pass 0) in fragment slot 0, the normal target in slot 1 and the depth target in slot 2
+    // as far as its shader reads, and writes post target i % 2. Nothing without passes or a back buffer.
+    void stdRenderBabylon_RecordPostChain(render::CommandList& list)
+    {
+        if ( stdRenderBabylon_state.aPostPasses.empty() || stdRenderBabylon_state.colorTarget.isNull()
+            || !stdRenderBabylon_EnsurePostTargets() )
+        {
+            return;
+        }
+
+        render::TextureHandle input = stdRenderBabylon_state.colorTarget;
+        for ( size_t i = 0; i < stdRenderBabylon_state.aPostPasses.size(); ++i )
+        {
+            const StdRenderBabylonState::PostPass& postPass = stdRenderBabylon_state.aPostPasses[i];
+            const render::TextureHandle output = stdRenderBabylon_state.aPostTargets[i % 2];
+
+            render::PassDesc pass;
+            pass.colorTargets.push_back(render::ColorAttachment{ output, 0, render::LoadOp::DontCare,
+                render::StoreOp::Store, {} });
+            if ( !list.beginPass(pass) )
+            {
+                return;
+            }
+
+            const render::TextureHandle aInputs[3] = { input, stdRenderBabylon_state.normalTarget, stdRenderBabylon_state.depthTarget };
+            list.setPipeline(postPass.pipeline);
+            for ( uint32_t slot = 0; slot < postPass.numInputs; ++slot )
+            {
+                list.bindTexture(render::ShaderStage::Fragment, slot, aInputs[slot], stdRenderBabylon_state.presentSampler);
+            }
+
+            list.draw(3);
+            (void)list.endPass();
+            input = output;
+        }
     }
 
     // True when list has a pass with the back buffer's color target as an attachment or a copy into it.
@@ -119,7 +244,7 @@ namespace
         }
 
         list.setPipeline(stdRenderBabylon_state.presentPipeline);
-        list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_state.colorTarget,
+        list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_PresentSource(),
             stdRenderBabylon_state.presentSampler);
         list.draw(3);
         (void)list.endPass();
@@ -200,6 +325,17 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         ? render::TextureFormat::D24S8
         : render::TextureFormat::D32F;
 
+    // The depth format stays the one the scene always used; it is only also sampled where it can be.
+    stdRenderBabylon_state.bDepthSampled = pDevice->supportsFormat(stdRenderBabylon_state.depthFormat,
+        render::TextureUsage::DepthTarget | render::TextureUsage::Sampled);
+
+    // R10G10B10A2 holds a normal's components with 10 bits each in 4 bytes; Rgba8 where the device
+    // can't render to it.
+    const render::TextureUsage normalUsage = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+    stdRenderBabylon_state.normalFormat = pDevice->supportsFormat(render::TextureFormat::R10G10B10A2, normalUsage)
+        ? render::TextureFormat::R10G10B10A2
+        : render::TextureFormat::Rgba8;
+
     const render::DeviceInfo& info = pDevice->info();
     if ( info.hasSwapchain )
     {
@@ -209,15 +345,8 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         desc.primitive      = render::PrimitiveType::TriangleList;
         desc.colorTargets   = { render::ColorTargetDesc{ info.swapchainFormat, {} } };
 
-        render::SamplerDesc samplerDesc;
-        samplerDesc.minFilter = render::Filter::Nearest;
-        samplerDesc.magFilter = render::Filter::Nearest;
-        samplerDesc.addressU  = render::AddressMode::ClampToEdge;
-        samplerDesc.addressV  = render::AddressMode::ClampToEdge;
-
         stdRenderBabylon_state.presentPipeline = pDevice->createPipeline(desc);
-        stdRenderBabylon_state.presentSampler  = pDevice->createSampler(samplerDesc);
-        if ( stdRenderBabylon_state.presentPipeline.isNull() || stdRenderBabylon_state.presentSampler.isNull() )
+        if ( stdRenderBabylon_state.presentPipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler() )
         {
             STDLOG_ERROR("stdRenderBabylon_Open: could not create the present pipeline.\n");
             pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
@@ -238,6 +367,7 @@ void stdRenderBabylon_Close()
     }
 
     stdRenderBabylon_state.frame.reset();
+    stdRenderBabylon_ClearPostPasses();
     stdRenderBabylon_FreeBackBuffer();
     stdRenderBabylon_DestroyDeferred();
 
@@ -260,8 +390,11 @@ void stdRenderBabylon_FreeBackBuffer()
 {
     stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.colorTarget);
     stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.depthTarget);
-    stdRenderBabylon_state.colorTarget = {};
-    stdRenderBabylon_state.depthTarget = {};
+    stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.normalTarget);
+    stdRenderBabylon_FreePostTargets();
+    stdRenderBabylon_state.colorTarget  = {};
+    stdRenderBabylon_state.depthTarget  = {};
+    stdRenderBabylon_state.normalTarget = {};
     stdRenderBabylon_state.width       = 0;
     stdRenderBabylon_state.height      = 0;
     ++stdRenderBabylon_state.backBufferVersion;
@@ -310,20 +443,26 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     depthDesc.height    = height;
     depthDesc.mipLevels = 1;
     depthDesc.format    = stdRenderBabylon_state.depthFormat;
-    depthDesc.usage     = render::TextureUsage::DepthTarget;
+    depthDesc.usage     = stdRenderBabylon_state.bDepthSampled ? render::TextureUsage::DepthTarget | render::TextureUsage::Sampled : render::TextureUsage::DepthTarget;
 
-    const render::TextureHandle colorTarget = pDevice->createTexture(colorDesc);
-    const render::TextureHandle depthTarget = pDevice->createTexture(depthDesc);
-    if ( colorTarget.isNull() || depthTarget.isNull() )
+    render::TextureDesc normalDesc = colorDesc;
+    normalDesc.format = stdRenderBabylon_state.normalFormat;
+
+    const render::TextureHandle colorTarget  = pDevice->createTexture(colorDesc);
+    const render::TextureHandle depthTarget  = pDevice->createTexture(depthDesc);
+    const render::TextureHandle normalTarget = pDevice->createTexture(normalDesc);
+    if ( colorTarget.isNull() || depthTarget.isNull() || normalTarget.isNull() )
     {
         STDLOG_ERROR("stdRenderBabylon_SetBackBufferSize: could not create the %ux%u back buffer.\n", width, height);
         pDevice->destroyTexture(colorTarget);
         pDevice->destroyTexture(depthTarget);
+        pDevice->destroyTexture(normalTarget);
         return false;
     }
 
-    stdRenderBabylon_state.colorTarget = colorTarget;
-    stdRenderBabylon_state.depthTarget = depthTarget;
+    stdRenderBabylon_state.colorTarget  = colorTarget;
+    stdRenderBabylon_state.depthTarget  = depthTarget;
+    stdRenderBabylon_state.normalTarget = normalTarget;
     stdRenderBabylon_state.width       = width;
     stdRenderBabylon_state.height      = height;
     ++stdRenderBabylon_state.backBufferVersion; // undefined until something clears or uploads it
@@ -414,6 +553,16 @@ render::TextureFormat stdRenderBabylon_GetDepthFormat()
     return stdRenderBabylon_state.depthFormat;
 }
 
+render::TextureHandle stdRenderBabylon_GetNormalTarget()
+{
+    return stdRenderBabylon_state.normalTarget;
+}
+
+render::TextureFormat stdRenderBabylon_GetNormalFormat()
+{
+    return stdRenderBabylon_state.normalFormat;
+}
+
 uint32_t stdRenderBabylon_GetBackBufferWidth()
 {
     return stdRenderBabylon_state.width;
@@ -458,6 +607,11 @@ namespace
         }
         else
         {
+            if ( bPresent )
+            {
+                stdRenderBabylon_RecordPostChain(list);
+            }
+
             if ( bPresent && stdRenderBabylon_state.pDevice->info().hasSwapchain )
             {
                 stdRenderBabylon_RecordPresent(list);
@@ -586,4 +740,70 @@ void stdRenderBabylon_DestroyBuffer(render::BufferHandle buffer)
     }
 
     stdRenderBabylon_state.pDevice->destroyBuffer(buffer);
+}
+
+bool stdRenderBabylon_AddPostPass(const render::ShaderDesc& fragmentShader)
+{
+    render::Device* pDevice = stdRenderBabylon_state.pDevice;
+    if ( !pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_AddPostPass: not open.\n");
+        return false;
+    }
+
+    if ( fragmentShader.textureCount < 1 || fragmentShader.textureCount > 3 || fragmentShader.uniformCount != 0 )
+    {
+        STDLOG_ERROR("stdRenderBabylon_AddPostPass: the shader reads %u textures and %u uniform blocks; a post pass reads 1 to 3 textures and no uniforms.\n",
+            fragmentShader.textureCount, fragmentShader.uniformCount);
+        return false;
+    }
+
+    if ( fragmentShader.textureCount == 3 && !stdRenderBabylon_state.bDepthSampled )
+    {
+        STDLOG_ERROR("stdRenderBabylon_AddPostPass: the shader reads depth, which this device can't sample.\n");
+        return false;
+    }
+
+    render::PipelineDesc desc;
+    desc.vertexShader   = stdBabylon::shaders::presentVert();
+    desc.fragmentShader = fragmentShader;
+    desc.primitive      = render::PrimitiveType::TriangleList;
+    desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+
+    const render::PipelineHandle pipeline = pDevice->createPipeline(desc);
+    if ( pipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_AddPostPass: could not create the pass's pipeline.\n");
+        pDevice->destroyPipeline(pipeline);
+        return false;
+    }
+
+    stdRenderBabylon_state.aPostPasses.push_back(StdRenderBabylonState::PostPass{ pipeline, fragmentShader.textureCount });
+    return true;
+}
+
+void stdRenderBabylon_ClearPostPasses()
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        return;
+    }
+
+    for ( const StdRenderBabylonState::PostPass& postPass : stdRenderBabylon_state.aPostPasses )
+    {
+        stdRenderBabylon_state.pDevice->destroyPipeline(postPass.pipeline);
+    }
+
+    stdRenderBabylon_state.aPostPasses.clear();
+    stdRenderBabylon_FreePostTargets();
+}
+
+size_t stdRenderBabylon_GetNumPostPasses()
+{
+    return stdRenderBabylon_state.aPostPasses.size();
+}
+
+render::TextureHandle stdRenderBabylon_GetPresentSource()
+{
+    return stdRenderBabylon_PresentSource();
 }

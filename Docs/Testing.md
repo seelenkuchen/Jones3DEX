@@ -544,6 +544,12 @@ needs shaders.
 against values derived from the DX9 backend's rules. The GPU group repeats the texture readback and renders
 synthetic scenes on the SDL GPU device, comparing back-buffer pixels for formats, alpha test and blending, Z,
 fog, lines, points and perspective; it also checks the windowed present and that the replay writes BMP frames.
+Since M6.9a both groups cover the normal target and the post-processing chain: the Null group checks the scene
+pass's two color targets and the normal target's clears, and the command stream with the chain empty, with one
+pass and with three chained passes reading the normal and depth targets; the GPU group checks the constant
+normal where Z is written and the clear elsewhere, that a test pass (`Tests/Shaders/post_invert.frag.hlsl`)
+changes the presented image but not the back buffer that `stdRenderBabylon_ReadBackBuffer` returns, that a
+pass reads the normal target, and the windowed present through the chain.
 
 The same executable runs the `stdDisplayBabylon` suites. Their Null group drives the public `stdDisplay_*`
 calls: the one display device, the headless and windowed video mode lists and aspect ratios, `SetMode`, the

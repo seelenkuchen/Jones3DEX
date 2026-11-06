@@ -743,6 +743,14 @@ The render device is created by the composition root and passed in the `StdBabyl
 
 [`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) owns the frame: the command list being recorded and the back buffer. The back buffer is a `Bgra8` color target that is also sampled, plus a depth target that is `D24S8`, or `D32F` where the device lacks `D24S8`, at the display size. On a device with a swapchain, submitting the frame first records a present pass: a full-screen triangle from `present.*.hlsl` samples the color target with a nearest, clamped sampler. `copyTexture` cannot name the swapchain, so a pass is the only way the render interface offers to put an offscreen target on the screen. Through M6.6 `std3D_EndScene` submitted the frame; since M6.7 `stdDisplay_Update` does (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)).
 
+### Render Passes, Normal Target And Post-Processing Chain (M6.9a)
+
+The frame is a sequence of passes over offscreen targets, ready for per-pixel lighting, SSAO and post-processing ([ADR-0023](../09-decisions/ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md)), with the classic look unchanged:
+
+- **Scene passes** (`std3D`) write two color targets at once: the back buffer color and a **normal target**, plus the depth target. The normal target holds the view-space normal (x right, y up, z toward the viewer) as `n * 0.5 + 0.5` with alpha 1, in `R10G10B10A2` (10 bits per component in 4 bytes), or `Rgba8` where the device can't render to it. It belongs with the depth: it is cleared to 0 (alpha 0, nothing drawn) whenever the scene clears depth, draws that write Z replace it and draws that don't keep it (blended with `ZERO, ONE`), so it holds the normal of what the depth target holds. Until the vertices carry normals (M6.9b), the shaders write the constant normal facing the viewer. The color output is computed exactly as before. The depth target is also sampled where the device can sample its format; the format itself is the one the scene always used.
+- **The post-processing chain** is an ordered list of full-screen passes in `stdRenderBabylon`, empty by default. `stdRenderBabylon_AddPostPass` takes a fragment shader; each pass draws the present pass's full-screen triangle into one of two `Bgra8` targets the chain owns, reading the previous output (the back buffer color for the first pass) in fragment slot 0, the normal target in slot 1 and the depth target in slot 2, as far as its shader declares textures. It runs at every presenting submit (`stdRenderBabylon_SubmitFrame` and `_PresentFrame`), never at `_FlushFrame`. The present pass then samples the chain's last output (`stdRenderBabylon_GetPresentSource`); with an empty chain it samples the back buffer, as before. Later passes (bloom and depth of field in M9, SSAO in M10) add their shaders here; uniforms and their own intermediate targets come with their first user.
+- **What the game reads stays what the game drew.** The chain never writes the back buffer, so `stdDisplay`'s back-buffer lock, `stdRenderBabylon_ReadBackBuffer`, savegame thumbnails, `stdDisplay_SaveScreen` and the replay's frame output read the scene before post-processing. The game reads and writes its back buffer as the surface it drew (the intro movie writes it, the 2D layer draws over it), and feeding a post-processed image back would apply the chain again each frame and make the replay frames depend on presentation settings. With an empty chain the presented image and the back buffer are the same.
+
 ### Textures And Cache
 
 Five DX9 texture formats are offered, each matched to a Babylon format with the same bit layout:
@@ -756,7 +764,7 @@ Five DX9 texture formats are offered, each matched to a Babylon format with the 
 
 ### Pipelines, Samplers And Draws
 
-`std3D_GetPipeline` caches one pipeline per primitive and Z-write bit: three primitives (triangle list, line strip, point list) times Z write on or off. Triangles use `std3d.frag.hlsl`, lines and points the wireframe shader. All of them blend source alpha over inverse source alpha, test Z with `LessOrEqual`, write Z as `STD3D_RS_ZWRITE_DISABLED` says, and cull nothing, as `std3DX9.c` set the Direct3D state.
+`std3D_GetPipeline` caches one pipeline per primitive and Z-write bit: three primitives (triangle list, line strip, point list) times Z write on or off. Triangles use `std3d.frag.hlsl`, lines and points the wireframe shader. All of them blend source alpha over inverse source alpha, test Z with `LessOrEqual`, write Z as `STD3D_RS_ZWRITE_DISABLED` says, and cull nothing, as `std3DX9.c` set the Direct3D state. Their second color target is the normal target (see above).
 
 `std3D_GetSampler` caches 16 samplers, indexed by four bits worked out at each draw: linear filtering, linear mip filtering, clamp U and clamp V. It creates each one on first use. Anisotropic requests filter linearly because no device here filters anisotropically, as in `std3DX9.c`; the mip filter is linear for trilinear and nearest otherwise.
 
@@ -773,6 +781,7 @@ The game shaders (`std3d.vert.hlsl`, `std3d.frag.hlsl` and `std3d_wireframe.frag
 - Fog is linear in `w`, as DX9 passed it: `saturate((w - start) * (1 / (end - start)))` lerps RGB to the fog color and keeps alpha.
 - The alpha test is fixed-function DX9 behavior in the shader: when `STD3D_RS_ALPHAREF_SET` is set, fragments with alpha not greater than `160 / 255` are discarded (`D3DCMP_GREATER`).
 - Lines and points use the wireframe shader's constant opaque white times diffuse, with no texture and no fog.
+- Both fragment shaders write the constant normal `(0, 0, 1)`, encoded, to the normal target (`SV_Target1`) until M6.9b gives the vertices normals.
 
 The vertex shader's outputs are ordered so the pixel shader's inputs are a prefix of them: diffuse, texture coordinate and `w` come first and the unread specular color last. Direct3D 12 links a pixel shader only when its inputs match the vertex outputs in the same registers, and the DXIL comes through SPIR-V, which drops inputs a pixel shader never reads; the earlier specular gap made D3D12 refuse every game pipeline with `E_INVALIDARG`.
 

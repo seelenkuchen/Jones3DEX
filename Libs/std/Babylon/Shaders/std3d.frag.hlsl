@@ -12,6 +12,11 @@
 //
 // Fragment texture and sampler slot 0 (SDL GPU: space2): the texture. Fragment uniform block 0
 // (SDL GPU: space3): DX9's g_fogParams and g_fogColor, then the alpha reference / 255.
+//
+// Color target 1 is the scene's normal target (stdRenderBabylon.h): the view-space normal (x right,
+// y up, z toward the viewer) as n * 0.5 + 0.5, alpha 1. The vertices carry no normal yet (M6.9b gives
+// them one), so every fragment writes the constant normal facing the viewer, kStd3DConstantNormal.
+// Color target 0 is computed exactly as before.
 
 Texture2D<float4> gTexture : register(t0, space2);
 SamplerState gSampler : register(s0, space2);
@@ -31,6 +36,15 @@ struct Input
     [[vk::location(2)]] float4 rhw : TEXCOORD2;
 };
 
+// (0, 0, 1) encoded: the normal of every fragment until the vertices carry one.
+static const float4 kStd3DConstantNormal = float4(0.5, 0.5, 1.0, 1.0);
+
+struct Output
+{
+    float4 color : SV_Target0;
+    float4 normal : SV_Target1;
+};
+
 // common.hlsli's ApplyFog.
 float4 ApplyFog(float4 color, float depth)
 {
@@ -44,7 +58,7 @@ float4 ApplyFog(float4 color, float depth)
     return color;
 }
 
-float4 main(Input input) : SV_Target0
+Output main(Input input)
 {
     float4 texColor   = gTexture.Sample(gSampler, input.texCoord.xy);
     float4 finalColor = texColor * input.diffuse;
@@ -54,5 +68,8 @@ float4 main(Input input) : SV_Target0
         discard;
     }
 
-    return finalColor;
+    Output output;
+    output.color  = finalColor;
+    output.normal = kStd3DConstantNormal;
+    return output;
 }

@@ -559,7 +559,9 @@ namespace
 
     // Records the collected pass into the frame: the back buffer with the pass's load operations,
     // then its draws, each with only the bindings and uniforms that changed since the draw before.
-    // Returns false when the command list refuses the pass. The pass is done either way.
+    // The normal target is the second color target; it belongs with the depth, so it is cleared to
+    // 0 (nothing drawn) when depth is. Returns false when the command list refuses the pass. The
+    // pass is done either way.
     bool std3D_EndScenePass()
     {
         render::CommandList& frame = stdRenderBabylon_GetFrame();
@@ -567,6 +569,8 @@ namespace
         render::PassDesc pass;
         pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetColorTarget(), 0,
             std3D_sceneColorLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetNormalTarget(), 0,
+            std3D_sceneDepthLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
         pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(),
             std3D_sceneDepthLoad, render::StoreOp::Store, 1.0f, 0 };
 
@@ -665,7 +669,9 @@ namespace
     // shader for lines and points; alpha blending with SRCALPHA, INVSRCALPHA for color and alpha
     // (D3DRS_ALPHABLENDENABLE, never turned off, without separate alpha blending); the Z test
     // LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no culling.
-    // The pipeline of each primitive and Z write is created once, on first use.
+    // The normal target, the second color target, is replaced by draws that write Z and kept (blended
+    // with ZERO, ONE) by the others, so it holds the normal of what the depth target holds. The
+    // pipeline of each primitive and Z write is created once, on first use.
     render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite)
     {
         render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bZWrite ? 1 : 0];
@@ -706,7 +712,14 @@ namespace
         blend.srcAlpha = render::BlendFactor::SrcAlpha;
         blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
         blend.alphaOp  = render::BlendOp::Add;
-        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend } };
+        render::BlendState keepNormal;
+        keepNormal.enabled  = !bZWrite;
+        keepNormal.srcColor = render::BlendFactor::Zero;
+        keepNormal.dstColor = render::BlendFactor::One;
+        keepNormal.srcAlpha = render::BlendFactor::Zero;
+        keepNormal.dstAlpha = render::BlendFactor::One;
+        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend },
+            render::ColorTargetDesc{ stdRenderBabylon_GetNormalFormat(), bZWrite ? render::BlendState{} : keepNormal } };
         desc.depthFormat  = stdRenderBabylon_GetDepthFormat();
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
         desc.cull         = render::CullMode::None;
