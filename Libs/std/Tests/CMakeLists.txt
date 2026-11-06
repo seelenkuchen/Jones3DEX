@@ -259,6 +259,9 @@ if (J3D_PLATFORM_BABYLON)
         babylon::render
         babylon::log
         stdBabylonShaders
+        # Added: the tests read BABYLON_REQUIRE_GPU through SDL_getenv. Babylon links SDL privately, so
+        # its headers come from the SDL target itself (static when Babylon fetched SDL).
+        $<IF:$<TARGET_EXISTS:SDL3::SDL3-static>,SDL3::SDL3-static,SDL3::SDL3>
     )
 
     set_target_properties(std3DBabylonTests PROPERTIES
