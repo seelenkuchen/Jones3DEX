@@ -31,12 +31,17 @@ struct Input
     [[vk::location(3)]] float2 texCoord : TEXCOORD3;
 };
 
+// Direct3D 12 links a pixel shader only when its inputs are the vertex shader's outputs in the same
+// registers, leaving out trailing ones only, and the DXIL is compiled from SPIR-V, which drops the
+// inputs a pixel shader doesn't read. So the outputs the pixel shaders read come first and in their
+// order, and the specular color, which no pixel shader reads, comes last. The point size is a Vulkan
+// and Metal builtin only; the DXIL has no such output (Direct3D 12 points are always of size 1).
 struct Output
 {
     [[vk::location(0)]] float4 diffuse : TEXCOORD0;
-    [[vk::location(1)]] float4 specular : TEXCOORD1;
-    [[vk::location(2)]] float2 texCoord : TEXCOORD2;
-    [[vk::location(3)]] float4 rhw : TEXCOORD3; // DX9 kept w in a float4 too (its name says rhw)
+    [[vk::location(1)]] float2 texCoord : TEXCOORD1;
+    [[vk::location(2)]] float4 rhw : TEXCOORD2; // DX9 kept w in a float4 too (its name says rhw)
+    [[vk::location(3)]] float4 specular : TEXCOORD3;
     float4 position : SV_Position;
     [[vk::builtin("PointSize")]] float pointSize : PSIZE;
 };

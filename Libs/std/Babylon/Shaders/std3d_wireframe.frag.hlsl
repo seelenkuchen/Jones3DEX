@@ -16,6 +16,7 @@ cbuffer Std3DFragment : register(b0, space3)
     float4 gAlphaTest; // x: D3DRS_ALPHAREF / 255; a fragment passes when its alpha is greater
 };
 
+// The first output of std3d.vert.hlsl; the others trail and may be left out (see there).
 struct Input
 {
     [[vk::location(0)]] float4 diffuse : TEXCOORD0;

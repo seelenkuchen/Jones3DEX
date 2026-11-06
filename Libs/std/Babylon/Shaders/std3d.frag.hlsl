@@ -23,12 +23,12 @@ cbuffer Std3DFragment : register(b0, space3)
     float4 gAlphaTest; // x: D3DRS_ALPHAREF / 255; a fragment passes when its alpha is greater
 };
 
+// The outputs of std3d.vert.hlsl in its order, without the trailing specular color (see there).
 struct Input
 {
     [[vk::location(0)]] float4 diffuse : TEXCOORD0;
-    [[vk::location(1)]] float4 specular : TEXCOORD1;
-    [[vk::location(2)]] float2 texCoord : TEXCOORD2;
-    [[vk::location(3)]] float4 rhw : TEXCOORD3;
+    [[vk::location(1)]] float2 texCoord : TEXCOORD1;
+    [[vk::location(2)]] float4 rhw : TEXCOORD2;
 };
 
 // common.hlsli's ApplyFog.
