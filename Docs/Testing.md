@@ -461,6 +461,11 @@ values.
 **Status:** the writer, the forwarding layers, the headless switch, the console
 command and the replay tool exist, with unit tests beside them.
 
+Since M6.7 the M6.1 captures replay to the end on the Babylon column with no mismatch: canyon 169,417
+records, intro 267,535 and indoor 310,790. Rendering them with `--render gpu` draws their 3,123 frames on
+lavapipe (canyon 32, intro 2,014 and indoor 1,077), including the 2D layer and the intro movie. The
+[M6.7 progress screenshots](References/M6.7/README.md) pair replayed frames with the DX9 references.
+
 <a name="renderer-reference-masks"></a>
 
 ### 🖼️ Renderer Reference Masks
@@ -531,15 +536,22 @@ needs shaders.
 
 #### 🧪 std3D On Babylon Tests
 
-`std.std3DOnBabylon` builds `std3DBabylonTests` from `Libs/std/Babylon/Tests/std3DBabylonTest.cpp`
-and the C replay suite `stdRenderReplayTest.c`, against `std3DBabylon.cpp`, `stdRenderBabylon.cpp`
-and `stdRenderReplayBabylon.cpp`. The Null group drives the public `std3D_*` calls and the capture
-forwarders on a `babylon::render::NullDevice` and checks the recorded command stream and the texture
-contents byte for byte against values derived from the DX9 backend's rules. The GPU group repeats the
-texture readback and renders synthetic scenes on the SDL GPU device, comparing back-buffer pixels for
-formats, alpha test and blending, Z, fog, lines, points and perspective; it also checks the windowed
-present and that the replay writes BMP frames. Like the render contract tests, the GPU cases need a
-Vulkan device (Mesa's lavapipe in Linux CI), skip without one, and fail instead when
+`std.std3DOnBabylon` builds `std3DBabylonTests` from `Libs/std/Babylon/Tests/std3DBabylonTest.cpp`,
+`Libs/std/Babylon/Tests/stdDisplayBabylonTest.cpp` and the C replay suite `stdRenderReplayTest.c`, against
+`std3DBabylon.cpp`, `stdDisplayBabylon.cpp`, `stdRenderBabylon.cpp` and `stdRenderReplayBabylon.cpp`. The
+`std3DBabylon` Null group drives the public `std3D_*` calls and the capture forwarders on a
+`babylon::render::NullDevice` and checks the recorded command stream and the texture contents byte for byte
+against values derived from the DX9 backend's rules. The GPU group repeats the texture readback and renders
+synthetic scenes on the SDL GPU device, comparing back-buffer pixels for formats, alpha test and blending, Z,
+fog, lines, points and perspective; it also checks the windowed present and that the replay writes BMP frames.
+
+The same executable runs the `stdDisplayBabylon` suites. Their Null group drives the public `stdDisplay_*`
+calls: the one display device, the headless and windowed video mode lists and aspect ratios, `SetMode`, the
+back-buffer locks (readback only when the GPU changed, upload on a write unlock, no upgrade from read-only,
+DX9 nesting), the hardware and software VBuffers, whole and partial fills, RGB565 conversion and `SaveScreen`.
+The GPU group draws a 3D frame with `std3D`, writes 2D pixels into it through the back-buffer lock and reads
+both layers back, so the CPU pixels lie between the frame's draws. Like the render contract tests, the GPU
+cases need a Vulkan device (Mesa's lavapipe in Linux CI), skip without one, and fail instead when
 `BABYLON_REQUIRE_GPU=1` is set. CTest runs the suite as `std.std3DOnBabylon` with
 `SDL_VIDEO_DRIVER=offscreen` (`dummy` on macOS).
 

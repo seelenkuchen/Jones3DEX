@@ -52,8 +52,8 @@ The separation is a horizontal cut through the existing modules, not a new modul
 ======================= the build links exactly one column ======================
   Null (M4), non-Windows            | Babylon (M5): Linux, macOS, 64-bit Windows
   std/Null/*.c                      | the Null files, with std/Babylon/*.cpp in
-  sound/DriverNull.c                | place of time, files, input devices and
-  wkernel/wkernelNull.c             | cvars; wkernel/wkernelBabylon.cpp
+  sound/DriverNull.c                | place of time, files, input devices, cvars,
+  wkernel/wkernelNull.c             | display and 3D rendering; wkernel/wkernelBabylon.cpp
   w32util/wuRegistryNull.c          |
   Jones3D/Platform/Null/            | Jones3D/Platform/Babylon/ (+ Platform/Null/)
 ---------------------------------------------------------------------------------
@@ -277,10 +277,11 @@ Build time, as DX6 and DX9 worked: one implementation linked per build, chosen i
 
 M5 added a third column the same way: `-DJONES3D_PLATFORM_BABYLON=ON` builds the Null column with some files
 replaced by adapter files on the Babylon Engine (time, files, input devices, the wkernel event loop, the
-simulation cvars). Where a Null file has device code mixed with engine logic, it was split first so the
-column can replace the device part only: `stdPlatformTimeNull.c`, `General/stdFile.c`,
-`stdControlDevicesNull.c` behind `stdControlNull.h`, and `stdCvarNull.c` behind `stdCvarNull.h`. Inside the
-Babylon column the backends (SDL3 or Null) are chosen at startup by the composition root (ADR-0016).
+simulation cvars, and since M6.6/M6.7 the display and 3D renderer). Where a Null file has device code mixed with
+engine logic, it was split first so the column can replace the device part only: `stdPlatformTimeNull.c`,
+`General/stdFile.c`, `stdControlDevicesNull.c` behind `stdControlNull.h`, and `stdCvarNull.c` behind
+`stdCvarNull.h`. Inside the Babylon column the backends (SDL3 or Null) are chosen at startup by the composition
+root (ADR-0016).
 
 Since M6.3 these two are the only columns: Null on non-Windows hosts (the default there), Babylon on Linux and
 macOS with `-DJONES3D_PLATFORM_BABYLON=ON`, and Babylon on Windows, where it is the default and only choice.

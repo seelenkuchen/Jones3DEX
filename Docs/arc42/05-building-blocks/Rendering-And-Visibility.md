@@ -1,6 +1,6 @@
 # Rendering And Visibility
 
-This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column's `std3D` draws on the Babylon render device (see [Babylon std3D Backend](#babylon-std3d-backend-m66)); the Null column still accepts every call and draws nothing. `stdDisplay` stays Null until M6.7, so the 2D layer, HUD text and menus are still missing.
+This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column's `std3D` draws on the Babylon render device (see [Babylon std3D Backend](#babylon-std3d-backend-m66)), and since M6.7 its `stdDisplay` draws and presents on the same device (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)), so the 2D layer, HUD and console text, and the intro movie are there too; the Null column still accepts every call and draws nothing.
 
 Primary source files:
 
@@ -11,7 +11,7 @@ Primary source files:
 - [`Libs/rdroid/Raster/rdCache.c`](../../../Libs/rdroid/Raster/rdCache.c)
 - [`Libs/std/General/std3D.h`](../../../Libs/std/General/std3D.h)
 - `Libs/std/Null/std3DNull.c` and `Libs/std/Null/stdDisplayNull.c`
-- [`Libs/std/Babylon/std3DBabylon.cpp`](../../../Libs/std/Babylon/std3DBabylon.cpp) and [`Libs/std/Babylon/stdRenderBabylon.h`](../../../Libs/std/Babylon/stdRenderBabylon.h)
+- [`Libs/std/Babylon/std3DBabylon.cpp`](../../../Libs/std/Babylon/std3DBabylon.cpp), [`Libs/std/Babylon/stdDisplayBabylon.cpp`](../../../Libs/std/Babylon/stdDisplayBabylon.cpp) and [`Libs/std/Babylon/stdRenderBabylon.h`](../../../Libs/std/Babylon/stdRenderBabylon.h)
 - [`Libs/std/Babylon/Shaders/std3d.vert.hlsl`](../../../Libs/std/Babylon/Shaders/std3d.vert.hlsl), `std3d.frag.hlsl`, `std3d_wireframe.frag.hlsl` and `present.*.hlsl`
 - [`Jones3D/Platform/Babylon/main.cpp`](../../../Jones3D/Platform/Babylon/main.cpp) and [`mainWindowed.cpp`](../../../Jones3D/Platform/Babylon/mainWindowed.cpp)
 
@@ -31,7 +31,7 @@ Rendering is divided across three layers:
 
    Own the actual graphics API backend, device state, texture allocation, projection setup, scene begin/end, and buffer presentation.
 
-The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it to the selected backend (Null, or the Babylon render device in the Babylon column since M6.6).
+The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it while `stdDisplay` presents it to the selected backend (Null, or the Babylon render device in the Babylon column since M6.6 and M6.7).
 
 ## Camera System
 
@@ -670,7 +670,7 @@ The architecture here is important:
 
 - `sithRender` decides *what* to draw
 - `rdroid` decides *how* those primitives are represented and flushed
-- `std3D` decides *how* the final draw reaches Direct3D
+- `std3D` decides *how* the final draw reaches the graphics device
 
 ## stdDisplay And std3D
 
@@ -690,7 +690,7 @@ The architecture here is important:
 - render-state translation
 - low-level draw calls
 
-From the rest of the engine's perspective, `std3D` is the hardware abstraction layer for rendering. In the Babylon column since M6.6 `std3D` draws on the Babylon render device; `stdDisplay` stays Null until M6.7, which is why the back buffer and present path exist but the 2D layer does not yet draw.
+From the rest of the engine's perspective, `std3D` is the hardware abstraction layer for rendering and `stdDisplay` for the buffers and presentation. In the Babylon column since M6.6 `std3D` draws on the Babylon render device and since M6.7 `stdDisplay` provides the video modes, the back buffer and the present on that same device, so the 2D layer is there.
 
 ## DirectX 6.1c Backend
 
@@ -741,7 +741,7 @@ The Babylon column's `std3D` backend ([`std3DBabylon.cpp`](../../../Libs/std/Bab
 
 The render device is created by the composition root and passed in the `StdBabylonContext` ([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)). The headless `main.cpp` uses a Null device that records no commands by default, or the SDL GPU device without a window with `--render gpu`; `mainWindowed.cpp` uses the SDL GPU device on the game window and falls back to the Null device without a GPU.
 
-[`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) owns the frame: the command list being recorded and the back buffer. The back buffer is a `Bgra8` color target that is also sampled, plus a depth target that is `D24S8`, or `D32F` where the device lacks `D24S8`, at the display size. On a device with a swapchain, submitting the frame first records a present pass: a full-screen triangle from `present.*.hlsl` samples the color target with a nearest, clamped sampler. `copyTexture` cannot name the swapchain, so a pass is the only way the render interface offers to put an offscreen target on the screen. Until M6.7 `std3D_EndScene` submits the frame; later `stdDisplay_Update` will.
+[`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) owns the frame: the command list being recorded and the back buffer. The back buffer is a `Bgra8` color target that is also sampled, plus a depth target that is `D24S8`, or `D32F` where the device lacks `D24S8`, at the display size. On a device with a swapchain, submitting the frame first records a present pass: a full-screen triangle from `present.*.hlsl` samples the color target with a nearest, clamped sampler. `copyTexture` cannot name the swapchain, so a pass is the only way the render interface offers to put an offscreen target on the screen. Through M6.6 `std3D_EndScene` submitted the frame; since M6.7 `stdDisplay_Update` does (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)).
 
 ### Textures And Cache
 
@@ -775,6 +775,28 @@ The game shaders (`std3d.vert.hlsl`, `std3d.frag.hlsl` and `std3d_wireframe.frag
 - Lines and points use the wireframe shader's constant opaque white times diffuse, with no texture and no fog.
 
 The vertex shader's outputs are ordered so the pixel shader's inputs are a prefix of them: diffuse, texture coordinate and `w` come first and the unread specular color last. Direct3D 12 links a pixel shader only when its inputs match the vertex outputs in the same registers, and the DXIL comes through SPIR-V, which drops inputs a pixel shader never reads; the earlier specular gap made D3D12 refuse every game pipeline with `E_INVALIDARG`.
+
+## Babylon stdDisplay Backend (M6.7)
+
+The Babylon column's `stdDisplay` backend ([`stdDisplayBabylon.cpp`](../../../Libs/std/Babylon/stdDisplayBabylon.cpp)) implements the same `stdDisplayBackend_*` functions as the removed DirectX 9 backend, ported from `stdDisplayDX9.c`, with the capture forwarders of `stdDisplayCapture.c` still in front ([ADR-0024](../09-decisions/ADR-0024-render-capture-by-renamed-backends.md)). It drives the frame owner in [`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) that `std3D` also draws through: `stdDisplay_Open` opens it and `stdDisplay_Close` closes it. The game-facing functions from `stdDisplay.h` keep their recovered names and answers.
+
+### Video Modes And SetMode
+
+One display device stands for the render device, named "Jones3D Babylon Display" with driver "stdDisplayBabylon"; its video memory is the largest texture's area times four, half of it reported free. Babylon's platform has no display-mode query, so the list is fixed. A headless run lists the default 640x480 in RGB565 (`stdColor_cfRGB565`) and X8R8G8B8 (`stdColor_cfRGB8888`) only: what `stdDisplayDX9.c` listed on a 640x480 display, such as the M6.1 DX9 recordings' Xvfb screen, so their fullscreen SetMode of mode 1 replays at the recorded size. A windowed run lists 16 fixed sizes (320x200, 320x240, 400x300, 512x384, 640x400, 640x480, 800x600, 1024x768, 1152x864, 1280x720, 1280x960, 1280x1024, 1600x900, 1600x1200, 1920x1080 and 1920x1200) in both formats, plus the window's own size when it fits the device limit, sorted by bit depth, width and height. All list 60 Hz; aspect ratio is 1 except the non-square windowed 320x200, 320x400 and 640x400 modes at 0.75, and a headless mode uses width/height. Before `stdDisplay_SetMode` the back buffer already reports 640x480 X8R8G8B8, as in the Null backend.
+
+`stdDisplay_SetMode` takes a copy of the enumerated mode for fullscreen; a windowed mode uses the primary mode at `stdDisplay_SetDefaultResolution`'s size in X8R8G8B8. It neither switches the window to fullscreen nor resizes it: the game sizes the window to the back buffer afterwards, and the present scales the back buffer to the swapchain. The mode creates the back buffer through `stdRenderBabylon_SetBackBufferSize` and makes `stdDisplay_g_frontBuffer` and `stdDisplay_g_backBuffer` hardware VBuffers of that size without CPU surfaces, fills the buffer, presents it once, and fills it again for fullscreen. `stdDisplay_ClearMode` calls the release callback and frees the back buffer.
+
+### Back Buffer, Locks And Fills
+
+The back buffer lives on the GPU in `stdRenderBabylon`'s color target, where `std3D` draws. Its CPU side is a copy in the video mode's pixel format that `stdDisplay_LockBackBuffer` hands out, as DX9 handed out its lockable surface. A lock reads the GPU back buffer into the copy only when the GPU changed it since the copy was last read or written, tracked by `stdRenderBabylon_GetBackBufferVersion`; the last unlock of a write lock uploads the copy after the frame recorded so far (`stdRenderBabylon_WriteBackBuffer`), and a read-only lock uploads nothing. This is what makes the 2D layer draw correctly over the 3D frame: savegame thumbnails (whose GDI surface is still missing in this column, so saving is refused; see [chapter 11](../11-risks-and-technical-debt.md)) and `stdDisplay_SaveScreen` read the frame that `std3D` drew, debug lines draw over the frame, and the intro movie (`JonesMain_IntroMovieBlt*`) locks, writes every pixel, unlocks and presents, so it never reads back after its first frame. A read-only lock cannot be upgraded to a write lock, and a fill while the back buffer is locked fails. Fills of the whole back buffer are clear passes; fills of part of it go through the CPU copy and an upload. `stdDisplay_VBufferNew` always allocates software VBuffers because the render device has no lockable surfaces; locks of the front or back buffer lock the back buffer, other hardware VBuffers fail, and `stdDisplay_EncodeFromRGB565` encodes into the current mode's channels.
+
+### Submit And Present
+
+`stdDisplay_Update` ends the frame. It advances one millisecond of virtual time, as the Null backend does, so headless loops that wait on the clock around a present finish; then `stdRenderBabylon_PresentFrame` submits what `std3D` and the display recorded and, on a device with a swapchain, records the present pass and presents. Without a mode it returns 1 and does nothing. `std3D_EndScene` now leaves the frame open instead of submitting it, so submit and present sit at `stdDisplay_Update`, as `stdDisplayDX9.c` presented.
+
+### Reset Callbacks
+
+`stdDisplay_RegisterDevicePreResetCallback` and `stdDisplay_RegisterDevicePostResetCallback` store their callbacks but nothing calls them, because the render device is never lost or reset; only the release callback runs, from `stdDisplay_ClearMode`. That gap is listed in [chapter 11](../11-risks-and-technical-debt.md).
 
 ## Where OpenJones3D Extends The Original Renderer
 

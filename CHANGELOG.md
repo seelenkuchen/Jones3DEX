@@ -12,10 +12,10 @@
   - The Babylon Engine (`Babylon/`) and a Babylon platform column (`-DJONES3D_PLATFORM_BABYLON=ON`, Linux and
     macOS, and the only choice on Windows): time, files, input and the window run on Babylon. It adds a windowed
     `Jones3D` that opens a window and runs the game; since M6.6 it draws the 3D scene with the new Babylon
-    renderer, while the 2D layer, HUD text and menus are still missing until M6.7.
+    renderer, and since M6.7 the 2D layer, HUD text and the intro movie too.
   - Windows builds are now 64-bit only. The Win32, DirectX 9 and DirectX 6 builds are gone, along with the
     DirectSound drivers and the bundled DirectX SDK; 32-bit Windows is not supported. The windowed Windows build
-    draws the 3D scene since M6.6; the 2D layer, HUD text and menus follow in M6.7.
+    draws the 3D scene since M6.6 and the 2D layer and intro movie since M6.7.
   - `Jones3D-headless` and `Jones3D-replay` in the Babylon column accept `--render null|gpu`;
     `Jones3D-replay --render gpu --frames-out <dir>` renders a capture to BMP frames.
   - `Jones3D-headless` and the windowed `Jones3D` accept `--load <save.nds>`; headless state files start with the
