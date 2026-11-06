@@ -7,7 +7,8 @@
 
 #include <doctest.h>
 
-#include <cstdlib>
+#include <SDL3/SDL_stdinc.h>
+
 #include <cstring>
 #include <string>
 
@@ -18,7 +19,7 @@ namespace babylon::render::test
     // test that finds no GPU device fails instead of silently skipping.
     inline bool gpuRequired()
     {
-        const char* const value = std::getenv("BABYLON_REQUIRE_GPU");
+        const char* const value = SDL_getenv("BABYLON_REQUIRE_GPU");
         return value != nullptr && std::strcmp(value, "1") == 0;
     }
 
