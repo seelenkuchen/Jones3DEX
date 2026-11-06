@@ -29,3 +29,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0022](ADR-0022-shaders-compiled-at-build-time.md) | Shaders are compiled at build time, with a local cache | Accepted |
 | [ADR-0023](ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md) | Advanced graphics start on the CPU geometry path | Accepted |
 | [ADR-0024](ADR-0024-render-capture-by-renamed-backends.md) | The render capture interposes on renamed backends | Accepted |
+| [ADR-0025](ADR-0025-babylon-render-interface.md) | Babylon render interface | Accepted |

@@ -9,6 +9,9 @@
 
 #include <memory>
 
+// SDL's window type, declared only, so this header needs no SDL include.
+struct SDL_Window;
+
 namespace babylon::platform
 {
 
@@ -23,5 +26,11 @@ namespace babylon::platform
     // no display: with SDL_VIDEO_DRIVER=offscreen the backend runs headless.
     // The returned platform is owned by the caller.
     std::unique_ptr<Platform> createSdlPlatform();
+
+    // The SDL window behind a window this backend created, for other SDL
+    // backends that work on it, such as a GPU swapchain; nullptr for a
+    // window of any other backend. The pointer stays owned by the window
+    // and is valid as long as the window lives. Not for game code.
+    SDL_Window* sdlWindowOf(Window& window);
 
 }
