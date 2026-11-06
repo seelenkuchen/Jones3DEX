@@ -78,13 +78,25 @@ module graph.
         [NAMESPACE <c++ namespace>]          # default babylon::shaders
         [PUBLIC_HEADER])
 
-Compiles HLSL with SDL_shadercross at build time into SPIR-V, DXIL and MSL
-(ADR-0022, `cmake/BabylonShaders.cmake`) and adds the code to `<target>`,
-with a generated `<babylon/shaders/<target>.h>` declaring one
-`ShaderDesc` function per file. It can be called from any directory of a
-project that added Babylon. The header directory is PRIVATE to `<target>`;
-`PUBLIC_HEADER` makes it PUBLIC, for a library of shaders that other targets
-link and include. Needs `BABYLON_BUILD_SHADERS=ON` (the default).
+It compiles HLSL at build time through SDL_shadercross into
+SPIR-V, DXIL and MSL ([ADR-0022](../Docs/arc42/09-decisions/ADR-0022-shaders-compiled-at-build-time.md)).
+Each file holds one stage and is named `<name>.vert.hlsl` or `<name>.frag.hlsl`; its entry point is
+`main`. The generated header, `#include <babylon/shaders/<target>.h>`, declares one function per file
+(named in camel case, so `my_tint.frag.hlsl` becomes `myTintFrag()`) that returns a
+`const babylon::render::ShaderDesc&`. Textures and samplers use the register spaces SDL GPU expects:
+vertex textures in space0 and vertex uniform blocks in space1, fragment textures in space2 and fragment
+uniform blocks in space3, slots from 0. Shaders must not `#include` other files: the cache key covers
+only the file itself.
+
+It can be called from any directory of a project that added Babylon. The generated header directory is
+PRIVATE to `<target>`; `PUBLIC_HEADER` makes it PUBLIC, for a library of shaders that other targets link
+and include.
+
+`BABYLON_BUILD_SHADERS` (default ON) builds the toolchain and the shaders; OFF skips both, and
+`babylon_add_shaders()` becomes a configure error. `BABYLON_CACHE_DIR` (default `.cache/` under the
+top-level source directory) holds the toolchain under `shadercross/` and the compiled shaders under
+`shaders/`. `BABYLON_SHADERCROSS` names an existing executable to use instead of building one, and
+`BABYLON_DXC_ROOT` a DXC install in the layout of its release packages for hosts without a prebuilt one.
 
 ## Build and test alone
 

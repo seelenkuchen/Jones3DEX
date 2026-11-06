@@ -498,7 +498,24 @@ the `mesa-vulkan-drivers` package, and `SDL_VIDEO_DRIVER=offscreen` (set by the 
 video start without a display. On a host without a GPU device the SDL cases print a skip message and count as
 passed, so they validate nothing there; setting `BABYLON_REQUIRE_GPU=1`, as the Linux CI columns do, turns that skip into a failure. Windows and the
 macOS column leave the variable unset because they have no lavapipe (WARP comes later), so their SDL GPU
-cases skip. Pipelines and draws on SDL GPU are not exercised until shaders exist in M6.5.
+cases skip.
+
+`ShaderDrawTest.cpp` covers the shader path with the test shaders in `Babylon/render/tests/shaders/`,
+compiled by `babylon_add_shaders()`. It draws a vertex-colored triangle, a textured indexed quad with a
+pushed tint, and two overlapping quads with a `LESS` depth test. On the SDL GPU device it reads a 64x64
+Rgba8 target back and compares pixels: exact where the quad edges fall on pixel boundaries, with a small
+tolerance where rounding is possible, and only pixels well inside or outside the triangle. The Null device
+does not rasterize, so the same scenes check that it accepts the same pipelines and records exactly the
+same command stream, and that the target keeps its clear color. A draw whose shader declares a texture or
+uniform slot that was not filled earlier in the pass is dropped with one warning on every device. The SDL
+image checks skip on a host without a GPU device, as above; the Null cases always run.
+
+The first configure fetches SDL_shadercross at its pinned commit and builds it with the pinned DXC release,
+which takes about 50 seconds; later configures reuse the cache in `${BABYLON_CACHE_DIR}` (`.cache/`, or
+`Babylon/.cache` in the standalone build). An offline configure needs that cache already populated or
+`BABYLON_SHADERCROSS` set to an existing tool. macOS and arm64 hosts have no prebuilt DXC: they set
+`BABYLON_DXC_ROOT` to a DXC they built, or configure with `BABYLON_BUILD_SHADERS=OFF` and leave out what
+needs shaders.
 
 <a name="original-engine-io-test-vectors"></a>
 
