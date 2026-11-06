@@ -89,7 +89,9 @@ int J3DAPI SmushPlay_SysStartup(tSysWindow hwnd, tDirectSound* pDSound)
     {
         zfilio_Configure(1, ".snm", 0);
         zfilio_Configure(1, ".znm", 0);
-        dsnd_Configure(5, pDSound);
+        // Fixed: end the tag list with 0 (DSND_CONFIG_END). The original passes none, so the tag loop read its next tag
+        // from past the arguments (whatever the stack held on x86; undefined, and a register on x64).
+        dsnd_Configure(DSND_CONFIG_DSOUND, pDSound, DSND_CONFIG_END);
         if ( LecShare_Startup() == 0 )
         {
             if ( ((int (*)(LecBatch*, const char*))smushplay_pShare->pfn10)(smushplay_aServices, NULL) == 0 )
@@ -145,7 +147,9 @@ int J3DAPI SmushPlay_PlayMovie(const char* pFilename, int rate, int flags, int a
     smushplay_pSound->SetVolume(SOUND_NOTRACK, smushplay_volume);
     smushplay_pfBlit = pBlit;
     smushplay_bAbort = 0;
-    dbloc16_Configure(1, smushplay_Blit);
+    // Fixed: end the tag list with 0 (BL16_CONFIG_END), as for dsnd_Configure above. Without it the loop takes a stray
+    // value as the next tag, and a stray 2 or 3 (GETBLIT, GETSHOWN) writes through a stray pointer.
+    dbloc16_Configure(BL16_CONFIG_SETBLIT, smushplay_Blit, BL16_CONFIG_END);
 
     // TODO: [BUG] The original returns an uninitialized rc if the loop doesn't run (loops is -1 if 0 is passed in), here it is 0.
     int rc = 0; // Fixed: Init to 0
