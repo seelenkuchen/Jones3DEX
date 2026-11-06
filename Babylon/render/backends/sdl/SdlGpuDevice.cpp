@@ -564,6 +564,7 @@ namespace
             create.stage = stage;
             create.num_samplers = shader.textureCount;
             create.num_uniform_buffers = shader.uniformCount;
+            create.num_storage_buffers = shader.storageBufferCount;
             SDL_GPUShader* const result = SDL_CreateGPUShader(m_device, &create);
             if ( result == nullptr )
             {
@@ -1049,6 +1050,20 @@ namespace
                 else
                 {
                     SDL_BindGPUFragmentSamplers(renderPass, bindTexture->slot, &binding, 1);
+                }
+            }
+            else if ( const auto* const bindStorage = std::get_if<BindStorageBuffer>(&command) )
+            {
+                // SDL keeps bindings beyond what the pipeline's shaders
+                // declare and passes on only the declared ones.
+                SDL_GPUBuffer* const storage = m_buffers.find(bindStorage->buffer)->buffer;
+                if ( bindStorage->stage == ShaderStage::Vertex )
+                {
+                    SDL_BindGPUVertexStorageBuffers(renderPass, bindStorage->slot, &storage, 1);
+                }
+                else
+                {
+                    SDL_BindGPUFragmentStorageBuffers(renderPass, bindStorage->slot, &storage, 1);
                 }
             }
             else if ( const auto* const push = std::get_if<PushUniforms>(&command) )

@@ -233,6 +233,7 @@ TEST_CASE("The Null device refuses invalid pipeline descs with one warning each"
         [](PipelineDesc& d) { d.vertexShader.blobs[0].format = ShaderFormat::None; },
         [](PipelineDesc& d) { d.fragmentShader.textureCount = kMaxTextureSlots + 1; },
         [](PipelineDesc& d) { d.vertexShader.uniformCount = kMaxUniformSlots + 1; },
+        [](PipelineDesc& d) { d.fragmentShader.storageBufferCount = kMaxStorageBufferSlots + 1; },
         [](PipelineDesc& d)
         {
             const ColorTargetDesc first = d.colorTargets[0];   // assign() may not take a reference into the vector
@@ -373,6 +374,36 @@ TEST_CASE("The Null device drops commands with bad resources at submit")
     {
         bindAll(list);
         list.bindTexture(ShaderStage::Fragment, 0, bgraTarget, sampler);   // not Sampled
+        list.draw(3);
+    }).size() == 3);
+    oneWarning(sink);
+
+    // A storage buffer is executed as bound; one without Storage usage and a
+    // stale one are dropped and poison the pass's later draws.
+    const BufferHandle storage = device->createBuffer(BufferDesc{ 64, BufferUsage::Storage });
+    const BufferHandle staleStorage = device->createBuffer(BufferDesc{ 64, BufferUsage::Storage });
+    device->destroyBuffer(staleStorage);
+    noWarning(sink);
+    CHECK(run(target, [&](CommandList& list)
+    {
+        bindAll(list);
+        list.bindStorageBuffer(ShaderStage::Fragment, 1, storage);
+        list.draw(3);
+    }) == std::vector<RecordedCommand>{ SetPipeline{ pipeline }, BindVertexBuffer{ 0, vertices, 0 },
+        BindIndexBuffer{ indices, IndexType::Uint16, 0 },
+        BindStorageBuffer{ ShaderStage::Fragment, 1, storage }, Draw{ 3, 0 } });
+    noWarning(sink);
+    CHECK(run(target, [&](CommandList& list)
+    {
+        bindAll(list);
+        list.bindStorageBuffer(ShaderStage::Fragment, 0, vertices);   // no Storage usage
+        list.draw(3);
+    }).size() == 3);
+    oneWarning(sink);
+    CHECK(run(target, [&](CommandList& list)
+    {
+        bindAll(list);
+        list.bindStorageBuffer(ShaderStage::Vertex, 0, staleStorage);
         list.draw(3);
     }).size() == 3);
     oneWarning(sink);

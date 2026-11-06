@@ -167,6 +167,21 @@ namespace babylon::render
         m_commands.emplace_back(BindTexture{ stage, slot, texture, sampler });
     }
 
+    void CommandList::bindStorageBuffer(ShaderStage stage, std::uint32_t slot, BufferHandle buffer)
+    {
+        if ( !checkRecording("bindStorageBuffer", true) )
+        {
+            return;
+        }
+        if ( slot >= kMaxStorageBufferSlots )
+        {
+            log::warning("render: bindStorageBuffer: slot {} out of range, at most {}",
+                slot, kMaxStorageBufferSlots - 1);
+            return;
+        }
+        m_commands.emplace_back(BindStorageBuffer{ stage, slot, buffer });
+    }
+
     void CommandList::pushUniforms(ShaderStage stage, std::uint32_t slot,
         std::span<const std::byte> data)
     {

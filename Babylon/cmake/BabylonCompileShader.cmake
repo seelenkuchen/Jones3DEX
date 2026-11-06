@@ -87,9 +87,9 @@ foreach (field IN ITEMS samplers uniform_buffers storage_textures storage_buffer
     endif()
     set(count_${field} "${value}")
 endforeach()
-if (NOT count_storage_textures EQUAL 0 OR NOT count_storage_buffers EQUAL 0)
-    message(FATAL_ERROR "${SOURCE}: storage textures and buffers are not supported yet "
-        "(ShaderDesc has no counts for them)")
+if (NOT count_storage_textures EQUAL 0)
+    message(FATAL_ERROR "${SOURCE}: storage textures are not supported yet "
+        "(ShaderDesc has no count for them)")
 endif()
 
 # SPIRV-Cross renames the entry point in MSL (main becomes main0); take the
@@ -169,6 +169,7 @@ namespace ${NAMESPACE}
             },
             ${count_samplers},   // textureCount
             ${count_uniform_buffers},   // uniformCount
+            ${count_storage_buffers},   // storageBufferCount
         };
         return desc;
     }

@@ -42,7 +42,7 @@ namespace babylon::render
     // executed command (the Command alternatives), or the end of a frame.
     using RecordedCommand = std::variant<PipelineCreated, BeginPass, EndPass, SetPipeline,
         SetViewport, SetScissor, BindVertexBuffer, BindIndexBuffer, BindTexture, PushUniforms,
-        Draw, DrawIndexed, CopyTexture, UpdateBuffer, FrameSubmitted>;
+        Draw, DrawIndexed, CopyTexture, UpdateBuffer, BindStorageBuffer, FrameSubmitted>;
 
     // How a Null device is made.
     struct NullDeviceDesc

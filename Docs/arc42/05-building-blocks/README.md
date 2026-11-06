@@ -94,8 +94,8 @@ nothing; nothing throws, and a failed create returns the null handle.
 
 **CommandList.** A frame is recorded on the CPU into a concrete `CommandList`, the same class on every
 backend. It records render passes with load and store operations and clear values (the null texture handle
-names the swapchain), pipeline and resource bindings, uniform pushes, draws, texture copies and buffer
-updates. Recording makes no virtual call: the list checks the frame's structure (render commands only
+names the swapchain), pipeline and resource bindings (vertex, index and read-only storage buffers,
+textures), uniform pushes, draws, texture copies and buffer updates. Recording makes no virtual call: the list checks the frame's structure (render commands only
 inside a pass, copies and updates only outside, a pipeline before a draw, slots in range) and refuses a
 misuse with one warning. Everything that needs the device's live resources is left to `Device::submit()`.
 A draw of zero vertices or indices is no error and records nothing. `CommandList::updateBuffer()` copies
@@ -107,8 +107,9 @@ that belongs to another device or frame, one already submitted, or one with a pa
 checks every command against the live resources: stale or null handles, missing texture or buffer usage, a
 pipeline whose target formats differ from the pass's, a vertex or index buffer bound past its end, vertex
 or index ranges past the buffer, copies between different formats or out of bounds, and buffer updates
-past the end. A draw is also dropped when its shaders declare a texture or uniform slot that no earlier
-`bindTexture` or `pushUniforms` in the same pass filled (the exact rule is in `Device.h`). A rejected
+past the end. A draw is also dropped when its shaders declare a texture, uniform or storage buffer slot
+that no earlier `bindTexture`, `pushUniforms` or `bindStorageBuffer` in the same pass filled (the exact
+rule is in `Device.h`). A rejected
 command is dropped with one warning; a dropped `beginPass` drops its whole pass,
 and after another dropped command the pass's later draws are dropped silently. The accepted commands run in
 order, and `submit()` presents when a pass drew to the swapchain of a device that has one.

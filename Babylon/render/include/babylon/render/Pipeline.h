@@ -23,6 +23,7 @@ namespace babylon::render
     inline constexpr std::uint32_t kMaxVertexAttributes = 16;
     inline constexpr std::uint32_t kMaxTextureSlots = 8;     // per shader stage
     inline constexpr std::uint32_t kMaxUniformSlots = 4;     // per shader stage
+    inline constexpr std::uint32_t kMaxStorageBufferSlots = 4; // per shader stage
     inline constexpr std::uint32_t kMaxUniformBytes = 4096;  // per pushUniforms() call
 
     // Compiled shader code formats (ADR-0022). A device accepts some of
@@ -68,13 +69,20 @@ namespace babylon::render
     // One shader stage of a pipeline: its blobs and the resources it reads.
     // The counts are what the code declares; the device needs them to build
     // the pipeline, and a draw needs slots 0 to count - 1 of the stage
-    // filled by bindTexture() and pushUniforms() earlier in its pass
-    // (Device::submit()).
+    // filled by bindTexture(), pushUniforms() and bindStorageBuffer() earlier
+    // in its pass (Device::submit()).
+    //
+    // Storage buffers are read-only structured data, such as a light list.
+    // In SDL GPU's HLSL conventions they follow the textures in the stage's
+    // texture registers: with textureCount textures, storage buffer slot n is
+    // register t(textureCount + n) of the stage's space (space0 for vertex,
+    // space2 for fragment shaders).
     struct ShaderDesc
     {
         std::vector<ShaderBlob> blobs;
-        std::uint32_t textureCount = 0;   // at most kMaxTextureSlots
-        std::uint32_t uniformCount = 0;   // at most kMaxUniformSlots
+        std::uint32_t textureCount = 0;         // at most kMaxTextureSlots
+        std::uint32_t uniformCount = 0;         // at most kMaxUniformSlots
+        std::uint32_t storageBufferCount = 0;   // at most kMaxStorageBufferSlots
 
         bool operator==(const ShaderDesc&) const = default;
     };

@@ -172,6 +172,14 @@ namespace babylon::render
         bool operator==(const BindTexture&) const = default;
     };
 
+    struct BindStorageBuffer
+    {
+        ShaderStage stage = ShaderStage::Fragment;
+        std::uint32_t slot = 0;
+        BufferHandle buffer;
+        bool operator==(const BindStorageBuffer&) const = default;
+    };
+
     struct PushUniforms
     {
         ShaderStage stage = ShaderStage::Vertex;
@@ -216,7 +224,7 @@ namespace babylon::render
 
     using Command = std::variant<BeginPass, EndPass, SetPipeline, SetViewport, SetScissor,
         BindVertexBuffer, BindIndexBuffer, BindTexture, PushUniforms, Draw, DrawIndexed,
-        CopyTexture, UpdateBuffer>;
+        CopyTexture, UpdateBuffer, BindStorageBuffer>;
 
     // The commands of one frame, recorded on the CPU and handed to the GPU
     // in one Device::submit(). Made only by Device::beginFrame(); valid for
@@ -265,6 +273,14 @@ namespace babylon::render
         // slot below kMaxTextureSlots.
         void bindTexture(ShaderStage stage, std::uint32_t slot, TextureHandle texture,
             SamplerHandle sampler);
+
+        // Binds the whole buffer, which needs Storage usage (checked at
+        // submit), to storage buffer slot (below kMaxStorageBufferSlots) of
+        // the stage for the draws that follow. Shaders read it; a write to
+        // the buffer (updateBuffer) between passes is seen by the passes
+        // after it. Binding a slot the pipeline's shader doesn't declare is
+        // allowed and has no effect on its draws.
+        void bindStorageBuffer(ShaderStage stage, std::uint32_t slot, BufferHandle buffer);
 
         // Copies the bytes into the list; they reach the shader's uniform
         // block in slot (below kMaxUniformSlots) for the draws that follow.

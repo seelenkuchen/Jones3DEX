@@ -118,6 +118,11 @@ namespace
                 "most {} and {}", stage, shader.textureCount, shader.uniformCount,
                 kMaxTextureSlots, kMaxUniformSlots);
         }
+        if ( shader.storageBufferCount > kMaxStorageBufferSlots )
+        {
+            return std::format("the {} shader declares {} storage buffers, at most {}", stage,
+                shader.storageBufferCount, kMaxStorageBufferSlots);
+        }
         return std::nullopt;
     }
 
@@ -226,9 +231,11 @@ namespace
         std::uint32_t indexOffset = 0;
         IndexType indexType = IndexType::Uint16;
         // Per stage (ShaderStage as index), one bit per slot: the texture
-        // slots bound and the uniform slots pushed since the pass began.
+        // slots bound, the uniform slots pushed and the storage buffer slots
+        // bound since the pass began.
         std::array<std::uint32_t, 2> boundTextures{};
         std::array<std::uint32_t, 2> pushedUniforms{};
+        std::array<std::uint32_t, 2> boundStorageBuffers{};
     };
 
     std::size_t stageIndex(ShaderStage stage)
@@ -270,6 +277,14 @@ namespace
             {
                 return std::format("the {} shader reads {} uniform blocks, slot {} was not pushed",
                     stageName(stage), shader.uniformCount, std::countr_zero(missingUniforms));
+            }
+            const std::uint32_t missingStorageBuffers =
+                slotMask(shader.storageBufferCount) & ~pass.boundStorageBuffers[index];
+            if ( missingStorageBuffers != 0 )
+            {
+                return std::format("the {} shader reads {} storage buffers, slot {} is not bound",
+                    stageName(stage), shader.storageBufferCount,
+                    std::countr_zero(missingStorageBuffers));
             }
         }
         return std::nullopt;
@@ -775,6 +790,24 @@ namespace
                 {
                     pass.boundTextures[stageIndex(bindTexture->stage)] |=
                         std::uint32_t{ 1 } << bindTexture->slot;
+                }
+            }
+            else if ( const auto* const bindStorage = std::get_if<BindStorageBuffer>(&command) )
+            {
+                name = "bindStorageBuffer";
+                const BufferDesc* const desc = findBuffer(bindStorage->buffer);
+                if ( desc == nullptr )
+                {
+                    reason = describe(bindStorage->buffer);
+                }
+                else if ( !hasUsage(desc->usage, BufferUsage::Storage) )
+                {
+                    reason = "the buffer has no Storage usage";
+                }
+                else
+                {
+                    pass.boundStorageBuffers[stageIndex(bindStorage->stage)] |=
+                        std::uint32_t{ 1 } << bindStorage->slot;
                 }
             }
             else if ( const auto* const push = std::get_if<PushUniforms>(&command) )

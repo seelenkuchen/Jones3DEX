@@ -655,6 +655,8 @@ TEST_CASE("Command list misuse is refused, logged and records nothing")
         oneWarning(sink);
         list.pushUniforms(ShaderStage::Vertex, 0, payload);
         oneWarning(sink);
+        list.bindStorageBuffer(ShaderStage::Fragment, 0, BufferHandle{});
+        oneWarning(sink);
         CHECK_FALSE(list.endPass());
         oneWarning(sink);
 
@@ -692,6 +694,8 @@ TEST_CASE("Command list misuse is refused, logged and records nothing")
         list.bindTexture(ShaderStage::Fragment, kMaxTextureSlots, target, SamplerHandle{});
         oneWarning(sink);
         list.pushUniforms(ShaderStage::Vertex, kMaxUniformSlots, payload);
+        oneWarning(sink);
+        list.bindStorageBuffer(ShaderStage::Fragment, kMaxStorageBufferSlots, BufferHandle{});
         oneWarning(sink);
         list.pushUniforms(ShaderStage::Vertex, 0, {});
         oneWarning(sink);

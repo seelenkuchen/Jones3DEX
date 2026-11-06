@@ -333,15 +333,17 @@ endif()
 # declares, in NAMESPACE, one function per file, named from the file in
 # camel case (color.vert.hlsl -> colorVert(), my_tint.frag.hlsl ->
 # myTintFrag()), that returns a const babylon::render::ShaderDesc& with the
-# three blobs and the texture and uniform counts shadercross reflects from
-# the code. The target must link babylon_render.
+# three blobs and the texture, uniform and storage buffer counts shadercross
+# reflects from the code. The target must link babylon_render.
 #
 # Resources follow SDL GPU's HLSL conventions: vertex textures and samplers
 # in register space0, vertex uniform blocks (cbuffer) in space1, fragment
 # textures and samplers in space2, fragment uniform blocks in space3, slots
 # from 0 up. Vertex inputs carry the semantic TEXCOORD<n> and
-# [[vk::location(n)]], n being VertexAttribute::location. Storage textures
-# and buffers are refused: ShaderDesc has no counts for them yet.
+# [[vk::location(n)]], n being VertexAttribute::location. Read-only storage
+# buffers (StructuredBuffer) follow the stage's textures in its texture
+# registers (ShaderDesc). Storage textures are refused: ShaderDesc has no
+# count for them yet.
 #
 # Shaders must not #include other files: the cache key covers only the file
 # itself. Each result is cached in ${BABYLON_CACHE_DIR}/shaders/<key>/, the

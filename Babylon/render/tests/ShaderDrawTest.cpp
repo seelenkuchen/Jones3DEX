@@ -152,6 +152,16 @@ namespace
         return desc;
     }
 
+    // texturedPipeline() with storage.frag.hlsl (the texture times element 1
+    // of the storage buffer in fragment storage slot 0), as a strip.
+    PipelineDesc storagePipeline()
+    {
+        PipelineDesc desc = texturedPipeline();
+        desc.fragmentShader = shaders::storageFrag();
+        desc.primitive = PrimitiveType::TriangleStrip;
+        return desc;
+    }
+
     PassDesc clearedPass(TextureHandle color, TextureHandle depth = {})
     {
         PassDesc pass;
@@ -272,6 +282,64 @@ namespace
         list.bindTexture(ShaderStage::Fragment, 0, texture, sampler);
         list.pushUniforms(ShaderStage::Fragment, 0, bytesOf(tint));
         list.drawIndexed(6);
+        REQUIRE(list.endPass());
+        submit(device, list, drawn, 1);
+        return drawn;
+    }
+
+    // drawTexturedQuad() with storage.frag.hlsl: the tint is element 1 of a
+    // storage buffer instead of a uniform. The buffer is uploaded with a
+    // white element 1 first and then rewritten by an updateBuffer in the
+    // frame's list, before the pass, so the draw shows that the shader reads
+    // the bound buffer, the element it indexes and the list's update.
+    Drawn drawStorageQuad(Device& device)
+    {
+        Drawn drawn;
+        drawn.target = colorTarget(device);
+        const TextureHandle texture = device.createTexture(TextureDesc{ 2, 2, 1,
+            TextureFormat::Rgba8, TextureUsage::Sampled });
+        REQUIRE_FALSE(texture.isNull());
+        const std::vector<std::uint8_t> texels = {
+            255, 0, 0, 255,   0, 255, 0, 255,
+            0, 0, 255, 255,   255, 255, 255, 255,
+        };
+        REQUIRE(device.uploadTexture(texture, 0, bytesOf(texels)));
+        const SamplerHandle sampler = device.createSampler(SamplerDesc{ Filter::Nearest,
+            Filter::Nearest, Filter::Nearest, AddressMode::ClampToEdge,
+            AddressMode::ClampToEdge });
+        REQUIRE_FALSE(sampler.isNull());
+
+        const std::vector<TexturedVertex> quad = {
+            { -1.0f, 1.0f, 0.0f, 0.0f },
+            { 1.0f, 1.0f, 1.0f, 0.0f },
+            { -1.0f, -1.0f, 0.0f, 1.0f },
+            { 1.0f, -1.0f, 1.0f, 1.0f },
+        };
+        const BufferHandle vertexBuffer = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(quad.size() * sizeof(TexturedVertex)), BufferUsage::Vertex });
+        REQUIRE_FALSE(vertexBuffer.isNull());
+        REQUIRE(device.uploadBuffer(vertexBuffer, 0, bytesOf(quad)));
+
+        const std::vector<float> white = {
+            0.0f, 0.0f, 0.0f, 0.0f,   1.0f, 1.0f, 1.0f, 1.0f,   0.0f, 0.0f, 0.0f, 0.0f,
+        };
+        const std::vector<float> data = {
+            0.0f, 0.0f, 0.0f, 0.0f,   1.0f, 0.5f, 1.0f, 1.0f,   0.0f, 0.0f, 0.0f, 0.0f,
+        };
+        const BufferHandle storage = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(data.size() * sizeof(float)), BufferUsage::Storage });
+        REQUIRE_FALSE(storage.isNull());
+        REQUIRE(device.uploadBuffer(storage, 0, bytesOf(white)));
+        const PipelineHandle pipeline = createPipeline(device, drawn, storagePipeline());
+
+        CommandList list = device.beginFrame();
+        list.updateBuffer(storage, 0, bytesOf(data));
+        REQUIRE(list.beginPass(clearedPass(drawn.target)));
+        list.setPipeline(pipeline);
+        list.bindVertexBuffer(0, vertexBuffer);
+        list.bindTexture(ShaderStage::Fragment, 0, texture, sampler);
+        list.bindStorageBuffer(ShaderStage::Fragment, 0, storage);
+        list.draw(4);
         REQUIRE(list.endPass());
         submit(device, list, drawn, 1);
         return drawn;
@@ -513,19 +581,22 @@ TEST_CASE("babylon_add_shaders reflects the resource counts and builds every for
         const ShaderDesc& desc;
         std::uint32_t textures;
         std::uint32_t uniforms;
+        std::uint32_t storageBuffers;
     };
     const Expected shadersExpected[] = {
-        { "colorVert", shaders::colorVert(), 0, 0 },
-        { "colorFrag", shaders::colorFrag(), 0, 0 },
-        { "texturedVert", shaders::texturedVert(), 0, 0 },
-        { "texturedFrag", shaders::texturedFrag(), 1, 1 },
-        { "twotargetsFrag", shaders::twotargetsFrag(), 0, 0 },
+        { "colorVert", shaders::colorVert(), 0, 0, 0 },
+        { "colorFrag", shaders::colorFrag(), 0, 0, 0 },
+        { "texturedVert", shaders::texturedVert(), 0, 0, 0 },
+        { "texturedFrag", shaders::texturedFrag(), 1, 1, 0 },
+        { "twotargetsFrag", shaders::twotargetsFrag(), 0, 0, 0 },
+        { "storageFrag", shaders::storageFrag(), 1, 0, 1 },
     };
     for ( const Expected& expected : shadersExpected )
     {
         INFO("shader " << expected.name);
         CHECK(expected.desc.textureCount == expected.textures);
         CHECK(expected.desc.uniformCount == expected.uniforms);
+        CHECK(expected.desc.storageBufferCount == expected.storageBuffers);
         REQUIRE(expected.desc.blobs.size() == 3);
         const ShaderBlob& spirv = expected.desc.blobs[0];
         const ShaderBlob& dxil = expected.desc.blobs[1];
@@ -551,6 +622,7 @@ TEST_CASE("The Null device accepts the shader pipelines and records their frames
 {
     SUBCASE("triangle") { runOnNull(drawTriangle); }
     SUBCASE("textured quad") { runOnNull(drawTexturedQuad); }
+    SUBCASE("quad tinted from a storage buffer") { runOnNull(drawStorageQuad); }
     SUBCASE("depth-tested quads") { runOnNull(drawDepthQuads); }
     SUBCASE("two color targets")
     {
@@ -598,6 +670,26 @@ TEST_CASE("SDL GPU draws a textured, tinted quad")
     }
     // Each texel covers one 32x32 quadrant; green is halved by the tint,
     // 127.5 rounding either way.
+    checkImage(*image, [](std::uint32_t x, std::uint32_t y)
+    {
+        const bool right = x >= 32;
+        const bool bottom = y >= 32;
+        if ( !bottom )
+        {
+            return right ? Rgba{ 0, 128, 0, 255 } : kRed;
+        }
+        return right ? Rgba{ 255, 128, 255, 255 } : kBlue;
+    }, 1);
+}
+
+TEST_CASE("SDL GPU reads a fragment storage buffer at its slot and element")
+{
+    const std::optional<Image> image = runOnSdl(drawStorageQuad);
+    if ( !image.has_value() )
+    {
+        return;
+    }
+    // drawTexturedQuad()'s image: element 1 of the updated buffer is its tint.
     checkImage(*image, [](std::uint32_t x, std::uint32_t y)
     {
         const bool right = x >= 32;
@@ -731,6 +823,84 @@ TEST_CASE("A draw whose shader slots weren't filled is dropped on every device")
             return;
         }
         checkUnfilledSlotsDropDraws(*device, sink);
+        CHECK(sink.records().empty());
+    }
+}
+
+namespace
+{
+    // The storage quad's pipeline drawn without its storage buffer, and with
+    // a buffer that lacks Storage usage in its slot: either way the draw is
+    // dropped after one warning and the target keeps its clear color.
+    void checkUnboundStorageDropsDraws(Device& device, CaptureSink& sink)
+    {
+        const TextureHandle target = colorTarget(device);
+        const TextureHandle texture = device.createTexture(TextureDesc{ 2, 2, 1,
+            TextureFormat::Rgba8, TextureUsage::Sampled });
+        const SamplerHandle sampler = device.createSampler(SamplerDesc{});
+        const std::vector<TexturedVertex> quad = {
+            { -1.0f, 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f, 0.0f },
+            { -1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, -1.0f, 1.0f, 1.0f },
+        };
+        const BufferHandle vertices = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(quad.size() * sizeof(TexturedVertex)), BufferUsage::Vertex });
+        REQUIRE(device.uploadBuffer(vertices, 0, bytesOf(quad)));
+        const PipelineHandle pipeline = device.createPipeline(storagePipeline());
+        REQUIRE_FALSE(pipeline.isNull());
+        sink.clear();
+
+        for ( const bool bindVertexBufferAsStorage : { false, true } )
+        {
+            INFO("a vertex buffer in the storage slot: " << bindVertexBufferAsStorage);
+            CommandList list = device.beginFrame();
+            REQUIRE(list.beginPass(clearedPass(target)));
+            list.setPipeline(pipeline);
+            list.bindVertexBuffer(0, vertices);
+            list.bindTexture(ShaderStage::Fragment, 0, texture, sampler);
+            if ( bindVertexBufferAsStorage )
+            {
+                list.bindStorageBuffer(ShaderStage::Fragment, 0, vertices);
+            }
+            list.draw(4);
+            REQUIRE(list.endPass());
+            REQUIRE(device.submit(list));
+            INFO("captured log: " << joined(sink));
+            REQUIRE(sink.records().size() == 1);
+            CHECK(sink.records()[0].message == (bindVertexBufferAsStorage
+                ? "render: submit: dropped bindStorageBuffer: the buffer has no Storage usage"
+                : "render: submit: dropped draw: the fragment shader reads 1 storage buffers, "
+                    "slot 0 is not bound"));
+            sink.clear();
+            const Image image{ device.readTexture(target, 0) };
+            checkImage(image, [](std::uint32_t, std::uint32_t) { return kBlack; }, 0);
+        }
+    }
+}
+
+TEST_CASE("A draw whose storage buffer slot isn't filled is dropped on every device")
+{
+    SUBCASE("null")
+    {
+        CaptureSink sink;
+        const std::unique_ptr<NullDevice> device = createNullDevice();
+        checkUnboundStorageDropsDraws(*device, sink);
+        for ( const RecordedCommand& command : device->recorded() )
+        {
+            CHECK_FALSE(std::holds_alternative<Draw>(command));
+            CHECK_FALSE(std::holds_alternative<BindStorageBuffer>(command));
+        }
+    }
+    SUBCASE("sdl-gpu headless")
+    {
+        test::keepGpuDriverLoaded();
+        CaptureSink sink;
+        const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+        if ( device == nullptr )
+        {
+            test::noGpuDevice("no GPU device: " + joined(sink));
+            return;
+        }
+        checkUnboundStorageDropsDraws(*device, sink);
         CHECK(sink.records().empty());
     }
 }
