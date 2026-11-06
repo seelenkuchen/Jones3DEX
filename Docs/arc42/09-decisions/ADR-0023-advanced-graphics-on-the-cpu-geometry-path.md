@@ -29,3 +29,15 @@ not rule it out.
   visibility pass stays untouched and the headless traces must stay identical.
 - Per-pixel lighting and SSAO in M10 become shader work on data that already reaches the GPU.
 - Shadows need extra CPU passes from each light's view, or option B.
+
+## Amendment (2026-11-06): the GPU interpolates the extended vertex
+
+The extended vertex is `StdVertexLit` (a `StdVertexTL` plus view-space position and normal), drawn through
+`std3D_DrawRenderListLit` and recorded in captures as a new record id. "Interpolated by `rdClip`" turned out
+to need no interpolation: world surfaces and models reach `rdCache` through `rdClip_FaceToPlane`, which culls
+whole faces and clips none. The GPU clips the projected faces, and since the clip-space position the vertex
+shader rebuilds is a linear function of the view-space position, it interpolates the position and normal
+perspective-correctly, as a CPU clipper would. `rdClip_FaceToPlaneLit` therefore passes each vertex's
+position and normal through, renormalizing the normal, and the fragment shader renormalizes the interpolated
+one. The clipping variants (`rdClip_Face3*`, `rdQClip_*`) serve the sky and debug paths, which stay on the
+classic vertex.

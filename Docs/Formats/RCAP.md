@@ -11,7 +11,7 @@ open/close control in [`stdDisplayCapture.h`](../../Libs/std/General/stdDisplayC
 
 ## Purpose
 
-A render capture records every call the game makes to the 84 renderer functions (`std3D_*` and
+A render capture records every call the game makes to the 85 renderer functions (`std3D_*` and
 `stdDisplay_*`): the arguments, the return value and the recorded out-parameters. A later replay
 tool reads the file and drives a renderer backend with the same calls, so a new backend can be
 checked against the old one call by call.
@@ -82,7 +82,7 @@ Every record starts with an 8-byte header:
 
 The payload follows immediately. A payload of size 0 is legal: the record is then only its header.
 
-Game records use ids 1 to 34 (`std3D_*`) and 101 to 150 (`stdDisplay_*`). Four ids are reserved
+Game records use ids 1 to 35 (`std3D_*`) and 101 to 150 (`stdDisplay_*`). Four ids are reserved
 by the writer:
 
 | Id | Record | Payload |
@@ -118,7 +118,7 @@ Rules:
 - `stdDisplay_VBufferConvertColorFormat` releases the source handle before recording the result
   when it returns a different, non-NULL buffer: the backend frees the source, so the source's
   handle ends and the result gets a new number.
-- The `texHandle` of `std3D_DrawRenderList` is the handle of the live system texture whose
+- The `texHandle` of `std3D_DrawRenderList` and `std3D_DrawRenderListLit` is the handle of the live system texture whose
   `pCachedTexture` equals the passed pointer. An unknown pointer is recorded as `0xFFFFFFFF`,
   warned once per capture.
 
@@ -182,15 +182,15 @@ A GLOBAL record carries a value that many calls depend on, written once when it 
 
 ## The Frame Window
 
-The frames flag decides whether the 13 frame-class functions record. It defaults to on and
+The frames flag decides whether the 14 frame-class functions record. It defaults to on and
 survives open and close.
 
 - While it is on, the frame-class functions record; while it is off they forward without recording.
   All other functions record whenever a capture is open.
 - A FRAMES record follows every change of the flag while a capture is open. When the flag is off
   when the capture opens, a FRAMES record with value 0 follows the header.
-- The 13 frame-class functions are: `std3D_StartScene`, `std3D_EndScene`, `std3D_DrawRenderList`,
-  `std3D_DrawLineStrip`, `std3D_DrawPointList`, `std3D_UpdateFrameCount`, `std3D_ClearZBuffer`,
+- The 14 frame-class functions are: `std3D_StartScene`, `std3D_EndScene`, `std3D_DrawRenderList`,
+  `std3D_DrawRenderListLit`, `std3D_DrawLineStrip`, `std3D_DrawPointList`, `std3D_UpdateFrameCount`, `std3D_ClearZBuffer`,
   `stdDisplay_Update`, `stdDisplay_GetBackBufferSize`, `stdDisplay_BackBufferFill`,
   `stdDisplay_LockBackBuffer`, `stdDisplay_LockBackBufferReadOnly` and
   `stdDisplay_UnlockBackBuffer`.
@@ -250,6 +250,7 @@ Composite fields, as built by [`stdDisplayCapture.c`](../../Libs/std/General/std
 | `colorKey` | u32 dwColorSpaceLowValue, u32 dwColorSpaceHighValue |
 | `videoMode` | f32 aspectRatio, rasterOut, u32 refreshRate |
 | `verts` | u32 count, then per vertex: f32 sx, f32 sy, f32 sz, f32 rhw, u32 color, u32 specular, f32 tu, f32 tv |
+| `litVerts` | u32 count, then per vertex (`StdVertexLit`): the 8 fields of a `verts` vertex, then f32 vx, f32 vy, f32 vz (view-space position), f32 nx, f32 ny, f32 nz (view-space normal) |
 | `indices` | u32 count, then count times u16 |
 
 A NULL array or a count above `UINT32_MAX` records count 0.
@@ -297,6 +298,7 @@ together.
 | 32 | `std3D_BuildDisplayEnvironment` | u8 result != NULL | | pair |
 | 33 | `std3D_FreeDisplayEnvironment` | u8 pEnv != NULL | | pair |
 | 34 | `std3D_ResetGlobals` | | | |
+| 35 | `std3D_DrawRenderListLit` | u32 texHandle, i32 rdflags, litVerts, indices | yes | |
 | 101 | `stdDisplay_Startup` | i32 result | | |
 | 102 | `stdDisplay_Shutdown` | | | |
 | 103 | `stdDisplay_Open` | u64 deviceNum, i32 result | | |
@@ -347,6 +349,8 @@ together.
 | 148 | `stdDisplay_UnlockBackBuffer` | u32 blobId | yes | |
 | 149 | `stdDisplay_EncodeFromRGB565` | u16 pixel, u32 result | | |
 | 150 | `stdDisplay_ResetGlobals` | | | |
+
+Id 35 was added in M6.9b (option A L1, [ADR-0023](../arc42/09-decisions/ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md)) at the end of the `std3D_*` range; the format version stays 1. A capture without it reads and replays as before, and a reader that predates it skips it by its payload size.
 
 Out-parameters are recorded only where the payload lists them. `std3D_GetTextureFormat`,
 `stdDisplay_GetTextureMemory` and `stdDisplay_GetTotalMemory` record no out-parameters.

@@ -400,7 +400,7 @@ setting.
 
 ### 🎥 Render Capture
 
-A render capture records every call the game makes to the 84 renderer functions,
+A render capture records every call the game makes to the 85 renderer functions,
 with its arguments, return value and recorded out-parameters, into an RCAP file
 ([RCAP](Formats/RCAP.md)). The stream is what the replay tool (M6.0c) replays
 against a new renderer backend; the design is in
@@ -550,6 +550,13 @@ pass and with three chained passes reading the normal and depth targets; the GPU
 normal where Z is written and the clear elsewhere, that a test pass (`Tests/Shaders/post_invert.frag.hlsl`)
 changes the presented image but not the back buffer that `stdRenderBabylon_ReadBackBuffer` returns, that a
 pass reads the normal target, and the windowed present through the chain.
+Since M6.9b both groups also cover lit draws (`std3D_DrawRenderListLit`): the Null group checks their pipeline
+(the lit shaders, the 56-byte `StdVertexLit` layout), their own vertex buffer and their place in the command
+stream next to a classic draw; the GPU group draws a quad with per-vertex normals and compares the normal
+target with the normals interpolated by hand, and its color with the same quad drawn the classic way, byte for
+byte. The rdroid suite (`rdroidTests`) checks `rdClip_FaceToPlaneLit` against `rdClip_FaceToPlane` and hand-worked
+positions and normals, and reads from a render capture in memory what `rdCache` hands to `std3D` for lit and
+classic faces.
 
 The same executable runs the `stdDisplayBabylon` suites. Their Null group drives the public `stdDisplay_*`
 calls: the one display device, the headless and windowed video mode lists and aspect ratios, `SetMode`, the
