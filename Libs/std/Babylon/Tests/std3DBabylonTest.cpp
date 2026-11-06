@@ -14,6 +14,7 @@
 // clock that the std file and time adapters need, and each test puts its own render device in it.
 #include <unity_fixture.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -1082,6 +1083,9 @@ TEST(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline)
     TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitVert().uniformCount);
     TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().textureCount);
     TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().uniformCount);
+    // The light buffer is bound for the lit draws, but no lit shader declares it yet (M6.9c).
+    TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dLitVert().storageBufferCount);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dLitFrag().storageBufferCount);
 
     const StdVertexLit aLit[3] = { LitVertex(Vertex(1.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u), -1.0f, 10.0f, 2.0f, 0.0f, -1.0f, 0.0f),
         LitVertex(Vertex(9.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u), 3.0f, 10.0f, 2.0f, 0.6f, 0.0f, 0.8f),
@@ -1096,6 +1100,7 @@ TEST(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline)
     render::BufferHandle litBuffer;
     render::BufferHandle vertexBuffer;
     render::BufferHandle indexBuffer;
+    render::BufferHandle lightBuffer;
     for ( int frameNum = 0; frameNum < 2; ++frameNum )
     {
         Null().clearRecorded();
@@ -1108,9 +1113,11 @@ TEST(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline)
         std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 2u);
         EndFrame();
 
-        // The two pipelines are created in the first frame only.
+        // The two pipelines are created in the first frame only, and so is the light buffer, which gets
+        // its empty list once (no std3D_SetLights) and is bound for the lit draws of every pass.
         const size_t numCreated = frameNum == 0 ? 2u : 0u;
-        TEST_ASSERT_EQUAL_size_t(numCreated + 17u, Null().recorded().size());
+        const size_t numLightUpdates = frameNum == 0 ? 1u : 0u;
+        TEST_ASSERT_EQUAL_size_t(numCreated + numLightUpdates + 18u, Null().recorded().size());
         if ( frameNum == 0 )
         {
             const render::PipelineCreated& lit     = RecordedAt<render::PipelineCreated>(0);
@@ -1132,22 +1139,159 @@ TEST(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline)
         TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 1u) == (render::UpdateBuffer{ indexBuffer, 0u, BytesOf(aIndices, 3u) }));
         TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 2u) == (render::UpdateBuffer{ vertexBuffer, 0u, BytesOf(aClassic, 3u) }));
         TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 3u) == (render::UpdateBuffer{ indexBuffer, 6u, BytesOf(aIndices, 3u) }));
+        if ( frameNum == 0 )
+        {
+            lightBuffer = RecordedAt<render::UpdateBuffer>(i + 4u).buffer;
+            TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 4u) == (render::UpdateBuffer{ lightBuffer, 0u, std::vector<std::byte>(16u) }));
+        }
 
+        const size_t p = i + 4u + numLightUpdates;
         const render::LoadOp load = frameNum == 0 ? render::LoadOp::Clear : render::LoadOp::Load;
-        AssertScenePass(i + 4u, load, load);
-        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 5u) == (render::PushUniforms{ render::ShaderStage::Vertex, 0u, ViewportUniforms(640.0f, 480.0f) }));
-        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(i + 6u) == render::SetPipeline{ litPipeline });
-        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(i + 7u) == (render::BindVertexBuffer{ 0u, litBuffer, 0u }));
-        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 8u) == (render::PushUniforms{ render::ShaderStage::Fragment, 0u, NoFogUniforms(0.0f) }));
-        TEST_ASSERT_TRUE(RecordedAt<render::BindIndexBuffer>(i + 9u) == (render::BindIndexBuffer{ indexBuffer, render::IndexType::Uint16, 0u }));
-        RecordedAt<render::BindTexture>(i + 10u);
-        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(i + 11u) == (render::DrawIndexed{ 3u, 0u, 0 }));
-        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(i + 12u) == render::SetPipeline{ classicPipeline });
-        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(i + 13u) == (render::BindVertexBuffer{ 0u, vertexBuffer, 0u }));
-        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(i + 14u) == (render::DrawIndexed{ 3u, 3u, 0 }));
-        RecordedAt<render::EndPass>(i + 15u);
-        AssertSubmitted(i + 16u);
+        AssertScenePass(p, load, load);
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(p + 1u) == (render::PushUniforms{ render::ShaderStage::Vertex, 0u, ViewportUniforms(640.0f, 480.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::BindStorageBuffer>(p + 2u) == (render::BindStorageBuffer{ render::ShaderStage::Fragment, 0u, lightBuffer }));
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(p + 3u) == render::SetPipeline{ litPipeline });
+        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(p + 4u) == (render::BindVertexBuffer{ 0u, litBuffer, 0u }));
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(p + 5u) == (render::PushUniforms{ render::ShaderStage::Fragment, 0u, NoFogUniforms(0.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::BindIndexBuffer>(p + 6u) == (render::BindIndexBuffer{ indexBuffer, render::IndexType::Uint16, 0u }));
+        RecordedAt<render::BindTexture>(p + 7u);
+        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(p + 8u) == (render::DrawIndexed{ 3u, 0u, 0 }));
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(p + 9u) == render::SetPipeline{ classicPipeline });
+        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(p + 10u) == (render::BindVertexBuffer{ 0u, vertexBuffer, 0u }));
+        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(p + 11u) == (render::DrawIndexed{ 3u, 3u, 0 }));
+        RecordedAt<render::EndPass>(p + 12u);
+        AssertSubmitted(p + 13u);
     }
+}
+
+namespace
+{
+    // The bytes of the light buffer for a list: the header (count, three zeros) and the lights as they are.
+    std::vector<std::byte> LightBufferBytes(const StdLight* aLights, size_t numLights)
+    {
+        std::vector<std::byte> bytes(16u + numLights * sizeof(StdLight));
+        const uint32_t count = (uint32_t)numLights;
+        std::memcpy(bytes.data(), &count, sizeof(count));
+        if ( numLights )
+        {
+            std::memcpy(bytes.data() + 16u, aLights, numLights * sizeof(StdLight));
+        }
+
+        return bytes;
+    }
+
+    bool AnyRecorded(bool (*pIs)(const render::RecordedCommand&))
+    {
+        return std::any_of(Null().recorded().begin(), Null().recorded().end(), pIs);
+    }
+}
+
+// std3D_SetLights (M6.9c): the list reaches a storage buffer in the first pass after it changed,
+// before the pass, and the buffer is bound to fragment storage slot 0 for the lit draws only. Without
+// lights and lit draws (the litFaces option off) no light buffer is made or bound.
+TEST(std3DBabylon, LightsReachTheLightBufferOfTheLitDraws)
+{
+    OpenStd3D();
+
+    const StdLight aLights[2] = {
+        { 1.0f, 2.0f, -4.0f, 8.0f, 0.5f, 0.25f, 1.0f, 0.0f, 3.0f, 0.2f, 0.1f, STD_LIGHT_ENABLED },
+        { -0.5f, 12.0f, 0.75f, 2.5f, 1.0f, 1.0f, 1.0f, 0.4f, 2.5f, 0.2f, 0.1f, 0u },
+    };
+    const StdVertexLit aLit[3] = { LitVertex(Vertex(1.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u), -1.0f, 10.0f, 2.0f, 0.0f, -1.0f, 0.0f),
+        LitVertex(Vertex(9.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u), 3.0f, 10.0f, 2.0f, 0.6f, 0.0f, 0.8f),
+        LitVertex(Vertex(1.0f, 7.0f, 0.5f, 1.0f, 0xFF708090u), -1.0f, 10.0f, -1.0f, 0.0f, 0.0f, 0.0f) };
+    const StdVertexTL aClassic[3] = { Vertex(0.0f, 0.0f, 0.25f, 1.0f, 0xFFFFFFFFu), Vertex(4.0f, 0.0f, 0.25f, 1.0f, 0xFFFFFFFFu),
+        Vertex(0.0f, 4.0f, 0.25f, 1.0f, 0xFFFFFFFFu) };
+    const uint16_t aIndices[3] = { 0u, 1u, 2u };
+    const auto isStorageBind = [](const render::RecordedCommand& c) { return std::holds_alternative<render::BindStorageBuffer>(c); };
+
+    // Classic draws only, no lights: no light buffer.
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, const_cast<StdVertexTL*>(aClassic), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    EndFrame();
+    TEST_ASSERT_FALSE(AnyRecorded(isStorageBind));
+    TEST_ASSERT_EQUAL_size_t(2u, (size_t)std::count_if(Null().recorded().begin(), Null().recorded().end(),
+        [](const render::RecordedCommand& c) { return std::holds_alternative<render::UpdateBuffer>(c); }));
+
+    // Lights set before the scene, then a lit and a classic draw: the list goes into the buffer
+    // before the pass, which binds it before the lit draw.
+    Null().clearRecorded();
+    std3D_SetLights(aLights, 2u);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, const_cast<StdVertexTL*>(aClassic), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    EndFrame();
+
+    size_t numCreated = 1u; // the lit pipeline
+    const render::UpdateBuffer& upload = RecordedAt<render::UpdateBuffer>(numCreated + 4u);
+    const render::BufferHandle lightBuffer = upload.buffer;
+    TEST_ASSERT_TRUE(upload == (render::UpdateBuffer{ lightBuffer, 0u, LightBufferBytes(aLights, 2u) }));
+    RecordedAt<render::BeginPass>(numCreated + 5u);
+    TEST_ASSERT_TRUE(RecordedAt<render::BindStorageBuffer>(numCreated + 7u) == (render::BindStorageBuffer{ render::ShaderStage::Fragment, 0u, lightBuffer }));
+    TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(numCreated + 8u).pipeline == RecordedAt<render::PipelineCreated>(0).pipeline);
+    TEST_ASSERT_EQUAL_size_t(1u, (size_t)std::count_if(Null().recorded().begin(), Null().recorded().end(), isStorageBind));
+    AssertBytes(LightBufferBytes(aLights, 2u), Null().readBuffer(lightBuffer, 0u, 16u + 2u * (uint32_t)sizeof(StdLight)));
+
+    // The list again, then an empty list set inside the scene before its first pass ends (at
+    // std3D_ClearZBuffer): that pass uploads the latest list only, the empty one, and the second
+    // pass, with nothing new, binds the buffer without an upload.
+    Null().clearRecorded();
+    std3D_SetLights(aLights, 2u);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    std3D_SetLights(nullptr, 0u);
+    std3D_ClearZBuffer();
+    std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    EndFrame();
+    std::vector<render::UpdateBuffer> lightUploads;
+    for ( const render::RecordedCommand& command : Null().recorded() )
+    {
+        if ( const auto* const pUpdate = std::get_if<render::UpdateBuffer>(&command); pUpdate && pUpdate->buffer == lightBuffer )
+        {
+            lightUploads.push_back(*pUpdate);
+        }
+    }
+
+    TEST_ASSERT_EQUAL_size_t(1u, lightUploads.size());
+    TEST_ASSERT_TRUE(lightUploads[0] == (render::UpdateBuffer{ lightBuffer, 0u, std::vector<std::byte>(16u) }));
+    TEST_ASSERT_EQUAL_size_t(2u, (size_t)std::count_if(Null().recorded().begin(), Null().recorded().end(), isStorageBind));
+
+    // Refused lists set the empty list.
+    std::vector<StdLight> tooMany(STD3D_MAXLIGHTS + 1u, aLights[0]);
+    for ( const bool bNull : { false, true } )
+    {
+        std3D_SetLights(aLights, 2u);
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 3u);
+        EndFrame();
+        TEST_ASSERT_EQUAL_UINT8(2u, std::to_integer<uint8_t>(Null().readBuffer(lightBuffer, 0u, 4u)[0]));
+
+        std3D_SetLights(bNull ? nullptr : tooMany.data(), bNull ? 1u : tooMany.size());
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        EndFrame();
+        AssertBytes(std::vector<std::byte>(4u), Null().readBuffer(lightBuffer, 0u, 4u));
+    }
+}
+
+// The light buffer goes with std3D_Close; lights set after the next std3D_Open reach a new one.
+TEST(std3DBabylon, TheLightBufferIsReleasedAtClose)
+{
+    const StdLight light = { 1.0f, 2.0f, 3.0f, 4.0f, 0.5f, 0.5f, 0.5f, 0.0f, 2.0f, 0.2f, 0.1f, STD_LIGHT_ENABLED };
+    OpenStd3D();
+    std3D_SetLights(&light, 1u);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    const render::BufferHandle first = RecordedAt<render::UpdateBuffer>(0).buffer;
+    AssertBytes(LightBufferBytes(&light, 1u), Null().readBuffer(first, 0u, 16u + (uint32_t)sizeof(StdLight)));
+    CloseStd3D();
+
+    OpenStd3D();
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    // The list went with the buffer: nothing is uploaded without new lights or lit draws.
+    TEST_ASSERT_EQUAL_size_t(0u, (size_t)std::count_if(Null().recorded().begin(), Null().recorded().end(),
+        [](const render::RecordedCommand& c) { return std::holds_alternative<render::UpdateBuffer>(c); }));
 }
 
 TEST(std3DBabylon, ShaderFogChangesWithTheFogBitOnly)
@@ -1526,6 +1670,8 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers);
     RUN_TEST_CASE(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture);
     RUN_TEST_CASE(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline);
+    RUN_TEST_CASE(std3DBabylon, LightsReachTheLightBufferOfTheLitDraws);
+    RUN_TEST_CASE(std3DBabylon, TheLightBufferIsReleasedAtClose);
     RUN_TEST_CASE(std3DBabylon, ShaderFogChangesWithTheFogBitOnly);
     RUN_TEST_CASE(std3DBabylon, ProjectionAndFogFollowDX9);
     RUN_TEST_CASE(std3DBabylon, DisplayEnvironmentListsTheRenderDevice);
@@ -2435,6 +2581,12 @@ TEST(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor)
     aLit[2] = LitVertex(aTl[2], 1.0f, 10.0f, -1.0f, 1.0f, 0.0f, 0.0f);
     aLit[3] = LitVertex(aTl[3], -1.0f, 10.0f, -1.0f, 0.0f, 0.0f, 1.0f);
 
+    // With a light list in the light buffer (M6.9c), which the lit shader doesn't read yet.
+    const StdLight aLights[2] = {
+        { 0.0f, 5.0f, 0.0f, 8.0f, 1.0f, 1.0f, 1.0f, 0.0f, 4.0f, 0.2f, 0.1f, STD_LIGHT_ENABLED },
+        { 2.0f, 9.0f, 1.0f, 3.0f, 0.5f, 0.0f, 0.0f, 0.0f, 1.5f, 0.2f, 0.1f, STD_LIGHT_ENABLED },
+    };
+    std3D_SetLights(aLights, 2u);
     RenderScene([]
     {
         uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };

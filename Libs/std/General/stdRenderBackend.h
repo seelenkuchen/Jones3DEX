@@ -44,6 +44,7 @@
 #define std3D_FreeDisplayEnvironment std3DBackend_FreeDisplayEnvironment
 #define std3D_ResetGlobals std3DBackend_ResetGlobals
 #define std3D_DrawRenderListLit std3DBackend_DrawRenderListLit
+#define std3D_SetLights std3DBackend_SetLights
 #define stdDisplay_Startup stdDisplayBackend_Startup
 #define stdDisplay_Shutdown stdDisplayBackend_Shutdown
 #define stdDisplay_Open stdDisplayBackend_Open

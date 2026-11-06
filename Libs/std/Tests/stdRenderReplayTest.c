@@ -344,6 +344,58 @@ TEST(stdRenderReplay, TestRoundTripOfLitDraws)
     free(pOutput);
 }
 
+// Added: M6.9c. Light lists (SetLights, id 36) replay into the same records: a full one, an empty
+// one, and STD3D_MAXLIGHTS lights.
+TEST(stdRenderReplay, TestRoundTripOfLights)
+{
+    static const StdLight aLights[2] = {
+        { 1.0f, 2.0f, -4.0f, 8.0f, 0.5f, 0.25f, 1.0f, 0.0f, 3.0f, 0.2f, 0.1f, STD_LIGHT_ENABLED },
+        { -0.5f, 12.0f, 0.75f, 2.5f, 1.0f, 1.0f, 1.0f, 0.4f, 2.5f, 0.2f, 0.1f, 0u },
+    };
+    static StdLight aMany[STD3D_MAXLIGHTS];
+    uint8_t* pInput = NULL;
+    uint8_t* pOutput = NULL;
+    size_t inputSize = 0u;
+    size_t outputSize = 0u;
+    size_t i;
+
+    for ( i = 0; i < STD3D_MAXLIGHTS; ++i )
+    {
+        aMany[i]    = aLights[i % 2u];
+        aMany[i].vy = (float)i;
+    }
+
+    TEST_ASSERT_TRUE(stdDisplayCapture_Open(STDRENDERREPLAYTEST_INPUT, "null"));
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Startup());
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Open(0u));
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
+    TEST_ASSERT_EQUAL_INT(1, std3D_Startup());
+    TEST_ASSERT_EQUAL_INT(1, std3D_Open(0u));
+
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_SetLights(aLights, 2u);
+    std3D_SetLights(NULL, 0u);
+    std3D_SetLights(aMany, STD3D_MAXLIGHTS);
+    std3D_EndScene();
+
+    stdDisplayCapture_Close();
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    std3D_ResetGlobals();
+    stdDisplay_ResetGlobals();
+
+    TEST_ASSERT_EQUAL_INT(0, stdRenderReplay_Run(STDRENDERREPLAYTEST_INPUT, STDRENDERREPLAYTEST_OUTPUT));
+
+    pInput  = StdRenderReplayTest_ReadFile(STDRENDERREPLAYTEST_INPUT, &inputSize);
+    pOutput = StdRenderReplayTest_ReadFile(STDRENDERREPLAYTEST_OUTPUT, &outputSize);
+
+    TEST_ASSERT_EQUAL_size_t(inputSize, outputSize);
+    TEST_ASSERT_EQUAL_MEMORY(pInput, pOutput, inputSize);
+
+    free(pInput);
+    free(pOutput);
+}
+
 TEST(stdRenderReplay, TestRoundTripAfterConvertFreesSource)
 {
     tRasterInfo raster;
@@ -640,6 +692,34 @@ TEST(stdRenderReplay, TestLitVertexCountLargerThanPayload)
     StdRenderReplayTest_AssertReplayFails(STDRENDERREPLAYTEST_BAD);
 }
 
+// Added: M6.9c. A light list longer than STD3D_MAXLIGHTS, or longer than its payload, fails.
+TEST(stdRenderReplay, TestLightCountOutOfRange)
+{
+    static const char aSignature[8] = { 'J', '3', 'D', 'R', 'C', 'A', 'P', 0 };
+    static uint8_t aFile[64u + (STD3D_MAXLIGHTS + 1u) * sizeof(StdLight)];
+    const uint32_t aCounts[2] = { STD3D_MAXLIGHTS + 1u, 2u };
+    size_t c;
+
+    for ( c = 0; c < 2u; ++c )
+    {
+        // The first count is above the cap with all its bytes there, the second has one light's bytes.
+        const uint32_t numBytes = c == 0u ? aCounts[c] * (uint32_t)sizeof(StdLight) : (uint32_t)sizeof(StdLight);
+        size_t size = StdRenderReplayTest_WriteHeader(aFile, aSignature, 1u, 4u, "null");
+        size_t i;
+
+        size += StdRenderReplayTest_WriteRecordHeader(&aFile[size], STDRENDERCAPTURE_ID_STD3D_SETLIGHTS, 4u + numBytes);
+        StdRenderReplayTest_PutU32(&aFile[size], aCounts[c]);
+        size += 4u;
+        for ( i = 0; i < numBytes; ++i )
+        {
+            aFile[size++] = 0u;
+        }
+
+        StdRenderReplayTest_WriteFile(STDRENDERREPLAYTEST_BAD, aFile, size);
+        StdRenderReplayTest_AssertReplayFails(STDRENDERREPLAYTEST_BAD);
+    }
+}
+
 TEST(stdRenderReplay, TestUnknownVBufferHandle)
 {
     static const char aSignature[8] = { 'J', '3', 'D', 'R', 'C', 'A', 'P', 0 };
@@ -732,6 +812,7 @@ TEST_GROUP_RUNNER(stdRenderReplay)
 {
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripMatchesByteForByte);
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripOfLitDraws);
+    RUN_TEST_CASE(stdRenderReplay, TestRoundTripOfLights);
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripAfterConvertFreesSource);
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripReproducesSithMaterialRasterMutation);
     RUN_TEST_CASE(stdRenderReplay, TestVBufferStateBeyondAllocation);
@@ -743,6 +824,7 @@ TEST_GROUP_RUNNER(stdRenderReplay)
     RUN_TEST_CASE(stdRenderReplay, TestPayloadWithLeftoverBytes);
     RUN_TEST_CASE(stdRenderReplay, TestVertexCountLargerThanPayload);
     RUN_TEST_CASE(stdRenderReplay, TestLitVertexCountLargerThanPayload);
+    RUN_TEST_CASE(stdRenderReplay, TestLightCountOutOfRange);
     RUN_TEST_CASE(stdRenderReplay, TestUnknownVBufferHandle);
     RUN_TEST_CASE(stdRenderReplay, TestUnknownBlobId);
     RUN_TEST_CASE(stdRenderReplay, TestBlobIdsOutOfOrder);

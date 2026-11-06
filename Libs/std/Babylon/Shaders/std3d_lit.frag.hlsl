@@ -9,6 +9,14 @@
 //
 // Fragment texture and sampler slot 0 (SDL GPU: space2) and fragment uniform block 0 (SDL GPU:
 // space3) as std3d.frag.hlsl.
+//
+// std3DBabylon.cpp binds the light list of std3D_SetLights to fragment storage buffer slot 0 of the
+// lit draws. Per-pixel lighting (option A L5) declares it here as
+//     StructuredBuffer<float4> gLights : register(t1, space2);
+// (SDL GPU: after the texture) and reads element 0 as the header (asuint(x) the count) and light i
+// in elements 1 + 3i to 3 + 3i as StdLight lays it out (position and minRadius, color, then
+// maxRadius, attenuationMin, attenuationMax, asuint flags). It isn't declared yet: the compiler
+// drops a buffer nothing reads, and this shader's color must stay the default shader's.
 
 Texture2D<float4> gTexture : register(t0, space2);
 SamplerState gSampler : register(s0, space2);

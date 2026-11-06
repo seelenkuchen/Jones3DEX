@@ -22,6 +22,15 @@
 // (StdVertexLit, 56 bytes) stream into a vertex buffer of their own, made on the first lit draw, so the
 // classic draws' device calls stay what they were.
 //
+// std3D_SetLights keeps the frame's light list (StdLight, 48 bytes each) for the lit draws. A pass
+// with lit draws, or the first pass after the list changed, copies it into the light buffer, a
+// storage buffer made on first use (std3D_kLightBufferSize: a 16-byte header with the count, then
+// up to STD3D_MAXLIGHTS lights as they are), and the pass binds it to fragment storage slot 0 of
+// the lit draws. No shader reads it yet, so no pixel changes: a buffer std3d_lit.frag.hlsl doesn't
+// read would be dropped by its compiler, so it declares none, and SDL GPU keeps the binding without
+// passing it to a shader that declares none. Per-pixel lighting (option A L5) declares and reads it. Without lit draws and std3D_SetLights (the litFaces
+// option off) there is no light buffer and the classic draws' device calls stay what they were.
+//
 // A scene is one or more passes on the back buffer. CommandList::updateBuffer can't be recorded
 // inside a pass, so a draw streams its vertices and indices into the frame's vertex and index
 // buffer right away, at growing offsets like std3DX9.c's buffer path, and the pass that draws them
@@ -176,6 +185,7 @@ namespace
         render::TextureHandle texture;    // triangles only
         render::SamplerHandle sampler;    // triangles only
         Std3DBabylonFragmentUniforms uniforms;
+        bool bLit;                        // a lit draw, which reads the light buffer
         uint32_t firstVertex;
         uint32_t numVertices;
         uint32_t firstIndex;
@@ -187,6 +197,12 @@ namespace
     constexpr uint32_t std3D_kInitialVertexBufferSize = 32768u * (uint32_t)sizeof(StdVertexTL);
     constexpr uint32_t std3D_kInitialIndexBufferSize  = 3u * 32768u * (uint32_t)sizeof(uint16_t);
     constexpr uint32_t std3D_kInitialLitVertexBufferSize = 32768u * (uint32_t)sizeof(StdVertexLit);
+
+    // The light buffer: a header of four u32 (the count, then three reserved zeros) and the lights.
+    // As float4 elements of the shader's StructuredBuffer: element 0 the header, light i at 1 + 3i.
+    constexpr uint32_t std3D_kLightBufferHeaderSize = 16u;
+    constexpr uint32_t std3D_kLightBufferSize       = std3D_kLightBufferHeaderSize + STD3D_MAXLIGHTS * (uint32_t)sizeof(StdLight);
+    static_assert(sizeof(StdLight) % 16u == 0, "a StdLight must be whole float4 elements of the light buffer");
 
     // D3DRS_ALPHAREF with STD3D_RS_ALPHAREF_SET (std3DX9.c's SetRenderState), else 0.
     constexpr uint32_t std3D_kAlphaRef = 160u;
@@ -206,6 +222,13 @@ namespace
     render::BufferHandle std3D_litVertexBuffer; // made on the first lit draw
     uint32_t std3D_litVertexBufferSize   = 0;
     uint32_t std3D_litVertexBufferOffset = 0;
+
+    // The light list of std3D_SetLights and the storage buffer the lit draws see it in; bLightsDirty
+    // when the list changed since the buffer last got it.
+    StdLight std3D_aLights[STD3D_MAXLIGHTS];
+    size_t std3D_numLights = 0;
+    bool std3D_bLightsDirty = false;
+    render::BufferHandle std3D_lightBuffer; // made on first use
 
     // The pass being collected: its load operations and its draws.
     render::LoadOp std3D_sceneColorLoad = render::LoadOp::Load;
@@ -568,6 +591,40 @@ namespace
         std3D_aSceneDraws.clear();
     }
 
+    // Makes the light buffer on first use and, when the list changed since (or the buffer is new),
+    // records the copy of the header and the lights into the frame, outside the pass. False when the
+    // buffer can't be made; the lit draws are then dropped by the device with a warning.
+    bool std3D_UpdateLightBuffer(render::CommandList& frame)
+    {
+        if ( std3D_lightBuffer.isNull() )
+        {
+            std3D_lightBuffer = std3D_pRenderDevice->createBuffer(render::BufferDesc{ std3D_kLightBufferSize, render::BufferUsage::Storage });
+            if ( std3D_lightBuffer.isNull() )
+            {
+                STDLOG_ERROR("Failed to create the light buffer.\n");
+                return false;
+            }
+
+            std3D_bLightsDirty = true;
+        }
+
+        if ( std3D_bLightsDirty )
+        {
+            std::vector<std::byte> bytes(std3D_kLightBufferHeaderSize + std3D_numLights * sizeof(StdLight));
+            const uint32_t aHeader[4] = { (uint32_t)std3D_numLights, 0u, 0u, 0u };
+            std::memcpy(bytes.data(), aHeader, sizeof(aHeader));
+            if ( std3D_numLights )
+            {
+                std::memcpy(bytes.data() + std3D_kLightBufferHeaderSize, std3D_aLights, std3D_numLights * sizeof(StdLight));
+            }
+
+            frame.updateBuffer(std3D_lightBuffer, 0, bytes);
+            std3D_bLightsDirty = false;
+        }
+
+        return true;
+    }
+
     // Records the collected pass into the frame: the back buffer with the pass's load operations,
     // then its draws, each with only the bindings and uniforms that changed since the draw before.
     // The normal target is the second color target; it belongs with the depth, so it is cleared to
@@ -585,6 +642,9 @@ namespace
         pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(),
             std3D_sceneDepthLoad, render::StoreOp::Store, 1.0f, 0 };
 
+        const bool bLitDraws = std::any_of(std3D_aSceneDraws.begin(), std3D_aSceneDraws.end(), [](const Std3DBabylonDraw& draw) { return draw.bLit; });
+        const bool bLightBuffer = (bLitDraws || std3D_bLightsDirty) && std3D_UpdateLightBuffer(frame);
+
         bool bRecorded = frame.beginPass(pass);
         if ( bRecorded && !std3D_aSceneDraws.empty() )
         {
@@ -596,8 +656,15 @@ namespace
             render::BufferHandle boundIndexBuffer;
             render::TextureHandle boundTexture;
             render::SamplerHandle boundSampler;
+            bool bLightsBound = false;
             for ( const Std3DBabylonDraw& draw : std3D_aSceneDraws )
             {
+                if ( draw.bLit && bLightBuffer && !bLightsBound )
+                {
+                    frame.bindStorageBuffer(render::ShaderStage::Fragment, 0, std3D_lightBuffer);
+                    bLightsBound = true;
+                }
+
                 if ( !pPrev || pPrev->pipeline != draw.pipeline )
                 {
                     frame.setPipeline(draw.pipeline);
@@ -889,6 +956,7 @@ namespace
         draw.texture      = bTriangles ? texture : render::TextureHandle{};
         draw.sampler      = sampler;
         draw.uniforms     = std3D_GetFragmentUniforms();
+        draw.bLit         = bLit;
         draw.firstVertex  = *pVertexBufferOffset / stride;
         draw.numVertices  = (uint32_t)numVerts;
         draw.firstIndex   = 0;
@@ -969,6 +1037,7 @@ namespace
             stdRenderBabylon_DestroyBuffer(std3D_vertexBuffer);
             stdRenderBabylon_DestroyBuffer(std3D_indexBuffer);
             stdRenderBabylon_DestroyBuffer(std3D_litVertexBuffer);
+            stdRenderBabylon_DestroyBuffer(std3D_lightBuffer);
         }
 
         for ( auto& aPipelines : std3D_aPipelines )
@@ -999,6 +1068,9 @@ namespace
         std3D_litVertexBuffer       = {};
         std3D_litVertexBufferSize   = 0;
         std3D_litVertexBufferOffset = 0;
+        std3D_lightBuffer           = {};
+        std3D_numLights             = 0;
+        std3D_bLightsDirty          = false;
         std3D_aSceneDraws.clear();
         STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
         STD_ZEROMEM(std3D_aShaderFogColor, sizeof(std3D_aShaderFogColor));
@@ -1425,6 +1497,24 @@ void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, St
 void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
 {
     std3D_DrawTriangleList(pTex, rdflags, true, aVerts, numVerts, aIndices, numIndices);
+}
+
+void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights)
+{
+    std3D_bLightsDirty = true;
+    if ( numLights > STD3D_MAXLIGHTS || (numLights && !aLights) )
+    {
+        STDLOG_ERROR("Error setting %zu lights: at most %u, from an array.\n", numLights, STD3D_MAXLIGHTS);
+        std3D_numLights = 0;
+        return;
+    }
+
+    if ( numLights )
+    {
+        std::memcpy(std3D_aLights, aLights, numLights * sizeof(StdLight));
+    }
+
+    std3D_numLights = numLights;
 }
 
 void std3D_SetWireframeRenderState(void)

@@ -406,6 +406,16 @@ void sithRender_Draw(void)
         sithRender_BuildDynamicLights();
     }
 
+    // Added: option A L4 (ADR-0023). With lit faces the renderer gets the frame's light list, the
+    // camera's lights as the visibility pass collected them (thing lights and head lights), in view
+    // space. Read only: the selection, the CPU lighting and the simulation stay as they are.
+    if ( rdGetLitFaces() )
+    {
+        StdLight aLights[RDCAMERA_MAX_LIGHTS];
+        size_t numLights = rdCamera_BuildStdLights(rdCamera_g_pCurCamera, aLights, STD_ARRAYLEN(aLights));
+        std3D_SetLights(aLights, numLights);
+    }
+
     // Set projection
     std3D_SetProjection(sithCamera_g_pCurCamera->rdCamera.fov, sithCamera_g_pCurCamera->rdCamera.pFrustum->nearPlane, sithCamera_g_pCurCamera->rdCamera.pFrustum->farPlane);
 

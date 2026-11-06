@@ -9,6 +9,9 @@
 #define STD3D_MAXFACEVERTICES 64 
 #define STD3D_MAXVERTICES     32768
 
+// Added: the most lights std3D_SetLights takes, RDCAMERA_MAX_LIGHTS (rdroid checks they agree)
+#define STD3D_MAXLIGHTS 128u
+
 #define STD3D_CFG_MIPMAPAUTOGEN     "graphics.mipmapAutoGen"
 #define STD3D_CFG_ANISOTROPICFILTER "graphics.anisotropicFilter"
 
@@ -48,6 +51,17 @@ void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, St
 // only feed the backend's per-pixel targets (a backend without them ignores them). The arrays are
 // read during the call only; a draw it refuses draws nothing, as std3D_DrawRenderList.
 void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
+
+// Added: the light list of the frame (option A L4, ADR-0023): numLights lights in the order of the
+// rdroid camera's list, positions in view space (StdLight). A backend with per-pixel lighting keeps a
+// copy for its lit draws (std3D_DrawRenderListLit): the lit draws of a scene pass see the last list
+// set before the pass ends. No shader reads it yet, so it changes no pixel; backends without
+// per-pixel lighting (Null) ignore the call. aLights is read during the call only and may be NULL
+// when numLights is 0, which sets the empty list. A backend that keeps the list refuses more than
+// STD3D_MAXLIGHTS lights, or a NULL aLights with lights, with a logged error, and sets the empty
+// list. May be called outside a scene. The game calls it once per sithRender_Draw, and only with
+// engine.renderer.litFaces.enabled (rdGetLitFaces).
+void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights);
 
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts);
 void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts);

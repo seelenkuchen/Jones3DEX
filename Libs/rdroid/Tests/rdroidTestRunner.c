@@ -6,6 +6,7 @@ tHostServices* rdMathTest_pHS;
 void TEST_rdVector_GROUP_RUNNER(void);
 void TEST_rdMatrix_GROUP_RUNNER(void);
 void TEST_rdClip_GROUP_RUNNER(void);
+void TEST_rdCamera_GROUP_RUNNER(void);
 void TEST_rdCache_GROUP_RUNNER(void);
 void TEST_rdFace_GROUP_RUNNER(void);
 
@@ -14,6 +15,7 @@ static void RdroidTest_RunAllTests(void)
     TEST_rdVector_GROUP_RUNNER();
     TEST_rdMatrix_GROUP_RUNNER();
     TEST_rdClip_GROUP_RUNNER();
+    TEST_rdCamera_GROUP_RUNNER();
     TEST_rdCache_GROUP_RUNNER();
     TEST_rdFace_GROUP_RUNNER();
 }

@@ -68,6 +68,26 @@ typedef struct sStdVertexLit
 } StdVertexLit;
 static_assert(sizeof(StdVertexLit) == 56, "sizeof(StdVertexLit) == 56");
 
+// Added: one light of the frame's light list (std3D_SetLights, option A L4, ADR-0023): a light of
+// the rdroid camera's list with its position in view space (the space of StdVertexLit) and every
+// value of it and of the camera that rdLight's intensity functions and sithRender's dynamic vertex
+// lights read. The layout is a contract like StdVertexLit's: 48 bytes on every platform, three
+// groups of four 32-bit values (position and minRadius, color, the rest), so a backend can copy
+// the list into a GPU buffer as it is.
+typedef struct sStdLight
+{
+    float vx, vy, vz;              // View-space position
+    float minRadius;               // rdLight.minRadius: the distance it reaches
+    float red, green, blue, alpha; // rdLight.color, alpha as rdLight holds it
+    float maxRadius;               // rdLight.maxRadius: full intensity within it (rdLight_CalcVertexIntensities), the reach of dynamic vertex lights (sithRender)
+    float attenuationMin;          // rdCamera.attenuationMin: the falloff per unit of rdLight_CalcFaceIntensity
+    float attenuationMax;          // rdCamera.attenuationMax: the falloff per unit of sithRender's dynamic vertex lights
+    uint32_t flags;                // STD_LIGHT_* bits
+} StdLight;
+static_assert(sizeof(StdLight) == 48, "sizeof(StdLight) == 48");
+
+#define STD_LIGHT_ENABLED 0x1u // rdLight.bEnabled is set; rdLight_CalcFaceIntensity skips lights without it
+
 // Added: Makes a 0xAARRGGBB color from float channels in the range 0 to 1, or from byte channels.
 #define STD_COLOR_ARGB(a, r, g, b)  ((uint32_t)((((a) & 0xffu) << 24) | (((r) & 0xffu) << 16) | (((g) & 0xffu) << 8) | ((b) & 0xffu)))
 #define STD_COLOR_FROM_FLOATS(r, g, b, a) STD_COLOR_ARGB((uint32_t)((a) * 255.f), (uint32_t)((r) * 255.f), (uint32_t)((g) * 255.f), (uint32_t)((b) * 255.f))

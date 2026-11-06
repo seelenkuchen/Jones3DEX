@@ -300,6 +300,52 @@ void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags,
     stdRenderCapture_EndRecord();
 }
 
+// lights: u32 count, then per light (StdLight) f32 vx, vy, vz, minRadius, red, green, blue, alpha,
+// maxRadius, attenuationMin, attenuationMax and u32 flags. A call std3D_SetLights refuses (more
+// than STD3D_MAXLIGHTS lights, or NULL with lights) records count 0: the empty list it sets.
+static void std3DCapture_PutLights(const StdLight* aLights, size_t numLights)
+{
+    size_t i;
+
+    if ( !aLights || numLights > STD3D_MAXLIGHTS )
+    {
+        stdRenderCapture_PutU32(0u);
+        return;
+    }
+
+    stdRenderCapture_PutU32((uint32_t)numLights);
+    for ( i = 0; i < numLights; ++i )
+    {
+        stdRenderCapture_PutF32(aLights[i].vx);
+        stdRenderCapture_PutF32(aLights[i].vy);
+        stdRenderCapture_PutF32(aLights[i].vz);
+        stdRenderCapture_PutF32(aLights[i].minRadius);
+        stdRenderCapture_PutF32(aLights[i].red);
+        stdRenderCapture_PutF32(aLights[i].green);
+        stdRenderCapture_PutF32(aLights[i].blue);
+        stdRenderCapture_PutF32(aLights[i].alpha);
+        stdRenderCapture_PutF32(aLights[i].maxRadius);
+        stdRenderCapture_PutF32(aLights[i].attenuationMin);
+        stdRenderCapture_PutF32(aLights[i].attenuationMax);
+        stdRenderCapture_PutU32(aLights[i].flags);
+    }
+}
+
+void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights)
+{
+    if ( !std3DCapture_bFrameRecording() )
+    {
+        std3DBackend_SetLights(aLights, numLights);
+        return;
+    }
+
+    std3DCapture_WriteFogGlobal();
+    std3DBackend_SetLights(aLights, numLights);
+    stdRenderCapture_BeginRecord(STDRENDERCAPTURE_ID_STD3D_SETLIGHTS);
+    std3DCapture_PutLights(aLights, numLights);
+    stdRenderCapture_EndRecord();
+}
+
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
 {
     if ( !std3DCapture_bFrameRecording() )

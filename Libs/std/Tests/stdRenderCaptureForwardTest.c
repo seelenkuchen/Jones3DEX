@@ -378,6 +378,49 @@ TEST(stdRenderCaptureForward, TestDrawRenderListLit)
     stdRenderCaptureForward_AssertFileBytes("stdRenderCaptureForward_DrawLit.rcap", aExpected, sizeof(aExpected));
 }
 
+// Added: M6.9c. SetLights (id 36) records the lights encoding: u32 count, then per light 11 f32 and
+// u32 flags. A call std3D_SetLights refuses (more than STD3D_MAXLIGHTS, NULL with lights) records
+// the empty list it sets.
+TEST(stdRenderCaptureForward, TestSetLights)
+{
+    static const uint8_t aExpected[] = {
+        // header
+        0x4A, 0x33, 0x44, 0x52, 0x43, 0x41, 0x50, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00,
+        0x6E, 0x75, 0x6C, 0x6C,
+        // GLOBAL 1 = 1.0f before the first std3D record
+        0xF1, 0xFF, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F,
+        // SetLights (id 36), payload 52
+        0x24, 0x00, 0x00, 0x00, 0x34, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,                                     // 1 light
+        // position 1.0 2.0 -4.0, minRadius 8.0
+        0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x80, 0xC0, 0x00, 0x00, 0x00, 0x41,
+        // color 0.5 0.25 1.0 0.0
+        0x00, 0x00, 0x00, 0x3F, 0x00, 0x00, 0x80, 0x3E, 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x00,
+        // maxRadius 3.0, attenuationMin 0.125, attenuationMax -1.0, flags 1
+        0x00, 0x00, 0x40, 0x40, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x00, 0x80, 0xBF, 0x01, 0x00, 0x00, 0x00,
+        // SetLights(NULL, 0), SetLights(NULL, 1) and SetLights of STD3D_MAXLIGHTS + 1: count 0 each
+        0x24, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x24, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x24, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    static const StdLight aLights[1] = {
+        { 1.0f, 2.0f, -4.0f, 8.0f, 0.5f, 0.25f, 1.0f, 0.0f, 3.0f, 0.125f, -1.0f, STD_LIGHT_ENABLED },
+    };
+    static StdLight aTooMany[STD3D_MAXLIGHTS + 1];
+
+    remove("stdRenderCaptureForward_Lights.rcap");
+    TEST_ASSERT_TRUE(stdDisplayCapture_Open("stdRenderCaptureForward_Lights.rcap", "null"));
+    std3D_SetLights(aLights, 1u);
+    std3D_SetLights(NULL, 0u);
+    std3D_SetLights(NULL, 1u);
+    std3D_SetLights(aTooMany, STD3D_MAXLIGHTS + 1u);
+    stdDisplayCapture_Close();
+    stdRenderCaptureForward_AssertFileBytes("stdRenderCaptureForward_Lights.rcap", aExpected, sizeof(aExpected));
+}
+
 TEST(stdRenderCaptureForward, TestFrameWindowFiltering)
 {
     static const uint8_t aExpected[] = {
@@ -757,6 +800,7 @@ TEST_GROUP_RUNNER(stdRenderCaptureForward)
     RUN_TEST_CASE(stdRenderCaptureForward, TestFogGlobalAroundStd3DRecords);
     RUN_TEST_CASE(stdRenderCaptureForward, TestDrawRenderListTextureHandles);
     RUN_TEST_CASE(stdRenderCaptureForward, TestDrawRenderListLit);
+    RUN_TEST_CASE(stdRenderCaptureForward, TestSetLights);
     RUN_TEST_CASE(stdRenderCaptureForward, TestFrameWindowFiltering);
     RUN_TEST_CASE(stdRenderCaptureForward, TestVBufferUnlockRecordsWithFramesDisabled);
     RUN_TEST_CASE(stdRenderCaptureForward, TestVBufferUnlockBlob);

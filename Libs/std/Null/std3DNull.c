@@ -348,6 +348,12 @@ void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags,
     J3D_UNUSED(numIndices);
 }
 
+void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights)
+{
+    J3D_UNUSED(aLights);
+    J3D_UNUSED(numLights);
+}
+
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
 {
     J3D_UNUSED(aVerts);

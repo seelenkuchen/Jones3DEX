@@ -100,6 +100,7 @@ typedef struct sStdRenderReplay
     size_t vertexCapacity;
     StdVertexLit* pLitVertices;
     size_t litVertexCapacity;
+    StdLight aLights[STD3D_MAXLIGHTS];
     uint16_t* pIndices;
     size_t indexCapacity;
     tVBuffer** ppMipmaps;
@@ -696,6 +697,46 @@ static bool StdRenderReplay_ReadLitVertices(
     return !pCursor->bFailed;
 }
 
+// The lights encoding (std3D_SetLights): u32 count, at most STD3D_MAXLIGHTS, then per light 11 f32
+// (vx, vy, vz, minRadius, red, green, blue, alpha, maxRadius, attenuationMin, attenuationMax) and
+// u32 flags.
+static bool StdRenderReplay_ReadLights(StdRenderReplay* pReplay, StdRenderReplayCursor* pCursor, size_t* pNumLights)
+{
+    uint32_t count = StdRenderReplayCursor_GetU32(pCursor);
+    size_t i;
+
+    if ( pCursor->bFailed )
+    {
+        return false;
+    }
+
+    if ( count > STD3D_MAXLIGHTS || (uint64_t)count * sizeof(StdLight) > (uint64_t)(pCursor->size - pCursor->pos) )
+    {
+        pCursor->bFailed = true;
+        return false;
+    }
+
+    for ( i = 0; i < count; ++i )
+    {
+        StdLight* pLight = &pReplay->aLights[i];
+        pLight->vx             = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->vy             = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->vz             = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->minRadius      = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->red            = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->green          = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->blue           = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->alpha          = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->maxRadius      = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->attenuationMin = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->attenuationMax = StdRenderReplayCursor_GetF32(pCursor);
+        pLight->flags          = StdRenderReplayCursor_GetU32(pCursor);
+    }
+
+    *pNumLights = count;
+    return !pCursor->bFailed;
+}
+
 static bool StdRenderReplay_ReadIndices(
     StdRenderReplay* pReplay,
     StdRenderReplayCursor* pCursor,
@@ -1201,7 +1242,7 @@ static bool StdRenderReplay_GetCacheTexture(StdRenderReplay* pReplay, uint32_t t
 
 static bool StdRenderReplay_IsKnownId(uint16_t id)
 {
-    return ( id >= STDRENDERCAPTURE_ID_STD3D_STARTUP && id <= STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT )
+    return ( id >= STDRENDERCAPTURE_ID_STD3D_STARTUP && id <= STDRENDERCAPTURE_ID_STD3D_SETLIGHTS )
         || ( id >= STDRENDERCAPTURE_ID_STDDISPLAY_STARTUP && id <= STDRENDERCAPTURE_ID_STDDISPLAY_RESETGLOBALS )
         || id == STDRENDERCAPTURE_RECORD_GLOBAL
         || id == STDRENDERCAPTURE_RECORD_FRAMES
@@ -1552,6 +1593,18 @@ static bool StdRenderReplay_ProcessRecord(
                 pIndices,
                 numIndices
             );
+            return true;
+        }
+
+        case STDRENDERCAPTURE_ID_STD3D_SETLIGHTS:
+        {
+            size_t numLights;
+            if ( !StdRenderReplay_ReadLights(pReplay, pCursor, &numLights) )
+            {
+                return false;
+            }
+
+            std3D_SetLights(numLights ? pReplay->aLights : NULL, numLights);
             return true;
         }
 
