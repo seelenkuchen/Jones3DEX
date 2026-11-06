@@ -71,6 +71,21 @@ for modules the tests call that the tested module keeps private, such as
 `log` when a test attaches a `CaptureSink`; such a link adds no edge to the
 module graph.
 
+## Shaders
+
+    babylon_add_shaders(<target>
+        SOURCES <name>.vert.hlsl | <name>.frag.hlsl ...
+        [NAMESPACE <c++ namespace>]          # default babylon::shaders
+        [PUBLIC_HEADER])
+
+Compiles HLSL with SDL_shadercross at build time into SPIR-V, DXIL and MSL
+(ADR-0022, `cmake/BabylonShaders.cmake`) and adds the code to `<target>`,
+with a generated `<babylon/shaders/<target>.h>` declaring one
+`ShaderDesc` function per file. It can be called from any directory of a
+project that added Babylon. The header directory is PRIVATE to `<target>`;
+`PUBLIC_HEADER` makes it PUBLIC, for a library of shaders that other targets
+link and include. Needs `BABYLON_BUILD_SHADERS=ON` (the default).
+
 ## Build and test alone
 
     cmake -S Babylon -B build/babylon -G Ninja

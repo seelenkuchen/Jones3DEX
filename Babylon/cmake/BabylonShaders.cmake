@@ -56,6 +56,10 @@ set(_BABYLON_DXC_VERSION "1.9.2609")
 set(_BABYLON_DXC_BASE_URL
     "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v${_BABYLON_DXC_VERSION}")
 set(_BABYLON_SHADERS_DIR "${CMAKE_CURRENT_LIST_DIR}")
+# babylon_add_shaders() may be called from any directory of the project that
+# added Babylon, so what it needs lives in global properties, not in this
+# directory's variables.
+set_property(GLOBAL PROPERTY BABYLON_SHADERS_DIR "${_BABYLON_SHADERS_DIR}")
 
 # shadercross is a host tool: it runs during the build on the build machine,
 # whatever the target. These describe the host, never the target, so a
@@ -306,12 +310,17 @@ endfunction()
 
 if (BABYLON_BUILD_SHADERS)
     _babylon_setup_shader_toolchain()
+    set_property(GLOBAL PROPERTY BABYLON_SHADERCROSS_TOOL "${BABYLON_SHADERCROSS_TOOL}")
+    set_property(GLOBAL PROPERTY BABYLON_SHADER_TOOLCHAIN_ID "${BABYLON_SHADER_TOOLCHAIN_ID}")
 endif()
 
 #   babylon_add_shaders(<target>
 #       SOURCES <name>.vert.hlsl | <name>.frag.hlsl ...
-#       [NAMESPACE <c++ namespace>])         # default babylon::shaders
+#       [NAMESPACE <c++ namespace>]          # default babylon::shaders
+#       [PUBLIC_HEADER])                     # see below
 #
+# Callable from any directory of a project that added Babylon (the toolchain
+# is read from global properties set when this file is included).
 # Compiles each HLSL file, one shader stage per file, into SPIR-V, DXIL and
 # MSL at build time and adds their code to <target>. The stage comes from the
 # file name: <name>.vert.hlsl is a vertex shader, <name>.frag.hlsl a fragment
@@ -319,6 +328,8 @@ endif()
 #
 #       #include <babylon/shaders/<target>.h>
 #
+# is on <target>'s include path, PRIVATE by default; with PUBLIC_HEADER it is
+# PUBLIC, so targets linking a library of shaders include it too. It
 # declares, in NAMESPACE, one function per file, named from the file in
 # camel case (color.vert.hlsl -> colorVert(), my_tint.frag.hlsl ->
 # myTintFrag()), that returns a const babylon::render::ShaderDesc& with the
@@ -337,7 +348,7 @@ endif()
 # key being the SHA-256 of the source, the toolchain id and the options; a
 # hit skips the compiler. A file is recompiled only when it changes.
 function(babylon_add_shaders target)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "NAMESPACE" "SOURCES")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "PUBLIC_HEADER" "NAMESPACE" "SOURCES")
     if (arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "babylon_add_shaders(${target}): unknown arguments: ${arg_UNPARSED_ARGUMENTS}")
     endif()
@@ -353,6 +364,9 @@ function(babylon_add_shaders target)
     if (NOT arg_NAMESPACE)
         set(arg_NAMESPACE "babylon::shaders")
     endif()
+    get_property(shadercross_tool GLOBAL PROPERTY BABYLON_SHADERCROSS_TOOL)
+    get_property(toolchain_id GLOBAL PROPERTY BABYLON_SHADER_TOOLCHAIN_ID)
+    get_property(shaders_dir GLOBAL PROPERTY BABYLON_SHADERS_DIR)
     if (NOT arg_NAMESPACE MATCHES "^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
         message(FATAL_ERROR "babylon_add_shaders(${target}): not a namespace: ${arg_NAMESPACE}")
     endif()
@@ -403,8 +417,8 @@ function(babylon_add_shaders target)
         set(output "${generated}/src/${base}.${stage_suffix}.cpp")
         add_custom_command(OUTPUT "${output}"
             COMMAND ${CMAKE_COMMAND}
-                "-DSHADERCROSS=${BABYLON_SHADERCROSS_TOOL}"
-                "-DTOOLCHAIN_ID=${BABYLON_SHADER_TOOLCHAIN_ID}"
+                "-DSHADERCROSS=${shadercross_tool}"
+                "-DTOOLCHAIN_ID=${toolchain_id}"
                 "-DCACHE_DIR=${BABYLON_CACHE_DIR}/shaders"
                 "-DSOURCE=${source}"
                 "-DSTAGE=${stage}"
@@ -412,9 +426,9 @@ function(babylon_add_shaders target)
                 "-DHEADER=${header}"
                 "-DNAMESPACE=${arg_NAMESPACE}"
                 "-DFUNCTION=${function}"
-                -P "${_BABYLON_SHADERS_DIR}/BabylonCompileShader.cmake"
-            DEPENDS "${source}" "${_BABYLON_SHADERS_DIR}/BabylonCompileShader.cmake"
-                "${BABYLON_SHADERCROSS_TOOL}"
+                -P "${shaders_dir}/BabylonCompileShader.cmake"
+            DEPENDS "${source}" "${shaders_dir}/BabylonCompileShader.cmake"
+                "${shadercross_tool}"
             COMMENT "Compiling shader ${file_name}"
             VERBATIM)
         list(APPEND outputs "${output}")
@@ -447,5 +461,9 @@ ${declarations}
     endif()
 
     target_sources(${target} PRIVATE ${outputs} "${header_path}")
-    target_include_directories(${target} PRIVATE "${generated}/include")
+    if (arg_PUBLIC_HEADER)
+        target_include_directories(${target} PUBLIC "${generated}/include")
+    else()
+        target_include_directories(${target} PRIVATE "${generated}/include")
+    endif()
 endfunction()
