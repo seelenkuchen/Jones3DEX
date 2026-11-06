@@ -39,7 +39,7 @@ The toolchain route is now fixed:
 - The package's dxil validator library (`libdxil.so`, `dxil.dll`) is deleted unused: its Microsoft licence
   (`LICENSE-MS.txt`) limits it to Windows, and DXC 1.9 validates and signs DXIL itself, so `dxcompiler`
   alone produces the same signed DXIL.
-- DXC's licence is NCSA (BSD-style). It is accepted as a build-tool licence, which widens ADR-0008's list
+- DXC's licence is NCSA (BSD-style). The owner accepted it as a build-tool licence (2026-11-06), which widens ADR-0008's list
   for build tools.
 - The tool is built for the host, never the target, so a cross-compiling configure still gets a tool that
   runs on the build machine.
