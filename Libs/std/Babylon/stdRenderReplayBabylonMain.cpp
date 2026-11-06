@@ -34,7 +34,10 @@ int main(int argc, char** argv)
     }
 
     cvars.finishStartup();
-    std::unique_ptr<babylon::render::NullDevice> pRenderDevice = babylon::render::createNullDevice();
+    // The replay checks the calls, not the device's record: a long capture keeps none.
+    babylon::render::NullDeviceDesc nullDesc;
+    nullDesc.record = false;
+    std::unique_ptr<babylon::render::NullDevice> pRenderDevice = babylon::render::createNullDevice(nullDesc);
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform, nullptr, &cvars,
         pRenderDevice.get() };
     stdBabylon_SetContext(&context);

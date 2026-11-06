@@ -63,7 +63,9 @@ int main(int argc, char** argv)
     if ( !pRenderDevice )
     {
         fprintf(stderr, "WARNING: Jones3D: no SDL GPU device for the window, nothing will be drawn!\n");
-        pRenderDevice = babylon::render::createNullDevice();
+        babylon::render::NullDeviceDesc nullDesc;
+        nullDesc.record = false; // a whole game session: keep no record of its frames
+        pRenderDevice   = babylon::render::createNullDevice(nullDesc);
     }
 
     // The command line behind argv[0] and the --load option belong to the run: JonesBabylon_Run

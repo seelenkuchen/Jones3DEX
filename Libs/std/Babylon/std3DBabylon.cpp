@@ -7,10 +7,19 @@
 // Direct3D ones. Frames go through stdRenderBabylon.cpp, which owns the frame's command list and
 // the back buffer.
 //
-// Adapter code: no Fixed/Added markers inside; divergences from std3DX9.c say so where they are.
+// Draws follow std3DX9.c's shader path (std3DX9.c with stdShaderDX9.c and Shaders/*.hlsl), which
+// ran on every Direct3D 9 device with shader model 3: the shaders are ports of its default and
+// wireframe shaders (Shaders/std3d*.hlsl), and the Direct3D state its SetRenderState and
+// InitRenderState set becomes pipelines (blending, depth, primitive), samplers (filter, mip filter,
+// clamp) and uniforms (viewport, fog, alpha reference), worked out from the render state bits at
+// each draw (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms).
 //
-// TODO: M6.6b draws: shaders, pipelines and samplers, DrawRenderList, DrawLineStrip and
-// DrawPointList, and the render state, fog and projection stored here applied to them.
+// A scene is one or more passes on the back buffer. CommandList::updateBuffer can't be recorded
+// inside a pass, so a draw streams its vertices and indices into the frame's vertex and index
+// buffer right away, at growing offsets like std3DX9.c's buffer path, and the pass that draws them
+// is recorded when it ends: at std3D_EndScene and at a std3D_ClearZBuffer inside the scene.
+//
+// Adapter code: no Fixed/Added markers inside; divergences from std3DX9.c say so where they are.
 #include <std/General/stdRenderBackend.h>
 #include <std/General/std3D.h>
 #include <std/General/stdDisplay.h>
@@ -21,11 +30,16 @@
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
 
+#include <babylon/render/Buffer.h>
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>
+#include <babylon/render/Pipeline.h>
+#include <babylon/render/Sampler.h>
 #include <babylon/render/Texture.h>
+#include <babylon/shaders/stdBabylonShaders.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -106,7 +120,7 @@ namespace
     tSystemTexture* std3D_pFirstTexCache = nullptr;
     tSystemTexture* std3D_pLastTexCache  = nullptr;
 
-    // Stored for M6.6b, which applies them to its draws.
+    // The render state of the draws; see std3D_SetRenderState.
     Std3DRenderState std3D_renderState      = (Std3DRenderState)0;
     Std3DMipmapFilterType std3D_mipmapFilter = (Std3DMipmapFilterType)-1;
     tSysTexture* std3D_pCurTex             = nullptr;
@@ -117,11 +131,78 @@ namespace
     float std3D_fogDepthFactor             = 0.0f;
     float std3D_aFogColor[4]               = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    // The frame: a pass on the back buffer is open between StartScene and EndScene. The clears
-    // std3DX9.c made with IDirect3DDevice9_Clear become the load operations of the next pass.
+    // The frame: a scene is begun between StartScene and EndScene. The clears std3DX9.c made with
+    // IDirect3DDevice9_Clear become the load operations of the next pass.
     bool std3D_bInScene           = false;
     bool std3D_bClearColorPending = false;
     bool std3D_bClearDepthPending = false;
+
+    // The primitives std3DX9.c drew: triangle lists with its default shader, line strips and point
+    // lists with its wireframe shader.
+    enum class Std3DBabylonPrimitive : uint8_t
+    {
+        Triangles,
+        Lines,
+        Points,
+    };
+    constexpr size_t std3D_kNumPrimitives = 3;
+
+    // Fragment uniform block 0 of Shaders/std3d.frag.hlsl and std3d_wireframe.frag.hlsl.
+    struct Std3DBabylonFragmentUniforms
+    {
+        float aFogParams[4]; // DX9's g_fogParams: start, end, 1 / (end - start), enabled
+        float aFogColor[4];  // DX9's g_fogColor
+        float aAlphaTest[4]; // D3DRS_ALPHAREF / 255, then unused
+    };
+    static_assert(sizeof(Std3DBabylonFragmentUniforms) == 48, "Std3DBabylonFragmentUniforms must match the shaders' block");
+
+    // One draw of the scene's current pass, recorded into it when the pass ends. Its vertices and
+    // indices are already streamed into vertexBuffer and indexBuffer, at firstVertex and firstIndex.
+    struct Std3DBabylonDraw
+    {
+        Std3DBabylonPrimitive primitive;
+        render::PipelineHandle pipeline;
+        render::BufferHandle vertexBuffer;
+        render::BufferHandle indexBuffer; // triangles only
+        render::TextureHandle texture;    // triangles only
+        render::SamplerHandle sampler;    // triangles only
+        Std3DBabylonFragmentUniforms uniforms;
+        uint32_t firstVertex;
+        uint32_t numVertices;
+        uint32_t firstIndex;
+        uint32_t numIndices;
+    };
+
+    // std3DX9.c's buffer sizes were STD3D_MAXVERTICES * STD3D_MAXFACEVERTICES vertices (64 MiB) and
+    // three indices per vertex; these start smaller and grow when a frame needs more.
+    constexpr uint32_t std3D_kInitialVertexBufferSize = 32768u * (uint32_t)sizeof(StdVertexTL);
+    constexpr uint32_t std3D_kInitialIndexBufferSize  = 3u * 32768u * (uint32_t)sizeof(uint16_t);
+
+    // D3DRS_ALPHAREF with STD3D_RS_ALPHAREF_SET (std3DX9.c's SetRenderState), else 0.
+    constexpr uint32_t std3D_kAlphaRef = 160u;
+
+    // Created at std3D_Open (the white texture std3DX9.c bound for untextured draws, the stream
+    // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
+    render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2]; // [primitive][z write]
+    render::SamplerHandle std3D_aSamplers[16];                         // std3D_GetSampler's index
+    render::TextureHandle std3D_whiteTexture;
+    render::BufferHandle std3D_vertexBuffer;
+    render::BufferHandle std3D_indexBuffer;
+    uint32_t std3D_vertexBufferSize   = 0; // bytes
+    uint32_t std3D_indexBufferSize    = 0;
+    uint32_t std3D_vertexBufferOffset = 0; // bytes the frame has streamed so far
+    uint32_t std3D_indexBufferOffset  = 0;
+
+    // The pass being collected: its load operations and its draws.
+    render::LoadOp std3D_sceneColorLoad = render::LoadOp::Load;
+    render::LoadOp std3D_sceneDepthLoad = render::LoadOp::Load;
+    std::vector<Std3DBabylonDraw> std3D_aSceneDraws;
+
+    // The fog values the shaders see. stdShader_SetFog copied them into the shader constants only
+    // when the fog bit of the render state changed (std3DX9.c's SetRenderState), so they are kept
+    // here and only std3D_SetRenderState updates them.
+    float std3D_aShaderFogParams[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    float std3D_aShaderFogColor[4]  = { 0.0f, 0.0f, 0.0f, 0.0f };
 
     Std3DBabylonPixelFormat std3D_GetPixelFormat(const tSysPixelFormat& sysFormat)
     {
@@ -464,22 +545,369 @@ namespace
         }
     }
 
-    // Opens the pass of a scene on the back buffer. std3DX9.c drew into the device's back buffer
+    // Starts collecting the next pass of the scene. std3DX9.c drew into the device's back buffer
     // directly; here the clears it made with IDirect3DDevice9_Clear are the load operations.
-    bool std3D_BeginScenePass(bool bClearColor, bool bClearDepth)
+    void std3D_BeginScenePass(bool bClearColor, bool bClearDepth)
     {
+        std3D_sceneColorLoad = bClearColor ? render::LoadOp::Clear : render::LoadOp::Load;
+        std3D_sceneDepthLoad = bClearDepth ? render::LoadOp::Clear : render::LoadOp::Load;
+        std3D_aSceneDraws.clear();
+    }
+
+    // Records the collected pass into the frame: the back buffer with the pass's load operations,
+    // then its draws, each with only the bindings and uniforms that changed since the draw before.
+    // Returns false when the command list refuses the pass. The pass is done either way.
+    bool std3D_EndScenePass()
+    {
+        render::CommandList& frame = stdRenderBabylon_GetFrame();
+
         render::PassDesc pass;
         pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetColorTarget(), 0,
-            bClearColor ? render::LoadOp::Clear : render::LoadOp::Load, render::StoreOp::Store,
-            render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+            std3D_sceneColorLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
         pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(),
-            bClearDepth ? render::LoadOp::Clear : render::LoadOp::Load, render::StoreOp::Store, 1.0f, 0 };
-        return stdRenderBabylon_GetFrame().beginPass(pass);
+            std3D_sceneDepthLoad, render::StoreOp::Store, 1.0f, 0 };
+
+        bool bRecorded = frame.beginPass(pass);
+        if ( bRecorded && !std3D_aSceneDraws.empty() )
+        {
+            // std3DX9.c's g_viewport, set at each BeginScene: the viewport rectangle, the whole back buffer.
+            const float aViewport[4] = { 0.0f, 0.0f, (float)stdRenderBabylon_GetBackBufferWidth(), (float)stdRenderBabylon_GetBackBufferHeight() };
+            frame.pushUniforms(render::ShaderStage::Vertex, 0, std::as_bytes(std::span<const float>(aViewport)));
+
+            const Std3DBabylonDraw* pPrev = nullptr;
+            render::BufferHandle boundIndexBuffer;
+            render::TextureHandle boundTexture;
+            render::SamplerHandle boundSampler;
+            for ( const Std3DBabylonDraw& draw : std3D_aSceneDraws )
+            {
+                if ( !pPrev || pPrev->pipeline != draw.pipeline )
+                {
+                    frame.setPipeline(draw.pipeline);
+                }
+
+                if ( !pPrev || pPrev->vertexBuffer != draw.vertexBuffer )
+                {
+                    frame.bindVertexBuffer(0, draw.vertexBuffer, 0);
+                }
+
+                if ( !pPrev || std::memcmp(&pPrev->uniforms, &draw.uniforms, sizeof(draw.uniforms)) != 0 )
+                {
+                    frame.pushUniforms(render::ShaderStage::Fragment, 0, std::as_bytes(std::span<const Std3DBabylonFragmentUniforms, 1>(&draw.uniforms, 1)));
+                }
+
+                if ( draw.primitive == Std3DBabylonPrimitive::Triangles )
+                {
+                    if ( boundIndexBuffer != draw.indexBuffer )
+                    {
+                        frame.bindIndexBuffer(draw.indexBuffer, render::IndexType::Uint16, 0);
+                        boundIndexBuffer = draw.indexBuffer;
+                    }
+
+                    if ( boundTexture != draw.texture || boundSampler != draw.sampler )
+                    {
+                        frame.bindTexture(render::ShaderStage::Fragment, 0, draw.texture, draw.sampler);
+                        boundTexture = draw.texture;
+                        boundSampler = draw.sampler;
+                    }
+
+                    frame.drawIndexed(draw.numIndices, draw.firstIndex, (int32_t)draw.firstVertex);
+                }
+                else
+                {
+                    frame.draw(draw.numVertices, draw.firstVertex);
+                }
+
+                pPrev = &draw;
+            }
+        }
+
+        std3D_aSceneDraws.clear();
+        return bRecorded && frame.endPass();
+    }
+
+    // Makes room for numBytes at *pOffset of a stream buffer. When the rest of the buffer is too
+    // small for them, a buffer twice as big (or as big as numBytes) takes over from offset 0; the old
+    // one is destroyed after the frame's submit, since the frame's earlier draws still read it.
+    bool std3D_ReserveStream(render::BufferHandle* pBuffer, uint32_t* pSize, uint32_t* pOffset, uint64_t numBytes,
+        render::BufferUsage usage, const char* pName)
+    {
+        if ( (uint64_t)*pOffset + numBytes <= *pSize )
+        {
+            return true;
+        }
+
+        const uint64_t maxSize = std3D_pRenderDevice->info().limits.maxBufferSize;
+        if ( numBytes > maxSize )
+        {
+            STDLOG_ERROR("Error %llu bytes don't fit a %s buffer (limit %llu).\n", (unsigned long long)numBytes, pName, (unsigned long long)maxSize);
+            return false;
+        }
+
+        const uint32_t newSize = (uint32_t)std::min(maxSize, std::max(2u * (uint64_t)*pSize, numBytes));
+        const render::BufferHandle buffer = std3D_pRenderDevice->createBuffer(render::BufferDesc{ newSize, usage });
+        if ( buffer.isNull() )
+        {
+            STDLOG_ERROR("Error creating a %u byte %s buffer.\n", newSize, pName);
+            return false;
+        }
+
+        stdRenderBabylon_DestroyBuffer(*pBuffer);
+        *pBuffer = buffer;
+        *pSize   = newSize;
+        *pOffset = 0;
+        return true;
+    }
+
+    // std3DX9.c's Direct3D state as a pipeline: its default shader for triangles, its wireframe
+    // shader for lines and points; alpha blending with SRCALPHA, INVSRCALPHA for color and alpha
+    // (D3DRS_ALPHABLENDENABLE, never turned off, without separate alpha blending); the Z test
+    // LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no culling.
+    // The pipeline of each primitive and Z write is created once, on first use.
+    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite)
+    {
+        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bZWrite ? 1 : 0];
+        if ( !pipeline.isNull() )
+        {
+            return pipeline;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::std3dVert();
+        desc.fragmentShader = primitive == Std3DBabylonPrimitive::Triangles ? stdBabylon::shaders::std3dFrag() : stdBabylon::shaders::std3dWireframeFrag();
+        desc.vertexLayout.bufferStrides = { (uint32_t)sizeof(StdVertexTL) };
+        desc.vertexLayout.attributes    = {
+            render::VertexAttribute{ 0, 0, render::VertexFormat::Float4, (uint32_t)offsetof(StdVertexTL, sx) },
+            render::VertexAttribute{ 1, 0, render::VertexFormat::UByte4Norm, (uint32_t)offsetof(StdVertexTL, color) },
+            render::VertexAttribute{ 2, 0, render::VertexFormat::UByte4Norm, (uint32_t)offsetof(StdVertexTL, specular) },
+            render::VertexAttribute{ 3, 0, render::VertexFormat::Float2, (uint32_t)offsetof(StdVertexTL, tu) },
+        };
+
+        switch ( primitive )
+        {
+            case Std3DBabylonPrimitive::Triangles:
+                desc.primitive = render::PrimitiveType::TriangleList;
+                break;
+            case Std3DBabylonPrimitive::Lines:
+                desc.primitive = render::PrimitiveType::LineStrip;
+                break;
+            case Std3DBabylonPrimitive::Points:
+                desc.primitive = render::PrimitiveType::PointList;
+                break;
+        }
+
+        render::BlendState blend;
+        blend.enabled  = true;
+        blend.srcColor = render::BlendFactor::SrcAlpha;
+        blend.dstColor = render::BlendFactor::OneMinusSrcAlpha;
+        blend.colorOp  = render::BlendOp::Add;
+        blend.srcAlpha = render::BlendFactor::SrcAlpha;
+        blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
+        blend.alphaOp  = render::BlendOp::Add;
+        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend } };
+        desc.depthFormat  = stdRenderBabylon_GetDepthFormat();
+        desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
+        desc.cull         = render::CullMode::None;
+
+        pipeline = std3D_pRenderDevice->createPipeline(desc);
+        if ( pipeline.isNull() )
+        {
+            STDLOG_ERROR("Error creating the pipeline of primitive %d.\n", (int)primitive);
+        }
+
+        return pipeline;
+    }
+
+    // std3DX9.c's sampler state of a render state: linear filtering with STD3D_RS_TEXFILTER_BILINEAR
+    // and with STD3D_RS_TEXFILTER_ANISOTROPIC (no device here filters anisotropically, and
+    // std3DX9.c then filtered linearly), else point; the mip filter of std3D_SetMipmapFilter
+    // (linear for trilinear, else point: render::SamplerDesc has no D3DTEXF_NONE, and textures
+    // allocated with STD3D_MIPMAPFILTER_NONE have one level); clamp or wrap in U and V. Each of
+    // the 16 is created once, on first use.
+    render::SamplerHandle std3D_GetSampler(Std3DRenderState state)
+    {
+        const bool bLinear    = (state & (STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_TEXFILTER_ANISOTROPIC)) != 0;
+        const bool bMipLinear = std3D_mipmapFilter == STD3D_MIPMAPFILTER_TRILINEAR;
+        const bool bClampU    = (state & STD3D_RS_TEX_CPAMP_U) != 0;
+        const bool bClampV    = (state & STD3D_RS_TEX_CPAMP_V) != 0;
+
+        render::SamplerHandle& sampler = std3D_aSamplers[(bLinear ? 1u : 0u) | (bMipLinear ? 2u : 0u) | (bClampU ? 4u : 0u) | (bClampV ? 8u : 0u)];
+        if ( !sampler.isNull() )
+        {
+            return sampler;
+        }
+
+        render::SamplerDesc desc;
+        desc.minFilter = bLinear ? render::Filter::Linear : render::Filter::Nearest;
+        desc.magFilter = desc.minFilter;
+        desc.mipFilter = bMipLinear ? render::Filter::Linear : render::Filter::Nearest;
+        desc.addressU  = bClampU ? render::AddressMode::ClampToEdge : render::AddressMode::Repeat;
+        desc.addressV  = bClampV ? render::AddressMode::ClampToEdge : render::AddressMode::Repeat;
+
+        sampler = std3D_pRenderDevice->createSampler(desc);
+        if ( sampler.isNull() )
+        {
+            STDLOG_ERROR("Error creating a sampler.\n");
+        }
+
+        return sampler;
+    }
+
+    // The fragment uniforms of a draw: the shader fog std3D_SetRenderState keeps and the alpha
+    // reference of the render state.
+    Std3DBabylonFragmentUniforms std3D_GetFragmentUniforms()
+    {
+        Std3DBabylonFragmentUniforms uniforms;
+        STD_ZEROMEM(&uniforms, sizeof(uniforms));
+        std::memcpy(uniforms.aFogParams, std3D_aShaderFogParams, sizeof(uniforms.aFogParams));
+        std::memcpy(uniforms.aFogColor, std3D_aShaderFogColor, sizeof(uniforms.aFogColor));
+        uniforms.aAlphaTest[0] = (std3D_renderState & STD3D_RS_ALPHAREF_SET) != 0 ? (float)std3D_kAlphaRef / 255.0f : 0.0f;
+        return uniforms;
+    }
+
+    // Streams one draw's vertices and indices into the frame and adds the draw to the pass being
+    // collected, with the pipeline, texture, sampler and uniforms of the current render state.
+    // Logs and draws nothing outside a scene (std3DX9.c's draws failed with D3DERR_INVALIDCALL there)
+    // and when a resource can't be made.
+    void std3D_RecordDraw(Std3DBabylonPrimitive primitive, render::TextureHandle texture, const StdVertexTL* aVerts, size_t numVerts,
+        const uint16_t* aIndices, size_t numIndices)
+    {
+        if ( !std3D_bInScene )
+        {
+            STDLOG_ERROR("Error drawing outside a scene.\n");
+            return;
+        }
+
+        const bool bTriangles = primitive == Std3DBabylonPrimitive::Triangles;
+        const render::PipelineHandle pipeline = std3D_GetPipeline(primitive, (std3D_renderState & STD3D_RS_ZWRITE_DISABLED) == 0);
+        const render::SamplerHandle sampler   = bTriangles ? std3D_GetSampler(std3D_renderState) : render::SamplerHandle{};
+        if ( pipeline.isNull() || (bTriangles && sampler.isNull()) )
+        {
+            return;
+        }
+
+        const uint64_t numVertexBytes = (uint64_t)numVerts * sizeof(StdVertexTL);
+        const uint64_t numIndexBytes  = (uint64_t)numIndices * sizeof(uint16_t);
+        if ( !std3D_ReserveStream(&std3D_vertexBuffer, &std3D_vertexBufferSize, &std3D_vertexBufferOffset, numVertexBytes, render::BufferUsage::Vertex, "vertex")
+            || (bTriangles && !std3D_ReserveStream(&std3D_indexBuffer, &std3D_indexBufferSize, &std3D_indexBufferOffset, numIndexBytes, render::BufferUsage::Index, "index")) )
+        {
+            return;
+        }
+
+        render::CommandList& frame = stdRenderBabylon_GetFrame();
+        frame.updateBuffer(std3D_vertexBuffer, std3D_vertexBufferOffset, std::span<const std::byte>(reinterpret_cast<const std::byte*>(aVerts), (size_t)numVertexBytes));
+
+        Std3DBabylonDraw draw;
+        draw.primitive    = primitive;
+        draw.pipeline     = pipeline;
+        draw.vertexBuffer = std3D_vertexBuffer;
+        draw.texture      = bTriangles ? texture : render::TextureHandle{};
+        draw.sampler      = sampler;
+        draw.uniforms     = std3D_GetFragmentUniforms();
+        draw.firstVertex  = std3D_vertexBufferOffset / (uint32_t)sizeof(StdVertexTL);
+        draw.numVertices  = (uint32_t)numVerts;
+        draw.firstIndex   = 0;
+        draw.numIndices   = 0;
+        std3D_vertexBufferOffset += (uint32_t)numVertexBytes;
+
+        if ( bTriangles )
+        {
+            frame.updateBuffer(std3D_indexBuffer, std3D_indexBufferOffset, std::span<const std::byte>(reinterpret_cast<const std::byte*>(aIndices), (size_t)numIndexBytes));
+            draw.indexBuffer = std3D_indexBuffer;
+            draw.firstIndex  = std3D_indexBufferOffset / (uint32_t)sizeof(uint16_t);
+            draw.numIndices  = (uint32_t)numIndices;
+            std3D_indexBufferOffset += (uint32_t)numIndexBytes;
+        }
+
+        std3D_aSceneDraws.push_back(draw);
+    }
+
+    // The resources of the draws made at std3D_Open: the white texture std3DX9.c's
+    // CreateWhiteTexture made for untextured draws in shader mode (one opaque white texel), and the
+    // stream buffers.
+    bool std3D_InitDrawResources()
+    {
+        render::TextureDesc whiteDesc;
+        whiteDesc.width     = 1;
+        whiteDesc.height    = 1;
+        whiteDesc.mipLevels = 1;
+        whiteDesc.format    = render::TextureFormat::Bgra8;
+        whiteDesc.usage     = render::TextureUsage::Sampled;
+
+        const std::byte aWhite[4] = { std::byte{ 0xFF }, std::byte{ 0xFF }, std::byte{ 0xFF }, std::byte{ 0xFF } };
+        std3D_whiteTexture = std3D_pRenderDevice->createTexture(whiteDesc);
+        if ( std3D_whiteTexture.isNull() || !std3D_pRenderDevice->uploadTexture(std3D_whiteTexture, 0, std::span<const std::byte>(aWhite)) )
+        {
+            STDLOG_ERROR("Failed to create white texture for shader\n");
+            return false;
+        }
+
+        std3D_vertexBuffer       = std3D_pRenderDevice->createBuffer(render::BufferDesc{ std3D_kInitialVertexBufferSize, render::BufferUsage::Vertex });
+        std3D_indexBuffer        = std3D_pRenderDevice->createBuffer(render::BufferDesc{ std3D_kInitialIndexBufferSize, render::BufferUsage::Index });
+        std3D_vertexBufferSize   = std3D_kInitialVertexBufferSize;
+        std3D_indexBufferSize    = std3D_kInitialIndexBufferSize;
+        std3D_vertexBufferOffset = 0;
+        std3D_indexBufferOffset  = 0;
+        if ( std3D_vertexBuffer.isNull() || std3D_indexBuffer.isNull() )
+        {
+            STDLOG_ERROR("Failed to create the vertex and index buffers.\n");
+            return false;
+        }
+
+        return true;
+    }
+
+    void std3D_ReleaseDrawResources()
+    {
+        render::Device* pDevice = stdRenderBabylon_GetDevice();
+        if ( pDevice )
+        {
+            for ( auto& aPipelines : std3D_aPipelines )
+            {
+                for ( render::PipelineHandle& pipeline : aPipelines )
+                {
+                    pDevice->destroyPipeline(pipeline);
+                }
+            }
+
+            for ( render::SamplerHandle& sampler : std3D_aSamplers )
+            {
+                pDevice->destroySampler(sampler);
+            }
+
+            stdRenderBabylon_DestroyTexture(std3D_whiteTexture);
+            stdRenderBabylon_DestroyBuffer(std3D_vertexBuffer);
+            stdRenderBabylon_DestroyBuffer(std3D_indexBuffer);
+        }
+
+        for ( auto& aPipelines : std3D_aPipelines )
+        {
+            for ( render::PipelineHandle& pipeline : aPipelines )
+            {
+                pipeline = {};
+            }
+        }
+
+        for ( render::SamplerHandle& sampler : std3D_aSamplers )
+        {
+            sampler = {};
+        }
+
+        std3D_whiteTexture       = {};
+        std3D_vertexBuffer       = {};
+        std3D_indexBuffer        = {};
+        std3D_vertexBufferSize   = 0;
+        std3D_indexBufferSize    = 0;
+        std3D_vertexBufferOffset = 0;
+        std3D_indexBufferOffset  = 0;
+        std3D_aSceneDraws.clear();
+        STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
+        STD_ZEROMEM(std3D_aShaderFogColor, sizeof(std3D_aShaderFogColor));
     }
 
     void std3D_ReleaseSystemResources()
     {
         std3D_ResetTextureCacheInternal();
+        std3D_ReleaseDrawResources();
         stdRenderBabylon_Close();
         std3D_bInScene           = false;
         std3D_bClearColorPending = false;
@@ -527,9 +955,17 @@ namespace
         std3D_RGBAKeyTextureFormat = std3D_FindClosestFormat(&stdColor_cfRGBA8888);
         std3D_RGBATextureFormat    = std3D_FindClosestFormat(&stdColor_cfRGBA8888);
 
-        std3D_mipmapFilter = (Std3DMipmapFilterType)-1;
-        std3D_renderState  = STD3D_RS_UNKNOWN_2; // std3DX9.c's InitRenderState
+        if ( !std3D_InitDrawResources() )
+        {
+            return false;
+        }
+
+        // std3DX9.c's InitRenderState: the trilinear mip filter, linear filtering (no device here
+        // filters anisotropically), wrapping, shader fog off.
+        std3D_mipmapFilter = STD3D_MIPMAPFILTER_TRILINEAR;
+        std3D_renderState  = (Std3DRenderState)(STD3D_RS_UNKNOWN_1 | STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_SUBPIXEL_CORRECTION | STD3D_RS_UNKNOWN_2);
         std3D_pCurTex      = nullptr;
+        STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
 
         if ( stdDisplay_GetTextureMemory(&std3D_pCurDevice->totalMemory, &std3D_pCurDevice->availableMemory) )
         {
@@ -539,7 +975,7 @@ namespace
         return true;
     }
 
-    // Arguments of the draw calls, checked like M6.6b will need them.
+    // Arguments of the draw calls.
     bool std3D_CheckVertices(const StdVertexTL* aVerts, size_t numVerts)
     {
         if ( numVerts > std3D_g_maxVertices )
@@ -783,12 +1219,20 @@ int std3D_StartScene(void)
         std3D_bClearDepthPending = true;
     }
 
-    if ( !std3D_BeginScenePass(std3D_bClearColorPending, std3D_bClearDepthPending) )
+    // A new frame streams its vertices and indices from the start of the buffers again.
+    if ( !stdRenderBabylon_HasFrame() )
     {
-        STDLOG_ERROR("Error beginning scene.\n");
+        std3D_vertexBufferOffset = 0;
+        std3D_indexBufferOffset  = 0;
+    }
+
+    if ( stdRenderBabylon_GetFrame().inPass() )
+    {
+        STDLOG_ERROR("Error beginning scene: the frame has a pass open.\n");
         return 1;
     }
 
+    std3D_BeginScenePass(std3D_bClearColorPending, std3D_bClearDepthPending);
     std3D_bClearColorPending = false;
     std3D_bClearDepthPending = false;
     std3D_bInScene           = true;
@@ -805,7 +1249,7 @@ void std3D_EndScene(void)
     }
 
     std3D_bInScene = false;
-    if ( !stdRenderBabylon_GetFrame().endPass() )
+    if ( !std3D_EndScenePass() )
     {
         STDLOG_ERROR("Error ending scene.\n");
     }
@@ -839,8 +1283,14 @@ void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, St
         }
     }
 
-    // TODO: M6.6b: record the triangle list (numIndices / 3 triangles, as std3DX9.c drew) into the
-    // scene's pass with the pipeline and sampler of rdflags and the texture of pTex.
+    // numIndices / 3 triangles, as std3DX9.c drew; an untextured draw samples the white texture.
+    const size_t numTriangleIndices = numIndices / 3u * 3u;
+    if ( !numVerts || !numTriangleIndices )
+    {
+        return;
+    }
+
+    std3D_RecordDraw(Std3DBabylonPrimitive::Triangles, pTex ? pTex->texture : std3D_whiteTexture, aVerts, numVerts, aIndices, numTriangleIndices);
 }
 
 void std3D_SetWireframeRenderState(void)
@@ -857,7 +1307,14 @@ void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
         return;
     }
 
-    // TODO: M6.6b: record the line strip (numVerts - 1 lines) with the wireframe pipeline.
+    // numVerts - 1 lines in the current render state (std3D_SetWireframeRenderState sets it), with
+    // std3DX9.c's wireframe shader.
+    if ( numVerts < 2u )
+    {
+        return;
+    }
+
+    std3D_RecordDraw(Std3DBabylonPrimitive::Lines, render::TextureHandle{}, aVerts, numVerts, nullptr, 0);
 }
 
 void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts)
@@ -867,13 +1324,44 @@ void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts)
         return;
     }
 
-    // TODO: M6.6b: record the point list with the wireframe pipeline.
+    // Points of one pixel, as Direct3D 9's default point size drew them, with std3DX9.c's wireframe
+    // shader.
+    if ( !numVerts )
+    {
+        return;
+    }
+
+    std3D_RecordDraw(Std3DBabylonPrimitive::Points, render::TextureHandle{}, aVerts, numVerts, nullptr, 0);
 }
 
 void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags)
 {
-    // std3DX9.c translated each changed bit into Direct3D render and sampler states here; M6.6b
-    // turns the stored bits into pipelines, samplers and uniforms.
+    if ( std3D_renderState == rdflags )
+    {
+        return;
+    }
+
+    // std3DX9.c translated each changed bit into Direct3D render and sampler state here. The draws
+    // read Z write, clamping, filtering and the alpha reference from the bits themselves
+    // (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms), which ends in the same
+    // state. Fog is the exception: the shader fog took the fog values of the moment the fog bit
+    // changed (stdShader_SetFog, stdShader_DisableFog), and kept them until it changed again.
+    if ( ((std3D_renderState ^ rdflags) & STD3D_RS_FOG_ENABLED) != 0 )
+    {
+        if ( (rdflags & STD3D_RS_FOG_ENABLED) != 0 && std3D_bRenderFog )
+        {
+            std3D_aShaderFogParams[0] = std3D_fogStartDepth;
+            std3D_aShaderFogParams[1] = std3D_fogEndDepth;
+            std3D_aShaderFogParams[2] = std3D_fogDepthFactor;
+            std3D_aShaderFogParams[3] = 1.0f;
+            std::memcpy(std3D_aShaderFogColor, std3D_aFogColor, sizeof(std3D_aShaderFogColor));
+        }
+        else
+        {
+            STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams)); // the color stays
+        }
+    }
+
     std3D_renderState = rdflags;
 }
 
@@ -1268,8 +1756,8 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
         return E_INVALIDARG;
     }
 
-    // The projection matrix std3DX9.c set is unused by its pre-transformed vertices; the fog of
-    // M6.6b needs only the depth scale.
+    // The projection matrix std3DX9.c set is unused by its pre-transformed vertices; only its
+    // fixed-function fog table used the depth scale.
     std3D_zDepth = distance * 10.0f;
     return 0;
 }
@@ -1288,7 +1776,8 @@ void J3DAPI std3D_EnableFog(int bEnabled, float density)
 
 void J3DAPI std3D_SetFog(float red, float green, float blue, float startDepth, float endDepth)
 {
-    // std3DX9.c's shader path, kept for the fog of M6.6b.
+    // std3DX9.c's shader path: the values reach the shaders at the next change of the fog bit
+    // (std3D_SetRenderState).
     std3D_EnableFog(std3D_bRenderFog, std3D_g_fogDensity);
 
     std3D_fogStartDepth  = startDepth;
@@ -1317,12 +1806,12 @@ void std3D_ClearZBuffer(void)
         return;
     }
 
-    render::CommandList& frame = stdRenderBabylon_GetFrame();
-    if ( !frame.endPass() || !std3D_BeginScenePass(false, true) )
+    if ( !std3D_EndScenePass() )
     {
         STDLOG_ERROR("Error when clearing Z.\n");
-        std3D_bInScene = frame.inPass();
     }
+
+    std3D_BeginScenePass(false, true);
 }
 
 StdDisplayEnvironment* J3DAPI std3D_BuildDisplayEnvironment()

@@ -41,6 +41,7 @@ namespace
         render::SamplerHandle presentSampler;
 
         std::vector<render::TextureHandle> aDeferredTextures;
+        std::vector<render::BufferHandle> aDeferredBuffers;
     };
 
     StdRenderBabylonState stdRenderBabylon_state;
@@ -53,6 +54,13 @@ namespace
         }
 
         stdRenderBabylon_state.aDeferredTextures.clear();
+
+        for ( const render::BufferHandle buffer : stdRenderBabylon_state.aDeferredBuffers )
+        {
+            stdRenderBabylon_state.pDevice->destroyBuffer(buffer);
+        }
+
+        stdRenderBabylon_state.aDeferredBuffers.clear();
     }
 
     void stdRenderBabylon_FreeBackBuffer()
@@ -374,4 +382,20 @@ void stdRenderBabylon_DestroyTexture(render::TextureHandle texture)
     }
 
     stdRenderBabylon_state.pDevice->destroyTexture(texture);
+}
+
+void stdRenderBabylon_DestroyBuffer(render::BufferHandle buffer)
+{
+    if ( buffer.isNull() || !stdRenderBabylon_state.pDevice )
+    {
+        return;
+    }
+
+    if ( stdRenderBabylon_state.frame )
+    {
+        stdRenderBabylon_state.aDeferredBuffers.push_back(buffer);
+        return;
+    }
+
+    stdRenderBabylon_state.pDevice->destroyBuffer(buffer);
 }

@@ -40,7 +40,7 @@ bool stdRenderBabylon_TakeRenderOption(int* pArgc, char** argv, StdRenderBabylon
 bool stdRenderBabylon_Open(babylon::render::Device* pDevice);
 
 // Abandons a frame that wasn't submitted, then destroys the back buffer, the present pipeline and
-// sampler and every texture whose destruction was deferred. A no-op when not open.
+// sampler and every texture and buffer whose destruction was deferred. A no-op when not open.
 void stdRenderBabylon_Close();
 
 bool stdRenderBabylon_IsOpen();
@@ -71,12 +71,15 @@ bool stdRenderBabylon_HasFrame();
 
 // Submits the frame being recorded, if any: on a device with a swapchain it first records the
 // present pass (the back buffer drawn over the whole swapchain image). Afterwards it destroys the
-// textures whose destruction was deferred. Returns false, logging why, when a pass is still open or
+// textures and buffers whose destruction was deferred. Returns false, logging why, when a pass is still open or
 // the device refuses the list; the frame is dropped either way.
 bool stdRenderBabylon_SubmitFrame();
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame
 // may still name it. The null handle is ignored.
 void stdRenderBabylon_DestroyTexture(babylon::render::TextureHandle texture);
+
+// The same for a buffer.
+void stdRenderBabylon_DestroyBuffer(babylon::render::BufferHandle buffer);
 
 #endif // STD_STDRENDERBABYLON_H

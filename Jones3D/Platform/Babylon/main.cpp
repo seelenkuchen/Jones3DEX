@@ -32,9 +32,9 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Added: the Null device by default: it records the frames and draws nothing, so a run needs no
-    // GPU. --render gpu is the SDL GPU device without a window, for image checks; a run that asked
-    // for it fails when there is none.
+    // Added: the Null device by default: it draws nothing and keeps no record of the frames, so a run
+    // needs no GPU and doesn't grow. --render gpu is the SDL GPU device without a window, for image
+    // checks; a run that asked for it fails when there is none.
     std::unique_ptr<babylon::render::Device> pRenderDevice;
     if ( renderType == StdRenderBabylonDeviceType::Gpu )
     {
@@ -47,7 +47,9 @@ int main(int argc, char** argv)
     }
     else
     {
-        pRenderDevice = babylon::render::createNullDevice();
+        babylon::render::NullDeviceDesc nullDesc;
+        nullDesc.record = false;
+        pRenderDevice   = babylon::render::createNullDevice(nullDesc);
     }
 
     std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();

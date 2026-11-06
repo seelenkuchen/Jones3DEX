@@ -2,8 +2,9 @@
 // owner (stdRenderBabylon.cpp), run through the public std3D_ functions and the capture forwarders in
 // front of them, on a babylon::render::NullDevice whose recorded command stream and texture contents
 // are compared with values worked out here from the DX9 backend's rules. The GPU group repeats the
-// texture readback and checks the windowed present on the SDL GPU device; without a GPU it is
-// ignored, or fails with BABYLON_REQUIRE_GPU=1. The render capture replay suite (stdRenderReplayTest.c)
+// texture readback, checks the windowed present and renders synthetic scenes on the SDL GPU device,
+// whose back buffer pixels are compared with values worked out from the DX9 shaders and render
+// states; without a GPU it is ignored, or fails with BABYLON_REQUIRE_GPU=1. The render capture replay suite (stdRenderReplayTest.c)
 // runs here once more, replaying into this backend instead of std3DNull.c.
 //
 // System textures in the tests are static: a failed assert leaves a test by longjmp, and the
@@ -13,6 +14,7 @@
 // clock that the std file and time adapters need, and each test puts its own render device in it.
 #include <unity_fixture.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -39,6 +41,7 @@
 #include <babylon/render/NullDevice.h>
 #include <babylon/render/SdlGpuDevice.h>
 #include <babylon/render/Texture.h>
+#include <babylon/shaders/stdBabylonShaders.h>
 #include <babylon/time/Clock.h>
 #include <babylon/time/NullClock.h>
 #include <babylon/time/SdlClock.h>
@@ -701,7 +704,7 @@ TEST(std3DBabylon, DepthIsD32FWithoutD24S8)
     TEST_ASSERT_EQUAL_INT(1, std3D_GetCurrentDevice()->hasZBuffer);
 }
 
-TEST(std3DBabylon, DrawsAreCheckedAndRecordNothingYet)
+TEST(std3DBabylon, BadAndEmptyDrawsRecordNothing)
 {
     OpenStd3D();
     StdVertexTL aVerts[3];
@@ -709,14 +712,21 @@ TEST(std3DBabylon, DrawsAreCheckedAndRecordNothingYet)
     uint16_t aIndices[3]    = { 0, 1, 2 };
     uint16_t aBadIndices[3] = { 0, 1, 3 };
 
+    // Outside a scene std3DX9.c's draws failed (D3DERR_INVALIDCALL).
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aIndices, 3u);
+    std3D_DrawLineStrip(aVerts, 3u);
+    std3D_DrawPointList(aVerts, 3u);
+
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
-    std3D_DrawRenderList(nullptr, STD3D_RS_ZWRITE_DISABLED, aVerts, 3u, aIndices, 3u);
     std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aBadIndices, 3u);
     std3D_DrawRenderList(nullptr, (Std3DRenderState)0, nullptr, 3u, aIndices, 3u);
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, nullptr, 3u);
     std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, std3D_g_maxVertices + 1u, aIndices, 3u);
-    std3D_DrawLineStrip(aVerts, 3u);
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aIndices, 2u); // no whole triangle
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 0u, aIndices, 0u);
+    std3D_DrawLineStrip(aVerts, 1u);                                               // no line
     std3D_DrawLineStrip(nullptr, 2u);
-    std3D_DrawPointList(aVerts, 3u);
+    std3D_DrawPointList(aVerts, 0u);
     std3D_DrawPointList(aVerts, std3D_g_maxVertices + 1u);
     std3D_SetWireframeRenderState();
     std3D_EndScene();
@@ -725,6 +735,323 @@ TEST(std3DBabylon, DrawsAreCheckedAndRecordNothingYet)
     AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
     RecordedAt<render::EndPass>(1);
     AssertSubmitted(2);
+}
+
+namespace
+{
+    StdVertexTL Vertex(float x, float y, float z, float rhw, uint32_t color, float u = 0.0f, float v = 0.0f)
+    {
+        StdVertexTL vertex;
+        vertex.sx       = x;
+        vertex.sy       = y;
+        vertex.sz       = z;
+        vertex.rhw      = rhw;
+        vertex.color    = color;
+        vertex.specular = 0xFF000000u;
+        vertex.tu       = u;
+        vertex.tv       = v;
+        return vertex;
+    }
+
+    template <class T>
+    std::vector<std::byte> BytesOf(const T* pItems, size_t count)
+    {
+        const std::byte* pBytes = reinterpret_cast<const std::byte*>(pItems);
+        return std::vector<std::byte>(pBytes, pBytes + count * sizeof(T));
+    }
+
+    // Fragment uniform block 0 of the std3D shaders: fog params, fog color, alpha reference / 255.
+    std::vector<std::byte> FragmentUniforms(const float (&aFogParams)[4], const float (&aFogColor)[4], float alphaRef)
+    {
+        float aBlock[12] = { 0.0f };
+        std::memcpy(aBlock, aFogParams, sizeof(aFogParams));
+        std::memcpy(aBlock + 4, aFogColor, sizeof(aFogColor));
+        aBlock[8] = alphaRef;
+        return BytesOf(aBlock, 12u);
+    }
+
+    std::vector<std::byte> NoFogUniforms(float alphaRef)
+    {
+        const float aZero[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        return FragmentUniforms(aZero, aZero, alphaRef);
+    }
+
+    std::vector<std::byte> ViewportUniforms(float width, float height)
+    {
+        const float aViewport[4] = { 0.0f, 0.0f, width, height };
+        return BytesOf(aViewport, 4u);
+    }
+
+    // The pipeline std3DX9.c's Direct3D state amounts to (InitRenderState, SetRenderState): blending
+    // SRCALPHA, INVSRCALPHA for color and alpha, Z test LESSEQUAL, Z write unless
+    // STD3D_RS_ZWRITE_DISABLED, no culling; StdVertexTL as the vertex layout.
+    render::PipelineDesc ExpectedPipeline(render::PrimitiveType primitive, bool bZWrite)
+    {
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::std3dVert();
+        desc.fragmentShader = primitive == render::PrimitiveType::TriangleList ? stdBabylon::shaders::std3dFrag()
+                                                                               : stdBabylon::shaders::std3dWireframeFrag();
+        desc.vertexLayout.bufferStrides = { 32u };
+        desc.vertexLayout.attributes    = {
+            render::VertexAttribute{ 0, 0, render::VertexFormat::Float4, 0 },
+            render::VertexAttribute{ 1, 0, render::VertexFormat::UByte4Norm, 16 },
+            render::VertexAttribute{ 2, 0, render::VertexFormat::UByte4Norm, 20 },
+            render::VertexAttribute{ 3, 0, render::VertexFormat::Float2, 24 },
+        };
+        desc.primitive = primitive;
+        render::BlendState blend;
+        blend.enabled  = true;
+        blend.srcColor = render::BlendFactor::SrcAlpha;
+        blend.dstColor = render::BlendFactor::OneMinusSrcAlpha;
+        blend.colorOp  = render::BlendOp::Add;
+        blend.srcAlpha = render::BlendFactor::SrcAlpha;
+        blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
+        blend.alphaOp  = render::BlendOp::Add;
+        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend } };
+        desc.depthFormat  = render::TextureFormat::D24S8;
+        desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
+        desc.cull         = render::CullMode::None;
+        return desc;
+    }
+
+    // The fragment PushUniforms of the record, in order.
+    std::vector<std::vector<std::byte>> RecordedFragmentUniforms()
+    {
+        std::vector<std::vector<std::byte>> aUniforms;
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            const render::PushUniforms* pPush = std::get_if<render::PushUniforms>(&command);
+            if ( pPush && pPush->stage == render::ShaderStage::Fragment )
+            {
+                aUniforms.push_back(pPush->data);
+            }
+        }
+        return aUniforms;
+    }
+}
+
+TEST(std3DBabylon, TwoDrawsRecordTheirStreamExactly)
+{
+    OpenStd3D();
+    static tSystemTexture texture;
+    MakeCachedTexture(&texture, stdColor_cfARGB8888, 3);
+    const render::TextureHandle textureHandle = CachedHandle(texture);
+
+    // What the pipelines are built from: the shaders' resources as std3DBabylon.cpp binds them.
+    TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dVert().textureCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dVert().uniformCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dFrag().textureCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dFrag().uniformCount);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dWireframeFrag().textureCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dWireframeFrag().uniformCount);
+
+    const StdVertexTL aTriangle[3] = { Vertex(1.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u, 0.0f, 0.0f),
+        Vertex(9.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u, 1.0f, 0.0f), Vertex(1.0f, 7.0f, 0.5f, 1.0f, 0xFF708090u, 0.0f, 1.0f) };
+    const uint16_t aTriangleIndices[3] = { 0u, 1u, 2u };
+    const StdVertexTL aQuad[4] = { Vertex(0.0f, 0.0f, 0.25f, 0.5f, 0x80FFFFFFu), Vertex(4.0f, 0.0f, 0.25f, 0.5f, 0x80FFFFFFu),
+        Vertex(4.0f, 4.0f, 0.25f, 0.5f, 0x80FFFFFFu), Vertex(0.0f, 4.0f, 0.25f, 0.5f, 0x80FFFFFFu) };
+    const uint16_t aQuadIndices[7] = { 0u, 1u, 2u, 0u, 2u, 3u, 1u }; // the 7th makes no whole triangle: left out
+
+    const Std3DRenderState textured   = STD3D_RS_TEXFILTER_BILINEAR;
+    const Std3DRenderState untextured = (Std3DRenderState)(STD3D_RS_ZWRITE_DISABLED | STD3D_RS_ALPHAREF_SET | STD3D_RS_TEX_CPAMP_U);
+
+    render::PipelineHandle texturedPipeline;
+    render::PipelineHandle untexturedPipeline;
+    render::BufferHandle vertexBuffer;
+    render::BufferHandle indexBuffer;
+    render::SamplerHandle texturedSampler;
+    render::SamplerHandle untexturedSampler;
+    render::TextureHandle whiteTexture;
+    for ( int frameNum = 0; frameNum < 2; ++frameNum )
+    {
+        Null().clearRecorded();
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_UpdateFrameCount(&texture);
+        std3D_DrawRenderList(texture.pCachedTexture, textured, const_cast<StdVertexTL*>(aTriangle), 3u, const_cast<uint16_t*>(aTriangleIndices), 3u);
+        std3D_DrawRenderList(nullptr, untextured, const_cast<StdVertexTL*>(aQuad), 4u, const_cast<uint16_t*>(aQuadIndices), 7u);
+        std3D_EndScene();
+
+        // The pipelines are created in the first frame only.
+        const size_t numCreated = frameNum == 0 ? 2u : 0u;
+        TEST_ASSERT_EQUAL_size_t(numCreated + 18u, Null().recorded().size());
+        if ( frameNum == 0 )
+        {
+            const render::PipelineCreated& first  = RecordedAt<render::PipelineCreated>(0);
+            const render::PipelineCreated& second = RecordedAt<render::PipelineCreated>(1);
+            TEST_ASSERT_TRUE(first.desc == ExpectedPipeline(render::PrimitiveType::TriangleList, true));
+            TEST_ASSERT_TRUE(second.desc == ExpectedPipeline(render::PrimitiveType::TriangleList, false));
+            texturedPipeline   = first.pipeline;
+            untexturedPipeline = second.pipeline;
+
+            vertexBuffer      = RecordedAt<render::UpdateBuffer>(2).buffer;
+            indexBuffer       = RecordedAt<render::UpdateBuffer>(3).buffer;
+            texturedSampler   = RecordedAt<render::BindTexture>(12).sampler;
+            untexturedSampler = RecordedAt<render::BindTexture>(16).sampler;
+            whiteTexture      = RecordedAt<render::BindTexture>(16).texture;
+            TEST_ASSERT_FALSE(vertexBuffer == indexBuffer);
+            TEST_ASSERT_FALSE(texturedSampler == untexturedSampler);
+            TEST_ASSERT_FALSE(whiteTexture == textureHandle);
+
+            // std3DX9.c's white texture for untextured draws: one opaque white texel.
+            AssertBytes(std::vector<std::byte>(4u, std::byte{ 0xFF }), Null().readTexture(whiteTexture, 0));
+        }
+
+        // Each frame streams from the start of the buffers, each draw after the one before.
+        const size_t i = numCreated;
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i) == (render::UpdateBuffer{ vertexBuffer, 0u, BytesOf(aTriangle, 3u) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 1u) == (render::UpdateBuffer{ indexBuffer, 0u, BytesOf(aTriangleIndices, 3u) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 2u) == (render::UpdateBuffer{ vertexBuffer, 96u, BytesOf(aQuad, 4u) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 3u) == (render::UpdateBuffer{ indexBuffer, 6u, BytesOf(aQuadIndices, 6u) }));
+
+        const render::LoadOp load = frameNum == 0 ? render::LoadOp::Clear : render::LoadOp::Load;
+        AssertScenePass(i + 4u, load, load);
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 5u) == (render::PushUniforms{ render::ShaderStage::Vertex, 0u, ViewportUniforms(640.0f, 480.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(i + 6u) == render::SetPipeline{ texturedPipeline });
+        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(i + 7u) == (render::BindVertexBuffer{ 0u, vertexBuffer, 0u }));
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 8u) == (render::PushUniforms{ render::ShaderStage::Fragment, 0u, NoFogUniforms(0.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::BindIndexBuffer>(i + 9u) == (render::BindIndexBuffer{ indexBuffer, render::IndexType::Uint16, 0u }));
+        TEST_ASSERT_TRUE(RecordedAt<render::BindTexture>(i + 10u) == (render::BindTexture{ render::ShaderStage::Fragment, 0u, textureHandle, texturedSampler }));
+        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(i + 11u) == (render::DrawIndexed{ 3u, 0u, 0 }));
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(i + 12u) == render::SetPipeline{ untexturedPipeline });
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 13u) == (render::PushUniforms{ render::ShaderStage::Fragment, 0u, NoFogUniforms(160.0f / 255.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::BindTexture>(i + 14u) == (render::BindTexture{ render::ShaderStage::Fragment, 0u, whiteTexture, untexturedSampler }));
+        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(i + 15u) == (render::DrawIndexed{ 6u, 3u, 3 }));
+        RecordedAt<render::EndPass>(i + 16u);
+        AssertSubmitted(i + 17u);
+    }
+
+    std3D_ClearSystemTexture(&texture);
+}
+
+TEST(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers)
+{
+    OpenStd3D();
+
+    // Two draws of 20000 points: 1.28 MB of vertices, more than the first 1 MiB vertex buffer holds.
+    static StdVertexTL aPoints[20000];
+    for ( size_t i = 0; i < std::size(aPoints); ++i )
+    {
+        aPoints[i] = Vertex((float)(i % 640u), (float)(i / 640u), 0.5f, 1.0f, 0xFFFFFFFFu);
+    }
+
+    std3D_SetWireframeRenderState();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawPointList(aPoints, std::size(aPoints));
+    std3D_DrawPointList(aPoints, std::size(aPoints));
+    std3D_EndScene();
+
+    // The second draw goes to a bigger buffer from its start; the frame's first draw keeps the old one.
+    TEST_ASSERT_EQUAL_size_t(13u, Null().recorded().size());
+    const render::PipelineCreated& created = RecordedAt<render::PipelineCreated>(0);
+    TEST_ASSERT_TRUE(created.desc == ExpectedPipeline(render::PrimitiveType::PointList, true));
+    const render::BufferHandle oldBuffer = RecordedAt<render::UpdateBuffer>(1).buffer;
+    const render::BufferHandle newBuffer = RecordedAt<render::UpdateBuffer>(2).buffer;
+    TEST_ASSERT_FALSE(oldBuffer == newBuffer);
+    TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(1) == (render::UpdateBuffer{ oldBuffer, 0u, BytesOf(aPoints, 20000u) }));
+    TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(2) == (render::UpdateBuffer{ newBuffer, 0u, BytesOf(aPoints, 20000u) }));
+    AssertScenePass(3, render::LoadOp::Clear, render::LoadOp::Clear);
+    RecordedAt<render::PushUniforms>(4);
+    TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(5) == render::SetPipeline{ created.pipeline });
+    TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(6) == (render::BindVertexBuffer{ 0u, oldBuffer, 0u }));
+    RecordedAt<render::PushUniforms>(7);
+    TEST_ASSERT_TRUE(RecordedAt<render::Draw>(8) == (render::Draw{ 20000u, 0u }));
+    TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(9) == (render::BindVertexBuffer{ 0u, newBuffer, 0u }));
+    TEST_ASSERT_TRUE(RecordedAt<render::Draw>(10) == (render::Draw{ 20000u, 0u }));
+    RecordedAt<render::EndPass>(11);
+    AssertSubmitted(12);
+
+    // The old buffer went with the submit; the next frame streams into the new one from its start.
+    size_t numWarnings = 0;
+    {
+        babylon::log::CaptureSink sink;
+        (void)Null().readBuffer(oldBuffer, 0, 32u);
+        numWarnings = sink.records().size();
+    }
+    TEST_ASSERT_EQUAL_size_t(1u, numWarnings);
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawPointList(aPoints, 2u);
+    std3D_EndScene();
+    TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(0) == (render::UpdateBuffer{ newBuffer, 0u, BytesOf(aPoints, 2u) }));
+}
+
+TEST(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture)
+{
+    OpenStd3D(320u, 200u);
+    const StdVertexTL aLine[3] = { Vertex(1.0f, 1.0f, 0.5f, 1.0f, 0xFF00FF00u), Vertex(9.0f, 1.0f, 0.5f, 1.0f, 0xFF00FF00u),
+        Vertex(9.0f, 9.0f, 0.5f, 1.0f, 0xFF00FF00u) };
+    const StdVertexTL aPoints[2] = { Vertex(3.0f, 4.0f, 0.5f, 1.0f, 0xFFFF0000u), Vertex(5.0f, 6.0f, 0.5f, 1.0f, 0xFFFF0000u) };
+
+    // The wireframe state keeps Z write off from the state before and drops fog.
+    std3D_SetRenderState((Std3DRenderState)(STD3D_RS_ZWRITE_DISABLED | STD3D_RS_FOG_ENABLED | STD3D_RS_ALPHAREF_SET));
+    std3D_SetWireframeRenderState();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawLineStrip(const_cast<StdVertexTL*>(aLine), 3u);
+    std3D_DrawPointList(const_cast<StdVertexTL*>(aPoints), 2u);
+    std3D_EndScene();
+
+    TEST_ASSERT_EQUAL_size_t(14u, Null().recorded().size());
+    const render::PipelineCreated& lines  = RecordedAt<render::PipelineCreated>(0);
+    const render::PipelineCreated& points = RecordedAt<render::PipelineCreated>(1);
+    TEST_ASSERT_TRUE(lines.desc == ExpectedPipeline(render::PrimitiveType::LineStrip, false));
+    TEST_ASSERT_TRUE(points.desc == ExpectedPipeline(render::PrimitiveType::PointList, false));
+    const render::BufferHandle vertexBuffer = RecordedAt<render::UpdateBuffer>(2).buffer;
+    TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(2) == (render::UpdateBuffer{ vertexBuffer, 0u, BytesOf(aLine, 3u) }));
+    TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(3) == (render::UpdateBuffer{ vertexBuffer, 96u, BytesOf(aPoints, 2u) }));
+    AssertScenePass(4, render::LoadOp::Clear, render::LoadOp::Clear);
+    TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(5) == (render::PushUniforms{ render::ShaderStage::Vertex, 0u, ViewportUniforms(320.0f, 200.0f) }));
+    TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(6) == render::SetPipeline{ lines.pipeline });
+    TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(7) == (render::BindVertexBuffer{ 0u, vertexBuffer, 0u }));
+    TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(8) == (render::PushUniforms{ render::ShaderStage::Fragment, 0u, NoFogUniforms(160.0f / 255.0f) }));
+    TEST_ASSERT_TRUE(RecordedAt<render::Draw>(9) == (render::Draw{ 3u, 0u }));
+    TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(10) == render::SetPipeline{ points.pipeline });
+    TEST_ASSERT_TRUE(RecordedAt<render::Draw>(11) == (render::Draw{ 2u, 3u }));
+    RecordedAt<render::EndPass>(12);
+    AssertSubmitted(13);
+}
+
+TEST(std3DBabylon, ShaderFogChangesWithTheFogBitOnly)
+{
+    OpenStd3D();
+    StdVertexTL aVerts[3] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFFFFFFu), Vertex(8.0f, 0.0f, 0.5f, 1.0f, 0xFFFFFFFFu),
+        Vertex(0.0f, 8.0f, 0.5f, 1.0f, 0xFFFFFFFFu) };
+    uint16_t aIndices[3] = { 0u, 1u, 2u };
+    const Std3DRenderState fog   = STD3D_RS_FOG_ENABLED;
+    const Std3DRenderState noFog = (Std3DRenderState)0;
+
+    // std3DX9.c's shader fog: the end scaled by 2 - density, the values taken when the fog bit
+    // changes (stdShader_SetFog), zeroed when it goes off (stdShader_DisableFog, the color stays).
+    std3D_EnableFog(1, 1.0f);
+    std3D_SetFog(0.25f, 0.5f, 0.75f, 2.0f, 50.0f);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderList(nullptr, fog, aVerts, 3u, aIndices, 3u);
+    std3D_SetFog(1.0f, 0.0f, 0.0f, 10.0f, 20.0f);
+    std3D_DrawRenderList(nullptr, fog, aVerts, 3u, aIndices, 3u);   // the bit stayed: the old values, nothing pushed
+    std3D_DrawRenderList(nullptr, noFog, aVerts, 3u, aIndices, 3u);
+    std3D_DrawRenderList(nullptr, fog, aVerts, 3u, aIndices, 3u);   // now the new ones
+    std3D_DrawRenderList(nullptr, noFog, aVerts, 3u, aIndices, 3u);
+    std3D_EnableFog(0, 1.0f);
+    std3D_DrawRenderList(nullptr, fog, aVerts, 3u, aIndices, 3u);   // fog is off: zeros, as pushed before
+    std3D_EndScene();
+
+    const float aFog1[4]      = { 2.0f, 50.0f, 1.0f / 48.0f, 1.0f };
+    const float aFogColor1[4] = { 0.25f, 0.5f, 0.75f, 1.0f };
+    const float aFog2[4]      = { 10.0f, 20.0f, 1.0f / 10.0f, 1.0f };
+    const float aFogColor2[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+    const float aOff[4]       = { 0.0f, 0.0f, 0.0f, 0.0f };
+    const std::vector<std::vector<std::byte>> aExpected = {
+        FragmentUniforms(aFog1, aFogColor1, 0.0f),
+        FragmentUniforms(aOff, aFogColor1, 0.0f),
+        FragmentUniforms(aFog2, aFogColor2, 0.0f),
+        FragmentUniforms(aOff, aFogColor2, 0.0f),
+    };
+    const std::vector<std::vector<std::byte>> aPushed = RecordedFragmentUniforms();
+    TEST_ASSERT_EQUAL_size_t(aExpected.size(), aPushed.size());
+    for ( size_t i = 0; i < aExpected.size(); ++i )
+    {
+        AssertBytes(aExpected[i], aPushed[i]);
+    }
 }
 
 TEST(std3DBabylon, ProjectionAndFogFollowDX9)
@@ -784,13 +1111,19 @@ TEST(std3DBabylon, ACaptureReplaysIntoTheBabylonBackend)
     // The replay drives the same backend: no error, the same two frames, the same capture again.
     UseNullDevice();
     TEST_ASSERT_EQUAL_INT(0, stdRenderReplay_Run(kCapturePath, kReplayPath));
-    TEST_ASSERT_EQUAL_size_t(6u, Null().recorded().size());
-    AssertScenePassLoads(0, render::LoadOp::Clear, render::LoadOp::Clear);
-    RecordedAt<render::EndPass>(1);
-    AssertSubmitted(2);
-    AssertScenePassLoads(3, render::LoadOp::Load, render::LoadOp::Clear);
-    RecordedAt<render::EndPass>(4);
-    AssertSubmitted(5);
+    TEST_ASSERT_EQUAL_size_t(25u, Null().recorded().size());
+    RecordedAt<render::PipelineCreated>(0); // once, in the first frame
+    for ( size_t frame = 0; frame < 2; ++frame )
+    {
+        const size_t first = 1u + frame * 12u;
+        RecordedAt<render::UpdateBuffer>(first);
+        RecordedAt<render::UpdateBuffer>(first + 1u);
+        AssertScenePassLoads(first + 2u, frame == 0 ? render::LoadOp::Clear : render::LoadOp::Load, render::LoadOp::Clear);
+        const render::DrawIndexed& draw = RecordedAt<render::DrawIndexed>(first + 9u);
+        TEST_ASSERT_EQUAL_UINT32(3u, draw.indexCount);
+        RecordedAt<render::EndPass>(first + 10u);
+        AssertSubmitted(first + 11u);
+    }
 
     const std::vector<char> in  = ReadFile(kCapturePath);
     const std::vector<char> out = ReadFile(kReplayPath);
@@ -815,7 +1148,11 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, SceneCallsOutOfOrderFailLikeDX9);
     RUN_TEST_CASE(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer);
     RUN_TEST_CASE(std3DBabylon, DepthIsD32FWithoutD24S8);
-    RUN_TEST_CASE(std3DBabylon, DrawsAreCheckedAndRecordNothingYet);
+    RUN_TEST_CASE(std3DBabylon, BadAndEmptyDrawsRecordNothing);
+    RUN_TEST_CASE(std3DBabylon, TwoDrawsRecordTheirStreamExactly);
+    RUN_TEST_CASE(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers);
+    RUN_TEST_CASE(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture);
+    RUN_TEST_CASE(std3DBabylon, ShaderFogChangesWithTheFogBitOnly);
     RUN_TEST_CASE(std3DBabylon, ProjectionAndFogFollowDX9);
     RUN_TEST_CASE(std3DBabylon, DisplayEnvironmentListsTheRenderDevice);
     RUN_TEST_CASE(std3DBabylon, ACaptureReplaysIntoTheBabylonBackend);
@@ -1028,10 +1365,393 @@ TEST(std3DBabylonGpu, TheWindowedFramePresentsTheBackBuffer)
     }
 }
 
+namespace
+{
+    // The back buffer as the last RenderScene read it back: Bgra8, rows top first.
+    std::vector<std::byte> std3DBabylonGpuTest_pixels;
+
+    // std3D on the SDL GPU device at width x height; false when there is no GPU (the test is then
+    // ignored, or failed with BABYLON_REQUIRE_GPU=1).
+    bool OpenGpuStd3D(uint32_t width, uint32_t height)
+    {
+        UseDevice(CreateGpuDevice(nullptr));
+        if ( !std3DBabylonTest_pDevice )
+        {
+            return false;
+        }
+        OpenStd3D(width, height);
+        return true;
+    }
+
+    // Runs draws in one scene, then reads the back buffer back. Every render warning fails the test:
+    // a draw the device dropped draws nothing.
+    template <class F>
+    void RenderScene(F draws)
+    {
+        std::vector<std::string> aWarnings;
+        int startResult = 1;
+        {
+            babylon::log::CaptureSink sink;
+            startResult = std3D_StartScene();
+            if ( startResult == 0 )
+            {
+                draws();
+                std3D_EndScene();
+            }
+            std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetColorTarget(), 0);
+            for ( const babylon::log::CapturedRecord& record : sink.records() )
+            {
+                aWarnings.push_back(record.message);
+            }
+        }
+
+        TEST_ASSERT_EQUAL_INT(0, startResult);
+        for ( const std::string& warning : aWarnings )
+        {
+            TEST_FAIL_MESSAGE(warning.c_str());
+        }
+        TEST_ASSERT_EQUAL_size_t((size_t)stdRenderBabylon_GetBackBufferWidth() * stdRenderBabylon_GetBackBufferHeight() * 4u,
+            std3DBabylonGpuTest_pixels.size());
+    }
+
+    // The pixel at (x, y) of the last RenderScene is r, g, b, a, each within tolerance.
+    void AssertPixel(uint32_t x, uint32_t y, int r, int g, int b, int a, int tolerance = 1)
+    {
+        const size_t at = ((size_t)y * stdRenderBabylon_GetBackBufferWidth() + x) * 4u;
+        TEST_ASSERT_TRUE(at + 4u <= std3DBabylonGpuTest_pixels.size());
+        const int actual[4] = { (int)std3DBabylonGpuTest_pixels[at + 2], (int)std3DBabylonGpuTest_pixels[at + 1],
+            (int)std3DBabylonGpuTest_pixels[at], (int)std3DBabylonGpuTest_pixels[at + 3] };
+        const int expected[4] = { r, g, b, a };
+        char aMessage[128];
+        std::snprintf(aMessage, sizeof(aMessage), "pixel (%u, %u) is (%d, %d, %d, %d), expected (%d, %d, %d, %d)", x, y,
+            actual[0], actual[1], actual[2], actual[3], r, g, b, a);
+        for ( int i = 0; i < 4; ++i )
+        {
+            TEST_ASSERT_INT_WITHIN_MESSAGE(tolerance, expected[i], actual[i], aMessage);
+        }
+    }
+
+    void AssertClear(uint32_t x, uint32_t y)
+    {
+        AssertPixel(x, y, 0, 0, 0, 0, 0);
+    }
+
+    // A quad from (x0, y0) to (x1, y1) in screen pixels, texture coordinates 0 to 1, rhwLeft on the
+    // left edge and rhwRight on the right one; two triangles split along (x0, y0) to (x1, y1).
+    void DrawQuad(tSysTexture* pTex, Std3DRenderState state, float x0, float y0, float x1, float y1, float z, uint32_t color,
+        float rhwLeft = 1.0f, float rhwRight = 1.0f)
+    {
+        StdVertexTL aVerts[4] = { Vertex(x0, y0, z, rhwLeft, color, 0.0f, 0.0f), Vertex(x1, y0, z, rhwRight, color, 1.0f, 0.0f),
+            Vertex(x1, y1, z, rhwRight, color, 1.0f, 1.0f), Vertex(x0, y1, z, rhwLeft, color, 0.0f, 1.0f) };
+        uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
+        std3D_DrawRenderList(pTex, state, aVerts, 4u, aIndices, 6u);
+    }
+
+    // A width x height texture of ci with one texel value each (its bytes little endian), cached.
+    void MakeTexture(tSystemTexture* pTexture, const ColorInfo& ci, uint32_t width, uint32_t height, const std::vector<uint32_t>& aTexels)
+    {
+        tVBuffer* pVBuffer = NewVBuffer(ci, width, height, 0);
+        TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferLock(pVBuffer));
+        const size_t texelBytes = ci.bpp / 8u;
+        for ( uint32_t y = 0; y < height; ++y )
+        {
+            for ( uint32_t x = 0; x < width; ++x )
+            {
+                uint8_t* pTexel = pVBuffer->pPixels + y * pVBuffer->rasterInfo.rowSize + x * texelBytes;
+                for ( size_t i = 0; i < texelBytes; ++i )
+                {
+                    pTexel[i] = (uint8_t)(aTexels[y * width + x] >> (8u * i));
+                }
+            }
+        }
+        TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pVBuffer));
+
+        std::memset(pTexture, 0, sizeof(*pTexture));
+        std3D_AllocSystemTexture(pTexture, &pVBuffer, 1u, std3D_GetColorFormat(&ci));
+        std3D_AddToTextureCache(pTexture, std3D_GetColorFormat(&ci));
+        stdDisplay_VBufferFree(pVBuffer);
+        TEST_ASSERT_NOT_NULL(pTexture->pCachedTexture);
+    }
+
+    // A texel of ci from channel values in the format's own bits.
+    uint32_t Texel(const ColorInfo& ci, uint32_t r, uint32_t g, uint32_t b, uint32_t a)
+    {
+        return (r << ci.redPosShift) | (g << ci.greenPosShift) | (b << ci.bluePosShift) | (ci.alphaBPP ? a << ci.alphaPosShift : 0u);
+    }
+
+    uint32_t MaxOf(uint32_t bits)
+    {
+        return (1u << bits) - 1u;
+    }
+
+    // A channel of bits bits as an 8-bit unorm value, as the GPU converts it; 255 without bits.
+    int Unorm8(uint32_t value, uint32_t bits)
+    {
+        return bits ? (int)std::lround(value * 255.0 / MaxOf(bits)) : 255;
+    }
+}
+
+TEST(std3DBabylonGpu, AVertexColoredTriangleInterpolatesItsColors)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    RenderScene([]
+    {
+        StdVertexTL aVerts[3] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFF0000u), Vertex(64.0f, 0.0f, 0.5f, 1.0f, 0xFF00FF00u),
+            Vertex(0.0f, 64.0f, 0.5f, 1.0f, 0xFF0000FFu) };
+        uint16_t aIndices[3] = { 0u, 1u, 2u };
+        std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aIndices, 3u);
+    });
+
+    // Direct3D 9 pixel centers are at integer coordinates: pixel (x, y) is weighted x / 64 green and
+    // y / 64 blue.
+    const uint32_t aPixels[][2] = { { 8u, 8u }, { 40u, 10u }, { 10u, 40u }, { 1u, 1u } };
+    for ( const auto& pixel : aPixels )
+    {
+        const double green = pixel[0] / 64.0;
+        const double blue  = pixel[1] / 64.0;
+        AssertPixel(pixel[0], pixel[1], (int)std::lround(255.0 * (1.0 - green - blue)), (int)std::lround(255.0 * green),
+            (int)std::lround(255.0 * blue), 255, 2);
+    }
+    AssertClear(40u, 40u);
+    AssertClear(63u, 63u);
+}
+
+TEST(std3DBabylonGpu, TexturedQuadsSampleEveryTextureFormat)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_EQUAL_size_t(5u, std3D_GetNumTextureFormats());
+
+    const ColorInfo* aFormats[] = { &stdColor_cfRGB8888, &stdColor_cfARGB8888, &stdColor_cfRGB565, &stdColor_cfARGB5551,
+        &stdColor_cfARGB4444 };
+    for ( const ColorInfo* pCi : aFormats )
+    {
+        // 2 x 2 texels: red, green, blue, half gray, all opaque; on an 8 x 8 quad with point filtering
+        // each covers 4 x 4 pixels.
+        const ColorInfo& ci = *pCi;
+        const uint32_t maxA = MaxOf(ci.alphaBPP);
+        const uint32_t aChannels[4][3] = { { MaxOf(ci.redBPP), 0u, 0u }, { 0u, MaxOf(ci.greenBPP), 0u }, { 0u, 0u, MaxOf(ci.blueBPP) },
+            { MaxOf(ci.redBPP) / 2u, MaxOf(ci.greenBPP) / 2u, MaxOf(ci.blueBPP) / 2u } };
+        std::vector<uint32_t> aTexels;
+        for ( const auto& channels : aChannels )
+        {
+            aTexels.push_back(Texel(ci, channels[0], channels[1], channels[2], maxA));
+        }
+
+        static tSystemTexture texture;
+        MakeTexture(&texture, ci, 2u, 2u, aTexels);
+        RenderScene([&]
+        {
+            DrawQuad(texture.pCachedTexture, (Std3DRenderState)0, 0.0f, 0.0f, 8.0f, 8.0f, 0.5f, 0xFFFFFFFFu);
+        });
+
+        const uint32_t aPixels[4][2] = { { 1u, 1u }, { 5u, 1u }, { 1u, 5u }, { 6u, 6u } };
+        for ( size_t i = 0; i < 4; ++i )
+        {
+            AssertPixel(aPixels[i][0], aPixels[i][1], Unorm8(aChannels[i][0], ci.redBPP), Unorm8(aChannels[i][1], ci.greenBPP),
+                Unorm8(aChannels[i][2], ci.blueBPP), 255);
+        }
+        std3D_ClearSystemTexture(&texture);
+    }
+}
+
+TEST(std3DBabylonGpu, TheAlphaTestDiscardsAlphaNotAboveTheReference)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // White texels of alpha 0, 128, 160 and 192, each 2 pixels wide on an 8 x 2 quad, drawn in front
+    // with Z write; then an opaque green quad behind both. A fragment that passed the test wrote its Z
+    // and hides the green even with alpha 0; a discarded one lets it through.
+    static tSystemTexture texture;
+    MakeTexture(&texture, stdColor_cfARGB8888, 4u, 1u, { 0x00FFFFFFu, 0x80FFFFFFu, 0xA0FFFFFFu, 0xC0FFFFFFu });
+    RenderScene([]
+    {
+        DrawQuad(texture.pCachedTexture, STD3D_RS_ALPHAREF_SET, 0.0f, 0.0f, 8.0f, 2.0f, 0.2f, 0xFFFFFFFFu); // ref 160
+        DrawQuad(texture.pCachedTexture, (Std3DRenderState)0, 0.0f, 4.0f, 8.0f, 6.0f, 0.2f, 0xFFFFFFFFu);    // ref 0
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 8.0f, 6.0f, 0.8f, 0xFF00FF00u);
+    });
+
+    // What passed is blended over the transparent black clear: rgb * alpha, alpha * alpha.
+    AssertPixel(0u, 0u, 0, 255, 0, 255);
+    AssertPixel(2u, 0u, 0, 255, 0, 255);
+    AssertPixel(4u, 0u, 0, 255, 0, 255);  // 160 is not greater than 160
+    AssertPixel(6u, 0u, 192, 192, 192, 145);
+    AssertPixel(0u, 4u, 0, 255, 0, 255);  // 0 is not greater than 0
+    AssertPixel(2u, 4u, 128, 128, 128, 64);
+    AssertPixel(4u, 4u, 160, 160, 160, 100);
+    AssertPixel(6u, 4u, 192, 192, 192, 145);
+    std3D_ClearSystemTexture(&texture);
+}
+
+TEST(std3DBabylonGpu, DrawsBlendWithSourceAlpha)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 8.0f, 8.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 8.0f, 8.0f, 0.5f, 0x800000FFu); // blue at 128 / 255
+    });
+
+    // blue * a + red * (1 - a); alpha a * a + 1 * (1 - a).
+    const double a = 128.0 / 255.0;
+    AssertPixel(4u, 4u, (int)std::lround(255.0 * (1.0 - a)), 0, (int)std::lround(255.0 * a),
+        (int)std::lround(255.0 * (a * a + 1.0 - a)));
+}
+
+TEST(std3DBabylonGpu, TheZTestIsLessOrEqualAndZWritesFollowTheState)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    RenderScene([]
+    {
+        // Near red without Z write, far green: green.
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 0.0f, 8.0f, 8.0f, 0.2f, 0xFFFF0000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 8.0f, 8.0f, 0.8f, 0xFF00FF00u);
+        // Near red with Z write, far green: red.
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 24.0f, 8.0f, 0.2f, 0xFFFF0000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 24.0f, 8.0f, 0.8f, 0xFF00FF00u);
+        // The same Z twice: D3DCMP_LESSEQUAL passes the second.
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 40.0f, 8.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 40.0f, 8.0f, 0.5f, 0xFF00FF00u);
+    });
+
+    AssertPixel(4u, 4u, 0, 255, 0, 255);
+    AssertPixel(20u, 4u, 255, 0, 0, 255);
+    AssertPixel(36u, 4u, 0, 255, 0, 255);
+}
+
+TEST(std3DBabylonGpu, FogIsLinearInWBetweenStartAndEnd)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // Blue fog from w 2 to w 50 (density 1: the end is not scaled).
+    std3D_EnableFog(1, 1.0f);
+    std3D_SetFog(0.0f, 0.0f, 1.0f, 2.0f, 50.0f);
+    RenderScene([]
+    {
+        DrawQuad(nullptr, STD3D_RS_FOG_ENABLED, 0.0f, 0.0f, 8.0f, 8.0f, 0.5f, 0xFFFFFFFFu, 1.0f, 1.0f);                 // w 1: none
+        DrawQuad(nullptr, STD3D_RS_FOG_ENABLED, 8.0f, 0.0f, 16.0f, 8.0f, 0.5f, 0xFFFFFFFFu, 1.0f / 26.0f, 1.0f / 26.0f);   // w 26: half
+        DrawQuad(nullptr, STD3D_RS_FOG_ENABLED, 16.0f, 0.0f, 24.0f, 8.0f, 0.5f, 0xFFFFFFFFu, 1.0f / 100.0f, 1.0f / 100.0f); // w 100: all
+        DrawQuad(nullptr, (Std3DRenderState)0, 24.0f, 0.0f, 32.0f, 8.0f, 0.5f, 0xFFFFFFFFu, 1.0f / 100.0f, 1.0f / 100.0f);   // no fog bit
+    });
+
+    AssertPixel(4u, 4u, 255, 255, 255, 255);
+    AssertPixel(12u, 4u, 128, 128, 255, 255);
+    AssertPixel(20u, 4u, 0, 0, 255, 255);
+    AssertPixel(28u, 4u, 255, 255, 255, 255);
+}
+
+TEST(std3DBabylonGpu, LinesAndPointsLightTheirPixels)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    RenderScene([]
+    {
+        std3D_SetWireframeRenderState();
+        StdVertexTL aLine[3] = { Vertex(2.0f, 10.0f, 0.5f, 1.0f, 0xFF00FF00u), Vertex(20.0f, 10.0f, 0.5f, 1.0f, 0xFF00FF00u),
+            Vertex(20.0f, 30.0f, 0.5f, 1.0f, 0xFF00FF00u) };
+        std3D_DrawLineStrip(aLine, 3u);
+        StdVertexTL aPoints[2] = { Vertex(5.0f, 40.0f, 0.5f, 1.0f, 0xFFFF0000u), Vertex(40.0f, 3.0f, 0.5f, 1.0f, 0xFFFF0000u) };
+        std3D_DrawPointList(aPoints, 2u);
+    });
+
+    // Both segments of the strip, one pixel wide.
+    for ( uint32_t x = 6u; x <= 16u; ++x )
+    {
+        AssertPixel(x, 10u, 0, 255, 0, 255);
+        AssertClear(x, 9u);
+        AssertClear(x, 11u);
+    }
+    for ( uint32_t y = 14u; y <= 26u; ++y )
+    {
+        AssertPixel(20u, y, 0, 255, 0, 255);
+        AssertClear(19u, y);
+        AssertClear(21u, y);
+    }
+
+    // Each point is the one pixel it names.
+    AssertPixel(5u, 40u, 255, 0, 0, 255);
+    AssertPixel(40u, 3u, 255, 0, 0, 255);
+    AssertClear(4u, 40u);
+    AssertClear(6u, 40u);
+    AssertClear(5u, 39u);
+    AssertClear(5u, 41u);
+    AssertClear(39u, 3u);
+    AssertClear(40u, 4u);
+}
+
+TEST(std3DBabylonGpu, TexturingIsPerspectiveCorrect)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // A 256 x 1 texture whose texel i has red i, on a 64 x 32 quad with rhw 1 on the left edge and
+    // 1/4 on the right one, point filtered and clamped.
+    std::vector<uint32_t> aTexels;
+    for ( uint32_t i = 0; i < 256u; ++i )
+    {
+        aTexels.push_back(0xFF000000u | (i << 16));
+    }
+    static tSystemTexture texture;
+    MakeTexture(&texture, stdColor_cfARGB8888, 256u, 1u, aTexels);
+    const float rhwLeft  = 1.0f;
+    const float rhwRight = 0.25f;
+    RenderScene([&]
+    {
+        DrawQuad(texture.pCachedTexture, (Std3DRenderState)(STD3D_RS_TEX_CPAMP_U | STD3D_RS_TEX_CPAMP_V), 0.0f, 0.0f, 64.0f, 32.0f, 0.5f,
+            0xFFFFFFFFu, rhwLeft, rhwRight);
+    });
+
+    // At the fraction s of the way across, u = s * rhwRight / ((1 - s) * rhwLeft + s * rhwRight),
+    // far from the affine u = s; one pixel above the split diagonal and one below.
+    const uint32_t aPixels[][2] = { { 32u, 8u }, { 16u, 24u }, { 48u, 20u } };
+    for ( const auto& pixel : aPixels )
+    {
+        const double s = pixel[0] / 64.0;
+        const double u = s * rhwRight / ((1.0 - s) * rhwLeft + s * rhwRight);
+        const int texel = (int)std::floor(u * 256.0);
+        TEST_ASSERT_TRUE(std::abs(texel - (int)(s * 256.0)) > 20);
+        AssertPixel(pixel[0], pixel[1], texel, 0, 0, 255, 1);
+    }
+    std3D_ClearSystemTexture(&texture);
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylonGpu, AVertexColoredTriangleInterpolatesItsColors);
+    RUN_TEST_CASE(std3DBabylonGpu, TexturedQuadsSampleEveryTextureFormat);
+    RUN_TEST_CASE(std3DBabylonGpu, TheAlphaTestDiscardsAlphaNotAboveTheReference);
+    RUN_TEST_CASE(std3DBabylonGpu, DrawsBlendWithSourceAlpha);
+    RUN_TEST_CASE(std3DBabylonGpu, TheZTestIsLessOrEqualAndZWritesFollowTheState);
+    RUN_TEST_CASE(std3DBabylonGpu, FogIsLinearInWBetweenStartAndEnd);
+    RUN_TEST_CASE(std3DBabylonGpu, LinesAndPointsLightTheirPixels);
+    RUN_TEST_CASE(std3DBabylonGpu, TexturingIsPerspectiveCorrect);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

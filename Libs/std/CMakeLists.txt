@@ -54,6 +54,9 @@ if (J3D_PLATFORM_BABYLON)
         SOURCES
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/present.vert.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/present.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d.vert.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d_wireframe.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()
