@@ -1,10 +1,9 @@
 // Added: the windowed composition root of the Babylon column. It builds the SDL platform and the
 // game window, the SDL clock, the Null virtual clock (never latched: the windowed run uses the
 // real clock), the SDL file system and the run's cvar registry, installs them as the adapter context
-// together with the window, runs the windowed game loop, then uninstalls before the objects die. It
-// renders nothing yet: the display and 3D backends stay Null until M6.
-// Added: std3D draws on the render device made here, the SDL GPU device on the game window (M6.6);
-// the display backend stays Null until M6.7.
+// together with the window, runs the windowed game loop, then uninstalls before the objects die.
+// Added: std3D draws and stdDisplay presents on the render device made here, the SDL GPU device on
+// the game window (M6.6, M6.7).
 #include <cstdio>
 #include <memory>
 

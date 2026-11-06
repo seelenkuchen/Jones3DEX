@@ -103,7 +103,9 @@ namespace
         return *std3DBabylonTest_pNullDevice;
     }
 
-    // The display at width x height (0 keeps the Null display's default 640 x 480), then std3D.
+    // The display at width x height (0 keeps the display's default 640 x 480), then std3D. What the
+    // mode set recorded on a Null device (its clear and present) is dropped, so a test's stream
+    // starts with its own calls.
     void OpenStd3D(uint32_t width = 0, uint32_t height = 0)
     {
         TEST_ASSERT_EQUAL_INT(1, stdDisplay_Startup());
@@ -115,6 +117,17 @@ namespace
         TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
         TEST_ASSERT_EQUAL_INT(1, std3D_Startup());
         TEST_ASSERT_EQUAL_INT(1, std3D_Open(0u));
+        if ( std3DBabylonTest_pNullDevice )
+        {
+            std3DBabylonTest_pNullDevice->clearRecorded();
+        }
+    }
+
+    // The end of a game frame: the scene, then the present, which submits the frame (M6.7).
+    void EndFrame()
+    {
+        std3D_EndScene();
+        TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
     }
 
     void CloseStd3D()
@@ -326,9 +339,10 @@ TEST_TEAR_DOWN(std3DBabylon)
 
 TEST(std3DBabylon, StartupFailsWithoutARenderDevice)
 {
+    // The display needs the device too (stdDisplayDX9.c's Startup failed without Direct3D 9).
     DropDevice();
-    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Startup());
-    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Open(0u));
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Startup());
+    TEST_ASSERT_FALSE(stdDisplay_IsOpen());
 
     TEST_ASSERT_EQUAL_INT(0, std3D_Startup());
     TEST_ASSERT_EQUAL_size_t(0u, std3D_GetNumDevices());
@@ -355,8 +369,8 @@ TEST(std3DBabylon, OneDeviceDescribesTheRenderDevice)
     TEST_ASSERT_FALSE(pDevice->bAnisotropicFilteringSupported);
     TEST_ASSERT_FALSE(pDevice->bMipmapAutoGenSupported);
     TEST_ASSERT_FALSE(pDevice->bMSAASupported);
-    TEST_ASSERT_EQUAL_STRING("Jones3D Null Display (Babylon render, null)", pDevice->deviceDescription);
-    TEST_ASSERT_EQUAL_STRING("stdDisplayNull", pDevice->deviceName);
+    TEST_ASSERT_EQUAL_STRING("Jones3D Babylon Display (Babylon render, null)", pDevice->deviceDescription);
+    TEST_ASSERT_EQUAL_STRING("stdDisplayBabylon", pDevice->deviceName);
 
     // std3DX9.c's current device exists only while open.
     TEST_ASSERT_NULL(std3D_GetCurrentDevice());
@@ -505,7 +519,7 @@ TEST(std3DBabylon, CacheKeepsTheDX9ListAndMemory)
     OpenStd3D();
     const Device3D* pDevice = std3D_GetCurrentDevice();
     const size_t total = pDevice->totalMemory;
-    TEST_ASSERT_EQUAL_size_t(total, pDevice->availableMemory * 2u); // the Null display reports half free
+    TEST_ASSERT_EQUAL_size_t(total, pDevice->availableMemory * 2u); // the display reports half free
 
     static tSystemTexture a;
     static tSystemTexture b;
@@ -524,7 +538,7 @@ TEST(std3DBabylon, CacheKeepsTheDX9ListAndMemory)
     // A used texture moves to the end of the list with the frame's count.
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_UpdateFrameCount(&a);
-    std3D_EndScene();
+    EndFrame();
     TEST_ASSERT_EQUAL_size_t(2u, a.frameNum);
     TEST_ASSERT_EQUAL_PTR(&a, b.pNextCachedTexture);
     TEST_ASSERT_EQUAL_PTR(&b, a.pPrevCachedTexture);
@@ -581,7 +595,7 @@ TEST(std3DBabylon, AFullCachePurgesATextureOfTheSameSizeNotUsedThisFrame)
     const render::TextureHandle handleA = CachedHandle(a);
     pDevice->availableMemory = 0;
     MakeCachedTexture(&c, stdColor_cfARGB8888, 3);
-    std3D_EndScene();
+    EndFrame();
 
     // a went (its memory came back first), b and c stay, in that order.
     TEST_ASSERT_NULL(a.pCachedTexture);
@@ -606,7 +620,7 @@ TEST(std3DBabylon, ATextureClearedInASceneLivesUntilTheSubmit)
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_ClearSystemTexture(&texture);
     TEST_ASSERT_FALSE(Null().readTexture(handle, 0).empty());
-    std3D_EndScene();
+    EndFrame();
 
     TEST_ASSERT_TRUE(ReadTexture(handle, 0).empty());
 }
@@ -619,7 +633,7 @@ TEST(std3DBabylon, ScenesRecordAPassWithTheDX9Clears)
     // The first scene clears the new back buffer (std3DX9.c's viewport clear): black, Z 1.
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     TEST_ASSERT_EQUAL_size_t(0u, Null().recorded().size()); // nothing reaches the device before the submit
-    std3D_EndScene();
+    EndFrame();
     TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
     AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
     RecordedAt<render::EndPass>(1);
@@ -627,10 +641,10 @@ TEST(std3DBabylon, ScenesRecordAPassWithTheDX9Clears)
 
     // Later scenes keep the back buffer, and depth too unless ClearZBuffer came first.
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
-    std3D_EndScene();
+    EndFrame();
     std3D_ClearZBuffer();
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
-    std3D_EndScene();
+    EndFrame();
     TEST_ASSERT_EQUAL_size_t(9u, Null().recorded().size());
     AssertScenePass(3, render::LoadOp::Load, render::LoadOp::Load);
     RecordedAt<render::EndPass>(4);
@@ -644,7 +658,7 @@ TEST(std3DBabylon, ScenesRecordAPassWithTheDX9Clears)
     Null().clearRecorded();
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_ClearZBuffer();
-    std3D_EndScene();
+    EndFrame();
     TEST_ASSERT_EQUAL_size_t(5u, Null().recorded().size());
     AssertScenePass(0, render::LoadOp::Load, render::LoadOp::Load);
     RecordedAt<render::EndPass>(1);
@@ -661,6 +675,7 @@ TEST(std3DBabylon, SceneCallsOutOfOrderFailLikeDX9)
     TEST_ASSERT_NOT_EQUAL(0, std3D_StartScene()); // D3DERR_INVALIDCALL in std3DX9.c
     std3D_EndScene();
     std3D_EndScene();                              // no scene: logged, nothing recorded
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
     TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
 
     std3D_Close();
@@ -678,7 +693,7 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     TEST_ASSERT_TRUE(stdRenderBabylon_GetDepthFormat() == render::TextureFormat::D24S8);
 
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
-    std3D_EndScene();
+    EndFrame();
     const render::TextureHandle oldColor = stdRenderBabylon_GetColorTarget();
     const render::TextureHandle oldDepth = stdRenderBabylon_GetDepthTarget();
 
@@ -686,7 +701,7 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
     Null().clearRecorded();
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
-    std3D_EndScene();
+    EndFrame();
 
     TEST_ASSERT_FALSE(stdRenderBabylon_GetColorTarget() == oldColor);
     TEST_ASSERT_FALSE(stdRenderBabylon_GetDepthTarget() == oldDepth);
@@ -731,7 +746,7 @@ TEST(std3DBabylon, BadAndEmptyDrawsRecordNothing)
     std3D_DrawPointList(aVerts, 0u);
     std3D_DrawPointList(aVerts, std3D_g_maxVertices + 1u);
     std3D_SetWireframeRenderState();
-    std3D_EndScene();
+    EndFrame();
 
     TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
     AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
@@ -871,7 +886,7 @@ TEST(std3DBabylon, TwoDrawsRecordTheirStreamExactly)
         std3D_UpdateFrameCount(&texture);
         std3D_DrawRenderList(texture.pCachedTexture, textured, const_cast<StdVertexTL*>(aTriangle), 3u, const_cast<uint16_t*>(aTriangleIndices), 3u);
         std3D_DrawRenderList(nullptr, untextured, const_cast<StdVertexTL*>(aQuad), 4u, const_cast<uint16_t*>(aQuadIndices), 7u);
-        std3D_EndScene();
+        EndFrame();
 
         // The pipelines are created in the first frame only.
         const size_t numCreated = frameNum == 0 ? 2u : 0u;
@@ -940,7 +955,7 @@ TEST(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers)
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_DrawPointList(aPoints, std::size(aPoints));
     std3D_DrawPointList(aPoints, std::size(aPoints));
-    std3D_EndScene();
+    EndFrame();
 
     // The second draw goes to a bigger buffer from its start; the frame's first draw keeps the old one.
     TEST_ASSERT_EQUAL_size_t(13u, Null().recorded().size());
@@ -974,7 +989,7 @@ TEST(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers)
     Null().clearRecorded();
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_DrawPointList(aPoints, 2u);
-    std3D_EndScene();
+    EndFrame();
     TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(0) == (render::UpdateBuffer{ newBuffer, 0u, BytesOf(aPoints, 2u) }));
 }
 
@@ -991,7 +1006,7 @@ TEST(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture)
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_DrawLineStrip(const_cast<StdVertexTL*>(aLine), 3u);
     std3D_DrawPointList(const_cast<StdVertexTL*>(aPoints), 2u);
-    std3D_EndScene();
+    EndFrame();
 
     TEST_ASSERT_EQUAL_size_t(14u, Null().recorded().size());
     const render::PipelineCreated& lines  = RecordedAt<render::PipelineCreated>(0);
@@ -1035,7 +1050,7 @@ TEST(std3DBabylon, ShaderFogChangesWithTheFogBitOnly)
     std3D_DrawRenderList(nullptr, noFog, aVerts, 3u, aIndices, 3u);
     std3D_EnableFog(0, 1.0f);
     std3D_DrawRenderList(nullptr, fog, aVerts, 3u, aIndices, 3u);   // fog is off: zeros, as pushed before
-    std3D_EndScene();
+    EndFrame();
 
     const float aFog1[4]      = { 2.0f, 50.0f, 1.0f / 48.0f, 1.0f };
     const float aFogColor1[4] = { 0.25f, 0.5f, 0.75f, 1.0f };
@@ -1079,7 +1094,7 @@ TEST(std3DBabylon, DisplayEnvironmentListsTheRenderDevice)
     TEST_ASSERT_NOT_NULL(pEnv);
     TEST_ASSERT_EQUAL_size_t(1u, pEnv->numInfos);
     TEST_ASSERT_EQUAL_size_t(1u, pEnv->aDisplayInfos[0].numDevices);
-    TEST_ASSERT_EQUAL_STRING("Jones3D Null Display (Babylon render, null)", pEnv->aDisplayInfos[0].aDevices[0].deviceDescription);
+    TEST_ASSERT_EQUAL_STRING("Jones3D Babylon Display (Babylon render, null)", pEnv->aDisplayInfos[0].aDevices[0].deviceDescription);
     std3D_FreeDisplayEnvironment(pEnv);
 }
 
@@ -1103,21 +1118,25 @@ TEST(std3DBabylon, ACaptureReplaysIntoTheBabylonBackend)
         TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
         std3D_UpdateFrameCount(&texture);
         std3D_DrawRenderList(texture.pCachedTexture, STD3D_RS_ZWRITE_DISABLED, aVertices, 3u, aIndices, 3u);
-        std3D_EndScene();
+        EndFrame();
     }
     std3D_ClearSystemTexture(&texture);
     CloseStd3D();
     stdDisplayCapture_Close();
     TEST_ASSERT_FALSE(stdRenderCapture_IsOpen());
 
-    // The replay drives the same backend: no error, the same two frames, the same capture again.
+    // The replay drives the same backends: no error, the mode set's clear and present, the same two
+    // frames, the same capture again.
     UseNullDevice();
     TEST_ASSERT_EQUAL_INT(0, stdRenderReplay_Run(kCapturePath, kReplayPath));
-    TEST_ASSERT_EQUAL_size_t(25u, Null().recorded().size());
-    RecordedAt<render::PipelineCreated>(0); // once, in the first frame
+    TEST_ASSERT_EQUAL_size_t(28u, Null().recorded().size());
+    RecordedAt<render::BeginPass>(0);
+    RecordedAt<render::EndPass>(1);
+    AssertSubmitted(2);
+    RecordedAt<render::PipelineCreated>(3); // once, in the first frame
     for ( size_t frame = 0; frame < 2; ++frame )
     {
-        const size_t first = 1u + frame * 12u;
+        const size_t first = 4u + frame * 12u;
         RecordedAt<render::UpdateBuffer>(first);
         RecordedAt<render::UpdateBuffer>(first + 1u);
         AssertScenePassLoads(first + 2u, frame == 0 ? render::LoadOp::Clear : render::LoadOp::Load, render::LoadOp::Clear);
@@ -1413,7 +1432,7 @@ TEST(std3DBabylonGpu, TexturesReadBackByteExactPerFormat)
 
     // A scene on the GPU: the first pass clears the back buffer to transparent black.
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
-    std3D_EndScene();
+    EndFrame();
     const std::vector<std::byte> pixels = ReadTexture(stdRenderBabylon_GetColorTarget(), 0);
     TEST_ASSERT_EQUAL_size_t(640u * 480u * 4u, pixels.size());
     TEST_ASSERT_EQUAL_INT(0, (int)pixels[0]);
@@ -1511,6 +1530,7 @@ namespace
             {
                 draws();
                 std3D_EndScene();
+                (void)stdDisplay_Update(); // no assert while the sink is attached
             }
             std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetColorTarget(), 0);
             for ( const babylon::log::CapturedRecord& record : sink.records() )
@@ -1947,12 +1967,18 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
 // The replay suite of stdRenderReplayTest.c, a C file.
 extern "C" void TEST_stdRenderReplay_GROUP_RUNNER(void);
 
+// The display suites (stdDisplayBabylonTest.cpp).
+void TEST_stdDisplayBabylon_GROUP_RUNNER(void);
+void TEST_stdDisplayBabylonGpu_GROUP_RUNNER(void);
+
 static void runAllTests(void)
 {
     RUN_TEST_GROUP(std3DBabylon);
     RUN_TEST_GROUP(stdRenderBabylonOption);
     RUN_TEST_GROUP(stdRenderReplayBabylonOption);
     RUN_TEST_GROUP(std3DBabylonGpu);
+    RUN_TEST_GROUP(stdDisplayBabylon);
+    RUN_TEST_GROUP(stdDisplayBabylonGpu);
     UseNullDevice();
     TEST_stdRenderReplay_GROUP_RUNNER();
     DropDevice();

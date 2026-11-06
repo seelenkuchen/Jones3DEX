@@ -5,7 +5,9 @@
 // the device list, texture formats, system textures, the texture cache with its frame counts, the
 // fog and projection state and the scene clears follow it, with Babylon textures where it held
 // Direct3D ones. Frames go through stdRenderBabylon.cpp, which owns the frame's command list and
-// the back buffer.
+// the back buffer; the display adapter (stdDisplayBabylon.cpp) opens it with the display, sizes the
+// back buffer with the video mode and submits the frame at stdDisplay_Update, as std3DX9.c drew into
+// the display's device and stdDisplayDX9.c presented it.
 //
 // Draws follow std3DX9.c's shader path (std3DX9.c with stdShaderDX9.c and Shaders/*.hlsl), which
 // ran on every Direct3D 9 device with shader model 3: the shaders are ports of its default and
@@ -136,6 +138,7 @@ namespace
     bool std3D_bInScene           = false;
     bool std3D_bClearColorPending = false;
     bool std3D_bClearDepthPending = false;
+    render::TextureHandle std3D_sceneColorTarget; // the back buffer the last scene drew to
 
     // The primitives std3DX9.c drew: triangle lists with its default shader, line strips and point
     // lists with its wireframe shader.
@@ -908,7 +911,7 @@ namespace
     {
         std3D_ResetTextureCacheInternal();
         std3D_ReleaseDrawResources();
-        stdRenderBabylon_Close();
+        std3D_sceneColorTarget   = {};
         std3D_bInScene           = false;
         std3D_bClearColorPending = false;
         std3D_bClearDepthPending = false;
@@ -938,6 +941,7 @@ namespace
 
         std3D_bClearColorPending = true;
         std3D_bClearDepthPending = true;
+        std3D_sceneColorTarget   = stdRenderBabylon_GetColorTarget();
 
         std3D_g_maxVertices = std3D_pCurDevice->maxVertexCount;
         if ( std3D_g_maxVertices == 0 )
@@ -1101,7 +1105,16 @@ int J3DAPI std3D_Open(size_t deviceNum)
     std3D_curDevice  = deviceNum;
     std3D_pCurDevice = &std3D_aDevices[deviceNum];
 
-    if ( !stdRenderBabylon_Open(std3D_pRenderDevice) || !std3D_InitSystem() )
+    // The display opened the frame owner on the same device (stdDisplay_Open).
+    if ( stdRenderBabylon_GetDevice() != std3D_pRenderDevice )
+    {
+        STDLOG_ERROR("std3D_Open: the display does not draw with the render device of the context.\n");
+        std3D_pCurDevice = nullptr;
+        std3D_curDevice  = 0;
+        return 0;
+    }
+
+    if ( !std3D_InitSystem() )
     {
         STDLOG_ERROR("Failed to initialize system, closing...\n");
         std3D_ReleaseSystemResources();
@@ -1202,7 +1215,8 @@ int std3D_StartScene(void)
         return 1;
     }
 
-    // The back buffer follows the display's size; new targets start cleared like the DX9 viewport.
+    // The back buffer follows the display's size; new targets start cleared like the DX9 viewport,
+    // also when the display made them (a new video mode).
     uint32_t width  = 0;
     uint32_t height = 0;
     bool bRecreated = false;
@@ -1211,6 +1225,12 @@ int std3D_StartScene(void)
     {
         STDLOG_ERROR("Error beginning scene: no %ux%u back buffer.\n", width, height);
         return 1;
+    }
+
+    if ( stdRenderBabylon_GetColorTarget() != std3D_sceneColorTarget )
+    {
+        bRecreated             = true;
+        std3D_sceneColorTarget = stdRenderBabylon_GetColorTarget();
     }
 
     if ( bRecreated )
@@ -1254,8 +1274,7 @@ void std3D_EndScene(void)
         STDLOG_ERROR("Error ending scene.\n");
     }
 
-    // Until stdDisplay_Update does it (M6.7), the scene's end is the frame's end.
-    stdRenderBabylon_SubmitFrame();
+    // The frame stays open: stdDisplay_Update submits and presents it, like stdDisplayDX9.c's Present.
 }
 
 void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)

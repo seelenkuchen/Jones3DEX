@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <span>
+#include <variant>
 #include <vector>
 
 #include <std/General/std.h>
@@ -36,6 +38,9 @@ namespace
         render::TextureFormat depthFormat = render::TextureFormat::D24S8;
         uint32_t width  = 0;
         uint32_t height = 0;
+
+        // Changes whenever the back buffer's contents may change (stdRenderBabylon_GetBackBufferVersion).
+        uint64_t backBufferVersion = 0;
 
         render::PipelineHandle presentPipeline;
         render::SamplerHandle presentSampler;
@@ -63,14 +68,37 @@ namespace
         stdRenderBabylon_state.aDeferredBuffers.clear();
     }
 
-    void stdRenderBabylon_FreeBackBuffer()
+    // True when list has a pass with the back buffer's color target as an attachment or a copy into it.
+    bool stdRenderBabylon_DrawsBackBuffer(const render::CommandList& list)
     {
-        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.colorTarget);
-        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.depthTarget);
-        stdRenderBabylon_state.colorTarget = {};
-        stdRenderBabylon_state.depthTarget = {};
-        stdRenderBabylon_state.width       = 0;
-        stdRenderBabylon_state.height      = 0;
+        const render::TextureHandle colorTarget = stdRenderBabylon_state.colorTarget;
+        if ( colorTarget.isNull() )
+        {
+            return false;
+        }
+
+        for ( const render::Command& command : list.commands() )
+        {
+            if ( const render::BeginPass* pBegin = std::get_if<render::BeginPass>(&command) )
+            {
+                for ( const render::ColorAttachment& attachment : pBegin->desc.colorTargets )
+                {
+                    if ( attachment.target == colorTarget )
+                    {
+                        return true;
+                    }
+                }
+            }
+            else if ( const render::CopyTexture* pCopy = std::get_if<render::CopyTexture>(&command) )
+            {
+                if ( pCopy->destination == colorTarget )
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     // The present pass: the back buffer drawn over the whole swapchain image. The vertex shader
@@ -228,6 +256,17 @@ render::Device* stdRenderBabylon_GetDevice()
     return stdRenderBabylon_state.pDevice;
 }
 
+void stdRenderBabylon_FreeBackBuffer()
+{
+    stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.colorTarget);
+    stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.depthTarget);
+    stdRenderBabylon_state.colorTarget = {};
+    stdRenderBabylon_state.depthTarget = {};
+    stdRenderBabylon_state.width       = 0;
+    stdRenderBabylon_state.height      = 0;
+    ++stdRenderBabylon_state.backBufferVersion;
+}
+
 bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* pbRecreated)
 {
     if ( pbRecreated )
@@ -287,6 +326,7 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     stdRenderBabylon_state.depthTarget = depthTarget;
     stdRenderBabylon_state.width       = width;
     stdRenderBabylon_state.height      = height;
+    ++stdRenderBabylon_state.backBufferVersion; // undefined until something clears or uploads it
     if ( pbRecreated )
     {
         *pbRecreated = true;
@@ -325,6 +365,11 @@ bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHe
     if ( size > (uint64_t)SIZE_MAX )
     {
         STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the %ux%u back buffer is too large.\n", width, height);
+        return false;
+    }
+
+    if ( !stdRenderBabylon_FlushFrame() )
+    {
         return false;
     }
 
@@ -395,36 +440,120 @@ bool stdRenderBabylon_HasFrame()
     return stdRenderBabylon_state.frame.has_value();
 }
 
+namespace
+{
+    // The submit of SubmitFrame and FlushFrame; bPresent records the present pass first.
+    bool stdRenderBabylon_Submit(bool bPresent)
+    {
+        if ( !stdRenderBabylon_state.frame )
+        {
+            return true;
+        }
+
+        render::CommandList& list = *stdRenderBabylon_state.frame;
+        bool bSubmitted = false;
+        if ( list.inPass() )
+        {
+            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: a pass is still open, the frame is dropped.\n");
+        }
+        else
+        {
+            if ( bPresent && stdRenderBabylon_state.pDevice->info().hasSwapchain )
+            {
+                stdRenderBabylon_RecordPresent(list);
+            }
+
+            const bool bDrawsBackBuffer = stdRenderBabylon_DrawsBackBuffer(list);
+            bSubmitted = stdRenderBabylon_state.pDevice->submit(list);
+            if ( !bSubmitted )
+            {
+                STDLOG_ERROR("stdRenderBabylon_SubmitFrame: the device refused the frame.\n");
+            }
+            else if ( bDrawsBackBuffer )
+            {
+                ++stdRenderBabylon_state.backBufferVersion;
+            }
+        }
+
+        stdRenderBabylon_state.frame.reset();
+        stdRenderBabylon_DestroyDeferred();
+        return bSubmitted;
+    }
+}
+
 bool stdRenderBabylon_SubmitFrame()
 {
-    if ( !stdRenderBabylon_state.frame )
+    return stdRenderBabylon_Submit(true);
+}
+
+bool stdRenderBabylon_FlushFrame()
+{
+    return stdRenderBabylon_Submit(false);
+}
+
+bool stdRenderBabylon_PresentFrame()
+{
+    (void)stdRenderBabylon_GetFrame();
+    return stdRenderBabylon_Submit(true);
+}
+
+uint64_t stdRenderBabylon_GetBackBufferVersion()
+{
+    const bool bPendingDraws = stdRenderBabylon_state.frame && stdRenderBabylon_DrawsBackBuffer(*stdRenderBabylon_state.frame);
+    return stdRenderBabylon_state.backBufferVersion + (bPendingDraws ? 1u : 0u);
+}
+
+bool stdRenderBabylon_WriteBackBuffer(const void* pData)
+{
+    if ( !pData )
     {
-        return true;
+        STDLOG_ERROR("stdRenderBabylon_WriteBackBuffer: no source pixels.\n");
+        return false;
     }
 
-    render::CommandList& list = *stdRenderBabylon_state.frame;
-    bool bSubmitted = false;
-    if ( list.inPass() )
+    if ( !stdRenderBabylon_state.pDevice || stdRenderBabylon_state.colorTarget.isNull() )
     {
-        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: a pass is still open, the frame is dropped.\n");
-    }
-    else
-    {
-        if ( stdRenderBabylon_state.pDevice->info().hasSwapchain )
-        {
-            stdRenderBabylon_RecordPresent(list);
-        }
-
-        bSubmitted = stdRenderBabylon_state.pDevice->submit(list);
-        if ( !bSubmitted )
-        {
-            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: the device refused the frame.\n");
-        }
+        STDLOG_ERROR("stdRenderBabylon_WriteBackBuffer: no back buffer.\n");
+        return false;
     }
 
-    stdRenderBabylon_state.frame.reset();
-    stdRenderBabylon_DestroyDeferred();
-    return bSubmitted;
+    if ( !stdRenderBabylon_FlushFrame() )
+    {
+        return false;
+    }
+
+    const size_t size = (size_t)stdRenderBabylon_state.width * stdRenderBabylon_state.height * 4u;
+    const std::span<const std::byte> data(static_cast<const std::byte*>(pData), size);
+    if ( !stdRenderBabylon_state.pDevice->uploadTexture(stdRenderBabylon_state.colorTarget, 0, data) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_WriteBackBuffer: the device refused the %ux%u upload.\n",
+            stdRenderBabylon_state.width, stdRenderBabylon_state.height);
+        return false;
+    }
+
+    ++stdRenderBabylon_state.backBufferVersion;
+    return true;
+}
+
+bool stdRenderBabylon_ClearBackBuffer(const render::ClearColor& color)
+{
+    if ( !stdRenderBabylon_state.pDevice || stdRenderBabylon_state.colorTarget.isNull() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_ClearBackBuffer: no back buffer.\n");
+        return false;
+    }
+
+    render::CommandList& list = stdRenderBabylon_GetFrame();
+    render::PassDesc pass;
+    pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_state.colorTarget, 0,
+        render::LoadOp::Clear, render::StoreOp::Store, color });
+    if ( !list.beginPass(pass) || !list.endPass() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_ClearBackBuffer: the frame refused the clear pass.\n");
+        return false;
+    }
+
+    return true;
 }
 
 void stdRenderBabylon_DestroyTexture(render::TextureHandle texture)

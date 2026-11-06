@@ -25,6 +25,13 @@
 #define STDRENDERREPLAYTEST_OUTPUT "stdRenderReplay_Output.rcap"
 #define STDRENDERREPLAYTEST_BAD    "stdRenderReplay_Bad.rcap"
 
+// Added: what the column's stdDisplay_VBufferFill answers for a filled software VBuffer: 0 from
+// stdDisplayNull.c, 1 from stdDisplayBabylon.cpp, as stdDisplayDX9.c answered (the test target
+// defines it).
+#ifndef STDRENDERREPLAYTEST_VBUFFERFILL_OK
+#define STDRENDERREPLAYTEST_VBUFFERFILL_OK 0
+#endif
+
 static void StdRenderReplayTest_RemoveFiles(void)
 {
     remove(STDRENDERREPLAYTEST_INPUT);
@@ -213,7 +220,7 @@ TEST(stdRenderReplay, TestRoundTripMatchesByteForByte)
     TEST_ASSERT_NOT_NULL(pMip0);
     TEST_ASSERT_NOT_NULL(pMip1);
 
-    TEST_ASSERT_EQUAL_INT(0, stdDisplay_VBufferFill(pMip0, 0x11223344u, &rect));
+    TEST_ASSERT_EQUAL_INT(STDRENDERREPLAYTEST_VBUFFERFILL_OK, stdDisplay_VBufferFill(pMip0, 0x11223344u, &rect));
     // Added: change the pixels after the fill, so only the VBufferUnlock blob restores the
     // recorded content during the replay; a missing restore leaves the filled bytes behind.
     {
@@ -226,7 +233,7 @@ TEST(stdRenderReplay, TestRoundTripMatchesByteForByte)
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pMip0));
     // Added: a same-format conversion returns its source, so the record names the existing handle.
     TEST_ASSERT_EQUAL_PTR(pMip0, stdDisplay_VBufferConvertColorFormat(&raster0.colorInfo, pMip0, 0, NULL));
-    TEST_ASSERT_EQUAL_INT(0, stdDisplay_VBufferFill(pMip1, 0xAABBCCDDu, NULL));
+    TEST_ASSERT_EQUAL_INT(STDRENDERREPLAYTEST_VBUFFERFILL_OK, stdDisplay_VBufferFill(pMip1, 0xAABBCCDDu, NULL));
     {
         size_t i;
         for ( i = 0; i < pMip1->rasterInfo.size; ++i )
@@ -308,7 +315,7 @@ TEST(stdRenderReplay, TestRoundTripAfterConvertFreesSource)
 
     pSrc = stdDisplay_VBufferNew(&raster, 0, 0);
     TEST_ASSERT_NOT_NULL(pSrc);
-    TEST_ASSERT_EQUAL_INT(0, stdDisplay_VBufferFill(pSrc, 0xAABBCCDDu, NULL));
+    TEST_ASSERT_EQUAL_INT(STDRENDERREPLAYTEST_VBUFFERFILL_OK, stdDisplay_VBufferFill(pSrc, 0xAABBCCDDu, NULL));
 
     pConverted = stdDisplay_VBufferConvertColorFormat(&colorInfo16, pSrc, 0, NULL);
     TEST_ASSERT_NOT_NULL(pConverted);
@@ -367,7 +374,7 @@ TEST(stdRenderReplay, TestRoundTripReproducesSithMaterialRasterMutation)
     pSrc = stdDisplay_VBufferNew(&raster, 0, 0);
     TEST_ASSERT_NOT_NULL(pSrc);
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferLock(pSrc));
-    TEST_ASSERT_EQUAL_INT(0, stdDisplay_VBufferFill(pSrc, 0xAABBCCDDu, NULL));
+    TEST_ASSERT_EQUAL_INT(STDRENDERREPLAYTEST_VBUFFERFILL_OK, stdDisplay_VBufferFill(pSrc, 0xAABBCCDDu, NULL));
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pSrc));
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pSrc));
 

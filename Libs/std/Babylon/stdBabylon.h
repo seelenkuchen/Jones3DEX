@@ -28,7 +28,8 @@ struct StdBabylonContext
     babylon::platform::NullPlatform* pScriptPlatform; // the headless runner's queue, or nullptr
     babylon::platform::Window* pWindow;      // the game window, or nullptr (headless)
     babylon::cvars::Registry* pCvars;        // never null while installed
-    // The render device std3D draws with (stdRenderBabylon.h), or nullptr: std3D_Startup then fails.
+    // The render device stdDisplay presents and std3D draws with (stdRenderBabylon.h), or nullptr:
+    // stdDisplay_Startup and std3D_Startup then fail.
     // The composition root creates it after the window and destroys it before the window.
     babylon::render::Device* pRenderDevice;
 };
