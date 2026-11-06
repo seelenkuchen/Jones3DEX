@@ -57,16 +57,35 @@ set(_BABYLON_DXC_BASE_URL
     "https://github.com/microsoft/DirectXShaderCompiler/releases/download/v${_BABYLON_DXC_VERSION}")
 set(_BABYLON_SHADERS_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
+# shadercross is a host tool: it runs during the build on the build machine,
+# whatever the target. These describe the host, never the target, so a
+# Win32 or cross-compiling configure still gets a tool that runs here and
+# loads the host's DXC.
+if (CMAKE_HOST_WIN32)
+    set(_BABYLON_HOST_EXECUTABLE_SUFFIX ".exe")
+else()
+    set(_BABYLON_HOST_EXECUTABLE_SUFFIX "")
+endif()
+string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" _BABYLON_HOST_CPU)
+if (_BABYLON_HOST_CPU MATCHES "^(x86_64|amd64)$")
+    set(_BABYLON_HOST_CPU "x86_64")
+    set(_BABYLON_HOST_VS_PLATFORM "x64")
+elseif (_BABYLON_HOST_CPU MATCHES "^(arm64|aarch64)$")
+    set(_BABYLON_HOST_CPU "arm64")
+    set(_BABYLON_HOST_VS_PLATFORM "ARM64")
+else()
+    set(_BABYLON_HOST_VS_PLATFORM "Win32")
+endif()
+
 # Sets out_url and out_sha256 to the prebuilt DXC package for the host, or
 # both empty when there is none.
 function(_babylon_dxc_package out_url out_sha256)
     set(url "")
     set(sha "")
-    string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" cpu)
-    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND cpu MATCHES "^(x86_64|amd64)$")
+    if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND _BABYLON_HOST_CPU STREQUAL "x86_64")
         set(url "${_BABYLON_DXC_BASE_URL}/linux_dxc_2026_09_28.x86_x64.tar.gz")
         set(sha "96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1")
-    elseif (CMAKE_HOST_WIN32 AND cpu MATCHES "^(amd64|x86_64)$")
+    elseif (CMAKE_HOST_WIN32 AND _BABYLON_HOST_CPU STREQUAL "x86_64")
         set(url "${_BABYLON_DXC_BASE_URL}/dxc_2026_09_29.zip")
         set(sha "ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1")
     endif()
@@ -157,24 +176,32 @@ function(_babylon_build_shadercross install_dir)
         message(FATAL_ERROR "Shader toolchain: no dxcompiler library in ${dxc_root}")
     endif()
 
-    # The same generator and compilers as this build, but a release build of
-    # its own, without Babylon's warnings and sanitizers.
+    # The same generator as this build, but for the host (see the top of
+    # this file) and a release build of its own, without Babylon's warnings
+    # and sanitizers. Visual Studio gets the host's platform, never this
+    # build's -A (a Win32 shadercross can't load the x64 dxcompiler.dll);
+    # other generators get this build's compilers unless it cross-compiles,
+    # when the host's default compilers are used and the toolchain file
+    # stays out.
     set(configure_args -S "${_BABYLON_SHADERS_DIR}/shadercross" -B "${work}/build"
         -G "${CMAKE_GENERATOR}"
         "-DSHADERCROSS_SOURCE_DIR=${source}"
         "-DCMAKE_BUILD_TYPE=Release")
-    if (CMAKE_GENERATOR_PLATFORM)
-        list(APPEND configure_args -A "${CMAKE_GENERATOR_PLATFORM}")
+    if (CMAKE_GENERATOR MATCHES "^Visual Studio")
+        list(APPEND configure_args -A "${_BABYLON_HOST_VS_PLATFORM}")
+        if (CMAKE_GENERATOR_TOOLSET)
+            list(APPEND configure_args -T "${CMAKE_GENERATOR_TOOLSET}")
+        endif()
+    else()
+        if (CMAKE_MAKE_PROGRAM)
+            list(APPEND configure_args "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
+        endif()
+        if (NOT CMAKE_CROSSCOMPILING)
+            list(APPEND configure_args
+                "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+                "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+        endif()
     endif()
-    if (CMAKE_GENERATOR_TOOLSET)
-        list(APPEND configure_args -T "${CMAKE_GENERATOR_TOOLSET}")
-    endif()
-    if (CMAKE_MAKE_PROGRAM)
-        list(APPEND configure_args "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
-    endif()
-    list(APPEND configure_args
-        "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-        "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
     if (sdl3_SOURCE_DIR)
         list(APPEND configure_args "-DSHADERCROSS_SDL_SOURCE_DIR=${sdl3_SOURCE_DIR}")
     elseif (SDL3_DIR)
@@ -189,14 +216,20 @@ function(_babylon_build_shadercross install_dir)
         list(APPEND configure_args "-DDirectXShaderCompiler_dxil_LIBRARY=${dxcompiler}")
     endif()
     message(STATUS "Shader toolchain: building shadercross")
-    _babylon_run("configuring shadercross" ${CMAKE_COMMAND} ${configure_args})
+    # The environment's compilers and flags may be the target's (a cross
+    # configure exports CC and CXX to its children); the host tool takes
+    # neither them nor a toolchain file from the environment.
+    _babylon_run("configuring shadercross" ${CMAKE_COMMAND} -E env
+        --unset=CMAKE_TOOLCHAIN_FILE --unset=CC --unset=CXX --unset=CFLAGS
+        --unset=CXXFLAGS --unset=LDFLAGS
+        ${CMAKE_COMMAND} ${configure_args})
     _babylon_run("building shadercross" ${CMAKE_COMMAND} --build "${work}/build"
         --config Release --target shadercross)
 
     # Single-config generators build into shadercross/, multi-config ones
     # into shadercross/Release/.
-    file(GLOB tool "${work}/build/shadercross/shadercross${CMAKE_EXECUTABLE_SUFFIX}"
-        "${work}/build/shadercross/*/shadercross${CMAKE_EXECUTABLE_SUFFIX}")
+    file(GLOB tool "${work}/build/shadercross/shadercross${_BABYLON_HOST_EXECUTABLE_SUFFIX}"
+        "${work}/build/shadercross/*/shadercross${_BABYLON_HOST_EXECUTABLE_SUFFIX}")
     list(LENGTH tool tool_count)
     if (tool_count GREATER 0)
         list(GET tool 0 tool)
@@ -245,11 +278,13 @@ function(_babylon_setup_shader_toolchain)
     else()
         set(dxc_id "dxc-${_BABYLON_DXC_VERSION}")
     endif()
-    string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}-${CMAKE_HOST_SYSTEM_PROCESSOR}" host)
+    # The host's system and normalized CPU (windows-amd64 is windows-x86_64
+    # now, so tools an earlier Win32 configure built for x86 aren't reused).
     # nodxil: built without DXC's dxil library; older entries carry it.
+    string(TOLOWER "${CMAKE_HOST_SYSTEM_NAME}-${_BABYLON_HOST_CPU}" host)
     set(id "${host}-shadercross-${shadercross_short}-spirvcross-${spirv_cross_short}-${dxc_id}-nodxil")
     set(install_dir "${BABYLON_CACHE_DIR}/shadercross/${id}")
-    set(tool "${install_dir}/shadercross${CMAKE_EXECUTABLE_SUFFIX}")
+    set(tool "${install_dir}/shadercross${_BABYLON_HOST_EXECUTABLE_SUFFIX}")
 
     if (NOT EXISTS "${tool}")
         # One configure at a time builds a toolchain; the others wait and
@@ -270,10 +305,6 @@ function(_babylon_setup_shader_toolchain)
 endfunction()
 
 if (BABYLON_BUILD_SHADERS)
-    if (CMAKE_CROSSCOMPILING AND NOT BABYLON_SHADERCROSS)
-        message(FATAL_ERROR "Cross-compiling Babylon needs a host shadercross in "
-            "BABYLON_SHADERCROSS, or BABYLON_BUILD_SHADERS=OFF")
-    endif()
     _babylon_setup_shader_toolchain()
 endif()
 
