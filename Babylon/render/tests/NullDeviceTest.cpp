@@ -462,6 +462,48 @@ TEST_CASE("The Null device executes buffer updates between the draws they feed")
     CHECK(device->readBuffer(vertices, 0, 32 * 3) == secondDraw);
 }
 
+TEST_CASE("A Null device that doesn't record keeps nothing but still executes")
+{
+    CaptureSink sink;
+    NullDeviceDesc desc;
+    desc.record = false;
+    const std::unique_ptr<NullDevice> device = createNullDevice(desc);
+    const BufferHandle vertices = device->createBuffer(BufferDesc{ 32 * 3, BufferUsage::Vertex });
+    const TextureHandle target = device->createTexture(TextureDesc{ 2, 1, 1,
+        TextureFormat::Rgba8, TextureUsage::ColorTarget });
+    const PipelineHandle pipeline = device->createPipeline(
+        withoutShaderResources(transformedVertexPipeline(TextureFormat::Rgba8, std::nullopt)));
+    REQUIRE_FALSE(pipeline.isNull());
+
+    // Frames of streamed vertices: buffer updates and clears are applied,
+    // but no pipeline creation, command or frame end is kept.
+    PassDesc pass;
+    pass.colorTargets = { ColorAttachment{ target, 0, LoadOp::Clear, StoreOp::Store,
+        ClearColor{ 1.0f, 0.0f, 0.0f, 1.0f } } };
+    std::vector<std::byte> data;
+    for ( unsigned frameNum = 0; frameNum < 3; ++frameNum )
+    {
+        data = bytes(32 * 3, frameNum);
+        CommandList frame = device->beginFrame();
+        frame.updateBuffer(vertices, 0, data);
+        REQUIRE(frame.beginPass(pass));
+        frame.setPipeline(pipeline);
+        frame.bindVertexBuffer(0, vertices);
+        frame.draw(3);
+        REQUIRE(frame.endPass());
+        REQUIRE(device->submit(frame));
+        CHECK(device->recorded().empty());
+    }
+    noWarning(sink);
+    CHECK(device->readBuffer(vertices, 0, 32 * 3) == data);
+    const std::byte red[] = { std::byte{ 0xFF }, std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0xFF } };
+    CHECK(device->readTexture(target, 0) == std::vector<std::byte>{ red[0], red[1], red[2], red[3],
+        red[0], red[1], red[2], red[3] });
+
+    // Recording stays on by default.
+    CHECK(NullDeviceDesc{}.record);
+}
+
 TEST_CASE("The Null device drops draws whose shaders read slots the pass didn't fill")
 {
     CaptureSink sink;

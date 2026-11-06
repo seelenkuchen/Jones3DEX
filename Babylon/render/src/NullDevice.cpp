@@ -101,6 +101,7 @@ namespace
         HandlePool<SamplerTag, SamplerDesc> samplers;
         HandlePool<PipelineTag, PipelineDesc> pipelines;
         std::uint64_t frame = 0;
+        bool record = true;
         std::vector<RecordedCommand> recorded;
     };
 
@@ -112,6 +113,7 @@ namespace
         m_state->info.swapchainFormat = TextureFormat::Bgra8;
         m_state->info.limits = DeviceLimits{ 8192, 256u * 1024u * 1024u };
         m_state->unsupportedFormats = desc.unsupportedFormats;
+        m_state->record = desc.record;
     }
 
     NullDevice::~NullDevice() = default;
@@ -266,7 +268,10 @@ namespace
             warnExhausted("createPipeline");
             return {};
         }
-        m_state->recorded.emplace_back(PipelineCreated{ *handle, desc });
+        if ( m_state->record )
+        {
+            m_state->recorded.emplace_back(PipelineCreated{ *handle, desc });
+        }
         return *handle;
     }
 
@@ -338,11 +343,17 @@ namespace
                 std::memcpy(target.bytes.data() + update->offset, update->data.data(),
                     update->data.size());
             }
-            std::visit([this](auto& recorded) { m_state->recorded.emplace_back(std::move(recorded)); },
-                command);
+            if ( m_state->record )
+            {
+                std::visit([this](auto& recorded) { m_state->recorded.emplace_back(std::move(recorded)); },
+                    command);
+            }
         }
-        m_state->recorded.emplace_back(FrameSubmitted{ m_state->frame,
-            drawsToSwapchain && m_state->info.hasSwapchain });
+        if ( m_state->record )
+        {
+            m_state->recorded.emplace_back(FrameSubmitted{ m_state->frame,
+                drawsToSwapchain && m_state->info.hasSwapchain });
+        }
     }
 
     std::unique_ptr<NullDevice> createNullDevice(const NullDeviceDesc& desc)

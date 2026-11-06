@@ -50,6 +50,12 @@ namespace babylon::render
         // Formats the device reports as unsupported for every usage, to
         // exercise the paths of devices that lack a format.
         std::vector<TextureFormat> unsupportedFormats;
+
+        // Whether pipeline creations and executed commands are kept in
+        // recorded(). Off, recorded() stays empty and a long run (a headless
+        // game streaming vertices every frame) keeps no memory per frame;
+        // everything else is the same.
+        bool record = true;
     };
 
     // Device that touches no GPU, for tests and headless runs. It honors the
@@ -65,7 +71,9 @@ namespace babylon::render
     //
     // Every pipeline creation and every executed command of a submitted
     // list is appended to recorded(), in order, followed by a FrameSubmitted
-    // per submit; dropped commands and refused calls are not recorded.
+    // per submit; dropped commands and refused calls are not recorded. The
+    // record grows until clearRecorded(); NullDeviceDesc::record turns it
+    // off.
     class NullDevice final : public Device
     {
     public:
