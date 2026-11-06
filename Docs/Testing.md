@@ -447,9 +447,13 @@ Replay a capture and optionally record the replayed calls into a second file:
 ```
 
 The Babylon column's `Jones3D-replay` also takes `--render null|gpu` and, with `gpu`,
-`--frames-out <dir> [--every <n>]`: after each replayed `stdDisplay_Update` it reads the
+`--frames-out <dir> [--every <n>] [--normals]`: after each replayed `stdDisplay_Update` it reads the
 back buffer and writes `frame_<NNNNN>.bmp` (every nth frame with `--every`), so an
-M6.1-style capture renders to image frames for visual comparison. The captures themselves
+M6.1-style capture renders to image frames for visual comparison. `--normals` also writes the
+normal target of each such frame as `normals_<NNNNN>.bmp`, the encoded view-space normal
+(`n * 0.5 + 0.5`: x red, y up green, z toward the viewer blue; black where nothing wrote one),
+a debug view of the lit path: record a capture with `engine.renderer.litFaces.enabled` on and
+the world and models show their normals; with it off every scene pixel has the constant normal. The captures themselves
 contain game data and stay local; they are not committed.
 
 The replay exits `0` when it finishes, `1` for a malformed or inconsistent
@@ -556,7 +560,14 @@ stream next to a classic draw; the GPU group draws a quad with per-vertex normal
 target with the normals interpolated by hand, and its color with the same quad drawn the classic way, byte for
 byte. The rdroid suite (`rdroidTests`) checks `rdClip_FaceToPlaneLit` against `rdClip_FaceToPlane` and hand-worked
 positions and normals, and reads from a render capture in memory what `rdCache` hands to `std3D` for lit and
-classic faces.
+classic faces. Since M6.9b2 it also draws one-face models through `rdModel3_Draw` with lit faces on and off
+(`rdSetLitFaces`): on, the face is a lit draw whose normals are the vertex normals (Gouraud) or the face normal
+(flat shaded) rotated by a hand-worked model-view matrix, negated for a drawn back face, from the alpha list
+for a translucent face, and its `StdVertexTL` part is the classic draw's byte for byte; off, no lit draw
+(record 35) is made at all. Its `rdFace` group checks `rdFace_CalcSmoothNormals`, the level surfaces' smoothed
+corner normals: a cube keeps its hard corners, a 12-sided prism smooths each side edge to the bisector, two
+faces 44 degrees apart are smoothed and 46 degrees apart stay hard under the 45 degree threshold, and excluded
+faces, faces without geometry or normal, out-of-range vertices and bad arguments.
 
 The same executable runs the `stdDisplayBabylon` suites. Their Null group drives the public `stdDisplay_*`
 calls: the one display device, the headless and windowed video mode lists and aspect ratios, `SetMode`, the

@@ -26,6 +26,9 @@
   - The Babylon column plays the intro movie, without sound until real audio arrives; Enter, Escape or a mouse
     click skips it, as before. The Null column still skips movies.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
+  - World surfaces and models reach the renderer with view-space normals (`engine.renderer.litFaces.enabled` in
+    `Jones.cfg`, on by default), for the per-pixel passes to come; the picture is unchanged, and off restores the
+    classic path exactly. `Jones3D-replay --frames-out <dir> --normals` also writes each frame's normal target.
 
 ## v0.4.0
 ### DirectX 9 Port, Redesigned HUD, Auto Aim Reticle, Enhanced Graphics & Gameplay QOL Improvements

@@ -761,7 +761,15 @@ Option A's extended vertex ([ADR-0023](../09-decisions/ADR-0023-advanced-graphic
 - **Babylon `std3D`**: lit draws use their own pipelines (one per Z write) with `std3d_lit.vert.hlsl` and `std3d_lit.frag.hlsl`, and stream into their own vertex buffer, made on the first lit draw, so classic draws issue the same device calls as before. The shaders compute the color exactly as the default ones; the vertex shader maps the position and normal to the normal target's space as `(x, z, -y)`, and the fragment shader writes the normalized interpolated normal (the constant one for a zero normal).
 - **Capture**: `std3D_DrawRenderListLit` records as id 35 ([RCAP](../../Formats/RCAP.md)); older captures replay unchanged.
 
-Nothing in the game creates lit entries yet (M6.9b2 makes `sithRender` and `rdModel3` fill them), so its frames, captures and traces are unchanged.
+Since M6.9b2 the game fills them, behind the presentation option `engine.renderer.litFaces.enabled` ([Jones.cfg](../../Jones.cfg.md), on by default), which `JonesDisplay_Open` hands to `rdSetLitFaces`:
+
+- **World surfaces** (`sithRender_RenderSectors` for every non-sky surface, `sithRender_RenderAlphaAdjoins` for translucent adjoins) take lit entries and `rdClip_FaceToPlaneLit`. Levels store a face normal per surface only, so `sithRender_Open` computes **smoothed corner normals** once per world with `rdFace_CalcSmoothNormals`: a corner of a surface averages the unit normals of the surfaces sharing its vertex whose normals are less than 45 degrees from its own (`SITHRENDER_SMOOTHNORMAL_MAXANGLE`, to be tuned in M10); without such a partner it keeps the face normal, so hard corners stay hard. Sky surfaces and surfaces without geometry never smooth a neighbour. The normals live in renderer-side arrays freed by `sithRender_Close`, not in the world or savegames. Each frame a drawn surface's corner normals are rotated by the view matrix, like its vertices, and renormalized; if the arrays could not be made, lit surfaces use their rotated face normal.
+- **Models** (`rdModel3_DrawMesh`, `rdModel3_DrawFace`): the mesh's vertex normals are rotated by the model-view matrix once per mesh; Gouraud faces take them by vertex, flat-shaded faces (and meshes without vertex normals) the rotated face normal, and a back face that is drawn (double-sided or culling off) gets them negated. Translucent faces go through `rdCache_GetLitAlphaProcEntry`.
+- **Classic**: the sky, sprites, particles, polylines, shadows, the overlay map and the HUD (its 3D inventory icons turn lit faces off around `rdModel3_Draw`). With the option off every face is classic, exactly as before: record 14 in captures, the same frames.
+
+`Jones3D-replay --render gpu --frames-out <dir> --normals` writes the normal target of each replayed frame next to the frame image, to look at what the lit path emits ([Testing](../../Testing.md)).
+
+The option is presentation, not part of the Retail or Enhanced simulation profile: the colour is the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with it on and off.
 
 ### Textures And Cache
 

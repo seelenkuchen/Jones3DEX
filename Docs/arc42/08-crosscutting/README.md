@@ -60,7 +60,10 @@ crosses it.
 `Jones.cfg` holds the settings inherited from OpenJones3D ([Jones.cfg.md](../../Jones.cfg.md)). New settings
 are Babylon cvars from M5 on ([ADR-0013](../09-decisions/ADR-0013-cvars-in-foundation.md)). Cvars that
 affect the simulation are written into traces, so a trace can be replayed with the settings that made it.
-Which cvars those are is set by a flag ([ADR-0020](../09-decisions/ADR-0020-cvar-flags.md)). Configuration,
+Which cvars those are is set by a flag ([ADR-0020](../09-decisions/ADR-0020-cvar-flags.md)). Presentation
+options the game code reads stay `Jones.cfg` keys next to the renderer options inherited from OpenJones3D until
+the game code reads cvars: for example `engine.renderer.litFaces.enabled` (M6.9b2), which belongs to no
+simulation profile, since it changes only what reaches the GPU and never the trace. Configuration,
 savegames, replays and logs are written to a per-user directory, not next to the game data
 ([ADR-0019](../09-decisions/ADR-0019-user-directory-for-writes.md)).
 
