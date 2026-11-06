@@ -30,5 +30,6 @@
 | The Windows column still compiles a Win32 SMUSH timer | `Libs/smush/insane/Timer/TimerWin32.c` | Replace with the Babylon thread module when it lands (M11 and later); until then this is the only Win32 file in the Babylon column |
 | `ctest -L check` does not run under the wine toolchain | CMake prefixes the `python3` boundary checks with the emulator | Run the boundary checks in a native build tree; the unit and Babylon suites run under wine |
 | SDL GPU limits are fixed constants, not queried | `SdlGpuDevice.cpp` reports 8192 texels and 128 MiB per buffer on every driver because SDL GPU has no limit queries | Revisit when SDL exposes limits |
-| SDL GPU pipelines and draws are untested | The render contract tests create no pipeline and submit no real draw on SDL GPU until shaders exist in M6.5 | Add shader, pipeline and draw contract cases in M6.5 |
+| No source-build fallback for DXC | The shader toolchain relies on a prebuilt DXC for Linux x86_64 and Windows x64 | Build DXC and set `BABYLON_DXC_ROOT`, set `BABYLON_SHADERCROSS` to an existing tool, or turn `BABYLON_BUILD_SHADERS` off |
+| macOS and arm64 have no prebuilt DXC | The first configure fails on those hosts unless DXC is supplied | Set `BABYLON_DXC_ROOT` to a locally built DXC, or `BABYLON_BUILD_SHADERS=OFF` |
 | Lavapipe leak workaround in tests | `KeepGpuDriverLoaded.h` keeps Mesa's lavapipe loaded because it leaks memory under `pthread_once` | Tests only; remove when lavapipe or the Vulkan loader frees that memory |

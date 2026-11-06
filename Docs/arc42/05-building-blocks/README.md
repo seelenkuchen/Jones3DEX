@@ -79,7 +79,9 @@ the whole game run headless, which is how traces are recorded ([chapter 8](../08
 `Babylon/render/` is the Babylon replacement for the DirectX 9 `std3D` and `stdDisplay` backends
 ([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)). It depends on `log`, on `platform` (the SDL GPU
 backend's window) and on SDL3. The game does not use it yet: `std3D` and `stdDisplay` stay on the
-Null renderer until M6.6, and shaders, with pipelines and draws on SDL GPU, arrive in M6.5.
+Null renderer until M6.6. Shaders are compiled at build time with SDL_shadercross
+([ADR-0022](../09-decisions/ADR-0022-shaders-compiled-at-build-time.md)), and pipelines and draws run on
+both backends.
 
 **Device and handles.** One interface, `babylon::render::Device`, owns every texture, buffer, sampler and
 pipeline and executes frames. Callers see descs in game-agnostic terms (`TextureDesc` with mips, a byte
@@ -105,7 +107,9 @@ that belongs to another device or frame, one already submitted, or one with a pa
 checks every command against the live resources: stale or null handles, missing texture or buffer usage, a
 pipeline whose target formats differ from the pass's, a vertex or index buffer bound past its end, vertex
 or index ranges past the buffer, copies between different formats or out of bounds, and buffer updates
-past the end. A rejected command is dropped with one warning; a dropped `beginPass` drops its whole pass,
+past the end. A draw is also dropped when its shaders declare a texture or uniform slot that no earlier
+`bindTexture` or `pushUniforms` in the same pass filled (the exact rule is in `Device.h`). A rejected
+command is dropped with one warning; a dropped `beginPass` drops its whole pass,
 and after another dropped command the pass's later draws are dropped silently. The accepted commands run in
 order, and `submit()` presents when a pass drew to the swapchain of a device that has one.
 
@@ -126,9 +130,9 @@ never a color target: Vulkan stores it with the components in other bits and SDL
 sampling, so uploads, copies and readback keep the layout of `Texture.h`, but clears and draws would write
 the wrong bits. SDL GPU has no limit queries, so the backend reports fixed limits of 8192 texels and 128 MiB
 per buffer. Uploads and readbacks run in their own command buffers, ordered with submits; a readback waits
-for the GPU. Pipelines and draws on this backend are untested until shaders exist in M6.5; the contract
-tests cover device info, texture and buffer creation and contents, clears, copies, buffer updates and the
-swapchain.
+for the GPU. Pipelines and draws are tested: `ShaderDrawTest.cpp` draws a triangle, a textured quad and
+depth-tested quads through the compiled shaders and compares the read-back image. The contract tests cover
+device info, texture and buffer creation and contents, clears, copies, buffer updates and the swapchain.
 
 The render contract tests live in `Babylon/render/tests/` and run against both backends
 ([Testing.md](../../Testing.md)).

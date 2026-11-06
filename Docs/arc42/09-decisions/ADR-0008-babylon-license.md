@@ -24,3 +24,8 @@ locked consoles. AGPL would bind every user of Babylon.
 - MPL-2.0 is compatible with the AGPL game.
 - Babylon is written fresh, even where an AGPL implementation of the same thing already exists here.
 - CI checks dependency licenses.
+
+## Amendment (2026-11-06)
+
+For build tools, the permissive list includes DXC's NCSA (BSD-style) licence; see the amendment in
+[ADR-0022](ADR-0022-shaders-compiled-at-build-time.md).

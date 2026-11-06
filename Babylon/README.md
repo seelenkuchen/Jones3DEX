@@ -71,6 +71,24 @@ for modules the tests call that the tested module keeps private, such as
 `log` when a test attaches a `CaptureSink`; such a link adds no edge to the
 module graph.
 
+## Shaders
+
+`babylon_add_shaders(<target> SOURCES ...)` compiles HLSL at build time through SDL_shadercross into
+SPIR-V, DXIL and MSL ([ADR-0022](../Docs/arc42/09-decisions/ADR-0022-shaders-compiled-at-build-time.md)).
+Each file holds one stage and is named `<name>.vert.hlsl` or `<name>.frag.hlsl`; its entry point is
+`main`. The generated header, `#include <babylon/shaders/<target>.h>`, declares one function per file
+(named in camel case, so `my_tint.frag.hlsl` becomes `myTintFrag()`) that returns a
+`const babylon::render::ShaderDesc&`. Textures and samplers use the register spaces SDL GPU expects:
+vertex textures in space0 and vertex uniform blocks in space1, fragment textures in space2 and fragment
+uniform blocks in space3, slots from 0. Shaders must not `#include` other files: the cache key covers
+only the file itself.
+
+`BABYLON_BUILD_SHADERS` (default ON) builds the toolchain and the shaders; OFF skips both, and
+`babylon_add_shaders()` becomes a configure error. `BABYLON_CACHE_DIR` (default `.cache/` under the
+top-level source directory) holds the toolchain under `shadercross/` and the compiled shaders under
+`shaders/`. `BABYLON_SHADERCROSS` names an existing executable to use instead of building one, and
+`BABYLON_DXC_ROOT` a DXC install in the layout of its release packages for hosts without a prebuilt one.
+
 ## Build and test alone
 
     cmake -S Babylon -B build/babylon -G Ninja
