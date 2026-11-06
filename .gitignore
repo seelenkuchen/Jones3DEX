@@ -63,3 +63,6 @@ Libs/j3dcore/j3d.h
 
 # jetbrain folder
 .idea/
+
+# Shader toolchain and compiled shader cache (Babylon/cmake/BabylonShaders.cmake)
+.cache/
