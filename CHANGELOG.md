@@ -23,6 +23,8 @@
   - Native builds use the same random number generator as the original (Microsoft's `rand`), so AI, COG
     `rand` and other random choices follow the retail sequence; this also makes the jeep's bumps work natively.
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
+  - The Babylon column plays the intro movie, without sound until real audio arrives; Enter, Escape or a mouse
+    click skips it, as before. The Null column still skips movies.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
 
 ## v0.4.0

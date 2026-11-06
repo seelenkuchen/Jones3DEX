@@ -24,11 +24,11 @@
 | Win32 dialogs (removed in M6.3) | `jonesConfig.c`, `JonesDialog.c` | Replaced by in-game screens in M7 |
 | Sound parser can read before its input buffer | `AudioLib_ParseWaveFileHeader` | Fix with a regression test; a malformed sound file triggers it |
 | Lip-sync pointer restored from sound banks | `Sound.c` | Force to NULL on load; a wild pointer on 64-bit |
-| Cutscene blitter relies on 32-bit pointer wrap | `Libs/smush/insane/Bitmap/BlitAsm.c` | Check with a native cutscene run, then fix |
+| Cutscene blitter relies on 32-bit pointer wrap | `Libs/smush/insane/Bitmap/BlitAsm.c` | Not reached by the game: its only caller (`mixer_Blit` through `blit_Wrapper`) passes row 0 and clip-bounded rows, and SmushPlay's movies blit through the game's callback instead (M6.8). Only the captured vectors hit it |
 | Sound bank scalars read as 4 bytes into `size_t` | `Sound.c` | Read through `uint32_t` |
 | GCC native builds need manual flags | `-D__cdecl= -D__stdcall= -D__fastcall=` and `-Wno-error=incompatible-pointer-types` | Move into `j3d.h.in` and CMake |
 | Multiplayer sends `wchar_t` arrays | `sithMulti.c` | Out of scope while multiplayer has no backend |
-| The Windows column still compiles a Win32 SMUSH timer | `Libs/smush/insane/Timer/TimerWin32.c` | Replace with the Babylon thread module when it lands (M11 and later); until then this is the only Win32 file in the Babylon column |
+| SMUSH frame pacing rounds to 60 Hz ticks | `TimerPolled.c` keeps the original's 60 Hz tick: a 15 fps frame takes 3 to 6 ticks and the average runs about 2% slow, as in the original | Revisit with real audio (M7), whose clock syncs the pace timer |
 | `ctest -L check` does not run under the wine toolchain | CMake prefixes the `python3` boundary checks with the emulator | Run the boundary checks in a native build tree; the unit and Babylon suites run under wine |
 | SDL GPU limits are fixed constants, not queried | `SdlGpuDevice.cpp` reports 8192 texels and 128 MiB per buffer on every driver because SDL GPU has no limit queries | Revisit when SDL exposes limits |
 | No source-build fallback for DXC | The shader toolchain relies on a prebuilt DXC for Linux x86_64 and Windows x64 | Build DXC and set `BABYLON_DXC_ROOT`, set `BABYLON_SHADERCROSS` to an existing tool, or turn `BABYLON_BUILD_SHADERS` off |
