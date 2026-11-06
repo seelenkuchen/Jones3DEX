@@ -219,7 +219,11 @@ TEST_CASE("The Null device refuses invalid pipeline descs with one warning each"
         [](PipelineDesc& d) { d.vertexShader.blobs[0].format = ShaderFormat::None; },
         [](PipelineDesc& d) { d.fragmentShader.textureCount = kMaxTextureSlots + 1; },
         [](PipelineDesc& d) { d.vertexShader.uniformCount = kMaxUniformSlots + 1; },
-        [](PipelineDesc& d) { d.colorTargets.assign(kMaxColorTargets + 1, d.colorTargets[0]); },
+        [](PipelineDesc& d)
+        {
+            const ColorTargetDesc first = d.colorTargets[0];   // assign() may not take a reference into the vector
+            d.colorTargets.assign(kMaxColorTargets + 1, first);
+        },
         [](PipelineDesc& d) { d.colorTargets.clear(); d.depthFormat.reset(); d.depth = {}; },
         [](PipelineDesc& d) { d.colorTargets[0].format = TextureFormat::D24S8; },
         [](PipelineDesc& d) { d.depthFormat = TextureFormat::Rgba8; },
