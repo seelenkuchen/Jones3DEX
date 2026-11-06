@@ -52,6 +52,14 @@ jobs:
       - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja
+      # The shader toolchain and compiled shaders share Babylon/.cache in the
+      # standalone build. A stale toolchain must not be reused, so the key has
+      # no restore-keys; shader outputs are keyed by content too.
+      - name: Cache the shader toolchain
+        uses: actions/cache@v4
+        with:
+          path: Babylon/.cache
+          key: ${{ runner.os }}-${{ runner.arch }}-shader-toolchain-${{ hashFiles('Babylon/cmake/BabylonShaders.cmake', 'Babylon/cmake/BabylonCompileShader.cmake', 'Babylon/cmake/shadercross/**') }}
       - name: Configure
         run: cmake -S Babylon -B build ${{ matrix.configure }} --graphviz=build/graph.dot
       - name: Build
