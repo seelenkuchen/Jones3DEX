@@ -46,6 +46,43 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
   saving until M7.
 - **Next:** sound, dialogs and saving (M7), then playable on all three platforms.
 
+## The Babylon Engine
+
+Babylon lives in [`Babylon/`](Babylon/README.md) and knows nothing about Jones3D: it never includes game code
+and never names a game concept, so it can be built and tested on its own. It is a set of small modules, each one
+CMake target that hides one platform decision:
+
+| Module | What it hides |
+|---|---|
+| `core`, `log` | Assertions, version, logging with pluggable sinks |
+| `time` | The clock; the Null clock steps a fixed amount per frame, which keeps headless runs deterministic |
+| `files` | Host file access, the base path and the per-user writable directory |
+| `platform`, `input` | Windows and OS events, and the per-frame input state built from them |
+| `cvars` | Named, typed settings with defaults, ranges and change callbacks |
+| `render` | The GPU: textures, buffers, pipelines and one command list per frame, on SDL3 GPU (Vulkan, Direct3D 12, Metal) |
+
+Each module that touches the system has an SDL3 backend and a Null backend that keeps the same contract without a
+device. The game reaches Babylon through a thin adapter in `Libs/std`, which keeps the original function names and behavior, so
+the restored code above it barely changes. Tests run each interface against every backend; the render
+tests also run on a software Vulkan driver in CI. The rules are in
+[Babylon-Design-Rules.md](Docs/arc42/08-crosscutting/Babylon-Design-Rules.md) and the
+[decisions](Docs/arc42/09-decisions/README.md).
+
+### What the new renderer adds
+
+The original engine lights the world on the CPU, one brightness value per vertex, and the GPU only blends those
+values across each triangle. The Babylon renderer draws the same picture, and also receives the direction every
+surface faces (its normal). The right image shows that second output, with direction encoded as colour: floors
+facing up are green, walls show their orientation, and Indy is shaded smoothly from his model's normals.
+
+| What you see | What the renderer also knows |
+|---|---|
+| ![A frame of the Canyonlands level](Docs/References/M6.9b/color-01660.png) | ![The same frame's surface normals](Docs/References/M6.9b/normals-01660.png) |
+
+With normals per pixel, lights can be computed per pixel instead of per vertex, and corners and crevices can be
+darkened by screen-space ambient occlusion. Both are planned for a later milestone. The picture itself doesn't
+change: frames rendered with this output on and off are identical, and the classic look stays the reference.
+
 ## Where it comes from
 
 Jones3D EX is a hard fork of [OpenJones3D](https://github.com/smlu/OpenJones3D), which rebuilt the engine
