@@ -219,4 +219,63 @@ if (J3D_PLATFORM_BABYLON)
         LABELS "std;unit"
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/OnBabylon"
     )
+
+    # Added: the Babylon std3D backend and its frame owner (M6.6), tested through the public std3D_
+    # functions on the Babylon render devices: the sources of stdTestsBabylon with std3DBabylon.cpp
+    # in place of std3DNull.c. stdRenderReplayTest.c runs here once more, replaying into that
+    # backend. The suite's own main installs the adapter context (std3DBabylonTest.cpp).
+    set(STD3D_BABYLON_TESTED_SOURCES ${STD_BABYLON_TESTED_SOURCES})
+    list(REMOVE_ITEM STD3D_BABYLON_TESTED_SOURCES "${STD_SOURCE_DIR}/Null/std3DNull.c")
+    list(APPEND STD3D_BABYLON_TESTED_SOURCES
+        "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylon.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylon.cpp"
+    )
+
+    add_executable(std3DBabylonTests
+        stdGeneralTest.c
+        stdRenderReplayTest.c
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonTest.cpp"
+        ${STD3D_BABYLON_TESTED_SOURCES}
+    )
+
+    target_compile_definitions(std3DBabylonTests PRIVATE
+        J3D_TEST
+        STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
+    )
+
+    target_include_directories(std3DBabylonTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${STD_SOURCE_DIR}/Null"
+    )
+
+    target_link_libraries(std3DBabylonTests PRIVATE
+        j3dcore
+        j3dTestSupport
+        jansson::jansson
+        babylon::time
+        babylon::files
+        babylon::platform
+        babylon::cvars
+        babylon::render
+        babylon::log
+        stdBabylonShaders
+    )
+
+    set_target_properties(std3DBabylonTests PROPERTIES
+        FOLDER "Tests/Libs/std"
+        LINKER_LANGUAGE CXX
+    )
+
+    source_group("Tested Sources" FILES ${STD3D_BABYLON_TESTED_SOURCES})
+
+    # The SDL GPU cases need SDL's video subsystem: the offscreen driver needs no display and still
+    # offers Vulkan surfaces for the windowed case, as in Babylon's render tests. Without a GPU those
+    # cases are ignored, unless BABYLON_REQUIRE_GPU=1.
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/std3DOnBabylon")
+    add_test(NAME std.std3DOnBabylon COMMAND std3DBabylonTests)
+    set_tests_properties(std.std3DOnBabylon PROPERTIES
+        LABELS "std;unit"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/std3DOnBabylon"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=$<IF:$<PLATFORM_ID:Darwin>,dummy,offscreen>"
+    )
 endif()

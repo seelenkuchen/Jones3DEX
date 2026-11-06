@@ -27,6 +27,8 @@ if (J3D_PLATFORM_BABYLON)
     list(FILTER SOURCES EXCLUDE REGEX "/Null/stdFileUtilPosix\\.c$")
     list(FILTER SOURCES EXCLUDE REGEX "/Null/stdControlDevicesNull\\.c$")
     list(FILTER SOURCES EXCLUDE REGEX "/Null/stdCvarNull\\.c$")
+    # Added: std3D draws on the Babylon render device (M6.6), through the frame owner stdRenderBabylon.
+    list(FILTER SOURCES EXCLUDE REGEX "/Null/std3DNull\\.c$")
     list(APPEND SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonCvars.cpp"
@@ -37,7 +39,23 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdFileUtilBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdControlDevicesBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdCvarBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
     )
+
+    # Added: the shaders of the Babylon render adapter, compiled at build time (ADR-0022) into their own
+    # library with a public header, so the adapter's test executables, which compile the adapter sources
+    # themselves, link and include the same code.
+    add_library(stdBabylonShaders STATIC)
+    target_link_libraries(stdBabylonShaders PUBLIC babylon::render)
+    babylon_add_shaders(stdBabylonShaders
+        NAMESPACE stdBabylon::shaders
+        PUBLIC_HEADER
+        SOURCES
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/present.vert.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/present.frag.hlsl"
+    )
+    set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()
 
 # Make project target
@@ -63,6 +81,8 @@ if (J3D_PLATFORM_BABYLON)
         babylon::platform
         babylon::input
         babylon::cvars
+        babylon::render
+        stdBabylonShaders
     )
 endif()
 
@@ -71,23 +91,30 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     jansson::jansson
 )
 
-# Added: the render capture replay tool. The plain Null column needs no Babylon host context, so the
-# tool is built there only; the Babylon column still builds the replay library and its tests.
+# Added: the render capture replay tool. The Null column runs the C entry as it is; the Babylon column
+# wraps it in a C++ entry that installs the adapter context with a Null render device first, so a
+# capture replays into the Babylon std3D (M6.6).
 if (NOT J3D_PLATFORM_BABYLON)
     add_executable(Jones3D-replay Tools/stdRenderReplayMain.c)
-    target_link_libraries(Jones3D-replay PRIVATE
-        ${PROJECT_NAME}
-        j3dcore
-    )
-
-    if (UNIX)
-        target_link_libraries(Jones3D-replay PRIVATE m)
-    endif()
-
-    set_target_properties(Jones3D-replay PROPERTIES
-        FOLDER "Tools"
-    )
+else()
+    add_executable(Jones3D-replay Tools/stdRenderReplayMain.c Babylon/stdRenderReplayBabylonMain.cpp)
+    set_property(SOURCE Tools/stdRenderReplayMain.c APPEND PROPERTY COMPILE_DEFINITIONS
+        "STDRENDERREPLAYMAIN_ENTRY=stdRenderReplayMain_Run")
+    set_target_properties(Jones3D-replay PROPERTIES LINKER_LANGUAGE CXX)
 endif()
+
+target_link_libraries(Jones3D-replay PRIVATE
+    ${PROJECT_NAME}
+    j3dcore
+)
+
+if (UNIX)
+    target_link_libraries(Jones3D-replay PRIVATE m)
+endif()
+
+set_target_properties(Jones3D-replay PROPERTIES
+    FOLDER "Tools"
+)
 
 # Organize source files in Visual Studio
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${HEADERS})

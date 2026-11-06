@@ -1,0 +1,1440 @@
+// Added: the Babylon column's std3D backend on the Babylon render device of the adapter context
+// (ADR-0025), replacing std/Null/std3DNull.c in that column. It defines the std3DBackend_* functions
+// through stdRenderBackend.h, so the capture forwarders of std3DCapture.c stay in front (ADR-0024).
+// The behavior reference is the removed DirectX 9 backend (std/Win95/DX9/std3DX9.c before 82b8f607):
+// the device list, texture formats, system textures, the texture cache with its frame counts, the
+// fog and projection state and the scene clears follow it, with Babylon textures where it held
+// Direct3D ones. Frames go through stdRenderBabylon.cpp, which owns the frame's command list and
+// the back buffer.
+//
+// Adapter code: no Fixed/Added markers inside; divergences from std3DX9.c say so where they are.
+//
+// TODO: M6.6b draws: shaders, pipelines and samplers, DrawRenderList, DrawLineStrip and
+// DrawPointList, and the render state, fog and projection stored here applied to them.
+#include <std/General/stdRenderBackend.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
+
+#include <std/General/std.h>
+#include <std/General/stdColor.h>
+#include <std/General/stdMath.h>
+#include <std/General/stdMemory.h>
+#include <std/General/stdUtil.h>
+
+#include <babylon/render/CommandList.h>
+#include <babylon/render/Device.h>
+#include <babylon/render/Handle.h>
+#include <babylon/render/Texture.h>
+
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <span>
+#include <vector>
+
+#include "std3DBabylon.h"
+#include "stdBabylon.h"
+#include "stdRenderBabylon.h"
+
+namespace render = babylon::render;
+
+// The constant std3DX9.c's SetProjection returns on bad arguments; no Windows header here.
+#ifndef E_INVALIDARG
+#define E_INVALIDARG ((int)0x80070057L)
+#endif
+
+float std3D_g_fogDensity   = 0.0f;
+size_t std3D_g_maxVertices = 0u;
+
+namespace
+{
+    // What the backend stores in the opaque tSysPixelFormat of StdTextureFormat::ddPixelFmt and
+    // tSystemTexture::format, where std3DX9.c stored the D3DFORMAT.
+    struct Std3DBabylonPixelFormat
+    {
+        uint8_t bValid;
+        uint8_t format;  // render::TextureFormat
+        uint8_t bOpaque; // the ColorInfo has no alpha, but the texture format has: alpha is set to 255
+    };
+    static_assert(sizeof(Std3DBabylonPixelFormat) <= sizeof(tSysPixelFormat), "Std3DBabylonPixelFormat must fit tSysPixelFormat");
+
+    // The DX9 texture formats InitTextureFormats checks, in its order, that have a Babylon format with
+    // the same bit layout (Texture.h): D3DFMT_X8R8G8B8 and D3DFMT_A8R8G8B8 are bytes B, G, R, A
+    // (Bgra8; X8 reads as opaque), and the 16-bit ones match B5G6R5, B5G5R5A1 and B4G4R4A4 bit for
+    // bit. D3DFMT_R8G8B8 is left out: no GPU API samples 24-bit texels. The luminance formats were
+    // skipped by std3DX9.c too.
+    struct Std3DBabylonFormatEntry
+    {
+        const ColorInfo* pColorInfo;
+        render::TextureFormat format;
+        bool bOpaque;
+        const char* pName;
+    };
+
+    const Std3DBabylonFormatEntry std3D_aFormatEntries[] =
+    {
+        { &stdColor_cfRGB8888,  render::TextureFormat::Bgra8,    true,  "32-bit RGB (X8R8G8B8)" },
+        { &stdColor_cfARGB8888, render::TextureFormat::Bgra8,    false, "32-bit ARGB (A8R8G8B8)" },
+        { &stdColor_cfRGB565,   render::TextureFormat::B5G6R5,   false, "16-bit RGB (R5G6B5)" },
+        { &stdColor_cfARGB5551, render::TextureFormat::B5G5R5A1, false, "16-bit ARGB (A1R5G5B5)" },
+        { &stdColor_cfARGB4444, render::TextureFormat::B4G4R4A4, false, "16-bit ARGB (A4R4G4B4)" },
+    };
+
+    // The largest texture side reported when the device names none.
+    constexpr uint32_t std3D_kDefaultMaxTextureSize = 4096u;
+
+    bool std3D_bStartup          = false;
+    bool std3D_bOpen             = false;
+    bool std3D_bFindAllD3Devices = false;
+    render::Device* std3D_pRenderDevice = nullptr;
+
+    size_t std3D_numDevices      = 0;
+    size_t std3D_curDevice       = 0;
+    Device3D* std3D_pCurDevice   = nullptr;
+    Device3D std3D_aDevices[4];
+
+    size_t std3D_numTextureFormats = 0;
+    StdTextureFormat std3D_aTextureFormats[8];
+    bool std3D_bHasRGBTextureFormat = false;
+    size_t std3D_RGBTextureFormat     = 0;
+    size_t std3D_RGBATextureFormat    = 0;
+    size_t std3D_RGBAKeyTextureFormat = 0;
+
+    size_t std3D_frameCount            = 1;
+    size_t std3D_numCachedTextures     = 0;
+    tSystemTexture* std3D_pFirstTexCache = nullptr;
+    tSystemTexture* std3D_pLastTexCache  = nullptr;
+
+    // Stored for M6.6b, which applies them to its draws.
+    Std3DRenderState std3D_renderState      = (Std3DRenderState)0;
+    Std3DMipmapFilterType std3D_mipmapFilter = (Std3DMipmapFilterType)-1;
+    tSysTexture* std3D_pCurTex             = nullptr;
+    float std3D_zDepth                     = 0.0f;
+    bool std3D_bRenderFog                  = true;
+    float std3D_fogStartDepth              = 0.0f;
+    float std3D_fogEndDepth                = 0.0f;
+    float std3D_fogDepthFactor             = 0.0f;
+    float std3D_aFogColor[4]               = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    // The frame: a pass on the back buffer is open between StartScene and EndScene. The clears
+    // std3DX9.c made with IDirect3DDevice9_Clear become the load operations of the next pass.
+    bool std3D_bInScene           = false;
+    bool std3D_bClearColorPending = false;
+    bool std3D_bClearDepthPending = false;
+
+    Std3DBabylonPixelFormat std3D_GetPixelFormat(const tSysPixelFormat& sysFormat)
+    {
+        Std3DBabylonPixelFormat format{};
+        std::memcpy(&format, &sysFormat, sizeof(format));
+        return format;
+    }
+
+    void std3D_SetPixelFormat(tSysPixelFormat* pSysFormat, render::TextureFormat textureFormat, bool bOpaque)
+    {
+        Std3DBabylonPixelFormat format{};
+        format.bValid  = 1;
+        format.format  = static_cast<uint8_t>(textureFormat);
+        format.bOpaque = bOpaque ? 1 : 0;
+        STD_ZEROMEM(pSysFormat, sizeof(*pSysFormat));
+        std::memcpy(pSysFormat, &format, sizeof(format));
+    }
+
+    bool std3D_SameLayout(const ColorInfo& a, const ColorInfo& b)
+    {
+        return a.colorMode == b.colorMode && a.bpp == b.bpp
+            && a.redBPP == b.redBPP && a.greenBPP == b.greenBPP && a.blueBPP == b.blueBPP && a.alphaBPP == b.alphaBPP
+            && a.redPosShift == b.redPosShift && a.greenPosShift == b.greenPosShift && a.bluePosShift == b.bluePosShift
+            && (a.alphaBPP == 0 || a.alphaPosShift == b.alphaPosShift);
+    }
+
+    uint32_t std3D_ReadPixel(const uint8_t* pSrc, size_t numBytes)
+    {
+        uint32_t value = 0;
+        for ( size_t i = 0; i < numBytes; ++i )
+        {
+            value |= (uint32_t)pSrc[i] << (8u * i);
+        }
+
+        return value;
+    }
+
+    void std3D_WritePixel(uint8_t* pDst, size_t numBytes, uint32_t value)
+    {
+        for ( size_t i = 0; i < numBytes; ++i )
+        {
+            pDst[i] = (uint8_t)(value >> (8u * i));
+        }
+    }
+
+    // The texture format entry whose ColorInfo has the same layout as pCi, or nullptr.
+    const Std3DBabylonFormatEntry* std3D_FindFormatEntry(render::TextureFormat format, bool bOpaque)
+    {
+        for ( const Std3DBabylonFormatEntry& entry : std3D_aFormatEntries )
+        {
+            if ( entry.format == format && entry.bOpaque == bOpaque )
+            {
+                return &entry;
+            }
+        }
+
+        return nullptr;
+    }
+
+    // One mip level of a system texture in the byte layout uploadTexture() takes for format: rows of
+    // width texels, top row first, no padding. The pixels are copied when the VBuffer has the
+    // layout of the format's ColorInfo and converted through stdColor otherwise; formats without
+    // alpha in their ColorInfo get alpha 255. Returns false, logging why, for a VBuffer that can't
+    // hold width x height pixels of its ColorInfo.
+    bool std3D_GetMipData(const tVBuffer* pVBuffer, const Std3DBabylonFormatEntry& entry, std::vector<std::byte>& data)
+    {
+        const tRasterInfo& raster = pVBuffer->rasterInfo;
+        const ColorInfo& srcCi    = raster.colorInfo;
+        const size_t srcBytes     = srcCi.bpp / 8u;
+        const size_t dstBytes     = render::bytesPerTexel(entry.format);
+        const size_t width        = raster.width;
+        const size_t height       = raster.height;
+
+        if ( (srcCi.bpp != 16 && srcCi.bpp != 24 && srcCi.bpp != 32)
+            || (srcCi.colorMode != STDCOLOR_RGB && srcCi.colorMode != STDCOLOR_RGBA) )
+        {
+            STDLOG_ERROR("Unsupported texture pixel format (%u bpp, color mode %d).\n", srcCi.bpp, (int)srcCi.colorMode);
+            return false;
+        }
+
+        if ( !pVBuffer->pPixels || raster.rowSize < width * srcBytes || raster.rowSize * height > raster.size )
+        {
+            STDLOG_ERROR("Texture VBuffer of %zux%zu pixels has too few bytes.\n", width, height);
+            return false;
+        }
+
+        data.resize(width * height * dstBytes);
+        const bool bSameLayout = std3D_SameLayout(srcCi, *entry.pColorInfo);
+        for ( size_t y = 0; y < height; ++y )
+        {
+            const uint8_t* pSrcRow = pVBuffer->pPixels + y * raster.rowSize;
+            uint8_t* pDstRow       = reinterpret_cast<uint8_t*>(data.data()) + y * width * dstBytes;
+            if ( bSameLayout )
+            {
+                std::memcpy(pDstRow, pSrcRow, width * dstBytes);
+                if ( entry.bOpaque )
+                {
+                    for ( size_t x = 0; x < width; ++x )
+                    {
+                        pDstRow[x * dstBytes + 3] = 0xFF;
+                    }
+                }
+
+                continue;
+            }
+
+            for ( size_t x = 0; x < width; ++x )
+            {
+                uint8_t r = 0, g = 0, b = 0, a = 0xFF;
+                stdColor_DecodeRGBA(std3D_ReadPixel(pSrcRow + x * srcBytes, srcBytes), &srcCi, &r, &g, &b, &a);
+                if ( srcCi.alphaBPP == 0 || entry.bOpaque )
+                {
+                    a = 0xFF;
+                }
+
+                uint32_t value = stdColor_EncodeRGBA(entry.pColorInfo, r, g, b, a);
+                if ( entry.bOpaque )
+                {
+                    value |= 0xFF000000u;
+                }
+
+                std3D_WritePixel(pDstRow + x * dstBytes, dstBytes, value);
+            }
+        }
+
+        return true;
+    }
+
+    void std3D_ReleaseCachedTexture(tSystemTexture* pTexture)
+    {
+        if ( pTexture->pCachedTexture )
+        {
+            stdRenderBabylon_DestroyTexture(pTexture->pCachedTexture->texture);
+            stdMemory_Free(pTexture->pCachedTexture);
+            pTexture->pCachedTexture = nullptr;
+        }
+    }
+
+    void std3D_AddTextureToCacheList(tSystemTexture* pTexture)
+    {
+        if ( std3D_pFirstTexCache )
+        {
+            std3D_pLastTexCache->pNextCachedTexture = pTexture;
+            pTexture->pPrevCachedTexture            = std3D_pLastTexCache;
+            pTexture->pNextCachedTexture            = nullptr;
+            std3D_pLastTexCache                     = pTexture;
+        }
+        else
+        {
+            std3D_pLastTexCache          = pTexture;
+            std3D_pFirstTexCache         = pTexture;
+            pTexture->pPrevCachedTexture = nullptr;
+            pTexture->pNextCachedTexture = nullptr;
+        }
+
+        ++std3D_numCachedTextures;
+        std3D_pCurDevice->availableMemory -= pTexture->textureSize;
+    }
+
+    void std3D_RemoveTextureFromCacheList(tSystemTexture* pCacheTexture)
+    {
+        if ( pCacheTexture == std3D_pFirstTexCache )
+        {
+            std3D_pFirstTexCache = pCacheTexture->pNextCachedTexture;
+            if ( std3D_pFirstTexCache )
+            {
+                std3D_pFirstTexCache->pPrevCachedTexture = nullptr;
+                if ( !std3D_pFirstTexCache->pNextCachedTexture )
+                {
+                    std3D_pLastTexCache = std3D_pFirstTexCache;
+                }
+            }
+            else
+            {
+                std3D_pLastTexCache = nullptr;
+            }
+        }
+        else if ( pCacheTexture == std3D_pLastTexCache )
+        {
+            std3D_pLastTexCache = pCacheTexture->pPrevCachedTexture;
+            pCacheTexture->pPrevCachedTexture->pNextCachedTexture = nullptr;
+        }
+        else
+        {
+            pCacheTexture->pPrevCachedTexture->pNextCachedTexture = pCacheTexture->pNextCachedTexture;
+            pCacheTexture->pNextCachedTexture->pPrevCachedTexture = pCacheTexture->pPrevCachedTexture;
+        }
+
+        pCacheTexture->pNextCachedTexture = nullptr;
+        pCacheTexture->pPrevCachedTexture = nullptr;
+        pCacheTexture->frameNum           = 0;
+
+        --std3D_numCachedTextures;
+        std3D_pCurDevice->availableMemory += pCacheTexture->textureSize;
+    }
+
+    int std3D_PurgeTextureCache(size_t size)
+    {
+        for ( tSystemTexture* pCacheTexture = std3D_pFirstTexCache; pCacheTexture && pCacheTexture->frameNum != std3D_frameCount; pCacheTexture = pCacheTexture->pNextCachedTexture )
+        {
+            if ( pCacheTexture->textureSize == size )
+            {
+                std3D_ReleaseCachedTexture(pCacheTexture);
+                std3D_RemoveTextureFromCacheList(pCacheTexture);
+                return 1;
+            }
+        }
+
+        size_t purgedBytes = 0;
+        tSystemTexture* pNextCachedTexture = nullptr;
+        for ( tSystemTexture* pCacheTexture = std3D_pFirstTexCache; pCacheTexture && purgedBytes < size; pCacheTexture = pNextCachedTexture )
+        {
+            pNextCachedTexture = pCacheTexture->pNextCachedTexture;
+            if ( pCacheTexture->frameNum != std3D_frameCount )
+            {
+                std3D_ReleaseCachedTexture(pCacheTexture);
+                purgedBytes += pCacheTexture->textureSize;
+                std3D_RemoveTextureFromCacheList(pCacheTexture);
+            }
+        }
+
+        return purgedBytes != 0;
+    }
+
+    void std3D_ResetTextureCacheInternal()
+    {
+        STDLOG_DEBUG("Clearing texture cache....\n");
+        std3D_pCurTex = nullptr;
+
+        tSystemTexture* pCurTex = std3D_pFirstTexCache;
+        while ( pCurTex )
+        {
+            std3D_ReleaseCachedTexture(pCurTex);
+
+            tSystemTexture* pNextTex    = pCurTex->pNextCachedTexture;
+            pCurTex->frameNum           = 0;
+            pCurTex->pNextCachedTexture = nullptr;
+            pCurTex->pPrevCachedTexture = nullptr;
+
+            pCurTex = pNextTex;
+        }
+
+        std3D_pFirstTexCache    = nullptr;
+        std3D_pLastTexCache     = nullptr;
+        std3D_numCachedTextures = 0;
+
+        if ( std3D_pCurDevice )
+        {
+            std3D_pCurDevice->availableMemory = std3D_pCurDevice->totalMemory;
+        }
+
+        std3D_frameCount = 1;
+    }
+
+    // The DX9 BuildDeviceList with the render device in place of Direct3D: one device, its limits
+    // from the render device, its memory from the display device as std3DX9.c took it.
+    int std3D_BuildDeviceList()
+    {
+        std3D_numDevices = 0;
+
+        StdDisplayDevice displayDevice;
+        STD_ZEROMEM(&displayDevice, sizeof(displayDevice));
+        if ( !stdDisplay_IsOpen() || stdDisplay_GetCurrentDevice(&displayDevice) )
+        {
+            return 0;
+        }
+
+        if ( !std3D_bFindAllD3Devices && !displayDevice.bHAL )
+        {
+            return 0;
+        }
+
+        const render::DeviceInfo& info = std3D_pRenderDevice->info();
+        const bool bHasZBuffer = std3D_pRenderDevice->supportsFormat(render::TextureFormat::D24S8, render::TextureUsage::DepthTarget)
+            || std3D_pRenderDevice->supportsFormat(render::TextureFormat::D32F, render::TextureUsage::DepthTarget);
+        const uint32_t maxTexSize = info.limits.maxTextureDimension ? info.limits.maxTextureDimension : std3D_kDefaultMaxTextureSize;
+
+        Device3D* pDriver = &std3D_aDevices[0];
+        STD_ZEROMEM(pDriver, sizeof(*pDriver));
+
+        stdUtil_Format(pDriver->deviceDescription, STD_ARRAYLEN(pDriver->deviceDescription), "%s (Babylon render, %s)",
+            displayDevice.aDeviceName, info.backend.c_str());
+        stdUtil_Format(pDriver->deviceName, STD_ARRAYLEN(pDriver->deviceName), "%s", displayDevice.aDriverName);
+
+        pDriver->bHAL                           = displayDevice.bHAL;
+        pDriver->bTexturePerspectiveSupported   = 1;
+        pDriver->hasZBuffer                     = bHasZBuffer;
+        pDriver->bSqareOnlyTexture              = 0;
+        pDriver->bAlphaTextureSupported         = 1;
+        pDriver->bColorkeyTextureSupported      = 1;
+        pDriver->bStippledShadeSupported        = 0;
+        pDriver->minTexWidth                    = 1;
+        pDriver->minTexHeight                   = 1;
+        pDriver->maxTexWidth                    = maxTexSize;
+        pDriver->maxTexHeight                   = maxTexSize;
+        pDriver->bAnisotropicFilteringSupported = false; // render::SamplerDesc has no anisotropy
+        pDriver->bMipmapAutoGenSupported        = false; // nor mip generation
+        pDriver->bMSAASupported                 = false; // nor multisampled targets
+        pDriver->bAlphaBlendSupported           = 1;
+        pDriver->maxVertexCount                 = 65535u; // 16-bit indices
+
+        pDriver->totalMemory     = displayDevice.totalVideoMemory;
+        pDriver->availableMemory = displayDevice.freeVideoMemory;
+
+        std3D_numDevices = 1u;
+
+        STDLOG_STATUS("Found |%s|%s|%s|%s| Babylon render device\n",
+            pDriver->hasZBuffer ? "Z" : "Non-Z",
+            pDriver->bAlphaTextureSupported ? "Alpha" : "No Alpha",
+            pDriver->bStippledShadeSupported ? "Stippled" : "Blend",
+            pDriver->bColorkeyTextureSupported ? "Colorkey" : "No Colorkey"
+        );
+        STDLOG_STATUS("Description: %s [%s]\n", pDriver->deviceName, pDriver->deviceDescription);
+        return 1;
+    }
+
+    // The DX9 InitTextureFormats: each format the device can sample, in the DX9 order.
+    void std3D_InitTextureFormats()
+    {
+        std3D_numTextureFormats    = 0;
+        std3D_bHasRGBTextureFormat = false;
+
+        for ( const Std3DBabylonFormatEntry& entry : std3D_aFormatEntries )
+        {
+            if ( std3D_numTextureFormats >= STD_ARRAYLEN(std3D_aTextureFormats)
+                || !std3D_pRenderDevice->supportsFormat(entry.format, render::TextureUsage::Sampled) )
+            {
+                continue;
+            }
+
+            StdTextureFormat* pTexFormat = &std3D_aTextureFormats[std3D_numTextureFormats];
+            STD_ZEROMEM(pTexFormat, sizeof(StdTextureFormat));
+            pTexFormat->ci = *entry.pColorInfo;
+            std3D_SetPixelFormat(&pTexFormat->ddPixelFmt, entry.format, entry.bOpaque);
+            std3D_bHasRGBTextureFormat = true;
+
+            STDLOG_STATUS("Found texture format: %s (%d:%d:%d:%d)\n", entry.pName,
+                pTexFormat->ci.redBPP, pTexFormat->ci.greenBPP, pTexFormat->ci.blueBPP, pTexFormat->ci.alphaBPP);
+            ++std3D_numTextureFormats;
+        }
+    }
+
+    // Opens the pass of a scene on the back buffer. std3DX9.c drew into the device's back buffer
+    // directly; here the clears it made with IDirect3DDevice9_Clear are the load operations.
+    bool std3D_BeginScenePass(bool bClearColor, bool bClearDepth)
+    {
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetColorTarget(), 0,
+            bClearColor ? render::LoadOp::Clear : render::LoadOp::Load, render::StoreOp::Store,
+            render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(),
+            bClearDepth ? render::LoadOp::Clear : render::LoadOp::Load, render::StoreOp::Store, 1.0f, 0 };
+        return stdRenderBabylon_GetFrame().beginPass(pass);
+    }
+
+    void std3D_ReleaseSystemResources()
+    {
+        std3D_ResetTextureCacheInternal();
+        stdRenderBabylon_Close();
+        std3D_bInScene           = false;
+        std3D_bClearColorPending = false;
+        std3D_bClearDepthPending = false;
+    }
+
+    // The DX9 InitSystem minus the Direct3D state: formats, the back buffer for the viewport, the
+    // cache, the render state and the texture memory.
+    bool std3D_InitSystem()
+    {
+        std3D_InitTextureFormats();
+        if ( !std3D_numTextureFormats || !std3D_bHasRGBTextureFormat )
+        {
+            STDLOG_ERROR("Error no texture formats found.\n");
+            return false;
+        }
+
+        // std3DX9.c's CreateViewport: the viewport is the display's back buffer, cleared to black
+        // with Z 1. The clear happens in the first pass on it.
+        uint32_t width  = 0;
+        uint32_t height = 0;
+        stdDisplay_GetBackBufferSize(&width, &height);
+        if ( !stdRenderBabylon_SetBackBufferSize(width, height, nullptr) )
+        {
+            STDLOG_ERROR("Error creating viewport.\n");
+            return false;
+        }
+
+        std3D_bClearColorPending = true;
+        std3D_bClearDepthPending = true;
+
+        std3D_g_maxVertices = std3D_pCurDevice->maxVertexCount;
+        if ( std3D_g_maxVertices == 0 )
+        {
+            std3D_g_maxVertices = STD3D_MAXVERTICES;
+        }
+        STDLOG_STATUS("Max vertices: %zu.\n", std3D_g_maxVertices);
+
+        std3D_frameCount        = 1;
+        std3D_numCachedTextures = 0;
+        std3D_pFirstTexCache    = nullptr;
+        std3D_pLastTexCache     = nullptr;
+
+        std3D_RGBTextureFormat     = std3D_FindClosestFormat(&stdColor_cfBGR8888);
+        std3D_RGBAKeyTextureFormat = std3D_FindClosestFormat(&stdColor_cfRGBA8888);
+        std3D_RGBATextureFormat    = std3D_FindClosestFormat(&stdColor_cfRGBA8888);
+
+        std3D_mipmapFilter = (Std3DMipmapFilterType)-1;
+        std3D_renderState  = STD3D_RS_UNKNOWN_2; // std3DX9.c's InitRenderState
+        std3D_pCurTex      = nullptr;
+
+        if ( stdDisplay_GetTextureMemory(&std3D_pCurDevice->totalMemory, &std3D_pCurDevice->availableMemory) )
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    // Arguments of the draw calls, checked like M6.6b will need them.
+    bool std3D_CheckVertices(const StdVertexTL* aVerts, size_t numVerts)
+    {
+        if ( numVerts > std3D_g_maxVertices )
+        {
+            STDLOG_ERROR("Error %zu > %zu maxVertices.\n", numVerts, std3D_g_maxVertices);
+            return false;
+        }
+
+        if ( numVerts && !aVerts )
+        {
+            STDLOG_ERROR("Error %zu vertices without a vertex array.\n", numVerts);
+            return false;
+        }
+
+        return true;
+    }
+}
+
+void std3D_ResetGlobals(void)
+{
+    float fogDensity = 1.0f;
+    std::memcpy(&std3D_g_fogDensity, &fogDensity, sizeof(std3D_g_fogDensity));
+    STD_ZEROMEM(&std3D_g_maxVertices, sizeof(std3D_g_maxVertices));
+}
+
+int std3D_Startup(void)
+{
+    // std3DX9.c asserted that it wasn't started; a second startup is answered like std3DNull.c does.
+    if ( std3D_bStartup )
+    {
+        return 1;
+    }
+
+    STD_ZEROMEM(std3D_aTextureFormats, sizeof(std3D_aTextureFormats));
+    STD_ZEROMEM(std3D_aDevices, sizeof(std3D_aDevices));
+
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    std3D_pRenderDevice = pContext ? pContext->pRenderDevice : nullptr;
+    if ( !std3D_pRenderDevice )
+    {
+        STDLOG_ERROR("No render device in the Babylon context.\n");
+        return 0;
+    }
+
+    if ( !std3D_BuildDeviceList() )
+    {
+        STDLOG_ERROR("Error building device list.\n");
+        std3D_pRenderDevice = nullptr;
+        return 0;
+    }
+
+    if ( std3D_numDevices == 0 )
+    {
+        std3D_pRenderDevice = nullptr;
+        return 0;
+    }
+
+    std3D_bStartup = true;
+    return 1;
+}
+
+void std3D_Shutdown(void)
+{
+    if ( !std3D_bStartup )
+    {
+        STDLOG_WARNING("Warning: System already shutdown!\n");
+        return;
+    }
+
+    if ( std3D_bOpen )
+    {
+        std3D_Close();
+    }
+
+    STD_ZEROMEM(std3D_aTextureFormats, sizeof(std3D_aTextureFormats));
+    STD_ZEROMEM(std3D_aDevices, sizeof(std3D_aDevices));
+
+    std3D_pRenderDevice = nullptr;
+    std3D_numDevices    = 0;
+    std3D_bStartup      = false;
+}
+
+const Device3D* std3D_GetCurrentDevice(void)
+{
+    return std3D_pCurDevice;
+}
+
+size_t std3D_GetNumDevices(void)
+{
+    return std3D_numDevices;
+}
+
+const Device3D* std3D_GetAllDevices(void)
+{
+    return std3D_aDevices;
+}
+
+void J3DAPI std3D_SetFindAllDevices(int bFindAll)
+{
+    std3D_bFindAllD3Devices = bFindAll != 0;
+}
+
+int J3DAPI std3D_Open(size_t deviceNum)
+{
+    STD_ASSERTREL(std3D_bStartup);
+    if ( std3D_bOpen )
+    {
+        STDLOG_ERROR("Warning: System already open!\n");
+        return 0;
+    }
+
+    if ( !stdDisplay_IsOpen() )
+    {
+        STDLOG_ERROR("std3D_Open: Display system is not opened!\n");
+        return 0;
+    }
+
+    if ( deviceNum >= std3D_numDevices )
+    {
+        return 0;
+    }
+
+    std3D_curDevice  = deviceNum;
+    std3D_pCurDevice = &std3D_aDevices[deviceNum];
+
+    if ( !stdRenderBabylon_Open(std3D_pRenderDevice) || !std3D_InitSystem() )
+    {
+        STDLOG_ERROR("Failed to initialize system, closing...\n");
+        std3D_ReleaseSystemResources();
+        std3D_numTextureFormats    = 0;
+        std3D_bHasRGBTextureFormat = false;
+        std3D_pCurDevice           = nullptr;
+        std3D_curDevice            = 0;
+        return 0;
+    }
+
+    size_t memFree  = 0;
+    size_t memTotal = 0;
+    stdDisplay_GetTotalMemory(&memTotal, &memFree);
+
+    STDLOG_STATUS("Texture Ram  Total: %zu bytes  Free: %zu bytes.\n", std3D_pCurDevice->totalMemory, std3D_pCurDevice->availableMemory);
+    STDLOG_STATUS("Video Ram Total: %zu bytes  Free: %zu bytes.\n", memTotal, memFree);
+
+    std3D_bOpen = true;
+    return 1;
+}
+
+void std3D_Close(void)
+{
+    if ( !std3D_bOpen )
+    {
+        STDLOG_WARNING("Warning: System already closed!\n");
+        return;
+    }
+
+    std3D_ReleaseSystemResources();
+
+    std3D_mipmapFilter         = (Std3DMipmapFilterType)-1;
+    std3D_numTextureFormats    = 0;
+    std3D_curDevice            = 0;
+    std3D_pCurDevice           = nullptr;
+    std3D_bHasRGBTextureFormat = false;
+    std3D_bOpen                = false;
+}
+
+void J3DAPI std3D_GetTextureFormat(StdColorFormatType type, ColorInfo* pDest, int* pbColorKeySet, LPDDCOLORKEY* ppColorKey)
+{
+    if ( type == STDCOLOR_FORMAT_RGBA_1BITALPHA )
+    {
+        *pbColorKeySet = std3D_aTextureFormats[std3D_RGBAKeyTextureFormat].bColorKey;
+        *ppColorKey    = std3D_aTextureFormats[std3D_RGBAKeyTextureFormat].pColorKey;
+        *pDest         = std3D_aTextureFormats[std3D_RGBAKeyTextureFormat].ci;
+    }
+    else if ( type == STDCOLOR_FORMAT_RGBA )
+    {
+        *pbColorKeySet = std3D_aTextureFormats[std3D_RGBATextureFormat].bColorKey;
+        *ppColorKey    = std3D_aTextureFormats[std3D_RGBATextureFormat].pColorKey;
+        *pDest         = std3D_aTextureFormats[std3D_RGBATextureFormat].ci;
+    }
+    else
+    {
+        // std3DX9.c left *ppColorKey as it was here; no color key is set, so it is NULL.
+        *pbColorKeySet = 0;
+        *ppColorKey    = nullptr;
+        *pDest         = std3D_aTextureFormats[std3D_RGBTextureFormat].ci;
+    }
+}
+
+StdColorFormatType J3DAPI std3D_GetColorFormat(const ColorInfo* pCi)
+{
+    if ( pCi->alphaBPP == 0 )
+    {
+        return STDCOLOR_FORMAT_RGB;
+    }
+
+    if ( pCi->alphaBPP == 1 )
+    {
+        return STDCOLOR_FORMAT_RGBA_1BITALPHA;
+    }
+
+    return STDCOLOR_FORMAT_RGBA;
+}
+
+size_t std3D_GetNumTextureFormats(void)
+{
+    return std3D_numTextureFormats;
+}
+
+int std3D_StartScene(void)
+{
+    ++std3D_frameCount;
+    std3D_pCurTex = nullptr;
+
+    // std3DX9.c's BeginScene error paths: no device, or a scene already begun (D3DERR_INVALIDCALL).
+    if ( !std3D_bOpen )
+    {
+        STDLOG_ERROR("Error beginning scene: std3D is not open.\n");
+        return 1;
+    }
+
+    if ( std3D_bInScene )
+    {
+        STDLOG_ERROR("Error beginning scene: the scene is already begun.\n");
+        return 1;
+    }
+
+    // The back buffer follows the display's size; new targets start cleared like the DX9 viewport.
+    uint32_t width  = 0;
+    uint32_t height = 0;
+    bool bRecreated = false;
+    stdDisplay_GetBackBufferSize(&width, &height);
+    if ( !stdRenderBabylon_SetBackBufferSize(width, height, &bRecreated) )
+    {
+        STDLOG_ERROR("Error beginning scene: no %ux%u back buffer.\n", width, height);
+        return 1;
+    }
+
+    if ( bRecreated )
+    {
+        std3D_bClearColorPending = true;
+        std3D_bClearDepthPending = true;
+    }
+
+    if ( !std3D_BeginScenePass(std3D_bClearColorPending, std3D_bClearDepthPending) )
+    {
+        STDLOG_ERROR("Error beginning scene.\n");
+        return 1;
+    }
+
+    std3D_bClearColorPending = false;
+    std3D_bClearDepthPending = false;
+    std3D_bInScene           = true;
+    return 0;
+}
+
+void std3D_EndScene(void)
+{
+    std3D_pCurTex = nullptr;
+    if ( !std3D_bInScene )
+    {
+        STDLOG_ERROR("Error ending scene: no scene begun.\n");
+        return;
+    }
+
+    std3D_bInScene = false;
+    if ( !stdRenderBabylon_GetFrame().endPass() )
+    {
+        STDLOG_ERROR("Error ending scene.\n");
+    }
+
+    // Until stdDisplay_Update does it (M6.7), the scene's end is the frame's end.
+    stdRenderBabylon_SubmitFrame();
+}
+
+void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+{
+    if ( !std3D_CheckVertices(aVerts, numVerts) )
+    {
+        return;
+    }
+
+    std3D_SetRenderState(rdflags);
+    std3D_pCurTex = pTex;
+
+    if ( numIndices && !aIndices )
+    {
+        STDLOG_ERROR("Error %zu indices without an index array.\n", numIndices);
+        return;
+    }
+
+    for ( size_t i = 0; i < numIndices; ++i )
+    {
+        if ( aIndices[i] >= numVerts )
+        {
+            STDLOG_ERROR("Error index %u at %zu is not below %zu vertices.\n", (unsigned)aIndices[i], i, numVerts);
+            return;
+        }
+    }
+
+    // TODO: M6.6b: record the triangle list (numIndices / 3 triangles, as std3DX9.c drew) into the
+    // scene's pass with the pipeline and sampler of rdflags and the texture of pTex.
+}
+
+void std3D_SetWireframeRenderState(void)
+{
+    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200));
+    std3D_SetRenderState(rdstate);
+    std3D_pCurTex = nullptr;
+}
+
+void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
+{
+    if ( !std3D_CheckVertices(aVerts, numVerts) )
+    {
+        return;
+    }
+
+    // TODO: M6.6b: record the line strip (numVerts - 1 lines) with the wireframe pipeline.
+}
+
+void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts)
+{
+    if ( !std3D_CheckVertices(aVerts, numVerts) )
+    {
+        return;
+    }
+
+    // TODO: M6.6b: record the point list with the wireframe pipeline.
+}
+
+void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags)
+{
+    // std3DX9.c translated each changed bit into Direct3D render and sampler states here; M6.6b
+    // turns the stored bits into pipelines, samplers and uniforms.
+    std3D_renderState = rdflags;
+}
+
+void J3DAPI std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer** apVBuffers, size_t numMipLevels, StdColorFormatType formatType)
+{
+    STD_ZEROMEM(pTexture, sizeof(tSystemTexture));
+
+    if ( !std3D_numTextureFormats )
+    {
+        return;
+    }
+
+    // Get mipmap buffer at LOD 0
+    tVBuffer* pVBuffer = *apVBuffers;
+    uint32_t texHeight = 0, texWidth = 0;
+    std3D_GetValidDimensions(pVBuffer->rasterInfo.width, pVBuffer->rasterInfo.height, &texWidth, &texHeight);
+    while ( numMipLevels > 1 && (pVBuffer->rasterInfo.width > texWidth || pVBuffer->rasterInfo.height > texHeight) )
+    {
+        --numMipLevels;
+        pVBuffer = *++apVBuffers;
+        std3D_GetValidDimensions(pVBuffer->rasterInfo.width, pVBuffer->rasterInfo.height, &texWidth, &texHeight);
+    }
+
+    size_t texSize = (pVBuffer->rasterInfo.colorInfo.bpp * texHeight * texWidth) / 8;
+    if ( std3D_mipmapFilter == STD3D_MIPMAPFILTER_NONE )
+    {
+        numMipLevels = 1;
+    }
+
+    // std3DX9.c took the texture format of formatType and copied the mip bytes into it as they were.
+    // A texture format with the layout of the mips is taken here instead, so they are uploaded
+    // unchanged; that is the format of formatType whenever the caller converted the mips to the
+    // ColorInfo std3D_GetTextureFormat named, as rdMaterial and sithMaterial do. Mips of any other
+    // layout are converted to the format of formatType when they are uploaded.
+    size_t formatIndex = std3D_RGBTextureFormat;
+    if ( formatType == STDCOLOR_FORMAT_RGBA_1BITALPHA )
+    {
+        formatIndex = std3D_RGBAKeyTextureFormat;
+    }
+    else if ( formatType == STDCOLOR_FORMAT_RGBA )
+    {
+        formatIndex = std3D_RGBATextureFormat;
+    }
+
+    for ( size_t i = 0; i < std3D_numTextureFormats; ++i )
+    {
+        if ( std3D_SameLayout(pVBuffer->rasterInfo.colorInfo, std3D_aTextureFormats[i].ci) )
+        {
+            formatIndex = i;
+            break;
+        }
+    }
+
+    pTexture->apMipmaps = (tVBuffer**)STDMALLOC(numMipLevels * sizeof(tVBuffer*));
+    if ( !pTexture->apMipmaps )
+    {
+        STDLOG_ERROR("Failed to allocate memory for VBuffer array.\n");
+        goto error;
+    }
+
+    STD_ZEROMEM(pTexture->apMipmaps, numMipLevels * sizeof(tVBuffer*));
+    pTexture->numMipLevels = numMipLevels;
+    pTexture->format       = std3D_aTextureFormats[formatIndex].ddPixelFmt;
+    pTexture->textureSize  = texSize;
+
+    // Owned VBuffer copies of every mip level, in system memory: the texture outlives cache resets.
+    for ( size_t mmNum = 0; mmNum < numMipLevels; ++mmNum )
+    {
+        pTexture->apMipmaps[mmNum] = stdDisplay_VBufferNew(&apVBuffers[mmNum]->rasterInfo, /*bUseVSurface=*/0, /*bUseVideoMemory=*/0);
+        if ( !pTexture->apMipmaps[mmNum] )
+        {
+            STDLOG_ERROR("Failed to create VBuffer for mip level %zu.\n", mmNum);
+            goto error;
+        }
+
+        tColorMode colorMode = apVBuffers[mmNum]->rasterInfo.colorInfo.colorMode;
+        if ( colorMode )
+        {
+            if ( colorMode > STDCOLOR_PAL && colorMode <= STDCOLOR_RGBA )
+            {
+                stdDisplay_VBufferLock(apVBuffers[mmNum]);
+                stdDisplay_VBufferLock(pTexture->apMipmaps[mmNum]);
+
+                size_t pixelDataSize = apVBuffers[mmNum]->rasterInfo.height * apVBuffers[mmNum]->rasterInfo.rowSize;
+                std::memcpy(pTexture->apMipmaps[mmNum]->pPixels, apVBuffers[mmNum]->pPixels, pixelDataSize);
+
+                stdDisplay_VBufferUnlock(pTexture->apMipmaps[mmNum]);
+                stdDisplay_VBufferUnlock(apVBuffers[mmNum]);
+            }
+        }
+        else
+        {
+            STDLOG_ERROR("Can't use paletized textures.\n");
+            goto error;
+        }
+    }
+
+    return;
+
+error:
+    // std3DX9.c freed only the array here and leaked the mip copies made so far.
+    if ( pTexture->apMipmaps )
+    {
+        for ( size_t mmNum = 0; mmNum < pTexture->numMipLevels; ++mmNum )
+        {
+            if ( pTexture->apMipmaps[mmNum] )
+            {
+                stdDisplay_VBufferFree(pTexture->apMipmaps[mmNum]);
+            }
+        }
+
+        stdMemory_Free(pTexture->apMipmaps);
+    }
+    STD_ZEROMEM(pTexture, sizeof(tSystemTexture));
+
+    STDLOG_ERROR("Done error exit from std3D_AllocSystemTexture.\n");
+}
+
+void J3DAPI std3D_GetValidDimensions(uint32_t width, uint32_t height, uint32_t* pOutWidth, uint32_t* pOutHeight)
+{
+    // std3DX9.c read the open device only; before std3D_Open the started device answers.
+    const Device3D* pDevice = std3D_pCurDevice ? std3D_pCurDevice : (std3D_numDevices ? &std3D_aDevices[0] : nullptr);
+    const uint32_t maxWidth  = pDevice ? (uint32_t)pDevice->maxTexWidth : std3D_kDefaultMaxTextureSize;
+    const uint32_t maxHeight = pDevice ? (uint32_t)pDevice->maxTexHeight : std3D_kDefaultMaxTextureSize;
+    const uint32_t minWidth  = pDevice ? (uint32_t)pDevice->minTexWidth : 1u;
+    const uint32_t minHeight = pDevice ? (uint32_t)pDevice->minTexHeight : 1u;
+
+    uint32_t texWidth  = STDMATH_CLAMP(width, minWidth, maxWidth);
+    uint32_t texHeight = STDMATH_CLAMP(height, minHeight, maxHeight);
+
+    if ( !pDevice || !pDevice->bSqareOnlyTexture || texWidth == texHeight )
+    {
+        *pOutWidth  = texWidth;
+        *pOutHeight = texHeight;
+    }
+    else
+    {
+        if ( texWidth > texHeight )
+        {
+            texHeight = texWidth;
+        }
+
+        *pOutWidth  = texHeight;
+        *pOutHeight = texHeight;
+    }
+}
+
+void J3DAPI std3D_ClearSystemTexture(tSystemTexture* pTex)
+{
+    while ( pTex->numMipLevels > 0 )
+    {
+        stdDisplay_VBufferFree(pTex->apMipmaps[--pTex->numMipLevels]);
+    }
+
+    if ( pTex->apMipmaps )
+    {
+        stdMemory_Free(pTex->apMipmaps);
+        pTex->apMipmaps = nullptr;
+    }
+
+    if ( pTex->pCachedTexture )
+    {
+        std3D_RemoveTextureFromCacheList(pTex);
+        std3D_ReleaseCachedTexture(pTex);
+    }
+
+    STD_ZEROMEM(pTex, sizeof(tSystemTexture));
+}
+
+void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorFormatType format)
+{
+    J3D_UNUSED(format);
+
+    STD_ASSERTREL(pCacheTexture);
+
+    render::TextureHandle texture;
+    tSysTexture* pSysTexture = nullptr;
+    const Std3DBabylonFormatEntry* pEntry = nullptr;
+    Std3DBabylonPixelFormat pixelFormat{};
+    tVBuffer* pTop = nullptr;
+    render::TextureDesc desc;
+    std::vector<std::byte> data;
+
+    if ( pCacheTexture->numMipLevels == 0 || !pCacheTexture->apMipmaps )
+    {
+        STDLOG_ERROR("No Source texture.\n");
+        goto error;
+    }
+
+    if ( !std3D_bOpen )
+    {
+        STDLOG_ERROR("Error: std3D is not open.\n");
+        goto error;
+    }
+
+    // std3DX9.c created a second Direct3D texture and linked the system texture twice when it was
+    // already cached; the old one is released first here.
+    if ( pCacheTexture->pCachedTexture )
+    {
+        std3D_RemoveTextureFromCacheList(pCacheTexture);
+        std3D_ReleaseCachedTexture(pCacheTexture);
+    }
+
+    if ( pCacheTexture->textureSize > std3D_pCurDevice->availableMemory )
+    {
+        std3D_PurgeTextureCache(pCacheTexture->textureSize);
+    }
+
+    pixelFormat = std3D_GetPixelFormat(pCacheTexture->format);
+    pEntry      = pixelFormat.bValid ? std3D_FindFormatEntry((render::TextureFormat)pixelFormat.format, pixelFormat.bOpaque != 0) : nullptr;
+    if ( !pEntry )
+    {
+        STDLOG_ERROR("System texture has no texture format.\n");
+        goto error;
+    }
+
+    // Mip levels after the first must halve like Babylon's mip chain; a level that doesn't ends it.
+    pTop = pCacheTexture->apMipmaps[0];
+    desc.width     = pTop->rasterInfo.width;
+    desc.height    = pTop->rasterInfo.height;
+    desc.format    = pEntry->format;
+    desc.usage     = render::TextureUsage::Sampled;
+    desc.mipLevels = 1;
+    while ( desc.mipLevels < pCacheTexture->numMipLevels
+        && desc.mipLevels < render::maxMipLevels(desc.width, desc.height)
+        && pCacheTexture->apMipmaps[desc.mipLevels]->rasterInfo.width == render::mipDimension(desc.width, desc.mipLevels)
+        && pCacheTexture->apMipmaps[desc.mipLevels]->rasterInfo.height == render::mipDimension(desc.height, desc.mipLevels) )
+    {
+        ++desc.mipLevels;
+    }
+
+    if ( desc.mipLevels < pCacheTexture->numMipLevels )
+    {
+        STDLOG_WARNING("Texture mip level %u isn't half of the one above; %u of %zu levels are used.\n",
+            desc.mipLevels, desc.mipLevels, pCacheTexture->numMipLevels);
+    }
+
+    texture = std3D_pRenderDevice->createTexture(desc);
+    if ( texture.isNull() )
+    {
+        STDLOG_ERROR("Error creating %ux%u texture for cache.\n", desc.width, desc.height);
+        goto error;
+    }
+
+    for ( uint32_t mmNum = 0; mmNum < desc.mipLevels; ++mmNum )
+    {
+        tVBuffer* pMip = pCacheTexture->apMipmaps[mmNum];
+        if ( !stdDisplay_VBufferLockReadOnly(pMip) )
+        {
+            STDLOG_ERROR("Failed to lock source texture level %u.\n", mmNum);
+            goto error;
+        }
+
+        const bool bConverted = std3D_GetMipData(pMip, *pEntry, data);
+        stdDisplay_VBufferUnlock(pMip);
+        if ( !bConverted || !std3D_pRenderDevice->uploadTexture(texture, mmNum, std::span<const std::byte>(data)) )
+        {
+            STDLOG_ERROR("Error uploading texture level %u.\n", mmNum);
+            goto error;
+        }
+    }
+
+    pSysTexture = (tSysTexture*)STDMALLOC(sizeof(tSysTexture));
+    if ( !pSysTexture )
+    {
+        STDLOG_ERROR("Failed to allocate memory for the cached texture.\n");
+        goto error;
+    }
+
+    pSysTexture->texture          = texture;
+    pCacheTexture->pCachedTexture = pSysTexture;
+    pCacheTexture->frameNum       = std3D_frameCount;
+    std3D_AddTextureToCacheList(pCacheTexture);
+    return;
+
+error:
+    stdRenderBabylon_DestroyTexture(texture);
+    pCacheTexture->pCachedTexture = nullptr;
+    pCacheTexture->frameNum       = 0;
+    STDLOG_ERROR("Done error exit from std3D_AddToTextureCache.\n");
+}
+
+void std3D_ResetTextureCache(void)
+{
+    std3D_ResetTextureCacheInternal();
+}
+
+size_t J3DAPI std3D_GetMipMapCount(const tSystemTexture* pTexture)
+{
+    if ( !pTexture )
+    {
+        return 0;
+    }
+
+    return pTexture->numMipLevels;
+}
+
+void J3DAPI std3D_UpdateFrameCount(tSystemTexture* pTexture)
+{
+    // std3DX9.c relinked every texture, which breaks the list for one that isn't in it.
+    if ( pTexture->pCachedTexture )
+    {
+        std3D_RemoveTextureFromCacheList(pTexture);
+        std3D_AddTextureToCacheList(pTexture);
+    }
+
+    pTexture->frameNum = std3D_frameCount;
+}
+
+size_t J3DAPI std3D_FindClosestFormat(const ColorInfo* pMatch)
+{
+    if ( !std3D_numTextureFormats )
+    {
+        return 0;
+    }
+
+    size_t bestMatchLevel = 0;
+    size_t closestMatch   = 0;
+    for ( size_t i = 0; i < std3D_numTextureFormats; ++i )
+    {
+        StdTextureFormat* pFormat = &std3D_aTextureFormats[i];
+        size_t matchLevel = 0;
+
+        if ( pFormat->ci.colorMode == pMatch->colorMode )
+        {
+            matchLevel = 1;
+            if ( pFormat->ci.bpp == pMatch->bpp )
+            {
+                matchLevel = 2;
+                if ( pMatch->colorMode == STDCOLOR_RGB )
+                {
+                    if ( pFormat->ci.redBPP == pMatch->redBPP && pFormat->ci.greenBPP == pMatch->greenBPP && pFormat->ci.blueBPP == pMatch->blueBPP )
+                    {
+                        return i;
+                    }
+                }
+                else
+                {
+                    if ( pMatch->colorMode != STDCOLOR_RGBA )
+                    {
+                        STDLOG_STATUS("Found a perfect mode matchLevel #%zu!\n", i);
+                        return i;
+                    }
+
+                    if ( pFormat->ci.colorMode == STDCOLOR_RGBA )
+                    {
+                        matchLevel = 3;
+                    }
+
+                    if ( pFormat->ci.redBPP == pMatch->redBPP
+                        && pFormat->ci.greenBPP == pMatch->greenBPP
+                        && pFormat->ci.blueBPP == pMatch->blueBPP
+                        && pFormat->ci.alphaBPP == pMatch->alphaBPP )
+                    {
+                        return i;
+                    }
+                }
+            }
+        }
+
+        if ( matchLevel > bestMatchLevel )
+        {
+            closestMatch   = i;
+            bestMatchLevel = matchLevel;
+        }
+    }
+
+    STDLOG_STATUS("Settling for a closest matchLevel #%zu..\n", closestMatch);
+    return closestMatch;
+}
+
+int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType filter)
+{
+    // Every render device filters mips linearly and by nearest level (render::SamplerDesc), so the
+    // filter is never lowered like std3DX9.c did on devices without the caps; 0 is D3D_OK.
+    std3D_mipmapFilter = filter;
+    return 0;
+}
+
+int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
+{
+    float distance = farPlane - nearPlane;
+    if ( std::fabs(distance) < 0.009999999776482582 )
+    {
+        return E_INVALIDARG;
+    }
+
+    float hfov    = fov / 2.0f;
+    float sinhfov = std::sin(hfov);
+    if ( std::fabs(sinhfov) < 0.009999999776482582f )
+    {
+        return E_INVALIDARG;
+    }
+
+    // The projection matrix std3DX9.c set is unused by its pre-transformed vertices; the fog of
+    // M6.6b needs only the depth scale.
+    std3D_zDepth = distance * 10.0f;
+    return 0;
+}
+
+void J3DAPI std3D_EnableFog(int bEnabled, float density)
+{
+    // std3DX9.c's shader path: the density is kept only with an open device.
+    std3D_bRenderFog = bEnabled != 0;
+    if ( !std3D_pCurDevice )
+    {
+        return;
+    }
+
+    std3D_g_fogDensity = density;
+}
+
+void J3DAPI std3D_SetFog(float red, float green, float blue, float startDepth, float endDepth)
+{
+    // std3DX9.c's shader path, kept for the fog of M6.6b.
+    std3D_EnableFog(std3D_bRenderFog, std3D_g_fogDensity);
+
+    std3D_fogStartDepth  = startDepth;
+    std3D_fogEndDepth    = (2.0f - std3D_g_fogDensity) * endDepth;
+    std3D_fogDepthFactor = 1.0f / (std3D_fogEndDepth - std3D_fogStartDepth);
+
+    std3D_aFogColor[0] = red;
+    std3D_aFogColor[1] = green;
+    std3D_aFogColor[2] = blue;
+    std3D_aFogColor[3] = 1.0f;
+}
+
+void std3D_ClearZBuffer(void)
+{
+    if ( !std3D_bOpen )
+    {
+        return;
+    }
+
+    // std3DX9.c cleared depth (and stencil) of the viewport at once. A pass can only clear when it
+    // begins, so inside a scene the pass is ended and another one begun with depth cleared; outside
+    // one the next scene's pass clears it.
+    if ( !std3D_bInScene )
+    {
+        std3D_bClearDepthPending = true;
+        return;
+    }
+
+    render::CommandList& frame = stdRenderBabylon_GetFrame();
+    if ( !frame.endPass() || !std3D_BeginScenePass(false, true) )
+    {
+        STDLOG_ERROR("Error when clearing Z.\n");
+        std3D_bInScene = frame.inPass();
+    }
+}
+
+StdDisplayEnvironment* J3DAPI std3D_BuildDisplayEnvironment()
+{
+    StdDisplayEnvironment* pDeviceList = (StdDisplayEnvironment*)STDMALLOC(sizeof(StdDisplayEnvironment));
+    STD_ZEROMEM(pDeviceList, sizeof(StdDisplayEnvironment));
+
+    if ( !stdDisplay_Startup() )
+    {
+        STDLOG_ERROR("Error starting stdDisplay system.\n");
+        std3D_FreeDisplayEnvironment(pDeviceList);
+        return nullptr;
+    }
+
+    pDeviceList->numInfos      = stdDisplay_GetNumDevices();
+    pDeviceList->aDisplayInfos = nullptr;
+
+    if ( pDeviceList->numInfos )
+    {
+        pDeviceList->aDisplayInfos = (StdDisplayInfo*)STDMALLOC(sizeof(StdDisplayInfo) * pDeviceList->numInfos);
+
+        StdDisplayInfo* pCurInfo = pDeviceList->aDisplayInfos;
+        for ( size_t deviceNum = 0; deviceNum < pDeviceList->numInfos; ++deviceNum )
+        {
+            STD_ZEROMEM(pCurInfo, sizeof(StdDisplayInfo));
+
+            if ( stdDisplay_GetDevice(deviceNum, &pCurInfo->displayDevice) )
+            {
+                STDLOG_ERROR("Error getting stdDisplay device.\n");
+                std3D_FreeDisplayEnvironment(pDeviceList);
+                return nullptr;
+            }
+
+            if ( !stdDisplay_Open(deviceNum) )
+            {
+                STDLOG_ERROR("Error opening stdDisplay device.\n");
+                std3D_FreeDisplayEnvironment(pDeviceList);
+                return nullptr;
+            }
+
+            pCurInfo->numModes = stdDisplay_GetNumVideoModes();
+            pCurInfo->aModes   = nullptr;
+
+            if ( pCurInfo->numModes )
+            {
+                pCurInfo->aModes = (StdVideoMode*)STDMALLOC(sizeof(StdVideoMode) * pCurInfo->numModes);
+                StdVideoMode* pCurMode = pCurInfo->aModes;
+                for ( size_t modeNum = 0; modeNum < pCurInfo->numModes; ++modeNum )
+                {
+                    if ( !stdDisplay_GetVideoMode(modeNum, pCurMode) )
+                    {
+                        ++pCurMode;
+                    }
+                }
+
+                pCurInfo->numDevices = 0;
+                pCurInfo->aDevices   = nullptr;
+                if ( pCurInfo->displayDevice.bHAL )
+                {
+                    if ( !std3D_Startup() )
+                    {
+                        STDLOG_ERROR("Error starting std3D system.\n");
+                        std3D_FreeDisplayEnvironment(pDeviceList);
+                        return nullptr;
+                    }
+
+                    pCurInfo->numDevices = std3D_GetNumDevices();
+                    if ( pCurInfo->numDevices )
+                    {
+                        size_t listSize = sizeof(Device3D) * pCurInfo->numDevices;
+                        pCurInfo->aDevices = (Device3D*)STDMALLOC(listSize);
+                        std::memcpy(pCurInfo->aDevices, std3D_GetAllDevices(), listSize);
+                    }
+
+                    std3D_Shutdown();
+                }
+            }
+
+            stdDisplay_Close();
+            ++pCurInfo;
+        }
+    }
+
+    stdDisplay_Shutdown();
+    return pDeviceList;
+}
+
+void J3DAPI std3D_FreeDisplayEnvironment(StdDisplayEnvironment* pEnv)
+{
+    if ( pEnv->aDisplayInfos )
+    {
+        StdDisplayInfo* pCurDevice = pEnv->aDisplayInfos;
+        for ( size_t i = 0; i < pEnv->numInfos; ++i )
+        {
+            if ( pCurDevice->aDevices )
+            {
+                stdMemory_Free(pCurDevice->aDevices);
+                pCurDevice->aDevices = nullptr;
+            }
+
+            if ( pCurDevice->aModes )
+            {
+                stdMemory_Free(pCurDevice->aModes);
+                pCurDevice->aModes = nullptr;
+            }
+
+            ++pCurDevice;
+        }
+
+        stdMemory_Free(pEnv->aDisplayInfos);
+        pEnv->aDisplayInfos = nullptr;
+    }
+
+    stdMemory_Free(pEnv);
+}

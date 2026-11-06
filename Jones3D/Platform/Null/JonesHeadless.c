@@ -25,6 +25,10 @@
 //            The game opens it during JonesMain_Startup (once the host services exist) and closes
 //            it during JonesMain_Shutdown. The column named in its header is "babylon" for the
 //            Babylon column and "null" otherwise.
+//   --render (Babylon column only) the render device std3D draws with: "null" (the default) records
+//            the frames and draws nothing; "gpu" is the SDL GPU device without a window (set
+//            SDL_VIDEO_DRIVER=offscreen where there is no display). The Babylon main() takes it out
+//            of the arguments before they reach JonesHeadless_Run.
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,9 +81,16 @@ typedef struct HeadlessInputEvent
     int                    bPressed; // HEADLESS_INPUT_EVENT_KEY: 1 = down, 0 = up
 } HeadlessInputEvent;
 
+// Added: the Babylon column's main() also takes --render (see the usage comment at the top).
+#ifdef J3D_PLATFORM_BABYLON
+#define HEADLESS_RENDER_USAGE " [--render null|gpu, default null]"
+#else
+#define HEADLESS_RENDER_USAGE ""
+#endif
+
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--load <save.nds>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]\n",
+    fprintf(stderr, "usage: %s [--load <save.nds>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]" HEADLESS_RENDER_USAGE "\n",
         pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP);
 }
 

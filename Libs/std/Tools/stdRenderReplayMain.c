@@ -14,7 +14,13 @@ static void StdRenderReplayMain_Usage(void)
     fprintf(stderr, "usage: Jones3D-replay <in.rcap> [--capture <out.rcap>]\n");
 }
 
-int main(int argc, char** argv)
+// Added: the Babylon column's C++ entry (std/Babylon/stdRenderReplayBabylonMain.cpp) installs the adapter
+// context first and calls this one under the name STDRENDERREPLAYMAIN_ENTRY; other builds keep main.
+#ifndef STDRENDERREPLAYMAIN_ENTRY
+#define STDRENDERREPLAYMAIN_ENTRY main
+#endif
+
+int STDRENDERREPLAYMAIN_ENTRY(int argc, char** argv)
 {
     const char* pInPath = NULL;
     const char* pOutPath = NULL;
