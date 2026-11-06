@@ -67,6 +67,12 @@ class BoundaryTest(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("src/Demo.cpp:1: include not allowed here: <windows.h>", out)
 
+    def test_generated_shader_header_needs_babylon_add_shaders(self):
+        code, out = self.boundary("shader_header", "--only", "includes")
+        self.assertEqual(code, 1, out)
+        self.assertEqual(out, "demo/tests/DemoTest.cpp:2: include not allowed here: "
+            "<babylon/shaders/other_tests.h>\n")
+
     def test_game_name_as_identifier_prefix_fails(self):
         code, out = self.boundary("game_name", "--only", "names")
         self.assertEqual(code, 1, out)

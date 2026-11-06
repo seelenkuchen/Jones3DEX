@@ -67,8 +67,9 @@ namespace babylon::render
 
     // One shader stage of a pipeline: its blobs and the resources it reads.
     // The counts are what the code declares; the device needs them to build
-    // the pipeline, and bindTexture() and pushUniforms() slots must be below
-    // them at draw time.
+    // the pipeline, and a draw needs slots 0 to count - 1 of the stage
+    // filled by bindTexture() and pushUniforms() earlier in its pass
+    // (Device::submit()).
     struct ShaderDesc
     {
         std::vector<ShaderBlob> blobs;

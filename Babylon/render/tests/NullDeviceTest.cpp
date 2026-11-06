@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace
@@ -106,6 +107,17 @@ namespace
         return desc;
     }
 
+    // The same pipeline with shaders that read no textures and no uniform
+    // blocks, for draws that bind neither.
+    PipelineDesc withoutShaderResources(PipelineDesc desc)
+    {
+        desc.vertexShader.textureCount = 0;
+        desc.vertexShader.uniformCount = 0;
+        desc.fragmentShader.textureCount = 0;
+        desc.fragmentShader.uniformCount = 0;
+        return desc;
+    }
+
     std::vector<std::byte> bytes(std::size_t size, unsigned seed)
     {
         std::vector<std::byte> data(size);
@@ -161,6 +173,7 @@ TEST_CASE("The Null device records pipeline creations and a submitted frame exac
     frame.bindIndexBuffer(indices, IndexType::Uint16);
     frame.bindTexture(ShaderStage::Fragment, 0, texture, sampler);
     frame.pushUniforms(ShaderStage::Vertex, 0, uniforms);
+    frame.pushUniforms(ShaderStage::Fragment, 0, uniforms);
     frame.drawIndexed(6);
     frame.draw(0);   // nothing, and not recorded
     frame.setPipeline(lines);
@@ -181,6 +194,7 @@ TEST_CASE("The Null device records pipeline creations and a submitted frame exac
         BindIndexBuffer{ indices, IndexType::Uint16, 0 },
         BindTexture{ ShaderStage::Fragment, 0, texture, sampler },
         PushUniforms{ ShaderStage::Vertex, 0, uniforms },
+        PushUniforms{ ShaderStage::Fragment, 0, uniforms },
         DrawIndexed{ 6, 0, 0 },
         SetPipeline{ lines },
         Draw{ 4, 2 },
@@ -274,8 +288,8 @@ TEST_CASE("The Null device drops commands with bad resources at submit")
     const BufferHandle vertices = device->createBuffer(BufferDesc{ 32 * 3, BufferUsage::Vertex });
     const BufferHandle indices = device->createBuffer(BufferDesc{ 2 * 3, BufferUsage::Index });
     const SamplerHandle sampler = device->createSampler(SamplerDesc{});
-    const PipelineHandle pipeline =
-        device->createPipeline(transformedVertexPipeline(TextureFormat::Rgba8, std::nullopt));
+    const PipelineHandle pipeline = device->createPipeline(
+        withoutShaderResources(transformedVertexPipeline(TextureFormat::Rgba8, std::nullopt)));
     REQUIRE_FALSE(pipeline.isNull());
     noWarning(sink);
 
@@ -409,8 +423,8 @@ TEST_CASE("The Null device executes buffer updates between the draws they feed")
     CaptureSink sink;
     const std::unique_ptr<NullDevice> device = createNullDevice();
     const BufferHandle vertices = device->createBuffer(BufferDesc{ 32 * 3, BufferUsage::Vertex });
-    const PipelineHandle pipeline =
-        device->createPipeline(transformedVertexPipeline(TextureFormat::Bgra8, std::nullopt));
+    const PipelineHandle pipeline = device->createPipeline(
+        withoutShaderResources(transformedVertexPipeline(TextureFormat::Bgra8, std::nullopt)));
     REQUIRE_FALSE(pipeline.isNull());
     device->clearRecorded();
 
@@ -446,4 +460,140 @@ TEST_CASE("The Null device executes buffer updates between the draws they feed")
     expected.emplace_back(FrameSubmitted{ 1, false });
     CHECK(device->recorded() == expected);
     CHECK(device->readBuffer(vertices, 0, 32 * 3) == secondDraw);
+}
+
+TEST_CASE("The Null device drops draws whose shaders read slots the pass didn't fill")
+{
+    CaptureSink sink;
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    const TextureHandle target = device->createTexture(TextureDesc{ 16, 16, 1,
+        TextureFormat::Bgra8, TextureUsage::ColorTarget });
+    const TextureHandle texture = device->createTexture(TextureDesc{ 4, 4, 1,
+        TextureFormat::Rgba8, TextureUsage::Sampled });
+    const BufferHandle vertices = device->createBuffer(BufferDesc{ 32 * 3, BufferUsage::Vertex });
+    const SamplerHandle sampler = device->createSampler(SamplerDesc{});
+    // Vertex: 1 uniform block; fragment: 1 texture, 1 uniform block.
+    const PipelineHandle pipeline =
+        device->createPipeline(transformedVertexPipeline(TextureFormat::Bgra8, std::nullopt));
+    // Fragment: 2 textures, nothing else.
+    PipelineDesc twoTexturesDesc =
+        withoutShaderResources(transformedVertexPipeline(TextureFormat::Bgra8, std::nullopt));
+    twoTexturesDesc.fragmentShader.textureCount = 2;
+    const PipelineHandle twoTextures = device->createPipeline(twoTexturesDesc);
+    REQUIRE_FALSE(pipeline.isNull());
+    REQUIRE_FALSE(twoTextures.isNull());
+    noWarning(sink);
+
+    const std::vector<std::byte> uniforms = bytes(16, 3);
+    const auto bindTexture = [&](CommandList& list, std::uint32_t slot)
+    {
+        list.bindTexture(ShaderStage::Fragment, slot, texture, sampler);
+    };
+    const auto pushVertex = [&](CommandList& list)
+    {
+        list.pushUniforms(ShaderStage::Vertex, 0, uniforms);
+    };
+    const auto pushFragment = [&](CommandList& list)
+    {
+        list.pushUniforms(ShaderStage::Fragment, 0, uniforms);
+    };
+
+    // Records a frame: an optional first pass that only runs before, then
+    // a pass that runs fill, sets the pipeline, runs after and draws.
+    // Returns true when the draw executed.
+    const auto drew = [&](PipelineHandle drawPipeline,
+        const std::function<void(CommandList&)>& before,
+        const std::function<void(CommandList&)>& after) -> bool
+    {
+        device->clearRecorded();
+        CommandList list = device->beginFrame();
+        const PassDesc pass{ { attachment(target) }, std::nullopt };
+        if ( before )
+        {
+            REQUIRE(list.beginPass(pass));
+            before(list);
+            REQUIRE(list.endPass());
+        }
+        REQUIRE(list.beginPass(pass));
+        list.setPipeline(drawPipeline);
+        list.bindVertexBuffer(0, vertices);
+        after(list);
+        list.draw(3);
+        REQUIRE(list.endPass());
+        REQUIRE(device->submit(list));
+        for ( const RecordedCommand& command : device->recorded() )
+        {
+            if ( std::holds_alternative<Draw>(command) )
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+    const auto lastWarning = [&]
+    {
+        INFO("captured log: " << joined(sink));
+        REQUIRE(sink.records().size() == 1);
+        const std::string message = sink.records()[0].message;
+        oneWarning(sink);
+        return message;
+    };
+
+    // Everything filled: drawn. Before or after setPipeline doesn't matter.
+    CHECK(drew(pipeline, {}, [&](CommandList& list)
+    {
+        bindTexture(list, 0);
+        pushVertex(list);
+        pushFragment(list);
+    }));
+    noWarning(sink);
+    {
+        device->clearRecorded();
+        CommandList list = device->beginFrame();
+        REQUIRE(list.beginPass(PassDesc{ { attachment(target) }, std::nullopt }));
+        bindTexture(list, 0);
+        pushVertex(list);
+        pushFragment(list);
+        list.setPipeline(pipeline);
+        list.bindVertexBuffer(0, vertices);
+        list.draw(3);
+        list.setPipeline(pipeline);   // a new setPipeline keeps what was filled
+        list.draw(3);
+        REQUIRE(list.endPass());
+        REQUIRE(device->submit(list));
+        std::size_t draws = 0;
+        for ( const RecordedCommand& command : device->recorded() )
+        {
+            draws += std::holds_alternative<Draw>(command) ? 1 : 0;
+        }
+        CHECK(draws == 2);
+        noWarning(sink);
+    }
+
+    // Each missing slot drops the draw with one warning naming it.
+    CHECK_FALSE(drew(pipeline, {}, [&](CommandList& list) { pushVertex(list); pushFragment(list); }));
+    CHECK(lastWarning() == "render: submit: dropped draw: the fragment shader reads 1 textures, "
+        "slot 0 is not bound");
+    CHECK_FALSE(drew(pipeline, {}, [&](CommandList& list) { bindTexture(list, 0); pushFragment(list); }));
+    CHECK(lastWarning() == "render: submit: dropped draw: the vertex shader reads 1 uniform "
+        "blocks, slot 0 was not pushed");
+    CHECK_FALSE(drew(pipeline, {}, [&](CommandList& list) { bindTexture(list, 0); pushVertex(list); }));
+    CHECK(lastWarning() == "render: submit: dropped draw: the fragment shader reads 1 uniform "
+        "blocks, slot 0 was not pushed");
+    CHECK_FALSE(drew(twoTextures, {}, [&](CommandList& list) { bindTexture(list, 1); }));
+    CHECK(lastWarning() == "render: submit: dropped draw: the fragment shader reads 2 textures, "
+        "slot 0 is not bound");
+    CHECK(drew(twoTextures, {}, [&](CommandList& list) { bindTexture(list, 1); bindTexture(list, 0); }));
+    noWarning(sink);
+
+    // What an earlier pass filled doesn't count.
+    CHECK_FALSE(drew(pipeline, [&](CommandList& list)
+    {
+        bindTexture(list, 0);
+        pushVertex(list);
+        pushFragment(list);
+    }, [](CommandList&) {}));
+    // The vertex stage is checked first.
+    CHECK(lastWarning() == "render: submit: dropped draw: the vertex shader reads 1 uniform "
+        "blocks, slot 0 was not pushed");
 }

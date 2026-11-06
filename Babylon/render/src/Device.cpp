@@ -8,6 +8,7 @@
 #include <babylon/log/Log.h>
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -224,7 +225,55 @@ namespace
         const BufferDesc* indexBuffer = nullptr;
         std::uint32_t indexOffset = 0;
         IndexType indexType = IndexType::Uint16;
+        // Per stage (ShaderStage as index), one bit per slot: the texture
+        // slots bound and the uniform slots pushed since the pass began.
+        std::array<std::uint32_t, 2> boundTextures{};
+        std::array<std::uint32_t, 2> pushedUniforms{};
     };
+
+    std::size_t stageIndex(ShaderStage stage)
+    {
+        return stage == ShaderStage::Vertex ? 0 : 1;
+    }
+
+    const char* stageName(ShaderStage stage)
+    {
+        return stage == ShaderStage::Vertex ? "vertex" : "fragment";
+    }
+
+    // The bits of slots 0 to count - 1; count is at most 32 (kMaxTextureSlots
+    // and kMaxUniformSlots are far below).
+    std::uint32_t slotMask(std::uint32_t count)
+    {
+        return count >= 32 ? ~std::uint32_t{ 0 } : (std::uint32_t{ 1 } << count) - 1;
+    }
+
+    // Why a draw with the pass's pipeline can't run: a texture slot or
+    // uniform slot its shaders declare that nothing filled in this pass.
+    std::optional<std::string> checkShaderResources(const PassCheck& pass)
+    {
+        for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+        {
+            const ShaderDesc& shader = stage == ShaderStage::Vertex
+                ? pass.pipeline->vertexShader : pass.pipeline->fragmentShader;
+            const std::size_t index = stageIndex(stage);
+            const std::uint32_t missingTextures =
+                slotMask(shader.textureCount) & ~pass.boundTextures[index];
+            if ( missingTextures != 0 )
+            {
+                return std::format("the {} shader reads {} textures, slot {} is not bound",
+                    stageName(stage), shader.textureCount, std::countr_zero(missingTextures));
+            }
+            const std::uint32_t missingUniforms =
+                slotMask(shader.uniformCount) & ~pass.pushedUniforms[index];
+            if ( missingUniforms != 0 )
+            {
+                return std::format("the {} shader reads {} uniform blocks, slot {} was not pushed",
+                    stageName(stage), shader.uniformCount, std::countr_zero(missingUniforms));
+            }
+        }
+        return std::nullopt;
+    }
 
 }
 
@@ -722,12 +771,25 @@ namespace
                 {
                     reason = std::format("sampler: {}", describe(bindTexture->sampler));
                 }
+                else
+                {
+                    pass.boundTextures[stageIndex(bindTexture->stage)] |=
+                        std::uint32_t{ 1 } << bindTexture->slot;
+                }
+            }
+            else if ( const auto* const push = std::get_if<PushUniforms>(&command) )
+            {
+                pass.pushedUniforms[stageIndex(push->stage)] |= std::uint32_t{ 1 } << push->slot;
             }
             else if ( const auto* const drawCommand = std::get_if<Draw>(&command) )
             {
                 name = "draw";
                 silentDrop = pass.poisoned;
                 if ( !silentDrop )
+                {
+                    reason = checkShaderResources(pass);
+                }
+                if ( !silentDrop && !reason.has_value() )
                 {
                     reason = checkVertexBuffers(std::uint64_t{ drawCommand->firstVertex }
                         + drawCommand->vertexCount);
@@ -738,6 +800,10 @@ namespace
                 name = "drawIndexed";
                 silentDrop = pass.poisoned;
                 if ( !silentDrop )
+                {
+                    reason = checkShaderResources(pass);
+                }
+                if ( !silentDrop && !reason.has_value() )
                 {
                     reason = checkVertexBuffers(std::nullopt);
                 }
@@ -772,8 +838,8 @@ namespace
                         update->data.size(), update->offset, desc->size);
                 }
             }
-            // SetViewport, SetScissor and PushUniforms need no resources: the
-            // command list checked them completely.
+            // SetViewport and SetScissor need no resources: the command list
+            // checked them completely.
 
             if ( silentDrop )
             {

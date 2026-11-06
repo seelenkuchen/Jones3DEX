@@ -7,12 +7,14 @@
 """Check the Babylon boundary (ADR-0006, ADR-0008, ADR-0015).
 
 Four checks run over every file under the Babylon root, except third_party/,
-tools/testdata/ and build directories (any directory containing
-CMakeCache.txt):
+tools/testdata/, .cache/ (the shader cache) and build directories (any
+directory containing CMakeCache.txt):
 
   includes  every #include in a code file resolves to a Babylon header, a
-            C++20 standard header, <doctest.h> in a test location, or a
-            third-party header at a location the table below allows
+            C++20 standard header, <doctest.h> in a test location, a
+            generated <babylon/shaders/<target>.h> of a target some CMake
+            file passes to babylon_add_shaders(), or a third-party header at
+            a location the table below allows
   public    files under */include/babylon/ include only <babylon/...> and
             standard headers
   names     no game name in code or CMake files
@@ -49,11 +51,17 @@ GAME_NAME_RE = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(GAME_NAMES) + r")")
 INCLUDE_RE = re.compile(r'^[ \t]*#[ \t]*include[ \t]*(?:<([^<>]*)>|\"([^\"]*)\")')
 
 # Licenses that may appear in the third_party/README.md table (ADR-0008).
-# Compared case-insensitively; a bare "BSD" is not specific enough.
+# Compared case-insensitively; a bare "BSD" is not specific enough. NCSA
+# (University of Illinois/NCSA, BSD-style) is DXC's, a build tool.
 PERMISSIVE_LICENSES = frozenset({
-    "mit", "zlib", "bsd-2-clause", "bsd-3-clause", "apache-2.0", "public domain"})
+    "mit", "zlib", "bsd-2-clause", "bsd-3-clause", "apache-2.0", "ncsa", "public domain"})
 
 FETCH_DECLARE_RE = re.compile(r"FetchContent_Declare[ \t]*\([ \t]*(\w+)")
+
+# babylon_add_shaders(<target> ...) generates <babylon/shaders/<target>.h>
+# in the build tree (cmake/BabylonShaders.cmake).
+ADD_SHADERS_RE = re.compile(r"babylon_add_shaders[ \t]*\([ \t\n]*([A-Za-z0-9_.+-]+)")
+SHADER_HEADER_PREFIX = "babylon/shaders/"
 
 # C++20 standard library headers (including the C compatibility headers).
 CXX_HEADERS = frozenset("""
@@ -77,7 +85,7 @@ def iter_files(root):
         if "CMakeCache.txt" in file_names:
             dir_names.clear()
             continue
-        dir_names[:] = sorted(d for d in dir_names if d != "third_party")
+        dir_names[:] = sorted(d for d in dir_names if d not in ("third_party", ".cache"))
         rel_dir = os.path.relpath(dir_path, root).replace(os.sep, "/")
         if rel_dir == ".":
             rel_dir = ""
@@ -109,7 +117,9 @@ def babylon_header_exists(root, name):
     return os.path.isfile(target) or os.path.isfile(target + ".in")
 
 
-def angle_include_allowed(root, rel, name):
+def angle_include_allowed(root, rel, name, shader_targets):
+    if name.startswith(SHADER_HEADER_PREFIX) and name.endswith(".h"):
+        return name[len(SHADER_HEADER_PREFIX):-len(".h")] in shader_targets
     if name.startswith("babylon/"):
         return babylon_header_exists(root, name)
     if name in CXX_HEADERS:
@@ -128,7 +138,7 @@ def quoted_include_resolves_inside(root, rel, quoted):
     return resolved.startswith(root + os.sep) and os.path.isfile(resolved)
 
 
-def check_includes(root, rel, lines):
+def check_includes(root, rel, lines, shader_targets):
     """Yield (line, message) for every #include that is not allowed here."""
     for num, line in enumerate(lines, 1):
         match = INCLUDE_RE.match(line)
@@ -137,7 +147,7 @@ def check_includes(root, rel, lines):
         angle, quoted = match.group(1), match.group(2)
         if angle is not None:
             name = angle.strip()
-            if not angle_include_allowed(root, rel, name):
+            if not angle_include_allowed(root, rel, name, shader_targets):
                 yield num, f"include not allowed here: <{name}>"
         elif not quoted_include_resolves_inside(root, rel, quoted):
             yield num, 'include not allowed here: "%s"' % quoted
@@ -227,6 +237,17 @@ def is_cmake_file(rel):
     return os.path.basename(rel) == "CMakeLists.txt" or rel.endswith(".cmake")
 
 
+def shader_targets_of(root):
+    """The targets CMake files under root pass to babylon_add_shaders()."""
+    targets = set()
+    for rel in iter_files(root):
+        if not is_cmake_file(rel):
+            continue
+        with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as fh:
+            targets.update(ADD_SHADERS_RE.findall(fh.read()))
+    return targets
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
         description="Check the Babylon boundary (ADR-0006, ADR-0008, ADR-0015).")
@@ -242,6 +263,7 @@ def main(argv):
 
     violations = []
     fetched = []
+    shader_targets = shader_targets_of(root)
     for rel in iter_files(root):
         code = rel.endswith(CODE_SUFFIXES)
         cmake = is_cmake_file(rel)
@@ -250,7 +272,7 @@ def main(argv):
         with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as fh:
             lines = fh.read().splitlines()
         if code and args.only in (None, "includes"):
-            violations += [(rel, num, text) for num, text in check_includes(root, rel, lines)]
+            violations += [(rel, num, text) for num, text in check_includes(root, rel, lines, shader_targets)]
         if code and is_public_header(rel) and args.only in (None, "public"):
             violations += [(rel, num, text) for num, text in check_public(rel, lines)]
         if args.only in (None, "names"):

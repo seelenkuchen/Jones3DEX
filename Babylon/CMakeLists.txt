@@ -33,6 +33,7 @@ endif()
 
 include(cmake/BabylonModule.cmake)
 include(cmake/BabylonSdl3.cmake)
+include(cmake/BabylonShaders.cmake)
 
 if (BABYLON_BUILD_TESTS)
     add_subdirectory(third_party/doctest)

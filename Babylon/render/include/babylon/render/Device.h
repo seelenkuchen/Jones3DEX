@@ -140,8 +140,14 @@ namespace babylon::render
         // open; the list is then unchanged. Otherwise each command is checked
         // against the live resources: a command naming a stale handle, a
         // texture or buffer without the usage it needs, a pipeline whose
-        // target formats differ from the pass's, or a copy or draw out of
-        // bounds is dropped with one warning. A dropped beginPass drops its
+        // target formats differ from the pass's, a copy or draw out of
+        // bounds, or a draw whose pipeline reads a texture or uniform slot
+        // that wasn't filled is dropped with one warning. A draw needs, for
+        // each stage, texture slots 0 to ShaderDesc::textureCount - 1 bound
+        // by an accepted bindTexture and uniform slots 0 to uniformCount - 1
+        // filled by a pushUniforms, each earlier in the same pass; the
+        // pipeline may be set before or after them, and they stay valid
+        // across setPipeline until the pass ends. A dropped beginPass drops its
         // whole pass; after any other command of a pass was dropped, the
         // pass's later draws are dropped too, without further warnings. An
         // updateBuffer of a stale buffer or past its end is dropped the same
