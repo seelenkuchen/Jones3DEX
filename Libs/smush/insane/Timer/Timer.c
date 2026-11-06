@@ -161,9 +161,16 @@ void J3DAPI timer_Wait(int ticks)
 
     while ( cur >= start && cur < end )
     {
+        timer_Update(); // Added: the polled timer (TimerPolled.c) only ticks when asked; a no-op with a tick thread
         timer_GetTicks();
         cur = timer_ticks;
     }
+}
+
+// Added: see Timer.h
+int timer_Update(void)
+{
+    return timer_SysUpdate();
 }
 
 int timer_GetTicks(void)

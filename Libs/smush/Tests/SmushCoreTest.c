@@ -45,6 +45,25 @@ static LONG SmushCoreTest_InterlockedIncrement(volatile LONG* pValue)
 #endif
 
 #include <smush/SmushPlay.h>
+#include <smush/insane/Timer/Timer.h>
+
+#if defined(J3D_PLATFORM_BABYLON)
+// Added: the Babylon column's timer has no tick thread (TimerPolled.c): ticks arrive when the player polls timer_Update.
+// The timer tests wait for ticks with Sleep, so on this column a Sleep is the wait followed by that poll, which delivers
+// every tick that came due meanwhile. The tests keep their thread form and their expectations.
+static void SmushCoreTest_PolledSleep(DWORD msec)
+{
+#if defined(_WIN32)
+    Sleep(msec);
+#else
+    SmushCoreTest_Sleep(msec);
+#endif
+    timer_Update();
+}
+#undef Sleep
+#define Sleep SmushCoreTest_PolledSleep
+#endif
+
 #include <smush/insane/Bitmap/Bitmap.h>
 #include <smush/insane/Lec/LecShare.h>
 #include <smush/insane/Memory/Memory.h>

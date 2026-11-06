@@ -57,6 +57,12 @@ void timer_SysStopThread(void)
     pthread_join(timer_thread, NULL);
 }
 
+// Added: the tick thread delivers every tick, so there is nothing to poll.
+int timer_SysUpdate(void)
+{
+    return 0;
+}
+
 void timer_SysResetGlobals(void)
 {
 }

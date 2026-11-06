@@ -18,7 +18,8 @@ endif()
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(${PROJECT_NAME} PUBLIC j3dcore std)
 if(J3D_PLATFORM_BABYLON)
-    target_link_libraries(${PROJECT_NAME} PUBLIC babylon::platform)
+    # Added: babylon::input for the intro skip keys read from the pump's input state.
+    target_link_libraries(${PROJECT_NAME} PUBLIC babylon::platform babylon::input)
 endif()
 
 # Organize source files in Visual Studio
