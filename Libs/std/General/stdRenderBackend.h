@@ -43,6 +43,7 @@
 #define std3D_BuildDisplayEnvironment std3DBackend_BuildDisplayEnvironment
 #define std3D_FreeDisplayEnvironment std3DBackend_FreeDisplayEnvironment
 #define std3D_ResetGlobals std3DBackend_ResetGlobals
+#define std3D_DrawRenderListLit std3DBackend_DrawRenderListLit
 #define stdDisplay_Startup stdDisplayBackend_Startup
 #define stdDisplay_Shutdown stdDisplayBackend_Shutdown
 #define stdDisplay_Open stdDisplayBackend_Open

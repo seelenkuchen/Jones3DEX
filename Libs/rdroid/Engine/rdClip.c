@@ -4046,6 +4046,40 @@ int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* 
     return 1;
 }
 
+int J3DAPI rdClip_FaceToPlaneLit(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal)
+{
+    // Added
+    if ( !rdClip_FaceToPlane(pFrustrum, pProcFace, pFace, aVerts, aTexVerts, aLightColors, aVertColors) )
+    {
+        return 0;
+    }
+
+    if ( !pProcFace->aViewVertices || !pProcFace->aViewNormals )
+    {
+        return 1;
+    }
+
+    for ( size_t i = 0; i < pFace->numVertices; ++i )
+    {
+        int vertIdx = pFace->aVertices[i];
+        pProcFace->aViewVertices[i] = aVerts[vertIdx];
+
+        rdVector3 normal = { 0.0f, 0.0f, 0.0f };
+        if ( aVertNormals )
+        {
+            normal = aVertNormals[vertIdx];
+        }
+        else if ( pFaceNormal )
+        {
+            normal = *pFaceNormal;
+        }
+
+        rdVector_Normalize3(&pProcFace->aViewNormals[i], &normal);
+    }
+
+    return 1;
+}
+
 void J3DAPI rdClip_VerticesToPlane(rdCacheProcEntry* pProcFace, const rdVector3* aVerts, const rdVector2* aTexVerts, size_t numVerts)
 {
     // Transform vertices to screen space then assigns pProcFace

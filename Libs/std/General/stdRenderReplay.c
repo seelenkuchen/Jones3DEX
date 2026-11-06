@@ -98,6 +98,8 @@ typedef struct sStdRenderReplay
 
     StdVertexTL* pVertices;
     size_t vertexCapacity;
+    StdVertexLit* pLitVertices;
+    size_t litVertexCapacity;
     uint16_t* pIndices;
     size_t indexCapacity;
     tVBuffer** ppMipmaps;
@@ -484,6 +486,44 @@ static bool StdRenderReplay_ReserveVertices(StdRenderReplay* pReplay, size_t cou
     return true;
 }
 
+static bool StdRenderReplay_ReserveLitVertices(StdRenderReplay* pReplay, size_t count)
+{
+    size_t capacity;
+    void* pData;
+
+    if ( count <= pReplay->litVertexCapacity )
+    {
+        return true;
+    }
+
+    capacity = pReplay->litVertexCapacity ? pReplay->litVertexCapacity : 16u;
+    while ( capacity < count )
+    {
+        if ( capacity > SIZE_MAX / 2u )
+        {
+            capacity = count;
+            break;
+        }
+
+        capacity *= 2u;
+    }
+
+    if ( capacity > SIZE_MAX / sizeof(StdVertexLit) )
+    {
+        return false;
+    }
+
+    pData = STDREALLOC(pReplay->pLitVertices, capacity * sizeof(StdVertexLit));
+    if ( !pData )
+    {
+        return false;
+    }
+
+    pReplay->pLitVertices      = (StdVertexLit*)pData;
+    pReplay->litVertexCapacity = capacity;
+    return true;
+}
+
 static bool StdRenderReplay_ReserveIndices(StdRenderReplay* pReplay, size_t count)
 {
     size_t capacity;
@@ -600,6 +640,58 @@ static bool StdRenderReplay_ReadVertices(
     }
 
     *ppVertices   = count ? pReplay->pVertices : NULL;
+    *pNumVertices = count;
+    return !pCursor->bFailed;
+}
+
+// The litVerts encoding: the verts fields of each vertex's tl, then its position and normal.
+static bool StdRenderReplay_ReadLitVertices(
+    StdRenderReplay* pReplay,
+    StdRenderReplayCursor* pCursor,
+    StdVertexLit** ppVertices,
+    size_t* pNumVertices
+)
+{
+    uint32_t count = StdRenderReplayCursor_GetU32(pCursor);
+    size_t i;
+
+    if ( pCursor->bFailed )
+    {
+        return false;
+    }
+
+    if ( (uint64_t)count * sizeof(StdVertexLit) > (uint64_t)(pCursor->size - pCursor->pos) )
+    {
+        pCursor->bFailed = true;
+        return false;
+    }
+
+    if ( !StdRenderReplay_ReserveLitVertices(pReplay, count) )
+    {
+        pCursor->bFailed = true;
+        return false;
+    }
+
+    for ( i = 0; i < count; ++i )
+    {
+        StdVertexLit* pVertex = &pReplay->pLitVertices[i];
+        pVertex->tl.sx       = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->tl.sy       = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->tl.sz       = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->tl.rhw      = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->tl.color    = StdRenderReplayCursor_GetU32(pCursor);
+        pVertex->tl.specular = StdRenderReplayCursor_GetU32(pCursor);
+        pVertex->tl.tu       = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->tl.tv       = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->vx          = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->vy          = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->vz          = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->nx          = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->ny          = StdRenderReplayCursor_GetF32(pCursor);
+        pVertex->nz          = StdRenderReplayCursor_GetF32(pCursor);
+    }
+
+    *ppVertices   = count ? pReplay->pLitVertices : NULL;
     *pNumVertices = count;
     return !pCursor->bFailed;
 }
@@ -1080,9 +1172,36 @@ static void StdRenderReplay_LogRecordError(
     );
 }
 
+// The cached texture of a recorded texHandle for a draw: NULL for 0 and, warned once, for an
+// unknown handle. False when the system texture of the handle can't be made.
+static bool StdRenderReplay_GetCacheTexture(StdRenderReplay* pReplay, uint32_t texHandle, tSysTexture** ppTexture)
+{
+    *ppTexture = NULL;
+    if ( texHandle == STDRENDERREPLAY_UNKNOWNHANDLE )
+    {
+        if ( !pReplay->bWarnedUnknownTexture )
+        {
+            pReplay->bWarnedUnknownTexture = true;
+            STDLOG_WARNING("Render replay: an unknown cached texture is passed as NULL.\n");
+        }
+    }
+    else if ( texHandle != 0u )
+    {
+        tSystemTexture* pSysTexture = StdRenderReplay_EnsureSysTexture(pReplay, texHandle);
+        if ( !pSysTexture )
+        {
+            return false;
+        }
+
+        *ppTexture = pSysTexture->pCachedTexture;
+    }
+
+    return true;
+}
+
 static bool StdRenderReplay_IsKnownId(uint16_t id)
 {
-    return ( id >= STDRENDERCAPTURE_ID_STD3D_STARTUP && id <= STDRENDERCAPTURE_ID_STD3D_RESETGLOBALS )
+    return ( id >= STDRENDERCAPTURE_ID_STD3D_STARTUP && id <= STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT )
         || ( id >= STDRENDERCAPTURE_ID_STDDISPLAY_STARTUP && id <= STDRENDERCAPTURE_ID_STDDISPLAY_RESETGLOBALS )
         || id == STDRENDERCAPTURE_RECORD_GLOBAL
         || id == STDRENDERCAPTURE_RECORD_FRAMES
@@ -1391,26 +1510,41 @@ static bool StdRenderReplay_ProcessRecord(
                 return false;
             }
 
-            if ( texHandle == STDRENDERREPLAY_UNKNOWNHANDLE )
+            if ( !StdRenderReplay_GetCacheTexture(pReplay, texHandle, &pTexture) )
             {
-                if ( !pReplay->bWarnedUnknownTexture )
-                {
-                    pReplay->bWarnedUnknownTexture = true;
-                    STDLOG_WARNING("Render replay: an unknown cached texture is passed as NULL.\n");
-                }
-            }
-            else if ( texHandle != 0u )
-            {
-                tSystemTexture* pSysTexture = StdRenderReplay_EnsureSysTexture(pReplay, texHandle);
-                if ( !pSysTexture )
-                {
-                    return false;
-                }
-
-                pTexture = pSysTexture->pCachedTexture;
+                return false;
             }
 
             std3D_DrawRenderList(
+                pTexture,
+                (Std3DRenderState)rdflags,
+                pVertices,
+                numVertices,
+                pIndices,
+                numIndices
+            );
+            return true;
+        }
+
+        case STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT:
+        {
+            uint32_t texHandle = StdRenderReplayCursor_GetU32(pCursor);
+            int32_t rdflags    = StdRenderReplayCursor_GetI32(pCursor);
+            StdVertexLit* pVertices;
+            size_t numVertices;
+            uint16_t* pIndices;
+            size_t numIndices;
+            tSysTexture* pTexture = NULL;
+
+            if ( pCursor->bFailed
+                || !StdRenderReplay_ReadLitVertices(pReplay, pCursor, &pVertices, &numVertices)
+                || !StdRenderReplay_ReadIndices(pReplay, pCursor, &pIndices, &numIndices)
+                || !StdRenderReplay_GetCacheTexture(pReplay, texHandle, &pTexture) )
+            {
+                return false;
+            }
+
+            std3D_DrawRenderListLit(
                 pTexture,
                 (Std3DRenderState)rdflags,
                 pVertices,
@@ -2663,6 +2797,11 @@ static void StdRenderReplay_FreeResources(StdRenderReplay* pReplay)
     if ( pReplay->pVertices )
     {
         STDFREE(pReplay->pVertices);
+    }
+
+    if ( pReplay->pLitVertices )
+    {
+        STDFREE(pReplay->pLitVertices);
     }
 
     if ( pReplay->pIndices )

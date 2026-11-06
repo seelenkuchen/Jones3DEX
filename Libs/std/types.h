@@ -55,6 +55,19 @@ typedef struct sStdVertexTL
 } StdVertexTL;
 J3D_ASSERT_SIZE32(sizeof(StdVertexTL) == 32, "sizeof(StdVertexTL) == 32");
 
+// Added: a StdVertexTL with the view-space position and normal of its point, for per-pixel passes
+// (option A, ADR-0023; std3D_DrawRenderListLit). View space is rdroid's camera space: x right,
+// y forward (away from the camera), z up. The normal is a unit vector or zero (none known). The
+// layout is a contract like StdVertexTL's: 56 bytes on every platform, tl at 0, the position at 32,
+// the normal at 44.
+typedef struct sStdVertexLit
+{
+    StdVertexTL tl;   // The vertex as std3D_DrawRenderList takes it
+    float vx, vy, vz; // View-space position
+    float nx, ny, nz; // View-space unit normal
+} StdVertexLit;
+static_assert(sizeof(StdVertexLit) == 56, "sizeof(StdVertexLit) == 56");
+
 // Added: Makes a 0xAARRGGBB color from float channels in the range 0 to 1, or from byte channels.
 #define STD_COLOR_ARGB(a, r, g, b)  ((uint32_t)((((a) & 0xffu) << 24) | (((r) & 0xffu) << 16) | (((g) & 0xffu) << 8) | ((b) & 0xffu)))
 #define STD_COLOR_FROM_FLOATS(r, g, b, a) STD_COLOR_ARGB((uint32_t)((a) * 255.f), (uint32_t)((r) * 255.f), (uint32_t)((g) * 255.f), (uint32_t)((b) * 255.f))

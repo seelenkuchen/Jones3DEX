@@ -388,6 +388,36 @@ void stdDisplayCapture_PutVertices(const StdVertexTL* aVerts, size_t numVerts)
     }
 }
 
+// litVerts: u32 count, then per vertex the verts fields of its tl, then f32 vx, vy, vz, nx, ny, nz.
+void stdDisplayCapture_PutLitVertices(const StdVertexLit* aVerts, size_t numVerts)
+{
+    size_t i;
+
+    stdDisplayCapture_PutCount(numVerts, aVerts);
+    if ( !aVerts )
+    {
+        return;
+    }
+
+    for ( i = 0; i < numVerts; ++i )
+    {
+        stdRenderCapture_PutF32(aVerts[i].tl.sx);
+        stdRenderCapture_PutF32(aVerts[i].tl.sy);
+        stdRenderCapture_PutF32(aVerts[i].tl.sz);
+        stdRenderCapture_PutF32(aVerts[i].tl.rhw);
+        stdRenderCapture_PutU32(aVerts[i].tl.color);
+        stdRenderCapture_PutU32(aVerts[i].tl.specular);
+        stdRenderCapture_PutF32(aVerts[i].tl.tu);
+        stdRenderCapture_PutF32(aVerts[i].tl.tv);
+        stdRenderCapture_PutF32(aVerts[i].vx);
+        stdRenderCapture_PutF32(aVerts[i].vy);
+        stdRenderCapture_PutF32(aVerts[i].vz);
+        stdRenderCapture_PutF32(aVerts[i].nx);
+        stdRenderCapture_PutF32(aVerts[i].ny);
+        stdRenderCapture_PutF32(aVerts[i].nz);
+    }
+}
+
 void stdDisplayCapture_PutIndices(const uint16_t* aIndices, size_t numIndices)
 {
     size_t i;

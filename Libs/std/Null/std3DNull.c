@@ -338,6 +338,16 @@ void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, St
     J3D_UNUSED(numIndices);
 }
 
+void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+{
+    J3D_UNUSED(pTex);
+    J3D_UNUSED(rdflags);
+    J3D_UNUSED(aVerts);
+    J3D_UNUSED(numVerts);
+    J3D_UNUSED(aIndices);
+    J3D_UNUSED(numIndices);
+}
+
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
 {
     J3D_UNUSED(aVerts);

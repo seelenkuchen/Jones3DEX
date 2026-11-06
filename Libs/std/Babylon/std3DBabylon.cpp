@@ -16,6 +16,12 @@
 // clamp) and uniforms (viewport, fog, alpha reference), worked out from the render state bits at
 // each draw (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms).
 //
+// std3D_DrawRenderListLit draws like std3D_DrawRenderList, with the lit shaders (Shaders/std3d_lit*.hlsl):
+// they compute the color exactly as the default shaders do and write each fragment's interpolated
+// view-space normal into the normal target, where the default shaders write a constant. Lit vertices
+// (StdVertexLit, 56 bytes) stream into a vertex buffer of their own, made on the first lit draw, so the
+// classic draws' device calls stay what they were.
+//
 // A scene is one or more passes on the back buffer. CommandList::updateBuffer can't be recorded
 // inside a pass, so a draw streams its vertices and indices into the frame's vertex and index
 // buffer right away, at growing offsets like std3DX9.c's buffer path, and the pass that draws them
@@ -180,6 +186,7 @@ namespace
     // three indices per vertex; these start smaller and grow when a frame needs more.
     constexpr uint32_t std3D_kInitialVertexBufferSize = 32768u * (uint32_t)sizeof(StdVertexTL);
     constexpr uint32_t std3D_kInitialIndexBufferSize  = 3u * 32768u * (uint32_t)sizeof(uint16_t);
+    constexpr uint32_t std3D_kInitialLitVertexBufferSize = 32768u * (uint32_t)sizeof(StdVertexLit);
 
     // D3DRS_ALPHAREF with STD3D_RS_ALPHAREF_SET (std3DX9.c's SetRenderState), else 0.
     constexpr uint32_t std3D_kAlphaRef = 160u;
@@ -187,6 +194,7 @@ namespace
     // Created at std3D_Open (the white texture std3DX9.c bound for untextured draws, the stream
     // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
     render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2]; // [primitive][z write]
+    render::PipelineHandle std3D_aLitPipelines[2];                     // lit triangles, [z write]
     render::SamplerHandle std3D_aSamplers[16];                         // std3D_GetSampler's index
     render::TextureHandle std3D_whiteTexture;
     render::BufferHandle std3D_vertexBuffer;
@@ -195,6 +203,9 @@ namespace
     uint32_t std3D_indexBufferSize    = 0;
     uint32_t std3D_vertexBufferOffset = 0; // bytes the frame has streamed so far
     uint32_t std3D_indexBufferOffset  = 0;
+    render::BufferHandle std3D_litVertexBuffer; // made on the first lit draw
+    uint32_t std3D_litVertexBufferSize   = 0;
+    uint32_t std3D_litVertexBufferOffset = 0;
 
     // The pass being collected: its load operations and its draws.
     render::LoadOp std3D_sceneColorLoad = render::LoadOp::Load;
@@ -665,45 +676,13 @@ namespace
         return true;
     }
 
-    // std3DX9.c's Direct3D state as a pipeline: its default shader for triangles, its wireframe
-    // shader for lines and points; alpha blending with SRCALPHA, INVSRCALPHA for color and alpha
-    // (D3DRS_ALPHABLENDENABLE, never turned off, without separate alpha blending); the Z test
-    // LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no culling.
-    // The normal target, the second color target, is replaced by draws that write Z and kept (blended
-    // with ZERO, ONE) by the others, so it holds the normal of what the depth target holds. The
-    // pipeline of each primitive and Z write is created once, on first use.
-    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite)
+    // std3DX9.c's Direct3D state as pipeline state: alpha blending with SRCALPHA, INVSRCALPHA for
+    // color and alpha (D3DRS_ALPHABLENDENABLE, never turned off, without separate alpha blending); the
+    // Z test LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no
+    // culling. The normal target, the second color target, is replaced by draws that write Z and kept
+    // (blended with ZERO, ONE) by the others, so it holds the normal of what the depth target holds.
+    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite)
     {
-        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bZWrite ? 1 : 0];
-        if ( !pipeline.isNull() )
-        {
-            return pipeline;
-        }
-
-        render::PipelineDesc desc;
-        desc.vertexShader   = stdBabylon::shaders::std3dVert();
-        desc.fragmentShader = primitive == Std3DBabylonPrimitive::Triangles ? stdBabylon::shaders::std3dFrag() : stdBabylon::shaders::std3dWireframeFrag();
-        desc.vertexLayout.bufferStrides = { (uint32_t)sizeof(StdVertexTL) };
-        desc.vertexLayout.attributes    = {
-            render::VertexAttribute{ 0, 0, render::VertexFormat::Float4, (uint32_t)offsetof(StdVertexTL, sx) },
-            render::VertexAttribute{ 1, 0, render::VertexFormat::UByte4Norm, (uint32_t)offsetof(StdVertexTL, color) },
-            render::VertexAttribute{ 2, 0, render::VertexFormat::UByte4Norm, (uint32_t)offsetof(StdVertexTL, specular) },
-            render::VertexAttribute{ 3, 0, render::VertexFormat::Float2, (uint32_t)offsetof(StdVertexTL, tu) },
-        };
-
-        switch ( primitive )
-        {
-            case Std3DBabylonPrimitive::Triangles:
-                desc.primitive = render::PrimitiveType::TriangleList;
-                break;
-            case Std3DBabylonPrimitive::Lines:
-                desc.primitive = render::PrimitiveType::LineStrip;
-                break;
-            case Std3DBabylonPrimitive::Points:
-                desc.primitive = render::PrimitiveType::PointList;
-                break;
-        }
-
         render::BlendState blend;
         blend.enabled  = true;
         blend.srcColor = render::BlendFactor::SrcAlpha;
@@ -723,11 +702,83 @@ namespace
         desc.depthFormat  = stdRenderBabylon_GetDepthFormat();
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
         desc.cull         = render::CullMode::None;
+    }
 
+    // The StdVertexTL attributes, at locations 0 to 3 of the vertex shaders, in a vertex of stride bytes.
+    void std3D_SetVertexLayout(render::PipelineDesc& desc, uint32_t stride)
+    {
+        desc.vertexLayout.bufferStrides = { stride };
+        desc.vertexLayout.attributes    = {
+            render::VertexAttribute{ 0, 0, render::VertexFormat::Float4, (uint32_t)offsetof(StdVertexTL, sx) },
+            render::VertexAttribute{ 1, 0, render::VertexFormat::UByte4Norm, (uint32_t)offsetof(StdVertexTL, color) },
+            render::VertexAttribute{ 2, 0, render::VertexFormat::UByte4Norm, (uint32_t)offsetof(StdVertexTL, specular) },
+            render::VertexAttribute{ 3, 0, render::VertexFormat::Float2, (uint32_t)offsetof(StdVertexTL, tu) },
+        };
+    }
+
+    // std3DX9.c's Direct3D state as a pipeline (std3D_SetPipelineState): its default shader for
+    // triangles, its wireframe shader for lines and points, StdVertexTL vertices. The pipeline of each
+    // primitive and Z write is created once, on first use.
+    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite)
+    {
+        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bZWrite ? 1 : 0];
+        if ( !pipeline.isNull() )
+        {
+            return pipeline;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::std3dVert();
+        desc.fragmentShader = primitive == Std3DBabylonPrimitive::Triangles ? stdBabylon::shaders::std3dFrag() : stdBabylon::shaders::std3dWireframeFrag();
+        std3D_SetVertexLayout(desc, (uint32_t)sizeof(StdVertexTL));
+
+        switch ( primitive )
+        {
+            case Std3DBabylonPrimitive::Triangles:
+                desc.primitive = render::PrimitiveType::TriangleList;
+                break;
+            case Std3DBabylonPrimitive::Lines:
+                desc.primitive = render::PrimitiveType::LineStrip;
+                break;
+            case Std3DBabylonPrimitive::Points:
+                desc.primitive = render::PrimitiveType::PointList;
+                break;
+        }
+
+        std3D_SetPipelineState(desc, bZWrite);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
             STDLOG_ERROR("Error creating the pipeline of primitive %d.\n", (int)primitive);
+        }
+
+        return pipeline;
+    }
+
+    // The pipeline of lit triangles: the state of std3D_GetPipeline's triangles with the lit shaders
+    // and StdVertexLit vertices, the view-space position and normal at locations 4 and 5. Created once
+    // per Z write, on first use.
+    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite)
+    {
+        render::PipelineHandle& pipeline = std3D_aLitPipelines[bZWrite ? 1 : 0];
+        if ( !pipeline.isNull() )
+        {
+            return pipeline;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::std3dLitVert();
+        desc.fragmentShader = stdBabylon::shaders::std3dLitFrag();
+        std3D_SetVertexLayout(desc, (uint32_t)sizeof(StdVertexLit));
+        desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 4, 0, render::VertexFormat::Float3, (uint32_t)offsetof(StdVertexLit, vx) });
+        desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 5, 0, render::VertexFormat::Float3, (uint32_t)offsetof(StdVertexLit, nx) });
+        desc.primitive = render::PrimitiveType::TriangleList;
+
+        std3D_SetPipelineState(desc, bZWrite);
+        pipeline = std3D_pRenderDevice->createPipeline(desc);
+        if ( pipeline.isNull() )
+        {
+            STDLOG_ERROR("Error creating the pipeline of lit triangles.\n");
         }
 
         return pipeline;
@@ -782,9 +833,10 @@ namespace
 
     // Streams one draw's vertices and indices into the frame and adds the draw to the pass being
     // collected, with the pipeline, texture, sampler and uniforms of the current render state.
-    // Logs and draws nothing outside a scene (std3DX9.c's draws failed with D3DERR_INVALIDCALL there)
-    // and when a resource can't be made.
-    void std3D_RecordDraw(Std3DBabylonPrimitive primitive, render::TextureHandle texture, const StdVertexTL* aVerts, size_t numVerts,
+    // Lit draws (triangles of StdVertexLit) take the lit pipeline and stream into the lit vertex
+    // buffer; the others StdVertexTL into the vertex buffer. Logs and draws nothing outside a scene
+    // (std3DX9.c's draws failed with D3DERR_INVALIDCALL there) and when a resource can't be made.
+    void std3D_RecordDraw(Std3DBabylonPrimitive primitive, bool bLit, render::TextureHandle texture, const void* aVerts, size_t numVerts,
         const uint16_t* aIndices, size_t numIndices)
     {
         if ( !std3D_bInScene )
@@ -794,36 +846,54 @@ namespace
         }
 
         const bool bTriangles = primitive == Std3DBabylonPrimitive::Triangles;
-        const render::PipelineHandle pipeline = std3D_GetPipeline(primitive, (std3D_renderState & STD3D_RS_ZWRITE_DISABLED) == 0);
+        const bool bZWrite    = (std3D_renderState & STD3D_RS_ZWRITE_DISABLED) == 0;
+        const render::PipelineHandle pipeline = bLit ? std3D_GetLitPipeline(bZWrite) : std3D_GetPipeline(primitive, bZWrite);
         const render::SamplerHandle sampler   = bTriangles ? std3D_GetSampler(std3D_renderState) : render::SamplerHandle{};
         if ( pipeline.isNull() || (bTriangles && sampler.isNull()) )
         {
             return;
         }
 
-        const uint64_t numVertexBytes = (uint64_t)numVerts * sizeof(StdVertexTL);
+        render::BufferHandle* pVertexBuffer = bLit ? &std3D_litVertexBuffer : &std3D_vertexBuffer;
+        uint32_t* pVertexBufferSize         = bLit ? &std3D_litVertexBufferSize : &std3D_vertexBufferSize;
+        uint32_t* pVertexBufferOffset       = bLit ? &std3D_litVertexBufferOffset : &std3D_vertexBufferOffset;
+        const uint32_t stride               = bLit ? (uint32_t)sizeof(StdVertexLit) : (uint32_t)sizeof(StdVertexTL);
+        if ( bLit && pVertexBuffer->isNull() )
+        {
+            *pVertexBufferSize   = std3D_kInitialLitVertexBufferSize;
+            *pVertexBufferOffset = 0;
+            *pVertexBuffer       = std3D_pRenderDevice->createBuffer(render::BufferDesc{ *pVertexBufferSize, render::BufferUsage::Vertex });
+            if ( pVertexBuffer->isNull() )
+            {
+                STDLOG_ERROR("Failed to create the lit vertex buffer.\n");
+                *pVertexBufferSize = 0;
+                return;
+            }
+        }
+
+        const uint64_t numVertexBytes = (uint64_t)numVerts * stride;
         const uint64_t numIndexBytes  = (uint64_t)numIndices * sizeof(uint16_t);
-        if ( !std3D_ReserveStream(&std3D_vertexBuffer, &std3D_vertexBufferSize, &std3D_vertexBufferOffset, numVertexBytes, render::BufferUsage::Vertex, "vertex")
+        if ( !std3D_ReserveStream(pVertexBuffer, pVertexBufferSize, pVertexBufferOffset, numVertexBytes, render::BufferUsage::Vertex, "vertex")
             || (bTriangles && !std3D_ReserveStream(&std3D_indexBuffer, &std3D_indexBufferSize, &std3D_indexBufferOffset, numIndexBytes, render::BufferUsage::Index, "index")) )
         {
             return;
         }
 
         render::CommandList& frame = stdRenderBabylon_GetFrame();
-        frame.updateBuffer(std3D_vertexBuffer, std3D_vertexBufferOffset, std::span<const std::byte>(reinterpret_cast<const std::byte*>(aVerts), (size_t)numVertexBytes));
+        frame.updateBuffer(*pVertexBuffer, *pVertexBufferOffset, std::span<const std::byte>(static_cast<const std::byte*>(aVerts), (size_t)numVertexBytes));
 
         Std3DBabylonDraw draw;
         draw.primitive    = primitive;
         draw.pipeline     = pipeline;
-        draw.vertexBuffer = std3D_vertexBuffer;
+        draw.vertexBuffer = *pVertexBuffer;
         draw.texture      = bTriangles ? texture : render::TextureHandle{};
         draw.sampler      = sampler;
         draw.uniforms     = std3D_GetFragmentUniforms();
-        draw.firstVertex  = std3D_vertexBufferOffset / (uint32_t)sizeof(StdVertexTL);
+        draw.firstVertex  = *pVertexBufferOffset / stride;
         draw.numVertices  = (uint32_t)numVerts;
         draw.firstIndex   = 0;
         draw.numIndices   = 0;
-        std3D_vertexBufferOffset += (uint32_t)numVertexBytes;
+        *pVertexBufferOffset += (uint32_t)numVertexBytes;
 
         if ( bTriangles )
         {
@@ -885,6 +955,11 @@ namespace
                 }
             }
 
+            for ( render::PipelineHandle& pipeline : std3D_aLitPipelines )
+            {
+                pDevice->destroyPipeline(pipeline);
+            }
+
             for ( render::SamplerHandle& sampler : std3D_aSamplers )
             {
                 pDevice->destroySampler(sampler);
@@ -893,6 +968,7 @@ namespace
             stdRenderBabylon_DestroyTexture(std3D_whiteTexture);
             stdRenderBabylon_DestroyBuffer(std3D_vertexBuffer);
             stdRenderBabylon_DestroyBuffer(std3D_indexBuffer);
+            stdRenderBabylon_DestroyBuffer(std3D_litVertexBuffer);
         }
 
         for ( auto& aPipelines : std3D_aPipelines )
@@ -901,6 +977,11 @@ namespace
             {
                 pipeline = {};
             }
+        }
+
+        for ( render::PipelineHandle& pipeline : std3D_aLitPipelines )
+        {
+            pipeline = {};
         }
 
         for ( render::SamplerHandle& sampler : std3D_aSamplers )
@@ -915,6 +996,9 @@ namespace
         std3D_indexBufferSize    = 0;
         std3D_vertexBufferOffset = 0;
         std3D_indexBufferOffset  = 0;
+        std3D_litVertexBuffer       = {};
+        std3D_litVertexBufferSize   = 0;
+        std3D_litVertexBufferOffset = 0;
         std3D_aSceneDraws.clear();
         STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
         STD_ZEROMEM(std3D_aShaderFogColor, sizeof(std3D_aShaderFogColor));
@@ -993,7 +1077,7 @@ namespace
     }
 
     // Arguments of the draw calls.
-    bool std3D_CheckVertices(const StdVertexTL* aVerts, size_t numVerts)
+    bool std3D_CheckVertices(const void* aVerts, size_t numVerts)
     {
         if ( numVerts > std3D_g_maxVertices )
         {
@@ -1255,8 +1339,9 @@ int std3D_StartScene(void)
     // A new frame streams its vertices and indices from the start of the buffers again.
     if ( !stdRenderBabylon_HasFrame() )
     {
-        std3D_vertexBufferOffset = 0;
-        std3D_indexBufferOffset  = 0;
+        std3D_vertexBufferOffset    = 0;
+        std3D_indexBufferOffset     = 0;
+        std3D_litVertexBufferOffset = 0;
     }
 
     if ( stdRenderBabylon_GetFrame().inPass() )
@@ -1290,39 +1375,56 @@ void std3D_EndScene(void)
     // The frame stays open: stdDisplay_Update submits and presents it, like stdDisplayDX9.c's Present.
 }
 
-void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+namespace
 {
-    if ( !std3D_CheckVertices(aVerts, numVerts) )
+    // std3D_DrawRenderList and std3D_DrawRenderListLit: aVerts holds numVerts StdVertexTL, or
+    // StdVertexLit when bLit.
+    void std3D_DrawTriangleList(tSysTexture* pTex, Std3DRenderState rdflags, bool bLit, const void* aVerts, size_t numVerts,
+        const uint16_t* aIndices, size_t numIndices)
     {
-        return;
-    }
-
-    std3D_SetRenderState(rdflags);
-    std3D_pCurTex = pTex;
-
-    if ( numIndices && !aIndices )
-    {
-        STDLOG_ERROR("Error %zu indices without an index array.\n", numIndices);
-        return;
-    }
-
-    for ( size_t i = 0; i < numIndices; ++i )
-    {
-        if ( aIndices[i] >= numVerts )
+        if ( !std3D_CheckVertices(aVerts, numVerts) )
         {
-            STDLOG_ERROR("Error index %u at %zu is not below %zu vertices.\n", (unsigned)aIndices[i], i, numVerts);
             return;
         }
-    }
 
-    // numIndices / 3 triangles, as std3DX9.c drew; an untextured draw samples the white texture.
-    const size_t numTriangleIndices = numIndices / 3u * 3u;
-    if ( !numVerts || !numTriangleIndices )
-    {
-        return;
-    }
+        std3D_SetRenderState(rdflags);
+        std3D_pCurTex = pTex;
 
-    std3D_RecordDraw(Std3DBabylonPrimitive::Triangles, pTex ? pTex->texture : std3D_whiteTexture, aVerts, numVerts, aIndices, numTriangleIndices);
+        if ( numIndices && !aIndices )
+        {
+            STDLOG_ERROR("Error %zu indices without an index array.\n", numIndices);
+            return;
+        }
+
+        for ( size_t i = 0; i < numIndices; ++i )
+        {
+            if ( aIndices[i] >= numVerts )
+            {
+                STDLOG_ERROR("Error index %u at %zu is not below %zu vertices.\n", (unsigned)aIndices[i], i, numVerts);
+                return;
+            }
+        }
+
+        // numIndices / 3 triangles, as std3DX9.c drew; an untextured draw samples the white texture.
+        const size_t numTriangleIndices = numIndices / 3u * 3u;
+        if ( !numVerts || !numTriangleIndices )
+        {
+            return;
+        }
+
+        std3D_RecordDraw(Std3DBabylonPrimitive::Triangles, bLit, pTex ? pTex->texture : std3D_whiteTexture, aVerts, numVerts, aIndices,
+            numTriangleIndices);
+    }
+}
+
+void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+{
+    std3D_DrawTriangleList(pTex, rdflags, false, aVerts, numVerts, aIndices, numIndices);
+}
+
+void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+{
+    std3D_DrawTriangleList(pTex, rdflags, true, aVerts, numVerts, aIndices, numIndices);
 }
 
 void std3D_SetWireframeRenderState(void)
@@ -1346,7 +1448,7 @@ void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
         return;
     }
 
-    std3D_RecordDraw(Std3DBabylonPrimitive::Lines, render::TextureHandle{}, aVerts, numVerts, nullptr, 0);
+    std3D_RecordDraw(Std3DBabylonPrimitive::Lines, false, render::TextureHandle{}, aVerts, numVerts, nullptr, 0);
 }
 
 void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts)
@@ -1363,7 +1465,7 @@ void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts)
         return;
     }
 
-    std3D_RecordDraw(Std3DBabylonPrimitive::Points, render::TextureHandle{}, aVerts, numVerts, nullptr, 0);
+    std3D_RecordDraw(Std3DBabylonPrimitive::Points, false, render::TextureHandle{}, aVerts, numVerts, nullptr, 0);
 }
 
 void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags)

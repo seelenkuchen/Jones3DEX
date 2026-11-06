@@ -1,6 +1,6 @@
 // Backend-side prototypes of the pass-through layer (M6.0). A backend sees these next to the
 // macro-renamed public declarations of std3D.h/stdDisplay.h, so the compiler checks that the
-// two agree on every one of the 84 renderer functions.
+// two agree on every one of the 85 renderer functions.
 #ifndef STD_STDRENDERBACKENDAPI_H
 #define STD_STDRENDERBACKENDAPI_H
 
@@ -43,6 +43,7 @@ void std3DBackend_ClearZBuffer(void);
 StdDisplayEnvironment* J3DAPI std3DBackend_BuildDisplayEnvironment();
 void J3DAPI std3DBackend_FreeDisplayEnvironment(StdDisplayEnvironment* pEnv);
 void std3DBackend_ResetGlobals(void);
+void J3DAPI std3DBackend_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
 int stdDisplayBackend_Startup(void);
 void stdDisplayBackend_Shutdown(void);
 int J3DAPI stdDisplayBackend_Open(size_t deviceNum);

@@ -620,8 +620,13 @@ struct srdCacheProcEntry
     int32_t matCelNum;
     rdVector4 extraLight;
     float distance;
+    // Added: the view-space position and normal of each vertex, for the lit path (option A L1,
+    // ADR-0023). NULL for an entry of rdCache_GetProcEntry or rdCache_GetAlphaProcEntry, whose face
+    // is drawn the classic way; set by rdCache_GetLitProcEntry and rdCache_GetLitAlphaProcEntry.
+    rdVector3* aViewVertices;
+    rdVector3* aViewNormals;
 };
-J3D_ASSERT_SIZE32(sizeof(rdCacheProcEntry) == 48, "sizeof(rdCacheProcEntry) == 48");
+J3D_ASSERT_SIZE32(sizeof(rdCacheProcEntry) == 56, "sizeof(rdCacheProcEntry) == 56"); // Altered: was 48, before the lit fields
 
 typedef struct srdMatCelInfo
 {

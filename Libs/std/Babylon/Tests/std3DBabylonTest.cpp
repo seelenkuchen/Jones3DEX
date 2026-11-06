@@ -1044,6 +1044,112 @@ TEST(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture)
     AssertSubmitted(13);
 }
 
+namespace
+{
+    // The pipeline of lit triangles: ExpectedPipeline's triangles with the lit shaders and StdVertexLit
+    // (56 bytes): the StdVertexTL attributes, then the view-space position at 32 and normal at 44.
+    render::PipelineDesc ExpectedLitPipeline(bool bZWrite)
+    {
+        render::PipelineDesc desc = ExpectedPipeline(render::PrimitiveType::TriangleList, bZWrite);
+        desc.vertexShader   = stdBabylon::shaders::std3dLitVert();
+        desc.fragmentShader = stdBabylon::shaders::std3dLitFrag();
+        desc.vertexLayout.bufferStrides = { 56u };
+        desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 4, 0, render::VertexFormat::Float3, 32 });
+        desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 5, 0, render::VertexFormat::Float3, 44 });
+        return desc;
+    }
+
+    StdVertexLit LitVertex(const StdVertexTL& tl, float vx, float vy, float vz, float nx, float ny, float nz)
+    {
+        StdVertexLit vertex;
+        vertex.tl = tl;
+        vertex.vx = vx;
+        vertex.vy = vy;
+        vertex.vz = vz;
+        vertex.nx = nx;
+        vertex.ny = ny;
+        vertex.nz = nz;
+        return vertex;
+    }
+}
+
+TEST(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline)
+{
+    OpenStd3D();
+
+    // The lit shaders bind what the default ones do.
+    TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dLitVert().textureCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitVert().uniformCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().textureCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().uniformCount);
+
+    const StdVertexLit aLit[3] = { LitVertex(Vertex(1.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u), -1.0f, 10.0f, 2.0f, 0.0f, -1.0f, 0.0f),
+        LitVertex(Vertex(9.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u), 3.0f, 10.0f, 2.0f, 0.6f, 0.0f, 0.8f),
+        LitVertex(Vertex(1.0f, 7.0f, 0.5f, 1.0f, 0xFF708090u), -1.0f, 10.0f, -1.0f, 0.0f, 0.0f, 0.0f) };
+    const StdVertexTL aClassic[3] = { Vertex(0.0f, 0.0f, 0.25f, 1.0f, 0xFFFFFFFFu), Vertex(4.0f, 0.0f, 0.25f, 1.0f, 0xFFFFFFFFu),
+        Vertex(0.0f, 4.0f, 0.25f, 1.0f, 0xFFFFFFFFu) };
+    const uint16_t aIndices[3] = { 0u, 1u, 2u };
+    const uint16_t aBadIndices[3] = { 0u, 1u, 3u };
+
+    render::PipelineHandle litPipeline;
+    render::PipelineHandle classicPipeline;
+    render::BufferHandle litBuffer;
+    render::BufferHandle vertexBuffer;
+    render::BufferHandle indexBuffer;
+    for ( int frameNum = 0; frameNum < 2; ++frameNum )
+    {
+        Null().clearRecorded();
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 3u);
+        std3D_DrawRenderList(nullptr, (Std3DRenderState)0, const_cast<StdVertexTL*>(aClassic), 3u, const_cast<uint16_t*>(aIndices), 3u);
+        // Refused like std3D_DrawRenderList: an index past the vertices, no vertices, no whole triangle.
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aBadIndices), 3u);
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, nullptr, 3u, const_cast<uint16_t*>(aIndices), 3u);
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLit), 3u, const_cast<uint16_t*>(aIndices), 2u);
+        EndFrame();
+
+        // The two pipelines are created in the first frame only.
+        const size_t numCreated = frameNum == 0 ? 2u : 0u;
+        TEST_ASSERT_EQUAL_size_t(numCreated + 17u, Null().recorded().size());
+        if ( frameNum == 0 )
+        {
+            const render::PipelineCreated& lit     = RecordedAt<render::PipelineCreated>(0);
+            const render::PipelineCreated& classic = RecordedAt<render::PipelineCreated>(1);
+            TEST_ASSERT_TRUE(lit.desc == ExpectedLitPipeline(true));
+            TEST_ASSERT_TRUE(classic.desc == ExpectedPipeline(render::PrimitiveType::TriangleList, true));
+            litPipeline     = lit.pipeline;
+            classicPipeline = classic.pipeline;
+            litBuffer       = RecordedAt<render::UpdateBuffer>(2).buffer;
+            indexBuffer     = RecordedAt<render::UpdateBuffer>(3).buffer;
+            vertexBuffer    = RecordedAt<render::UpdateBuffer>(4).buffer;
+            TEST_ASSERT_FALSE(litBuffer == vertexBuffer);
+            TEST_ASSERT_FALSE(litBuffer == indexBuffer);
+        }
+
+        // The lit vertices go to their own buffer, all 56 bytes of each; the indices follow each other.
+        const size_t i = numCreated;
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i) == (render::UpdateBuffer{ litBuffer, 0u, BytesOf(aLit, 3u) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 1u) == (render::UpdateBuffer{ indexBuffer, 0u, BytesOf(aIndices, 3u) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 2u) == (render::UpdateBuffer{ vertexBuffer, 0u, BytesOf(aClassic, 3u) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::UpdateBuffer>(i + 3u) == (render::UpdateBuffer{ indexBuffer, 6u, BytesOf(aIndices, 3u) }));
+
+        const render::LoadOp load = frameNum == 0 ? render::LoadOp::Clear : render::LoadOp::Load;
+        AssertScenePass(i + 4u, load, load);
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 5u) == (render::PushUniforms{ render::ShaderStage::Vertex, 0u, ViewportUniforms(640.0f, 480.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(i + 6u) == render::SetPipeline{ litPipeline });
+        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(i + 7u) == (render::BindVertexBuffer{ 0u, litBuffer, 0u }));
+        TEST_ASSERT_TRUE(RecordedAt<render::PushUniforms>(i + 8u) == (render::PushUniforms{ render::ShaderStage::Fragment, 0u, NoFogUniforms(0.0f) }));
+        TEST_ASSERT_TRUE(RecordedAt<render::BindIndexBuffer>(i + 9u) == (render::BindIndexBuffer{ indexBuffer, render::IndexType::Uint16, 0u }));
+        RecordedAt<render::BindTexture>(i + 10u);
+        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(i + 11u) == (render::DrawIndexed{ 3u, 0u, 0 }));
+        TEST_ASSERT_TRUE(RecordedAt<render::SetPipeline>(i + 12u) == render::SetPipeline{ classicPipeline });
+        TEST_ASSERT_TRUE(RecordedAt<render::BindVertexBuffer>(i + 13u) == (render::BindVertexBuffer{ 0u, vertexBuffer, 0u }));
+        TEST_ASSERT_TRUE(RecordedAt<render::DrawIndexed>(i + 14u) == (render::DrawIndexed{ 3u, 3u, 0 }));
+        RecordedAt<render::EndPass>(i + 15u);
+        AssertSubmitted(i + 16u);
+    }
+}
+
 TEST(std3DBabylon, ShaderFogChangesWithTheFogBitOnly)
 {
     OpenStd3D();
@@ -1419,6 +1525,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, TwoDrawsRecordTheirStreamExactly);
     RUN_TEST_CASE(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers);
     RUN_TEST_CASE(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture);
+    RUN_TEST_CASE(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline);
     RUN_TEST_CASE(std3DBabylon, ShaderFogChangesWithTheFogBitOnly);
     RUN_TEST_CASE(std3DBabylon, ProjectionAndFogFollowDX9);
     RUN_TEST_CASE(std3DBabylon, DisplayEnvironmentListsTheRenderDevice);
@@ -2281,6 +2388,77 @@ TEST(std3DBabylonGpu, TheNormalTargetHoldsTheConstantNormalWhereZIsWritten)
     AssertClear(24u, 24u);
 }
 
+TEST(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // A quad over the target, split along (0, 0) to (64, 64), with w 1 (no perspective) and opaque
+    // colors from red to gray (opaque, so the second scene below, which loads the first one's color,
+    // replaces it). Its normals in rdroid's camera space (x right, y forward, z up): top left
+    // (0, -1, 0), facing the camera; top right and bottom right (1, 0, 0); bottom left (0, 0, 1), up.
+    // In the normal target's space (x right, y up, z toward the viewer): (0, 0, 1), (1, 0, 0), (0, 1, 0).
+    const StdVertexTL aTl[4] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFF0000u), Vertex(64.0f, 0.0f, 0.5f, 1.0f, 0xFF00FF00u),
+        Vertex(64.0f, 64.0f, 0.5f, 1.0f, 0xFF0000FFu), Vertex(0.0f, 64.0f, 0.5f, 1.0f, 0xFF808080u) };
+    static StdVertexLit aLit[4];
+    aLit[0] = LitVertex(aTl[0], -1.0f, 10.0f, 1.0f, 0.0f, -1.0f, 0.0f);
+    aLit[1] = LitVertex(aTl[1], 1.0f, 10.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+    aLit[2] = LitVertex(aTl[2], 1.0f, 10.0f, -1.0f, 1.0f, 0.0f, 0.0f);
+    aLit[3] = LitVertex(aTl[3], -1.0f, 10.0f, -1.0f, 0.0f, 0.0f, 1.0f);
+
+    RenderScene([]
+    {
+        uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, aLit, 4u, aIndices, 6u);
+    });
+    const std::vector<std::byte> aLitColor = std3DBabylonGpuTest_pixels;
+    const std::vector<std::byte> aNormals  = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetNormalTarget(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, aNormals.size());
+
+    // Pixel (x, y) is at screen (x, y) (Direct3D 9 pixel centers). Above the diagonal it lies in the
+    // triangle (0, 1, 2) and its normal is (x, 0, 64 - x) / 64; below it in (0, 2, 3), with
+    // (x, y - x, 64 - y) / 64. Written normalized as n * 0.5 + 0.5.
+    const bool b10   = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+    const int maxRgb = b10 ? 1023 : 255;
+    const int maxA   = b10 ? 3 : 255;
+    const uint32_t aPixels[][2] = { { 48u, 16u }, { 60u, 4u }, { 16u, 48u }, { 4u, 60u }, { 20u, 30u }, { 1u, 1u }, { 62u, 62u } };
+    for ( const auto& pixel : aPixels )
+    {
+        const double x = pixel[0];
+        const double y = pixel[1];
+        double n[3]    = { x, 0.0, 64.0 - x };
+        if ( y > x )
+        {
+            n[1] = y - x;
+            n[2] = 64.0 - y;
+        }
+        const double length = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        const std::array<int, 4> texel = NormalTexel(aNormals, pixel[0], pixel[1]);
+        char aMessage[128];
+        std::snprintf(aMessage, sizeof(aMessage), "normal (%u, %u) is (%d, %d, %d, %d)", pixel[0], pixel[1], texel[0], texel[1], texel[2], texel[3]);
+        for ( int i = 0; i < 3; ++i )
+        {
+            const int expected = (int)std::lround((n[i] / length * 0.5 + 0.5) * maxRgb);
+            TEST_ASSERT_INT_WITHIN_MESSAGE(b10 ? 3 : 1, expected, texel[i], aMessage);
+        }
+        TEST_ASSERT_EQUAL_INT_MESSAGE(maxA, texel[3], aMessage);
+    }
+
+    // The same quad drawn the classic way: the same color, byte for byte, and the constant normal.
+    RenderScene([&aTl]
+    {
+        StdVertexTL aVerts[4] = { aTl[0], aTl[1], aTl[2], aTl[3] };
+        uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
+        std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 4u, aIndices, 6u);
+    });
+    AssertBytes(std3DBabylonGpuTest_pixels, aLitColor);
+    const std::vector<std::byte> aClassicNormals = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetNormalTarget(), 0);
+    AssertNormal(aClassicNormals, 48u, 16u, true);
+    AssertNormal(aClassicNormals, 16u, 48u, true);
+}
+
 TEST(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer)
 {
     if ( !OpenGpuStd3D(64u, 64u) )
@@ -2402,6 +2580,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, TexturingIsPerspectiveCorrect);
     RUN_TEST_CASE(std3DBabylonGpu, ReplayWritesFrameImages);
     RUN_TEST_CASE(std3DBabylonGpu, TheNormalTargetHoldsTheConstantNormalWhereZIsWritten);
+    RUN_TEST_CASE(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);

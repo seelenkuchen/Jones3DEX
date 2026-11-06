@@ -18,6 +18,8 @@ static rdCacheProcEntry rdCache_aProcFaces[128] = { 0 };
 static size_t rdCache_numUsedVertices = 0;
 static StdVertexTL rdCache_aVertices[RDCACHE_VERTBUFFERSIZE]      = { 0 };
 static rdVector4 rdCache_aVertIntensities[RDCACHE_VERTBUFFERSIZE] = { 0 }; // Fixed: Changed to match size of rdCache_aVertices, was 8192
+static rdVector3 rdCache_aViewVertices[RDCACHE_VERTBUFFERSIZE]     = { 0 }; // Added: the lit path's view-space positions and normals
+static rdVector3 rdCache_aViewNormals[RDCACHE_VERTBUFFERSIZE]      = { 0 };
 
 
 static size_t rdCache_numAlphaProcFaces               = 0;
@@ -26,12 +28,15 @@ static rdCacheProcEntry rdCache_aAlphaProcFaces[4096] = { 0 };
 static size_t rdCache_numUsedAlphaVertices = 0;
 static StdVertexTL rdCache_aAlphaVertices[RDCACHE_VERTBUFFERSIZE]      = { 0 };
 static rdVector4 rdCache_aAlphaVertIntensities[RDCACHE_VERTBUFFERSIZE] = { 0 };
+static rdVector3 rdCache_aAlphaViewVertices[RDCACHE_VERTBUFFERSIZE]    = { 0 }; // Added: as rdCache_aViewVertices
+static rdVector3 rdCache_aAlphaViewNormals[RDCACHE_VERTBUFFERSIZE]     = { 0 };
 
 static size_t rdCache_totalVerts             = 0;
 static StdVertexTL* rdCache_pCurInVert      = NULL;
 static StdVertexTL* rdCache_pCurCacheVertex = NULL;
 
 static StdVertexTL rdCache_aHWVertices[RDCACHE_VERTBUFFERSIZE]     = { 0 };
+static StdVertexLit rdCache_aHWLitVertices[RDCACHE_VERTBUFFERSIZE]  = { 0 }; // Added: rdCache_aHWVertices of a lit draw
 static uint16_t rdCache_aVertIndices[RDCACHE_VERTBUFFERSIZE * 3]   = { 0 };
 
 static size_t rdCache_drawnFaces = 0;
@@ -89,6 +94,21 @@ rdCacheProcEntry* rdCache_GetProcEntry(void)
     pProcEntry                   = &rdCache_aProcFaces[procNum];
     pProcEntry->aVertices        = &rdCache_aVertices[rdCache_numUsedVertices];
     pProcEntry->aVertIntensities = &rdCache_aVertIntensities[rdCache_numUsedVertices];
+    pProcEntry->aViewVertices    = NULL; // Added: drawn the classic way
+    pProcEntry->aViewNormals     = NULL;
+    return pProcEntry;
+}
+
+rdCacheProcEntry* rdCache_GetLitProcEntry(void)
+{
+    // Added
+    rdCacheProcEntry* pProcEntry = rdCache_GetProcEntry();
+    if ( pProcEntry )
+    {
+        pProcEntry->aViewVertices = &rdCache_aViewVertices[rdCache_numUsedVertices];
+        pProcEntry->aViewNormals  = &rdCache_aViewNormals[rdCache_numUsedVertices];
+    }
+
     return pProcEntry;
 }
 
@@ -116,6 +136,21 @@ rdCacheProcEntry* rdCache_GetAlphaProcEntry(void)
     pProcEntry                   = &rdCache_aAlphaProcFaces[entryNum];
     pProcEntry->aVertices        = &rdCache_aAlphaVertices[rdCache_numUsedAlphaVertices];
     pProcEntry->aVertIntensities = &rdCache_aAlphaVertIntensities[rdCache_numUsedAlphaVertices];
+    pProcEntry->aViewVertices    = NULL; // Added: drawn the classic way
+    pProcEntry->aViewNormals     = NULL;
+    return pProcEntry;
+}
+
+rdCacheProcEntry* rdCache_GetLitAlphaProcEntry(void)
+{
+    // Added
+    rdCacheProcEntry* pProcEntry = rdCache_GetAlphaProcEntry();
+    if ( pProcEntry )
+    {
+        pProcEntry->aViewVertices = &rdCache_aAlphaViewVertices[rdCache_numUsedAlphaVertices];
+        pProcEntry->aViewNormals  = &rdCache_aAlphaViewNormals[rdCache_numUsedAlphaVertices];
+    }
+
     return pProcEntry;
 }
 
@@ -236,6 +271,9 @@ LABEL_4:
         {
             rdflags |= STD3D_RS_FOG_ENABLED;
         }
+
+        // Added: a draw holds only lit faces (std3D_DrawRenderListLit) or only classic ones
+        bool bLit = pCurPoly->aViewNormals != NULL;
 
         rdMaterial* pCurMat = NULL;
         if ( rdroid_g_curGeometryMode != RD_GEOMETRY_SOLID )
@@ -364,6 +402,22 @@ LABEL_4:
                 ++rdCache_totalVerts;
             }
 
+            // Added: a lit face's vertices are the ones above with their view-space position and normal
+            if ( bLit )
+            {
+                for ( size_t i = 0; i < pCurPoly->numVertices; ++i )
+                {
+                    StdVertexLit* pLitVert = &rdCache_aHWLitVertices[curVertIdx + i];
+                    pLitVert->tl = rdCache_aHWVertices[curVertIdx + i];
+                    pLitVert->vx = pCurPoly->aViewVertices[i].x;
+                    pLitVert->vy = pCurPoly->aViewVertices[i].y;
+                    pLitVert->vz = pCurPoly->aViewVertices[i].z;
+                    pLitVert->nx = pCurPoly->aViewNormals[i].x;
+                    pLitVert->ny = pCurPoly->aViewNormals[i].y;
+                    pLitVert->nz = pCurPoly->aViewNormals[i].z;
+                }
+            }
+
             // Triangulation
             if ( pCurPoly->numVertices <= 3u )
             {
@@ -403,10 +457,18 @@ LABEL_4:
                 || 3 * (pCurPoly->numVertices - 2) + totalIndices >= std3D_g_maxVertices // i.e. totalIndices + num required triangle indices for next poly >= std3D_g_maxVertices
                 || pCurMat != pCurPoly->pMaterial
                 || curMatCelNum != pCurPoly->matCelNum
-                || fflags != pCurPoly->flags )
+                || fflags != pCurPoly->flags
+                || bLit != (pCurPoly->aViewNormals != NULL) ) // Added
             {
                 RD_ASSERTREL(rdCache_totalVerts < RDCACHE_VERTBUFFERSIZE);
-                std3D_DrawRenderList(pCachedTexture, rdflags, rdCache_aHWVertices, rdCache_totalVerts, rdCache_aVertIndices, totalIndices);
+                if ( bLit ) // Added
+                {
+                    std3D_DrawRenderListLit(pCachedTexture, rdflags, rdCache_aHWLitVertices, rdCache_totalVerts, rdCache_aVertIndices, totalIndices);
+                }
+                else
+                {
+                    std3D_DrawRenderList(pCachedTexture, rdflags, rdCache_aHWVertices, rdCache_totalVerts, rdCache_aVertIndices, totalIndices);
+                }
                 goto LABEL_4;
             }
         }

@@ -14,9 +14,9 @@
 // (SDL GPU: space3): DX9's g_fogParams and g_fogColor, then the alpha reference / 255.
 //
 // Color target 1 is the scene's normal target (stdRenderBabylon.h): the view-space normal (x right,
-// y up, z toward the viewer) as n * 0.5 + 0.5, alpha 1. The vertices carry no normal yet (M6.9b gives
-// them one), so every fragment writes the constant normal facing the viewer, kStd3DConstantNormal.
-// Color target 0 is computed exactly as before.
+// y up, z toward the viewer) as n * 0.5 + 0.5, alpha 1. StdVertexTL carries no normal, so every
+// fragment writes the constant normal facing the viewer, kStd3DConstantNormal; vertices with a normal
+// are drawn by std3d_lit.frag.hlsl. Color target 0 is computed exactly as before.
 
 Texture2D<float4> gTexture : register(t0, space2);
 SamplerState gSampler : register(s0, space2);

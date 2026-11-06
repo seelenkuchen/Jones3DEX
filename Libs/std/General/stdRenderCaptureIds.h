@@ -1,6 +1,6 @@
 // Added: M6.0 render capture record ids of the renderer forwarding layer. One id per public
 // renderer function, numbered in the exact order of stdRenderBackendApi.h: std3D_ functions use
-// 1..34, stdDisplay_ functions 101..150. The ids are part of the RCAP v1 file format: never
+// 1..35, stdDisplay_ functions 101..150. The ids are part of the RCAP v1 file format: never
 // renumber, only extend at the end of a range when a renderer function is added.
 #ifndef STD_STDRENDERCAPTUREIDS_H
 #define STD_STDRENDERCAPTUREIDS_H
@@ -45,6 +45,7 @@ typedef enum eStdRenderCaptureId
     STDRENDERCAPTURE_ID_STD3D_BUILDDISPLAYENVIRONMENT              = 32,
     STDRENDERCAPTURE_ID_STD3D_FREEDISPLAYENVIRONMENT               = 33,
     STDRENDERCAPTURE_ID_STD3D_RESETGLOBALS                         = 34,
+    STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT                    = 35, // M6.9b, appended after ResetGlobals
     STDRENDERCAPTURE_ID_STDDISPLAY_STARTUP                         = 101,
     STDRENDERCAPTURE_ID_STDDISPLAY_SHUTDOWN                        = 102,
     STDRENDERCAPTURE_ID_STDDISPLAY_OPEN                            = 103,
@@ -97,7 +98,7 @@ typedef enum eStdRenderCaptureId
     STDRENDERCAPTURE_ID_STDDISPLAY_RESETGLOBALS                    = 150,
 } StdRenderCaptureId;
 
-static_assert(STDRENDERCAPTURE_ID_STD3D_RESETGLOBALS == 34, "the std3D ids end at 34");
+static_assert(STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT == 35, "the std3D ids end at 35");
 static_assert(STDRENDERCAPTURE_ID_STDDISPLAY_RESETGLOBALS == 150, "the stdDisplay ids end at 150");
 
 J3D_EXTERN_C_END

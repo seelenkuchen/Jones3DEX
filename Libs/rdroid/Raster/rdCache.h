@@ -21,6 +21,16 @@ size_t rdCache_GetFrameNum(void);
 rdCacheProcEntry* rdCache_GetProcEntry(void);
 rdCacheProcEntry* rdCache_GetAlphaProcEntry(void);
 
+// Added: option A L1 (ADR-0023). rdCache_GetProcEntry and rdCache_GetAlphaProcEntry for a face whose
+// vertices carry their view-space position and normal: the entry's aViewVertices and aViewNormals
+// point at room for RDCACHE_MAXFACEVERTICES vectors each, next to aVertices and aVertIntensities,
+// valid until the face is added and drawn. The caller fills them for every vertex it adds (a zero
+// normal where it knows none; rdClip_FaceToPlaneLit fills both); the face is then drawn with
+// std3D_DrawRenderListLit, in the same color as the classic way. NULL when the vertex buffer is
+// full, as the classic functions.
+rdCacheProcEntry* rdCache_GetLitProcEntry(void);
+rdCacheProcEntry* rdCache_GetLitAlphaProcEntry(void);
+
 void  rdCache_Flush(void);
 void  rdCache_FlushAlpha(void);
 

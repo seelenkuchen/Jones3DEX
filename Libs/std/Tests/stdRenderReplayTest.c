@@ -293,6 +293,57 @@ TEST(stdRenderReplay, TestRoundTripMatchesByteForByte)
     free(pOutput);
 }
 
+// Added: M6.9b. A lit draw (DrawRenderListLit, id 35) replays into the same record, its view-space
+// positions and normals included, next to a classic one.
+TEST(stdRenderReplay, TestRoundTripOfLitDraws)
+{
+    static StdVertexLit aLitVertices[3] = {
+        { {  1.0f,  2.0f, 4.0f, 0.5f, 0x11223344u, 0x55667788u, 0.25f, -0.5f }, -1.0f, 10.0f,  2.0f, 0.0f, -1.0f, 0.0f },
+        { {  8.0f,  2.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0x00000000u, 1.0f,   0.0f },  2.5f, 12.0f, -3.0f, 0.6f,  0.0f, 0.8f },
+        { { -1.0f,  1.5f, 0.0f, 1.0f, 0x00FF00FFu, 0xDEADBEEFu, 1.0f,   2.0f },  0.0f,  1.0f,  0.0f, 0.0f,  0.0f, 0.0f },
+    };
+    static StdVertexTL aVertices[3] = {
+        { 0.0f, 0.0f, 0.5f, 1.0f, 0xFF000000u, 0u, 0.0f, 0.0f },
+        { 4.0f, 0.0f, 0.5f, 1.0f, 0xFF00FF00u, 0u, 1.0f, 0.0f },
+        { 0.0f, 4.0f, 0.5f, 1.0f, 0xFFFF0000u, 0u, 0.0f, 1.0f },
+    };
+    static const uint16_t aIndices[3] = { 0u, 1u, 2u };
+    uint8_t* pInput = NULL;
+    uint8_t* pOutput = NULL;
+    size_t inputSize = 0u;
+    size_t outputSize = 0u;
+
+    TEST_ASSERT_TRUE(stdDisplayCapture_Open(STDRENDERREPLAYTEST_INPUT, "null"));
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Startup());
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Open(0u));
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
+    TEST_ASSERT_EQUAL_INT(1, std3D_Startup());
+    TEST_ASSERT_EQUAL_INT(1, std3D_Open(0u));
+
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderListLit(NULL, STD3D_RS_ZWRITE_DISABLED, aLitVertices, 3u, (uint16_t*)aIndices, 3u);
+    std3D_DrawRenderList(NULL, (Std3DRenderState)0, aVertices, 3u, (uint16_t*)aIndices, 3u);
+    std3D_DrawRenderListLit(NULL, (Std3DRenderState)0, NULL, 0u, NULL, 0u);
+    std3D_EndScene();
+
+    stdDisplayCapture_Close();
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    std3D_ResetGlobals();
+    stdDisplay_ResetGlobals();
+
+    TEST_ASSERT_EQUAL_INT(0, stdRenderReplay_Run(STDRENDERREPLAYTEST_INPUT, STDRENDERREPLAYTEST_OUTPUT));
+
+    pInput  = StdRenderReplayTest_ReadFile(STDRENDERREPLAYTEST_INPUT, &inputSize);
+    pOutput = StdRenderReplayTest_ReadFile(STDRENDERREPLAYTEST_OUTPUT, &outputSize);
+
+    TEST_ASSERT_EQUAL_size_t(inputSize, outputSize);
+    TEST_ASSERT_EQUAL_MEMORY(pInput, pOutput, inputSize);
+
+    free(pInput);
+    free(pOutput);
+}
+
 TEST(stdRenderReplay, TestRoundTripAfterConvertFreesSource)
 {
     tRasterInfo raster;
@@ -560,6 +611,35 @@ TEST(stdRenderReplay, TestVertexCountLargerThanPayload)
     StdRenderReplayTest_AssertReplayFails(STDRENDERREPLAYTEST_BAD);
 }
 
+// Added: M6.9b. A lit vertex is 56 bytes in the record: a count that needs more than the payload fails.
+TEST(stdRenderReplay, TestLitVertexCountLargerThanPayload)
+{
+    static const char aSignature[8] = { 'J', '3', 'D', 'R', 'C', 'A', 'P', 0 };
+    uint8_t aFile[160];
+    size_t size = StdRenderReplayTest_WriteHeader(aFile, aSignature, 1u, 4u, "null");
+    size_t i;
+
+    // texHandle 0, rdflags 0, two vertices announced, one and a StdVertexTL's worth of bytes given.
+    size += StdRenderReplayTest_WriteRecordHeader(
+        &aFile[size],
+        STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT,
+        12u + (uint32_t)sizeof(StdVertexLit) + (uint32_t)sizeof(StdVertexTL) + 4u
+    );
+    StdRenderReplayTest_PutU32(&aFile[size], 0u);
+    size += 4u;
+    StdRenderReplayTest_PutU32(&aFile[size], 0u);
+    size += 4u;
+    StdRenderReplayTest_PutU32(&aFile[size], 2u);
+    size += 4u;
+    for ( i = 0; i < sizeof(StdVertexLit) + sizeof(StdVertexTL) + 4u; ++i )
+    {
+        aFile[size++] = 0u;
+    }
+
+    StdRenderReplayTest_WriteFile(STDRENDERREPLAYTEST_BAD, aFile, size);
+    StdRenderReplayTest_AssertReplayFails(STDRENDERREPLAYTEST_BAD);
+}
+
 TEST(stdRenderReplay, TestUnknownVBufferHandle)
 {
     static const char aSignature[8] = { 'J', '3', 'D', 'R', 'C', 'A', 'P', 0 };
@@ -651,6 +731,7 @@ TEST(stdRenderReplay, TestMissingFile)
 TEST_GROUP_RUNNER(stdRenderReplay)
 {
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripMatchesByteForByte);
+    RUN_TEST_CASE(stdRenderReplay, TestRoundTripOfLitDraws);
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripAfterConvertFreesSource);
     RUN_TEST_CASE(stdRenderReplay, TestRoundTripReproducesSithMaterialRasterMutation);
     RUN_TEST_CASE(stdRenderReplay, TestVBufferStateBeyondAllocation);
@@ -661,6 +742,7 @@ TEST_GROUP_RUNNER(stdRenderReplay)
     RUN_TEST_CASE(stdRenderReplay, TestPayloadPastEndOfFile);
     RUN_TEST_CASE(stdRenderReplay, TestPayloadWithLeftoverBytes);
     RUN_TEST_CASE(stdRenderReplay, TestVertexCountLargerThanPayload);
+    RUN_TEST_CASE(stdRenderReplay, TestLitVertexCountLargerThanPayload);
     RUN_TEST_CASE(stdRenderReplay, TestUnknownVBufferHandle);
     RUN_TEST_CASE(stdRenderReplay, TestUnknownBlobId);
     RUN_TEST_CASE(stdRenderReplay, TestBlobIdsOutOfOrder);

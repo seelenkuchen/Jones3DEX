@@ -279,6 +279,27 @@ void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, St
     stdRenderCapture_EndRecord();
 }
 
+void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+{
+    uint32_t texHandle;
+
+    if ( !std3DCapture_bFrameRecording() )
+    {
+        std3DBackend_DrawRenderListLit(pTex, rdflags, aVerts, numVerts, aIndices, numIndices);
+        return;
+    }
+
+    std3DCapture_WriteFogGlobal();
+    texHandle = stdDisplayCapture_CacheTextureHandle(pTex);
+    std3DBackend_DrawRenderListLit(pTex, rdflags, aVerts, numVerts, aIndices, numIndices);
+    stdRenderCapture_BeginRecord(STDRENDERCAPTURE_ID_STD3D_DRAWRENDERLISTLIT);
+    stdRenderCapture_PutU32(texHandle);
+    stdRenderCapture_PutI32((int32_t)rdflags);
+    stdDisplayCapture_PutLitVertices(aVerts, numVerts);
+    stdDisplayCapture_PutIndices(aIndices, numIndices);
+    stdRenderCapture_EndRecord();
+}
+
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
 {
     if ( !std3DCapture_bFrameRecording() )

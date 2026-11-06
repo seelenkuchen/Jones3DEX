@@ -40,6 +40,15 @@ int std3D_StartScene(void);
 void std3D_EndScene(void);
 
 void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
+
+// Added: std3D_DrawRenderList for vertices that carry their view-space position and normal
+// (StdVertexLit, option A L1). Everything std3D_DrawRenderList promises holds unchanged for the
+// tl part of each vertex: the render state it sets, the texture, the limits on numVerts and the
+// indices, numIndices / 3 triangles, and the color it draws, bit for bit. The position and normal
+// only feed the backend's per-pixel targets (a backend without them ignores them). The arrays are
+// read during the call only; a draw it refuses draws nothing, as std3D_DrawRenderList.
+void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
+
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts);
 void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts);
 void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags);

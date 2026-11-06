@@ -332,6 +332,52 @@ TEST(stdRenderCaptureForward, TestDrawRenderListTextureHandles)
     stdRenderCaptureForward_AssertFileBytes("stdRenderCaptureForward_Draw.rcap", aExpected, sizeof(aExpected));
 }
 
+// Added: M6.9b. DrawRenderListLit (id 35) records like DrawRenderList (id 14), with the litVerts
+// encoding: each vertex's StdVertexTL fields, then f32 vx, vy, vz, nx, ny, nz.
+TEST(stdRenderCaptureForward, TestDrawRenderListLit)
+{
+    static const uint8_t aExpected[] = {
+        // header
+        0x4A, 0x33, 0x44, 0x52, 0x43, 0x41, 0x50, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00,
+        0x6E, 0x75, 0x6C, 0x6C,
+        // GLOBAL 1 = 1.0f before the first std3D record
+        0xF1, 0xFF, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F,
+        // DrawRenderListLit (id 35), payload 74
+        0x23, 0x00, 0x00, 0x00, 0x4A, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,                                     // pTex NULL -> 0
+        0x00, 0x20, 0x00, 0x00,                                     // rdflags 0x2000
+        0x01, 0x00, 0x00, 0x00,                                     // 1 vertex
+        // tl: 1.0 2.0 4.0 0.5 0x11223344 0x55667788 0.25 -0.5
+        0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x80, 0x40, 0x00, 0x00, 0x00, 0x3F,
+        0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55, 0x00, 0x00, 0x80, 0x3E, 0x00, 0x00, 0x00, 0xBF,
+        // position -1.0 10.0 2.0, normal 0.0 -1.0 0.5
+        0x00, 0x00, 0x80, 0xBF, 0x00, 0x00, 0x20, 0x41, 0x00, 0x00, 0x00, 0x40,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xBF, 0x00, 0x00, 0x00, 0x3F,
+        0x01, 0x00, 0x00, 0x00,                                     // 1 index
+        0x00, 0x00,
+        // DrawRenderListLit with NULL arrays: payload 16
+        0x23, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    };
+    static StdVertexLit aVerts[1] = {
+        { { 1.0f, 2.0f, 4.0f, 0.5f, 0x11223344u, 0x55667788u, 0.25f, -0.5f }, -1.0f, 10.0f, 2.0f, 0.0f, -1.0f, 0.5f },
+    };
+    static const uint16_t aIndices[1] = { 0u };
+
+    remove("stdRenderCaptureForward_DrawLit.rcap");
+    TEST_ASSERT_TRUE(stdDisplayCapture_Open("stdRenderCaptureForward_DrawLit.rcap", "null"));
+    std3D_DrawRenderListLit(NULL, STD3D_RS_ZWRITE_DISABLED, aVerts, 1u, (uint16_t*)aIndices, 1u);
+    std3D_DrawRenderListLit(NULL, (Std3DRenderState)0, NULL, 0u, NULL, 0u);
+    stdDisplayCapture_Close();
+    stdRenderCaptureForward_AssertFileBytes("stdRenderCaptureForward_DrawLit.rcap", aExpected, sizeof(aExpected));
+}
+
 TEST(stdRenderCaptureForward, TestFrameWindowFiltering)
 {
     static const uint8_t aExpected[] = {
@@ -710,6 +756,7 @@ TEST_GROUP_RUNNER(stdRenderCaptureForward)
     RUN_TEST_CASE(stdRenderCaptureForward, TestVBufferNewFillFreeBytes);
     RUN_TEST_CASE(stdRenderCaptureForward, TestFogGlobalAroundStd3DRecords);
     RUN_TEST_CASE(stdRenderCaptureForward, TestDrawRenderListTextureHandles);
+    RUN_TEST_CASE(stdRenderCaptureForward, TestDrawRenderListLit);
     RUN_TEST_CASE(stdRenderCaptureForward, TestFrameWindowFiltering);
     RUN_TEST_CASE(stdRenderCaptureForward, TestVBufferUnlockRecordsWithFramesDisabled);
     RUN_TEST_CASE(stdRenderCaptureForward, TestVBufferUnlockBlob);
