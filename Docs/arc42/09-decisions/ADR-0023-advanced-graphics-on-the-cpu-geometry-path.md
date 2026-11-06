@@ -41,3 +41,14 @@ perspective-correctly, as a CPU clipper would. `rdClip_FaceToPlaneLit` therefore
 position and normal through, renormalizing the normal, and the fragment shader renormalizes the interpolated
 one. The clipping variants (`rdClip_Face3*`, `rdQClip_*`) serve the sky and debug paths, which stay on the
 classic vertex.
+
+## Amendment (2026-11-06): the light list is the camera's, per frame, in a storage buffer
+
+The lights reach the GPU as one list per frame, `std3D_SetLights` with `StdLight` records (view-space
+position, `minRadius`, colour, `maxRadius`, the camera's two attenuation factors, an enabled flag; 48 bytes),
+recorded in captures as a new record id. The list is the rdroid camera's after the visibility pass, read only,
+in its order and with its cap (`RDCAMERA_MAX_LIGHTS`), so no light is selected that the CPU lighting doesn't
+see. The per-sector subset and the per-model sector light stay rules the per-pixel shader applies (option A
+L5), not separate lists. The Babylon backend keeps the list in a read-only storage buffer bound to the lit
+draws; Babylon's render interface gained storage buffer bindings for it (`CommandList::bindStorageBuffer`,
+`ShaderDesc::storageBufferCount`).

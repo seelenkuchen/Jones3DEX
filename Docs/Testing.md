@@ -568,6 +568,15 @@ for a translucent face, and its `StdVertexTL` part is the classic draw's byte fo
 corner normals: a cube keeps its hard corners, a 12-sided prism smooths each side edge to the bisector, two
 faces 44 degrees apart are smoothed and 46 degrees apart stay hard under the 45 degree threshold, and excluded
 faces, faces without geometry or normal, out-of-range vertices and bad arguments.
+Since M6.9c its `rdCamera` group checks `rdCamera_BuildStdLights`, the frame's light list: lights added with
+`rdCamera_AddLight` to a camera with a hand-made view matrix come out in the camera's order with hand-worked
+view-space positions and the radii, colour, flags and attenuation the camera holds; the camera's cap of 128
+(the 129th and 130th are refused by `rdCamera_AddLight` and absent) and a smaller output array; the camera and
+lights unchanged. The `std3DBabylon` Null group checks that the list reaches the light buffer before the pass
+and is bound before the lit draws only, with no buffer for classic frames, and the GPU group draws the lit
+quad with lights set, its colour still the classic one. `stdRenderCaptureForward` and `stdRenderReplay` check
+record 36 byte for byte and its round trip, and Babylon's render tests a fragment storage buffer read by a
+test shader on SDL GPU.
 
 The same executable runs the `stdDisplayBabylon` suites. Their Null group drives the public `stdDisplay_*`
 calls: the one display device, the headless and windowed video mode lists and aspect ratios, `SetMode`, the

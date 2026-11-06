@@ -769,6 +769,16 @@ Since M6.9b2 the game fills them, behind the presentation option `engine.rendere
 
 `Jones3D-replay --render gpu --frames-out <dir> --normals` writes the normal target of each replayed frame next to the frame image, to look at what the lit path emits ([Testing](../../Testing.md)).
 
+### The Frame's Light List (M6.9c)
+
+With the same option the renderer also gets the frame's lights, for per-pixel lighting (option A L5, M10), which nothing reads yet:
+
+- **`sithRender_Draw`**, after the visible sector and thing lists and `sithRender_BuildDynamicLights`, calls **`rdCamera_BuildStdLights`** and **`std3D_SetLights`** once per frame. The list is the rdroid camera's: the thing lights and head lights the visibility pass collected through `rdCamera_AddLight`, in that order and up to `RDCAMERA_MAX_LIGHTS` (128, equal to `STD3D_MAXLIGHTS`), so nothing new is selected. It is read only. Not in it: the sector point light `sithRender_RenderThings` adds around each model and removes after it, and the per-sector subset `sithRender_BuildDynamicLights` picks (lights whose `minRadius` reaches the sector's bounding sphere); per-pixel lighting has to apply those rules itself.
+- **`StdLight`** (`Libs/std/types.h`, 48 bytes, three groups of four 32-bit values): the view-space position (the camera's view matrix applied to the light's world position) and `minRadius`; the color (`rdLight.color`, alpha as stored); `maxRadius`, the camera's `attenuationMin` and `attenuationMax`, and flags (`STD_LIGHT_ENABLED` for `rdLight.bEnabled`). These are all the inputs of `rdLight_CalcVertexIntensities` (full intensity within `maxRadius`, linear to zero at `minRadius`, times the normal's cosine), `rdLight_CalcFaceIntensity` (plane distance times `attenuationMin` subtracted, within `minRadius`, enabled lights only) and the dynamic vertex lights (distance times `attenuationMax` subtracted, within `maxRadius`, clamped to 0..1). `rdLight.type` (always 2, a point light) and `direction` are read by none of them and are left out.
+- **Babylon `std3D`** copies the list into a storage buffer (made on first use: a 16-byte header with the count, then the lights as they are) in the first scene pass after it changed, before the pass, and binds it to fragment storage slot 0 of the pass's lit draws. `std3d_lit.frag.hlsl` declares no buffer yet (its compiler drops one nothing reads), so its compiled code and colour are unchanged; SDL GPU keeps the binding without passing it on. A test shader in Babylon's render tests reads a storage buffer on lavapipe. The Null `std3D` ignores the call.
+- **Off**: no `std3D_SetLights`, no lit draws, no light buffer; the classic device calls exactly as before.
+- **Capture**: `std3D_SetLights` records as id 36 ([RCAP](../../Formats/RCAP.md)); older captures replay unchanged.
+
 The option is presentation, not part of the Retail or Enhanced simulation profile: the colour is the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with it on and off.
 
 ### Textures And Cache
