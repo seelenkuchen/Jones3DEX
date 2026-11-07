@@ -110,6 +110,12 @@ namespace
         return std::make_unique<NullWindow>(desc.title, desc.size, m_nextId++);
     }
 
+    bool NullPlatform::showMessageBox(std::string_view title, std::string_view text)
+    {
+        log::warning("{}: {}", title, text);
+        return false;
+    }
+
     std::optional<Event> NullPlatform::pollEvent()
     {
         if ( m_events.empty() )
