@@ -1,5 +1,6 @@
 set(SITH_TEST_SOURCES
     sithTestRunner.c
+    sithGamesaveTest.c
     ../Cog/Tests/sithCogTest.c
     ../World/Tests/sithTemplateTest.c
     ../World/Tests/sithThingTest.c

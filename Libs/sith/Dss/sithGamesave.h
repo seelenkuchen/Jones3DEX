@@ -37,6 +37,10 @@ void J3DAPI sithGamesave_SetThumbnailImage(tVBuffer* pVBuffer);
 tSysBitmap sithGamesave_CreateThumbnail(void);
 tSysBitmap J3DAPI sithGamesave_LoadThumbnail(const char* pFilename); // Function reads the thumbnail from the nds save file
 
+// Added: Reads the thumbnail of a save file, SITHSAVEGAME_THUMBSIZE bytes, into pDst. Returns 1 on
+// success; 0 when the file has no thumbnail, is invalid or truncated, or pDst is too small.
+int sithGamesave_ReadThumbnail(const char* pFilename, uint8_t* pDst, size_t dstSize);
+
 void J3DAPI sithGamesave_SetPreviousLevelFilename(const char* pFilename);
 const char* sithGamesave_GetPreviousLevelFilename(void);
 

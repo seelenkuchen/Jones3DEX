@@ -372,7 +372,7 @@ The M3 plan per subsystem, as built then. The Win32 and DirectX sides it names w
 | Cutscene sound | `SNDDRIVER`, which `Engine.c` already uses | `Dsnd.c` is a backend as a whole, and another platform replaces the file: `DsndSilent.c` on the Babylon column until M7 |
 | Window and lifecycle | `wkernel_*` | See below |
 | Dialogs | `jonesConfig_*`, `JonesDialog_*` | See below |
-| Thumbnails | `stdBmp_Load`, `sithGamesave_*Thumbnail` | The code moves to Win32 files and `HBITMAP` becomes `tSysBitmap`. A pixel buffer waits for the in-game UI that needs it |
+| Thumbnails | `stdBmp_Load`, `sithGamesave_*Thumbnail` | Done: the portable `sithGamesaveThumbnail.c` reads the back buffer through `stdDisplay`'s lock and keeps the 128 x 96 RGB image in memory for every column |
 | Renderer | `std3D_*`, `stdDisplay_*` | See below |
 | Networking | `stdComm_*` | Types only. A null backend in M4 reports no game |
 

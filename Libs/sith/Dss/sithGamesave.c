@@ -47,7 +47,7 @@ static int sithGamesave_bStatisticsLocked;
 static SithGameStatistics sithGamesave_gameStatistics;
 
 // Altered: the save game thumbnail state is no longer static, it is shared with
-// sithGamesaveWin32.c through sithGamesaveSys.h
+// sithGamesaveThumbnail.c through sithGamesaveSys.h
 tVBuffer* sithGamesave_pThumbnailImage;
 int sithGamesave_bThumbnail;
 tSysBitmap sithGamesave_hBmpThumbnail;
@@ -393,16 +393,26 @@ int sithGamesave_Process(void)
     int bError;
     if ( sithGamesave_state == SITHGAMESAVE_SAVE )
     {
-        if ( !sithGamesave_bThumbnail )
+        if ( !sithGamesave_bThumbnail || !sithGamesave_hBmpThumbnail )
         {
-            // Fixed: Make sure back buffer is inited (DirectX 9 could reset device in between calls)
-            if ( !stdDisplay_g_backBuffer.surface.pSysSurface )
-            {
-                return 1;
-            }
+            // Altered: The back buffer can live on the GPU and need not have a pSysSurface, so a
+            // read-only lock decides whether there is a frame to capture. Only a real in-memory
+            // image counts; a restored header flag without one must not make the save write stale
+            // bytes. Without a frame the save still goes ahead with bThumbnail 0, which the format
+            // already allows.
+            sithGamesave_bThumbnail    = 0;
+            sithGamesave_hBmpThumbnail = NULL;
 
-            sithGamesave_SetThumbnailImage(&stdDisplay_g_backBuffer);
-            sithGamesave_hBmpThumbnail = sithGamesave_CreateThumbnail();
+            void* pPixels   = NULL;
+            uint32_t width  = 0;
+            uint32_t height = 0;
+            int32_t pitch   = 0;
+            if ( stdDisplay_LockBackBufferReadOnly(&pPixels, &width, &height, &pitch) == 0 && pPixels )
+            {
+                stdDisplay_UnlockBackBuffer();
+                sithGamesave_SetThumbnailImage(&stdDisplay_g_backBuffer);
+                sithGamesave_hBmpThumbnail = sithGamesave_CreateThumbnail();
+            }
         }
 
         bError = sithGamesave_SaveFile(sithGamesave_aCurFilename);
@@ -895,6 +905,38 @@ int J3DAPI sithGamesave_LoadLevelFilename(const char* pNdsFilePath, char* pDestF
     // TODO: ensure pDestFilename is large enough
     stdUtil_StringCopy(pDestFilename, 64u, header.aLevelFilename);
     return 0;
+}
+
+// Added: Reads the thumbnail of a save file into pDst for the Load screen. The thumbnail follows
+// the header and is exactly SITHSAVEGAME_THUMBSIZE bytes. Returns 1 only when the header is valid,
+// claims a thumbnail, and the whole thumbnail is present and fits in pDst.
+int sithGamesave_ReadThumbnail(const char* pFilename, uint8_t* pDst, size_t dstSize)
+{
+    if ( !pFilename || !pDst || dstSize < SITHSAVEGAME_THUMBSIZE )
+    {
+        return 0;
+    }
+
+    if ( !stdConffile_OpenMode(pFilename, "rb") )
+    {
+        return 0;
+    }
+
+    int bResult = 0;
+
+    NdsHeader header;
+    if ( stdConffile_Read(&header, sizeof(header)) )
+    {
+        // Altered: Validate the version and the thumbnail flag instead of trusting any non-zero value.
+        if ( header.version == SITHSAVEGAME_FILEVERSION && header.bThumbnail == 1 )
+        {
+            // stdConffile_Read checks the full size, so a truncated thumbnail fails here.
+            bResult = stdConffile_Read(pDst, SITHSAVEGAME_THUMBSIZE) != 0;
+        }
+    }
+
+    stdConffile_Close();
+    return bResult;
 }
 
 int J3DAPI sithGamesave_GetState(const char** ppCurFilename)
