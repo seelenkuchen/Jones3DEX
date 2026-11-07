@@ -219,9 +219,21 @@ TEST_CASE("Mouse motion, buttons and the wheel translate")
     CHECK(flipped->dy == 3.f);
 }
 
-TEST_CASE("Gamepad connect, disconnect, buttons and axes translate")
+TEST_CASE("Text input carries the window and the UTF-8 text")
 {
-    SDL_Event event = sdlEvent(SDL_EVENT_GAMEPAD_ADDED);
+    SDL_Event event = sdlEvent(SDL_EVENT_TEXT_INPUT);
+    event.text.windowID = 6;
+    event.text.text = "Grüße";
+
+    const std::optional<Event> inputEvent = translateEvent(event);
+    const auto* const input = delivered<babylon::platform::TextInput>(inputEvent);
+    REQUIRE(input != nullptr);
+    CHECK(input->window == 6);
+    CHECK(input->text == "Grüße");
+}
+
+TEST_CASE("Gamepad connect, disconnect, buttons and axes translate")
+{    SDL_Event event = sdlEvent(SDL_EVENT_GAMEPAD_ADDED);
     event.gdevice.which = 42;
     const std::optional<Event> addedEvent = translateEvent(event);
     const auto* const added = delivered<babylon::platform::GamepadConnected>(addedEvent);

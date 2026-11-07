@@ -154,6 +154,26 @@ namespace
             CHECK_FALSE(window->relativeMouse());
         }
 
+        // Text input: the same contract as relative mouse. It starts off,
+        // the backend records the mode while accepted, and a backend that
+        // refuses reports false with one warning and the state unchanged.
+        CHECK_FALSE(window->textInput());
+        if ( window->setTextInput(true) )
+        {
+            noWarning();
+            CHECK(window->textInput());
+            CHECK(window->setTextInput(false));
+            noWarning();
+            CHECK_FALSE(window->textInput());
+        }
+        else
+        {
+            MESSAGE("this backend refused setTextInput(true); checked only the "
+                "refusal contract: one warning, state unchanged");
+            oneWarning();
+            CHECK_FALSE(window->textInput());
+        }
+
         // Draining the queue terminates: the backend does not make events
         // faster than they are taken out. 10,000 calls is far past what
         // four windows and one resize can produce.

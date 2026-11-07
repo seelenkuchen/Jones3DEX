@@ -78,6 +78,198 @@ namespace
         return text;
     }
 
+    // The position of the first '#' outside a double-quoted string, or npos.
+    // A backslash inside the quotes escapes the next byte, so \" and \\ do
+    // not end or restart the string.
+    std::size_t findComment(std::string_view line)
+    {
+        bool inQuotes = false;
+        bool escaped = false;
+        for ( std::size_t pos = 0; pos < line.size(); ++pos )
+        {
+            const char character = line[pos];
+            if ( escaped )
+            {
+                escaped = false;
+                continue;
+            }
+            if ( inQuotes && character == '\\' )
+            {
+                escaped = true;
+                continue;
+            }
+            if ( character == '"' )
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if ( !inQuotes && character == '#' )
+            {
+                return pos;
+            }
+        }
+        return std::string_view::npos;
+    }
+
+    // True for a well-formed UTF-8 string: no overlong forms, no surrogates,
+    // nothing above U+10FFFF and no stray continuation byte.
+    bool isValidUtf8(std::string_view text)
+    {
+        std::size_t pos = 0;
+        while ( pos < text.size() )
+        {
+            const unsigned char lead = static_cast<unsigned char>(text[pos]);
+            std::size_t length = 0;
+            std::uint32_t codePoint = 0;
+            if ( lead < 0x80 )
+            {
+                ++pos;
+                continue;
+            }
+            if ( (lead & 0xE0) == 0xC0 )
+            {
+                length = 2;
+                codePoint = lead & 0x1F;
+            }
+            else if ( (lead & 0xF0) == 0xE0 )
+            {
+                length = 3;
+                codePoint = lead & 0x0F;
+            }
+            else if ( (lead & 0xF8) == 0xF0 )
+            {
+                length = 4;
+                codePoint = lead & 0x07;
+            }
+            else
+            {
+                return false;
+            }
+            if ( pos + length > text.size() )
+            {
+                return false;
+            }
+            for ( std::size_t index = 1; index < length; ++index )
+            {
+                const unsigned char continuation =
+                    static_cast<unsigned char>(text[pos + index]);
+                if ( (continuation & 0xC0) != 0x80 )
+                {
+                    return false;
+                }
+                codePoint = (codePoint << 6) | (continuation & 0x3F);
+            }
+            if ( (length == 2 && codePoint < 0x80)
+                || (length == 3 && codePoint < 0x800)
+                || (length == 4 && codePoint < 0x10000)
+                || codePoint > 0x10FFFF
+                || (codePoint >= 0xD800 && codePoint <= 0xDFFF) )
+            {
+                return false;
+            }
+            pos += length;
+        }
+        return true;
+    }
+
+    // Parses the "<utf8>" of a text line, after the leading "text" token.
+    // The text is double-quoted; the escapes documented in InputScript.h
+    // spell one byte each, so the quoted form can hold spaces and '#'.
+    std::optional<std::string> parseQuotedText(std::string_view rest, std::string& error)
+    {
+        std::size_t pos = 0;
+        while ( pos < rest.size() && ( rest[pos] == ' ' || rest[pos] == '\t' ) )
+        {
+            ++pos;
+        }
+        if ( pos == rest.size() || rest[pos] != '"' )
+        {
+            error = "expected a double-quoted text string";
+            return std::nullopt;
+        }
+        ++pos;
+
+        std::string text;
+        bool closed = false;
+        while ( pos < rest.size() )
+        {
+            const char character = rest[pos++];
+            if ( character == '"' )
+            {
+                closed = true;
+                break;
+            }
+            if ( character != '\\' )
+            {
+                text.push_back(character);
+                continue;
+            }
+            if ( pos == rest.size() )
+            {
+                error = "text string ends after a backslash";
+                return std::nullopt;
+            }
+            const char escaped = rest[pos++];
+            switch ( escaped )
+            {
+                case '\\': text.push_back('\\'); break;
+                case '"':  text.push_back('"'); break;
+                case 'n':  text.push_back('\n'); break;
+                case 'r':  text.push_back('\r'); break;
+                case 't':  text.push_back('\t'); break;
+                case '#':  text.push_back('#'); break;
+                default:
+                    error = "unknown escape '\\" + std::string(1, escaped)
+                        + "' in text string";
+                    return std::nullopt;
+            }
+        }
+        if ( !closed )
+        {
+            error = "unterminated text string";
+            return std::nullopt;
+        }
+        while ( pos < rest.size() && ( rest[pos] == ' ' || rest[pos] == '\t' ) )
+        {
+            ++pos;
+        }
+        if ( pos != rest.size() )
+        {
+            error = "unexpected extra token '" + std::string(rest.substr(pos)) + "'";
+            return std::nullopt;
+        }
+        if ( !isValidUtf8(text) )
+        {
+            error = "text string is not valid UTF-8";
+            return std::nullopt;
+        }
+        if ( text.empty() )
+        {
+            error = "text string must not be empty";
+            return std::nullopt;
+        }
+        return text;
+    }
+
+    // Parses one "text" line body, the tokens after the "frame <n>:" header.
+    std::optional<platform::Event> parseTextEvent(std::string_view body,
+        platform::WindowId window, std::string& error)
+    {
+        const std::string_view verb = "text";
+        std::size_t pos = 0;
+        while ( pos < body.size() && ( body[pos] == ' ' || body[pos] == '\t' ) )
+        {
+            ++pos;
+        }
+        pos += verb.size();
+        const std::optional<std::string> text = parseQuotedText(body.substr(pos), error);
+        if ( !text.has_value() )
+        {
+            return std::nullopt;
+        }
+        return platform::TextInput{ window, *text };
+    }
+
     // Formats "<what> '<token>'" for the error messages that name the value
     // they rejected.
     std::string quoted(std::string_view what, std::string_view token)
@@ -456,8 +648,9 @@ namespace
                     "line is longer than " + std::to_string(kMaxLineBytes) + " bytes"};
             }
 
-            // '#' starts a comment that runs to the end of the line.
-            const std::size_t hash = line.find('#');
+            // '#' starts a comment that runs to the end of the line, unless
+            // it sits inside a quoted text string.
+            const std::size_t hash = findComment(line);
             if ( hash != std::string_view::npos )
             {
                 line = line.substr(0, hash);
@@ -493,12 +686,17 @@ namespace
                     + " is below previous frame " + std::to_string(previousFrame)};
             }
 
-            const std::vector<std::string_view> body = tokenize(line.substr(colon + 1));
+            const std::string_view bodyText = line.substr(colon + 1);
+            const std::vector<std::string_view> body = tokenize(bodyText);
             if ( body.empty() )
             {
                 return ScriptError{lineNumber, "missing event after ':'"};
             }
-            const std::optional<platform::Event> event = parseEvent(body, window, error);
+            // A text event's argument may hold spaces, so it is parsed from
+            // the raw line instead of the whitespace-separated tokens.
+            const std::optional<platform::Event> event = body[0] == "text"
+                ? parseTextEvent(bodyText, window, error)
+                : parseEvent(body, window, error);
             if ( !event.has_value() )
             {
                 return ScriptError{lineNumber, error};
