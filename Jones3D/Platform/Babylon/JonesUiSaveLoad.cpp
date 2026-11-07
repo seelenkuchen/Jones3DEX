@@ -579,8 +579,10 @@ int JonesUiSave_RunSaveScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainte
     JonesUiSave_Thumbnails thumbnails(pImagePainter);
     thumbnails.Load(entries);
 
+    // The world names levels by file name; the default save name uses their display names.
+    const std::string levelDisplayName = JonesUiSave_LevelDisplayName(pLevelName ? pLevelName : "");
     const std::string defaultName = JonesUiSave_SanitizeName(
-        JonesUiSave_MakeDefaultName(pLevelName, now).c_str());
+        JonesUiSave_MakeDefaultName(levelDisplayName.c_str(), now).c_str());
 
     babylon::ui::Screen screen = JonesUiSave_BuildSaveScreen(title, defaultName, entries,
         thumbnails, cancelText);

@@ -432,13 +432,7 @@ void J3DAPI JonesDisplay_UpdateLoadProgress(float progress)
         if ( progress == 100.0f && (!JonesDisplay_loadScreenState || JonesDisplay_loadScreenState > 0 && JonesDisplay_bUpdateLoadScreen) )
         {
             // Progress completed, increment background image mats cells to show load completed state
-            for ( size_t i = 0; i < 6; ++i )
-            {
-                if ( JonesDisplay_pWallpaper->aMatCelNums[i] < JonesDisplay_pWallpaper->aMaterials[i].numCels - 1 )
-                {
-                    ++JonesDisplay_pWallpaper->aMatCelNums[i];
-                }
-            }
+            rdWallpaper_AdvanceCels(JonesDisplay_pWallpaper);
         }
 
         rdWallpaper_Draw(JonesDisplay_pWallpaper);

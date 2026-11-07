@@ -84,8 +84,18 @@ namespace
     }
 }
 
+void JonesUiMainMenu_SetFinishedWallpaper(rdWallpaper* pWallpaper)
+{
+    // JonesDisplay_UpdateLoadProgress advances the cels at each of its three completion stages.
+    for ( size_t step = 0; step < 3; ++step )
+    {
+        rdWallpaper_AdvanceCels(pWallpaper);
+    }
+}
+
 JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks)
+    const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks,
+    char* pOutLoadPath)
 {
     Screen menu;
     // No game key holds the game's full title or a plain "New Game".
@@ -166,9 +176,16 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 
         if ( pAction->action == kLoadAction )
         {
-            char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-            if ( !hooks.loadGame || hooks.loadGame(aPath) )
+            if ( !hooks.loadGame )
             {
+                static_cast<void>(uiRef.pop(kLoadAction));
+                return true;
+            }
+
+            char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+            if ( pOutLoadPath && hooks.loadGame(aPath) )
+            {
+                std::snprintf(pOutLoadPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", aPath);
                 static_cast<void>(uiRef.pop(kLoadAction));
             }
             return true;
@@ -277,6 +294,9 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     JonesUiModalBackground background;
     if ( pWallpaper )
     {
+        // Draw the same finished image the load screen leaves up before it closes.
+        JonesUiMainMenu_SetFinishedWallpaper(pWallpaper);
+
         background.draw = [pWallpaper]()
         {
             rdWallpaper_Draw(pWallpaper);
@@ -301,17 +321,10 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
 
     JonesUiMainMenuHooks hooks;
     hooks.newGame = []() {};
-    hooks.loadGame = [pOutLoadPath](char* pPath) -> bool
+    hooks.loadGame = [](char* pPath) -> bool
     {
-        char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-        // The load dialog answers 1 on success and 2 on cancel.
-        if ( jonesConfig_GetLoadGameFilePath(NULL, aPath) != 1 )
-        {
-            return false;
-        }
-
-        std::snprintf(pPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", aPath);
-        return true;
+        // The load dialog answers 1 on success and 2 on cancel; it writes only on success.
+        return jonesConfig_GetLoadGameFilePath(NULL, pPath) == 1;
     };
     hooks.gameplay = []()
     {
@@ -333,7 +346,7 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     };
 
     const JonesUiMainMenuAction action = JonesUiMainMenu_Run(*pUiContext->pUi, &painter,
-        background, bCanLoad, hooks);
+        background, bCanLoad, hooks, pOutLoadPath);
 
     if ( hMenuMusic
         && (Sound_GetChannelFlags(hMenuMusic) & SOUND_CHANNEL_PLAYING) != 0 )

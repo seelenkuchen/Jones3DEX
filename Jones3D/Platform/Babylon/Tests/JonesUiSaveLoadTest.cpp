@@ -368,11 +368,15 @@ TEST_CASE("the save screen writes the default path without typing")
 
     testContext.platform.PushKey(platform::Key::Enter);
 
+    // The world names the level by its file; the default save name uses the display name.
+    JonesUiTest_SetString("JONES_STR_CYN", "Canyonlands");
+
     char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
     const int result = JonesUiSave_RunSaveScreen(ui, &painter, nullptr, *testContext.pFileSystem,
-        dir.EngineDir().c_str(), "Test Level", timeValue, aPath);
+        dir.EngineDir().c_str(), "00_CYN.cnd", timeValue, aPath);
+    JonesUiTest_SetString(nullptr, nullptr);
     CHECK(result == 1);
-    CHECK(std::string(aPath) == dir.EngineDir() + "Test Level 2026-11-07 13-05-09.nds");
+    CHECK(std::string(aPath) == dir.EngineDir() + "Canyonlands 2026-11-07 13-05-09.nds");
 }
 
 TEST_CASE("the save screen asks before overwriting an existing save")

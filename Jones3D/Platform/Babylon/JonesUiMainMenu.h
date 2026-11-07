@@ -14,6 +14,8 @@
 #include <babylon/ui/Painter.h>
 #include <babylon/ui/Ui.h>
 
+#include <rdroid/types.h>
+
 #include <functional>
 
 // The value JonesUiMainMenu_Run answers when one of its actions closes the menu.
@@ -41,9 +43,15 @@ struct JonesUiMainMenuHooks
 // is disabled when bCanLoad is false. Settings opens a nested screen with Gameplay, Controls,
 // Display, Sound and Back; every settings hook is called and the screen stays open whatever it
 // does. background is drawn cover-scaled behind both screens (see JonesUiModalBackground); the
-// caller keeps the image alive. The ui must draw through pPainter, like every other screen.
+// caller keeps the image alive. On a successful Load, pOutLoadPath receives the chosen save path,
+// bounded by JONESCONFIG_GAMESAVE_FILEPATHSIZE; a cancelled Load writes nothing. The ui must draw
+// through pPainter, like every other screen.
 JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const JonesUiModalBackground& background, bool bCanLoad,
-    const JonesUiMainMenuHooks& hooks);
+    const JonesUiMainMenuHooks& hooks, char* pOutLoadPath);
+
+// Puts a wallpaper into the finished load screen's state: the load screen advances its cels at
+// each of its three completion stages before it closes. The menu uses this for its background.
+void JonesUiMainMenu_SetFinishedWallpaper(rdWallpaper* pWallpaper);
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIMAINMENU_H

@@ -1409,7 +1409,8 @@ TEST_CASE("the main menu draws the level map behind its panel")
     // The 8 x 8 source is cover-scaled to the 640 x 480 canvas; the corner shows it undimmed.
     const JonesUiModalBackground background{ backgroundImage, 8.0f, 8.0f };
     JonesUiMainMenuHooks hooks;
-    CHECK(JonesUiMainMenu_Run(ui, &painter, background, true, hooks)
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+    CHECK(JonesUiMainMenu_Run(ui, &painter, background, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
 
     std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();

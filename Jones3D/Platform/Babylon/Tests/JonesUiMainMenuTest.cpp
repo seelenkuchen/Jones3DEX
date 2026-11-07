@@ -5,6 +5,7 @@
 #include <doctest.h>
 
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -24,8 +25,11 @@
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
 #include <Jones3D/types.h>
 
+#include <rdroid/Primitives/rdWallpaper.h>
+
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
+#include <std/General/stdUtil.h>
 
 // The game-layer and platform symbols the main menu wrapper names. The cases call the runner with
 // hooks, so these stubs only satisfy the linker of jonesConfig_ShowMainMenu.
@@ -234,6 +238,46 @@ TEST_CASE("the headless start mode keeps its configured value")
         == JONES_STARTMODE_STARTGAME);
 }
 
+TEST_CASE("the main menu uses the load screen's finished wallpaper state")
+{
+    // The load screen advances one cel step at each of its three completion stages; the main
+    // menu must build the same finished wallpaper state.
+    rdWallpaper loadScreenWallpaper;
+    rdWallpaper mainMenuWallpaper;
+    std::memset(&loadScreenWallpaper, 0, sizeof(loadScreenWallpaper));
+    std::memset(&mainMenuWallpaper, 0, sizeof(mainMenuWallpaper));
+
+    const size_t aCels[] = { 2u, 3u, 4u, 6u, 1u, 5u };
+    static_assert(STD_ARRAYLEN(aCels) == STD_ARRAYLEN(loadScreenWallpaper.aMaterials),
+        "one cel count for every wallpaper tile");
+
+    std::snprintf(loadScreenWallpaper.aName, sizeof(loadScreenWallpaper.aName), "mat\\synthetic");
+    std::snprintf(mainMenuWallpaper.aName, sizeof(mainMenuWallpaper.aName), "mat\\synthetic");
+    for ( size_t i = 0; i < STD_ARRAYLEN(aCels); ++i )
+    {
+        loadScreenWallpaper.aMaterials[i].numCels = aCels[i];
+        mainMenuWallpaper.aMaterials[i].numCels   = aCels[i];
+    }
+
+    for ( size_t step = 0; step < 3; ++step )
+    {
+        rdWallpaper_AdvanceCels(&loadScreenWallpaper);
+    }
+
+    JonesUiMainMenu_SetFinishedWallpaper(&mainMenuWallpaper);
+
+    CHECK(std::strcmp(loadScreenWallpaper.aName, mainMenuWallpaper.aName) == 0);
+    CHECK(loadScreenWallpaper.pCamera == mainMenuWallpaper.pCamera);
+    for ( size_t i = 0; i < STD_ARRAYLEN(aCels); ++i )
+    {
+        CHECK(mainMenuWallpaper.aMaterials[i].numCels == loadScreenWallpaper.aMaterials[i].numCels);
+        CHECK(mainMenuWallpaper.aMatCelNums[i] == loadScreenWallpaper.aMatCelNums[i]);
+
+        const int expected = aCels[i] > 3u ? 3 : (int)aCels[i] - 1;
+        CHECK(mainMenuWallpaper.aMatCelNums[i] == expected);
+    }
+}
+
 TEST_CASE("New Game closes the main menu with the new-game action")
 {
     MenuTestContext testContext;
@@ -243,9 +287,10 @@ TEST_CASE("New Game closes the main menu with the new-game action")
     bool newGameCalled = false;
     JonesUiMainMenuHooks hooks;
     hooks.newGame = [&newGameCalled]() { newGameCalled = true; };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
 
     testContext.platform.PushKey(platform::Key::Enter);
-    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks)
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::NewGame);
     CHECK(newGameCalled);
     CHECK(ui.screenCount() == 0u);
@@ -258,8 +303,9 @@ TEST_CASE("Quit closes the main menu without any action")
     ui::Ui ui(painter, testContext.cvars);
 
     JonesUiMainMenuHooks hooks;
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
     testContext.platform.PushKey(platform::Key::Escape);
-    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks)
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
     CHECK(ui.screenCount() == 0u);
 }
@@ -273,6 +319,7 @@ TEST_CASE("a disabled Load row is skipped")
     bool loadCalled = false;
     JonesUiMainMenuHooks hooks;
     hooks.loadGame = [&loadCalled](char*) { loadCalled = true; return true; };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
 
     // Down skips the disabled Load row and lands on Settings; Enter opens it, then Escape closes
     // the settings screen and the menu.
@@ -281,7 +328,7 @@ TEST_CASE("a disabled Load row is skipped")
     testContext.platform.PushKey(platform::Key::Escape);
     testContext.platform.PushKey(platform::Key::Escape);
 
-    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, false, hooks)
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, false, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
     CHECK_FALSE(loadCalled);
 }
@@ -300,13 +347,15 @@ TEST_CASE("Load returns the load-game action when a save is chosen")
         std::snprintf(pOutPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", "chosen.nds");
         return true;
     };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
 
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter);
 
-    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks)
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::LoadGame);
     CHECK(loadCalled);
+    CHECK(std::string(aOutLoadPath) == "chosen.nds");
     CHECK(ui.screenCount() == 0u);
 }
 
@@ -318,15 +367,23 @@ TEST_CASE("a cancelled Load keeps the main menu open")
 
     bool loadCalled = false;
     JonesUiMainMenuHooks hooks;
-    hooks.loadGame = [&loadCalled](char*) { loadCalled = true; return false; };
+    hooks.loadGame = [&loadCalled](char* pOutPath)
+    {
+        loadCalled = true;
+        std::snprintf(pOutPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", "cancelled.nds");
+        return false;
+    };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
 
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Escape);
 
-    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks)
+    // The cancelled Load leaves the menu open, so this Escape is what quits it.
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
     CHECK(loadCalled);
+    CHECK(aOutLoadPath[0] == '\0');
     CHECK(ui.screenCount() == 0u);
 }
 
@@ -345,6 +402,7 @@ TEST_CASE("the Settings screen calls every settings hook")
     hooks.controls = [&controls]() { ++controls; };
     hooks.display  = [&display]() { ++display; };
     hooks.sound    = [&sound]() { ++sound; };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
 
     // Down twice to Settings, Enter opens it; then accept each row in turn and Back.
     testContext.platform.PushKey(platform::Key::Down);
@@ -361,7 +419,7 @@ TEST_CASE("the Settings screen calls every settings hook")
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Escape);
 
-    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks)
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
     CHECK(gameplay == 1);
     CHECK(controls == 1);
