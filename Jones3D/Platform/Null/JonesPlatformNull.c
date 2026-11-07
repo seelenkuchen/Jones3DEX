@@ -214,12 +214,6 @@ int J3DAPI jonesConfig_ShowGameOverDialog(tSysWindow hWnd, char* pRestoreFilenam
     return JONESPLATFORM_NULL_IDCANCEL;
 }
 
-int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd)
-{
-    J3D_UNUSED(hWnd);
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
 int J3DAPI jonesConfig_ShowLevelCompletedDialog(tSysWindow hWnd, int* pBalance, int* apItemsState, int a4, int elapsedTime, int qiPoints, int numFoundTrasures, int foundTrasureValue, int totalTreasureValue)
 {
     J3D_UNUSED(hWnd);

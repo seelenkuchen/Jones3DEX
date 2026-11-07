@@ -28,16 +28,24 @@
 #include <babylon/ui/Ui.h>
 
 #include <Jones3D/Display/JonesDisplay.h>
+#include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
+#include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiSoundSettings.h>
 
 #include <sound/Driver.h>
 #include <sound/DriverOutput.h>
 
+#include <sith/Devices/sithControl.h>
+#include <sith/Engine/sithPuppet.h>
 #include <sith/Engine/sithRender.h>
+#include <sith/Gameplay/sithOverlayMap.h>
 #include <sith/Main/sithMain.h>
+#include <sith/World/sithMaterial.h>
 #include <sith/World/sithModel.h>
+#include <sith/World/sithVoice.h>
+#include <sith/World/sithWeapon.h>
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/General/std.h>
@@ -601,6 +609,160 @@ TEST_CASE("the sound screen back writes nothing")
     CHECK(std::string(aOutput) == "device-a");
 }
 
+TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    sithVoice_ShowText(0);
+    sithOverlayMap_SetShowHints(0);
+    sithOverlayMap_EnableMapRotation(0);
+    sithSetGameDifficulty(0);
+    sithControl_g_controlOptions = 0x04;
+    JonesReticle_Enable(false);
+    sithWeapon_EnableBloodSplatter(false);
+
+    REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
+    REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
+    REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_MAPROTATION, false));
+    REQUIRE(stdConfig_SetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, 0));
+    REQUIRE(stdConfig_SetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
+    REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
+    // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading, 10 fire flash,
+    // 11 external materials, 12 external keyframes, 13 OK, 14 back.
+    testContext.platform.PushKey(platform::Key::Enter); // show text on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // show hints on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // rotate map on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Right); // difficulty 0 -> 1
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // default to run on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // reticle on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // blood on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // fire flash off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // external materials off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // external keyframes off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // OK
+
+    REQUIRE(JonesUiGameplay_RunGameplayScreen(ui, &painter, true) == 1);
+
+    CHECK(sithVoice_GetShowText() == 1);
+    CHECK(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
+    CHECK(sithOverlayMap_GetShowHints() == 1);
+    CHECK(stdConfig_GetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
+    CHECK(sithOverlayMap_GetMapRotation() == 1);
+    CHECK(stdConfig_GetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_MAPROTATION, false));
+    CHECK(sithGetGameDifficulty() == 1);
+    CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 1);
+    CHECK((sithControl_g_controlOptions & 0x02) != 0);
+    CHECK(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
+    CHECK(JonesReticle_IsEnabled());
+    CHECK(sithWeapon_IsBloodSplatterEnabled());
+    CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
+    CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
+    CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    // The profile is fixed by the build and written nowhere.
+    CHECK_FALSE(stdConfig_Contains("game.profile"));
+}
+
+TEST_CASE("the gameplay screen back writes nothing")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    sithVoice_ShowText(0);
+    sithOverlayMap_SetShowHints(0);
+    sithOverlayMap_EnableMapRotation(0);
+    sithSetGameDifficulty(0);
+    sithControl_g_controlOptions = 0x04;
+    JonesReticle_Enable(false);
+    sithWeapon_EnableBloodSplatter(false);
+
+    REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
+    REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
+    REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_MAPROTATION, false));
+    REQUIRE(stdConfig_SetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, 0));
+    REQUIRE(stdConfig_SetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
+    REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    testContext.platform.PushKey(platform::Key::Enter); // show text on in the screen only
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Right); // difficulty 0 -> 1 in the screen only
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiGameplay_RunGameplayScreen(ui, &painter, true) == 2);
+
+    CHECK(sithVoice_GetShowText() == 0);
+    CHECK_FALSE(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, true));
+    CHECK(sithOverlayMap_GetShowHints() == 0);
+    CHECK_FALSE(stdConfig_GetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, true));
+    CHECK(sithOverlayMap_GetMapRotation() == 0);
+    CHECK_FALSE(stdConfig_GetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_MAPROTATION, true));
+    CHECK(sithGetGameDifficulty() == 0);
+    CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 0);
+    CHECK((sithControl_g_controlOptions & 0x02) == 0);
+    CHECK_FALSE(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, true));
+    CHECK_FALSE(JonesReticle_IsEnabled());
+    CHECK_FALSE(sithWeapon_IsBloodSplatterEnabled());
+    CHECK(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, false));
+    CHECK(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, false));
+    CHECK(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, false));
+}
+
+TEST_CASE("the retail profile disables the enhancements and writes them off")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    sithVoice_ShowText(0);
+    sithOverlayMap_SetShowHints(0);
+    sithOverlayMap_EnableMapRotation(0);
+    sithSetGameDifficulty(0);
+    sithControl_g_controlOptions = 0x04;
+
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
+    REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Up from the first row wraps to back, then OK. The disabled enhancement rows are skipped.
+    testContext.platform.PushKey(platform::Key::Up);
+    testContext.platform.PushKey(platform::Key::Up);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiGameplay_RunGameplayScreen(ui, &painter, false) == 1);
+
+    CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
+    CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
+    CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    // The original options still work under Retail.
+    CHECK(stdConfig_Contains(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT));
+    // The profile row is fixed by the build and writes no key in either direction.
+    CHECK_FALSE(stdConfig_Contains("game.profile"));
+}
+
 TEST_CASE("the headless settings wrappers answer the Null stub values")
 {
     SettingsTestContext testContext;
@@ -623,4 +785,6 @@ TEST_CASE("the headless settings wrappers answer the Null stub values")
     CHECK(soundSettings.maxSoundVolume == soundBefore.maxSoundVolume);
     CHECK(soundSettings.b3DHWSupport == soundBefore.b3DHWSupport);
     CHECK(soundSettings.bReverseSound == soundBefore.bReverseSound);
+
+    CHECK(jonesConfig_ShowGamePlayOptions(nullptr) == 2);
 }

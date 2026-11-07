@@ -16,6 +16,11 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSaveLoad.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplaySettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiGameplaySettings.cpp"
+    # Added: the two application-layer modules the Gameplay screen calls. The rest of the game
+    # layer is not linked, so the test needs only what these two compile units use.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../Display/JonesReticle.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../Play/jonesInventory.c"
 )
 
 target_include_directories(Jones3DUiPainterTests PRIVATE
