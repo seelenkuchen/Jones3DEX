@@ -32,6 +32,11 @@ J3D_EXTERN_C_START
 #define JONESCONFIG_CFG_SOUND_REVERSE       "sound.reverse"
 #define JONESCONFIG_CFG_SOUND_VOLUME        "sound.volume"
 
+// Added: the result of jonesConfig_ShowMainMenu (ADR-0026).
+#define JONES_MAINMENU_QUIT     0
+#define JONES_MAINMENU_NEWGAME  1
+#define JONES_MAINMENU_LOADGAME 2
+
 int jonesConfig_Startup(void);
 void jonesConfig_Shutdown(void);
 
@@ -44,6 +49,24 @@ int J3DAPI jonesConfig_ShowMessageDialog(tSysWindow hWnd, const char* pTitle, co
 
 int J3DAPI jonesConfig_GetSaveGameFilePath(tSysWindow hWnd, char* pOutFilePath); // save game dialog
 int J3DAPI jonesConfig_GetLoadGameFilePath(tSysWindow hWnd, char* pDestNdsPath); // load game dialog
+
+// Added: maps the configured startMode for this column. The windowed Babylon build has no
+// launcher and no developer dialog any more, so a missing startMode or the developer-dialog value
+// opens the main menu (JONES_STARTMODE_MAINMENU); a pending --load path still loads directly. The
+// Null column and the Babylon headless run return startMode unchanged.
+int J3DAPI jonesConfig_ResolveStartMode(int startMode, int bHasStartMode);
+
+// Added: true when this column must run the start-mode screen of startMode only after the display
+// and sound are up, because it is an in-game screen instead of a native dialog. The windowed
+// Babylon build answers true for the Load, Sound settings and Display settings modes; the Null
+// column and the Babylon headless run answer false for every mode and keep their current traces.
+int J3DAPI jonesConfig_DefersStartMode(int startMode);
+
+// Added: the windowed Babylon build's main menu (ADR-0026). Shows New Game, Load, Settings and
+// Quit until one closes it; on a successful Load it writes the chosen save path to pOutLoadPath.
+// Returns one of JONES_MAINMENU_*. pConfig supplies the settings the nested screens edit. The Null
+// column answers JONES_MAINMENU_QUIT without blocking.
+int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pConfig, char* pOutLoadPath);
 
 int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd);
 void J3DAPI jonesConfig_EnableMouseControl(int bEnable);

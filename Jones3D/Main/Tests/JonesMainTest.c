@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <std/General/stdUtil.h>
 #include <std/types.h>
@@ -293,6 +294,16 @@ TEST(JonesMain, TestEmptyModeList)
     TEST_ASSERT_EQUAL_size_t(0u, JonesMain_FindClosestVideoMode(&env, &requested, 0));
 }
 
+TEST(JonesMain, TestNullColumnNeverDefersStartModes)
+{
+    // Added: the Null column keeps every start-mode dialog where it always ran (ADR-0026).
+    for ( int startMode = JONES_STARTMODE_STARTGAME; startMode <= JONES_STARTMODE_MAINMENU;
+        ++startMode )
+    {
+        TEST_ASSERT_EQUAL_INT(0, jonesConfig_DefersStartMode(startMode));
+    }
+}
+
 TEST(JonesMain, TestUsesRequestedDeviceModes)
 {
     StdVideoMode aModesFirst[1];
@@ -333,5 +344,6 @@ TEST_GROUP_RUNNER(JonesMain)
     RUN_TEST_CASE(JonesMain, TestOtherBppNotSelected);
     RUN_TEST_CASE(JonesMain, TestNoModeAtRequestedBpp);
     RUN_TEST_CASE(JonesMain, TestEmptyModeList);
+    RUN_TEST_CASE(JonesMain, TestNullColumnNeverDefersStartModes);
     RUN_TEST_CASE(JonesMain, TestUsesRequestedDeviceModes);
 }

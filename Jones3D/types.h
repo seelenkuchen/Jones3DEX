@@ -236,6 +236,8 @@ typedef enum eJonesStartMode
     JONES_STARTMODE_DEVELOPERDIALOG = 2,
     JONES_STARTMODE_SOUNDSETTINGS   = 3,
     JONES_STARTMODE_DISPLAYSETTINGS = 4,
+    // Added: the windowed Babylon build's main menu replaces the launcher (ADR-0026).
+    JONES_STARTMODE_MAINMENU        = 5,
 } JonesStartMode;
 
 typedef enum eJonesOuputMode

@@ -41,13 +41,23 @@ extern "C" int J3DAPI JonesMain_HasStarted(void)
     return 0;
 }
 
+// Added: a settable pending --load path, so the main menu test can exercise the direct load. The
+// real Null helper lives in Platform/Null and is not linked into this test executable.
+static const char* g_testLoadPath = NULL;
+
+extern "C" void JonesPlatformNull_SetLoadPath(const char* pPath)
+{
+    g_testLoadPath = pPath;
+}
+
 extern "C" const char* JonesPlatformNull_GetLoadPath(void)
 {
-    return NULL;
+    return g_testLoadPath;
 }
 
 extern "C" void JonesPlatformNull_ClearLoadPath(void)
 {
+    g_testLoadPath = NULL;
 }
 
 namespace
