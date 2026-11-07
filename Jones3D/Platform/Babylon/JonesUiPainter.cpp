@@ -19,7 +19,14 @@ namespace
 {
     constexpr float kCanvasHeight = 480.0f;
 
-    float glyphAdvance(const rdFont* pFont, unsigned char chr, float fontScale)
+    // A title measured to fit its text area must keep its edge glyphs even though the measured
+    // width and the drawn advance round differently in float and double.
+    constexpr double kEdgeEpsilon = 0.01;
+
+    // The horizontal advance of one glyph in canvas units, matching what
+    // rdFont_DrawTextLineClippedEx advances: the glyph's reference-pixel origin times the font's
+    // point-size scale, stretched by the canvas width like the rest of the painter.
+    double glyphAdvance(const rdFont* pFont, unsigned char chr, double fontScale, double xScale)
     {
         size_t curChar = chr;
         if ( pFont->aGlyphs[curChar].baselineOriginY == -pFont->fontSize )
@@ -27,7 +34,20 @@ namespace
             curChar = '?';
         }
 
-        return (float)pFont->aGlyphs[curChar].baselineOriginX * fontScale;
+        return (double)pFont->aGlyphs[curChar].baselineOriginX * fontScale * xScale;
+    }
+
+    // The drawn width of text in canvas units. drawText and measureText both use this, so the
+    // measured width is exactly the advance the font applies.
+    double textWidth(const rdFont* pFont, const std::string& text, double fontScale, double xScale)
+    {
+        double width = 0.0;
+        for ( char chr : text )
+        {
+            width += glyphAdvance(pFont, (unsigned char)chr, fontScale, xScale);
+        }
+
+        return width;
     }
 
     void setColor(rdVector4& color, const babylon::ui::Color& value)
@@ -313,58 +333,56 @@ void JonesUiPainter::drawText(babylon::ui::FontId font, std::string_view text,
         return;
     }
 
-    const float fontScale = entry.pointSize / (float)entry.pFont->fontSize;
-    if ( !(fontScale > 0.0f) )
+    const double fontScale = entry.pointSize / (double)entry.pFont->fontSize;
+    if ( !(fontScale > 0.0) )
     {
         return;
     }
 
     // The reference font is 640 x 480. The canvas is 480 high, so the vertical scale is 1 and the
     // horizontal reference pixels stretch by canvasWidth / 640.
-    const float xScale     = canvasWidth / RD_REF_WIDTH;
-    const float lineHeight = (float)entry.pFont->lineSpacing * fontScale;
-    const float lineTop    = rect.y + (rect.height - lineHeight) * 0.5f;
+    const double xScale     = canvasWidth / RD_REF_WIDTH;
+    const float lineHeight  = (float)((double)entry.pFont->lineSpacing * fontScale);
+    const float lineTop     = rect.y + (rect.height - lineHeight) * 0.5f;
 
     const babylon::ui::Rect visible = intersect(rect, currentClip());
-    if ( isEmpty(visible) || lineTop < visible.y || lineTop + lineHeight > visible.y + visible.height )
+    // A line is never dropped for being taller than its box: it is centered vertically and drawn.
+    // Only a line that lies completely outside the visible clip is skipped.
+    if ( isEmpty(visible) || lineTop >= visible.y + visible.height || lineTop + lineHeight <= visible.y )
     {
         return;
     }
 
     const std::string str(text);
-    float textWidth = 0.0f;
-    for ( char chr : str )
-    {
-        textWidth += glyphAdvance(entry.pFont, (unsigned char)chr, fontScale) * xScale;
-    }
+    const double drawnWidth = textWidth(entry.pFont, str, fontScale, xScale);
 
-    float startX = rect.x;
+    double startX = rect.x;
     if ( align == babylon::ui::TextAlign::Center )
     {
-        startX = rect.x + (rect.width - textWidth) * 0.5f;
+        startX = rect.x + (rect.width - drawnWidth) * 0.5;
     }
     else if ( align == babylon::ui::TextAlign::Right )
     {
-        startX = rect.x + rect.width - textWidth;
+        startX = rect.x + rect.width - drawnWidth;
     }
 
     // Drop every glyph that is not completely inside the visible rectangle. A glyph that crosses
     // an edge would otherwise bleed past the clip; the font can only clip at the screen edge.
-    const float right = visible.x + visible.width;
-    float pos         = startX;
-    size_t first      = 0;
-    while ( first < str.size() && pos < visible.x )
+    const double right = visible.x + visible.width;
+    double pos         = startX;
+    size_t first       = 0;
+    while ( first < str.size() && pos < visible.x - kEdgeEpsilon )
     {
-        pos += glyphAdvance(entry.pFont, (unsigned char)str[first], fontScale) * xScale;
+        pos += glyphAdvance(entry.pFont, (unsigned char)str[first], fontScale, xScale);
         ++first;
     }
 
-    const float drawX = pos;
+    const float drawX = (float)pos;
     size_t last = first;
     while ( last < str.size() )
     {
-        const float advance = glyphAdvance(entry.pFont, (unsigned char)str[last], fontScale) * xScale;
-        if ( pos + advance > right )
+        const double advance = glyphAdvance(entry.pFont, (unsigned char)str[last], fontScale, xScale);
+        if ( pos + advance > right + kEdgeEpsilon )
         {
             break;
         }
@@ -418,11 +436,11 @@ babylon::ui::Size JonesUiPainter::measureText(babylon::ui::FontId font,
         return size;
     }
 
-    const float fontScale = entry.pointSize / (float)entry.pFont->fontSize;
+    const double fontScale = entry.pointSize / (double)entry.pFont->fontSize;
+    const double xScale    = canvasWidth / RD_REF_WIDTH;
     const std::string str(text);
-    size.width  = (float)rdFont_GetTextWidthEx(str.c_str(), entry.pFont, entry.pointSize)
-        * (canvasWidth / RD_REF_WIDTH);
-    size.height = (float)entry.pFont->lineSpacing * fontScale;
+    size.width  = (float)textWidth(entry.pFont, str, fontScale, xScale);
+    size.height = (float)((double)entry.pFont->lineSpacing * fontScale);
     return size;
 }
 

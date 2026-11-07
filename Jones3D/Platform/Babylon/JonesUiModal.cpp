@@ -134,9 +134,9 @@ namespace
             full.width  = canvas.width;
             full.height = canvas.height;
 
-            // Without a captured frame or background image, clear so the previous modal frame does
-            // not show through.
-            if ( image == 0 && background.image == 0 )
+            // Without a captured frame or a background of its own, clear so the previous modal
+            // frame does not show through.
+            if ( image == 0 && background.image == 0 && !background.draw )
             {
                 stdDisplay_BackBufferFill(0, NULL);
             }
@@ -147,7 +147,13 @@ namespace
                 return;
             }
 
-            if ( background.image != 0 )
+            if ( background.draw )
+            {
+                // The game's own background (the main menu's wallpaper) is drawn at full brightness
+                // before the screen; the panel is opaque enough to keep the text readable.
+                background.draw();
+            }
+            else if ( background.image != 0 )
             {
                 // The menu background is drawn at full brightness; the panel is opaque enough to
                 // keep the text readable.
@@ -224,7 +230,7 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     // path behind it.
     JonesUiPainter* pFramePainter = dynamic_cast<JonesUiPainter*>(pPainter);
     FrozenFrame frame;
-    if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 )
+    if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 && !background.draw )
     {
         frame.Capture(*pFramePainter);
     }

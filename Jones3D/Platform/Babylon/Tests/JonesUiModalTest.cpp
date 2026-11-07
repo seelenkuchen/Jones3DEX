@@ -165,7 +165,7 @@ TEST_CASE("the modal loop maps OK and back")
 
 TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
 {
-    const ui::Skin skin = JonesUiSkin_Create(0);
+    const ui::Skin skin = JonesUiSkin_Create(0, nullptr);
 
     // Focus is slot 2 (inv_move.wav); accepting and going back are slot 3 (inv_expand.wav), the
     // sounds the HUD item menu plays when it opens, selects and closes.
@@ -175,6 +175,9 @@ TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
     CHECK(skin.focusSound == kJonesUiSoundCueFocus);
     CHECK(skin.acceptSound == kJonesUiSoundCueAccept);
     CHECK(skin.backSound == kJonesUiSoundCueBack);
+    // With no font the default metrics are kept.
+    CHECK(skin.rowHeight == 24.0f);
+    CHECK(skin.titleHeight == 32.0f);
 }
 
 TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
@@ -184,7 +187,7 @@ TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
 
     ui::Screen screen;
     screen.title   = "Cues";

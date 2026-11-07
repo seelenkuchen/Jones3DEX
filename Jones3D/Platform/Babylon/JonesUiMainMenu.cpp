@@ -14,6 +14,7 @@
 
 #include <rdroid/Engine/rdMaterial.h>
 #include <rdroid/Primitives/rdWallpaper.h>
+#include <rdroid/Raster/rdCache.h>
 
 #include <sith/Devices/sithSoundMixer.h>
 #include <sith/World/sithWorld.h>
@@ -268,16 +269,18 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     const JonesLevelInfo& level = *JonesMain_GetMainMenuBackgroundLevel();
     JonesUiPainter& painter     = pUiContext->painter;
 
-    // Load the level's load-screen materials the way JonesDisplay_OpenLoadScreen does, and show
-    // the first one behind the panel. The wallpaper stays alive until the menu closes.
+    // Load the level's load-screen wallpaper the way JonesDisplay_OpenLoadScreen does, and draw
+    // all six tiles behind the panel every frame. The wallpaper stays alive until the menu closes.
     rdWallpaper* pWallpaper = rdWallpaper_New(level.pMatFilename);
     JonesUiModalBackground background;
-    if ( pWallpaper && pWallpaper->aMaterials[0].numCels > 0 )
+    if ( pWallpaper )
     {
-        const rdMaterial& material = pWallpaper->aMaterials[0];
-        background.image  = painter.registerMaterialImage(&material, 0);
-        background.width  = (float)material.width;
-        background.height = (float)material.height;
+        background.draw = [pWallpaper]()
+        {
+            rdWallpaper_Draw(pWallpaper);
+            rdCache_Flush();
+            rdCache_FlushAlpha();
+        };
     }
 
     // The load screen's own theme call: the primary or secondary static theme of the level.
@@ -334,11 +337,6 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         && (Sound_GetChannelFlags(hMenuMusic) & SOUND_CHANNEL_PLAYING) != 0 )
     {
         sithSoundMixer_StopSound(hMenuMusic);
-    }
-
-    if ( background.image != 0 )
-    {
-        painter.unregisterImage(background.image);
     }
 
     if ( pWallpaper )

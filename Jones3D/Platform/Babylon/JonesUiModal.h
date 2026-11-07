@@ -25,15 +25,19 @@
 
 #include <functional>
 
-// An image drawn behind a screen instead of the frozen game frame, cover-scaled to the canvas:
-// the image keeps its aspect and fills the whole canvas, cropping the overhang (not dimmed). image
-// is registered with the same JonesUiPainter; the caller keeps it alive and releases it. A zero
-// image keeps the frozen-frame or clear behavior. width and height are the image's pixel size.
+// What is drawn behind a screen instead of the frozen game frame. Either a single image,
+// cover-scaled to the canvas (it keeps its aspect and fills the whole canvas, cropping the
+// overhang), or a callback that draws a background of its own, such as a six-tile wallpaper. Both
+// are drawn at full brightness, not dimmed. image is registered with the same JonesUiPainter; the
+// caller keeps it alive and releases it. draw, when set, runs once each frame inside the scene,
+// before the screen; it takes precedence over image. width and height are the image's pixel size.
+// With neither, the frozen-frame or clear behavior is kept.
 struct JonesUiModalBackground
 {
     babylon::ui::ImageId image = 0;
     float width = 0.0f;
     float height = 0.0f;
+    std::function<void()> draw;
 };
 
 // Maps the result a screen closed with to the wrapper's original return value.

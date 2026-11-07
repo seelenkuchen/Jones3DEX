@@ -71,7 +71,7 @@ JonesUiContext* JonesUiContext_Acquire()
     }
 
     pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
-    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font)) )
+    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font, &pState->painter)) )
     {
         return nullptr;
     }
