@@ -14,6 +14,7 @@
 
 #include <rdroid/Engine/rdMaterial.h>
 #include <rdroid/Primitives/rdWallpaper.h>
+#include <rdroid/Raster/rdCache.h>
 
 #include <sith/Devices/sithSoundMixer.h>
 #include <sith/World/sithWorld.h>
@@ -65,34 +66,46 @@ namespace
     Screen BuildSettingsScreen(void)
     {
         Screen screen;
-        screen.title = MenuLabel("JONES_STR_SETTINGS", "Settings");
+        // JONES_STR_SETTINGS is "Settings for %s", a format string with no plain title.
+        screen.title = "Settings"; // TODO: [COMPAT] no game key holds a plain "Settings"
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_GAMEPLAY", "Gameplay"), kGameplayAction, true });
+            MenuLabel("JONES_STR_INV_DFCTLY", "Gameplay Options"), kGameplayAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_CONTROLS", "Controls"), kControlsAction, true });
+            MenuLabel("JONES_STR_INV_CONFIG", "Control Options"), kControlsAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_DISPLAYSETTINGS", "Display"), kDisplayAction, true });
+            MenuLabel("JONES_STR_INV_DSPLY", "Display Options"), kDisplayAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_SOUNDSETTINGS", "Sound"), kSoundAction, true });
+            MenuLabel("JONES_STR_INV_SND", "Sound Options"), kSoundAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_BACK", "Back"), kBackAction, true });
+            "Back", kBackAction, true }); // TODO: [COMPAT] JONES_STR_BACK is "BACK SPACE"
         screen.backResult   = kBackAction;
         screen.initialFocus = 0;
         return screen;
     }
 }
 
+void JonesUiMainMenu_SetFinishedWallpaper(rdWallpaper* pWallpaper)
+{
+    // JonesDisplay_UpdateLoadProgress advances the cels at each of its three completion stages.
+    for ( size_t step = 0; step < 3; ++step )
+    {
+        rdWallpaper_AdvanceCels(pWallpaper);
+    }
+}
+
 JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks)
+    const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks,
+    char* pOutLoadPath)
 {
     Screen menu;
-    menu.title = MenuLabel("JONES_STR_MAINMENU", "Indiana Jones and the Infernal Machine");
+    // No game key holds the game's full title or a plain "New Game".
+    menu.title = "Indiana Jones and the Infernal Machine"; // TODO: [COMPAT]
     menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_NEWGAME", "New Game"), kNewGameAction, true });
+        "New Game", kNewGameAction, true }); // TODO: [COMPAT]
     menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_LOADGAME", "Load"), kLoadAction, bCanLoad });
+        MenuLabel("JONES_STR_LOADGM", "Load Game"), kLoadAction, bCanLoad });
     menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_SETTINGS", "Settings"), kSettingsAction, true });
+        "Settings", kSettingsAction, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
     menu.widgets.emplace_back(Button{
         MenuLabel("JONES_STR_QUIT", "Quit"), kQuitAction, true });
     menu.backResult   = kQuitAction;
@@ -163,9 +176,16 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 
         if ( pAction->action == kLoadAction )
         {
-            char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-            if ( !hooks.loadGame || hooks.loadGame(aPath) )
+            if ( !hooks.loadGame )
             {
+                static_cast<void>(uiRef.pop(kLoadAction));
+                return true;
+            }
+
+            char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+            if ( pOutLoadPath && hooks.loadGame(aPath) )
+            {
+                std::snprintf(pOutLoadPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", aPath);
                 static_cast<void>(uiRef.pop(kLoadAction));
             }
             return true;
@@ -268,16 +288,21 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     const JonesLevelInfo& level = *JonesMain_GetMainMenuBackgroundLevel();
     JonesUiPainter& painter     = pUiContext->painter;
 
-    // Load the level's load-screen materials the way JonesDisplay_OpenLoadScreen does, and show
-    // the first one behind the panel. The wallpaper stays alive until the menu closes.
+    // Load the level's load-screen wallpaper the way JonesDisplay_OpenLoadScreen does, and draw
+    // all six tiles behind the panel every frame. The wallpaper stays alive until the menu closes.
     rdWallpaper* pWallpaper = rdWallpaper_New(level.pMatFilename);
     JonesUiModalBackground background;
-    if ( pWallpaper && pWallpaper->aMaterials[0].numCels > 0 )
+    if ( pWallpaper )
     {
-        const rdMaterial& material = pWallpaper->aMaterials[0];
-        background.image  = painter.registerMaterialImage(&material, 0);
-        background.width  = (float)material.width;
-        background.height = (float)material.height;
+        // Draw the same finished image the load screen leaves up before it closes.
+        JonesUiMainMenu_SetFinishedWallpaper(pWallpaper);
+
+        background.draw = [pWallpaper]()
+        {
+            rdWallpaper_Draw(pWallpaper);
+            rdCache_Flush();
+            rdCache_FlushAlpha();
+        };
     }
 
     // The load screen's own theme call: the primary or secondary static theme of the level.
@@ -296,17 +321,10 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
 
     JonesUiMainMenuHooks hooks;
     hooks.newGame = []() {};
-    hooks.loadGame = [pOutLoadPath](char* pPath) -> bool
+    hooks.loadGame = [](char* pPath) -> bool
     {
-        char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-        // The load dialog answers 1 on success and 2 on cancel.
-        if ( jonesConfig_GetLoadGameFilePath(NULL, aPath) != 1 )
-        {
-            return false;
-        }
-
-        std::snprintf(pPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", aPath);
-        return true;
+        // The load dialog answers 1 on success and 2 on cancel; it writes only on success.
+        return jonesConfig_GetLoadGameFilePath(NULL, pPath) == 1;
     };
     hooks.gameplay = []()
     {
@@ -328,17 +346,12 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     };
 
     const JonesUiMainMenuAction action = JonesUiMainMenu_Run(*pUiContext->pUi, &painter,
-        background, bCanLoad, hooks);
+        background, bCanLoad, hooks, pOutLoadPath);
 
     if ( hMenuMusic
         && (Sound_GetChannelFlags(hMenuMusic) & SOUND_CHANNEL_PLAYING) != 0 )
     {
         sithSoundMixer_StopSound(hMenuMusic);
-    }
-
-    if ( background.image != 0 )
-    {
-        painter.unregisterImage(background.image);
     }
 
     if ( pWallpaper )

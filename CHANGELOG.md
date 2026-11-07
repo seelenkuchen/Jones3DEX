@@ -21,8 +21,12 @@
     settings screen chooses the output device (stored in `engine.audio.outputDevice`). Headless runs use the
     Null audio device and stay silent.
   - The Babylon builds save and load. The Save, Load and Exit screens list the save folder with thumbnails,
-    start a new save with the level name and the date and time, and write the portable thumbnail every column
-    captures.
+    start a new save with the level's display name and the date and time, and write the portable thumbnail
+    every column captures. Save rows show the level's display name, and a save without a thumbnail shows no
+    empty image. The main menu's background is the finished load-screen map with its title.
+  - Menus opened from another menu keep the session's background instead of stacking the previous screen behind
+    them, and the background is dimmed once. Each modal frame clears depth before redrawing, so a closed panel
+    cannot remain visible.
   - Gamepads, mouse motion and the mouse wheel work in the Babylon column, and text input fills save names and
     the other text fields. The windowed build loads the player's control scheme from `controls.configFile` and
     binds it; headless runs keep the engine's default bindings.

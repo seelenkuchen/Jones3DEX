@@ -21,7 +21,11 @@ inline constexpr std::uint32_t kJonesUiSoundCueAccept = 3;
 inline constexpr std::uint32_t kJonesUiSoundCueBack   = 3;
 
 // The HUD's look for every screen. menuFont is a font id registered with the JonesUiPainter and is
-// used for the title and the rows. The returned skin owns no resources.
-babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont);
+// used for the title and the rows. The row and title heights derive from that font's line height
+// at the point size the painter draws it, so rows always fit their text; with no font or painter
+// the defaults (24 and 32) are kept. Build the skin after the font is registered, or rebuild it
+// when the font changes, so the metrics follow the font. The returned skin owns no resources.
+babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
+    const babylon::ui::Painter* pPainter);
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISKIN_H

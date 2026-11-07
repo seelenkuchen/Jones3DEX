@@ -22,10 +22,44 @@ namespace
     constexpr float kJonesUiFontSize = 16.0f;
 
     JonesUiContext* g_pContext = nullptr;
+
+    // Removes the Win32 dialog mnemonics the game's string table stores: a lone '&' marks the
+    // access key and is dropped, while "&&" stands for a literal '&'.
+    std::string StripMnemonics(const char* pText)
+    {
+        std::string text;
+        if ( !pText )
+        {
+            return text;
+        }
+
+        text.reserve(std::strlen(pText));
+        for ( const char* pCur = pText; *pCur; ++pCur )
+        {
+            if ( *pCur != '&' )
+            {
+                text.push_back(*pCur);
+            }
+            else if ( pCur[1] == '&' )
+            {
+                text.push_back('&');
+                ++pCur;
+            }
+        }
+
+        return text;
+    }
 }
 
 JonesUiContext::~JonesUiContext()
 {
+    // Release the frozen frame the modal loop captured for this ui session before the painter goes.
+    if ( modalFrozenImage != 0 && pModalFramePainter )
+    {
+        pModalFramePainter->unregisterImage(modalFrozenImage);
+        modalFrozenImage = 0;
+    }
+
     // The Ui does not use the painter when it is destroyed; the painter's destructor frees
     // images, not fonts, so the font can go first.
     pUi.reset();
@@ -41,6 +75,8 @@ JonesUiContext* JonesUiContext_Acquire()
     if ( g_pContext )
     {
         ++g_pContext->refCount;
+        STDLOG_DEBUG("JonesUiContext_Acquire: context=%p refCount=%d (shared)\n",
+            (void*)g_pContext, g_pContext->refCount);
         return g_pContext;
     }
 
@@ -71,7 +107,7 @@ JonesUiContext* JonesUiContext_Acquire()
     }
 
     pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
-    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font)) )
+    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font, &pState->painter)) )
     {
         return nullptr;
     }
@@ -86,8 +122,22 @@ JonesUiContext* JonesUiContext_Acquire()
 
     pState->refCount = 1;
     g_pContext = pState.release();
+    STDLOG_DEBUG("JonesUiContext_Acquire: context=%p refCount=1 (created)\n",
+        (void*)g_pContext);
     return g_pContext;
 }
+
+JonesUiContext* JonesUiContext_GetActive(void)
+{
+    return g_pContext;
+}
+
+#ifdef J3D_TEST
+void JonesUiContext_SetActiveForTest(JonesUiContext* pContext)
+{
+    g_pContext = pContext;
+}
+#endif
 
 void JonesUiContext_Release(JonesUiContext* pContext)
 {
@@ -100,6 +150,9 @@ void JonesUiContext_Release(JonesUiContext* pContext)
     {
         --pContext->refCount;
     }
+
+    STDLOG_DEBUG("JonesUiContext_Release: context=%p refCount=%d\n",
+        (void*)pContext, pContext->refCount);
 
     if ( pContext->refCount == 0 )
     {
@@ -137,9 +190,9 @@ std::string JonesUiContext_ResolveString(const char* pValue)
         const char* pResolved = jonesString_GetString(pValue);
         if ( pResolved && pResolved[0] )
         {
-            return std::string(pResolved);
+            return StripMnemonics(pResolved);
         }
     }
 
-    return std::string(pValue);
+    return StripMnemonics(pValue);
 }

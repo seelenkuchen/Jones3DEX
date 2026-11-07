@@ -21,9 +21,11 @@
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/jonesString.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
+#include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
@@ -221,25 +223,6 @@ namespace
         return false;
     }
 
-    // The line one save row shows: file name, level and the modification date.
-    std::string JonesUiSave_RowText(const JonesUiSaveEntry& entry)
-    {
-        std::string text = entry.displayName;
-        if ( !entry.levelName.empty() )
-        {
-            text += "  ";
-            text += entry.levelName;
-        }
-
-        if ( !entry.dateText.empty() )
-        {
-            text += "  ";
-            text += entry.dateText;
-        }
-
-        return text;
-    }
-
     babylon::ui::Screen JonesUiSave_BuildYesNo(const std::string& title, const std::string& text,
         const std::string& yesText, const std::string& noText)
     {
@@ -348,8 +331,7 @@ namespace
         screen.widgets.emplace_back(babylon::ui::TextEntry{
             kJonesNewSaveText, std::string(), defaultName, true });
 
-        screen.widgets.emplace_back(babylon::ui::Image{
-            thumbnails.Image(0), kJonesThumbnailSize, babylon::ui::TextAlign::Center });
+        screen.widgets.emplace_back(JonesUiSave_ThumbnailImage(thumbnails.Image(0)));
 
         std::vector<babylon::ui::ListItem> items;
         items.reserve(entries.size());
@@ -375,8 +357,7 @@ namespace
         babylon::ui::Screen screen;
         screen.title = title;
 
-        screen.widgets.emplace_back(babylon::ui::Image{
-            thumbnails.Image(0), kJonesThumbnailSize, babylon::ui::TextAlign::Center });
+        screen.widgets.emplace_back(JonesUiSave_ThumbnailImage(thumbnails.Image(0)));
 
         std::vector<babylon::ui::ListItem> items;
         items.reserve(entries.size());
@@ -399,9 +380,60 @@ namespace
         std::size_t index, const JonesUiSave_Thumbnails& thumbnails, std::size_t row)
     {
         static_cast<void>(ui.setWidget(screenId, index,
-            babylon::ui::Image{ thumbnails.Image(row), kJonesThumbnailSize,
-                babylon::ui::TextAlign::Center }));
+            JonesUiSave_ThumbnailImage(thumbnails.Image(row))));
     }
+}
+
+std::string JonesUiSave_LevelDisplayName(const std::string& levelFileName)
+{
+    for ( std::size_t cur = 0; cur < STD_ARRAYLEN(JonesMain_aCndLevelLoadInfos); ++cur )
+    {
+        const JonesLevelInfo& level = JonesMain_aCndLevelLoadInfos[cur];
+        if ( !level.pFilename || !streqi(levelFileName.c_str(), level.pFilename) )
+        {
+            continue;
+        }
+
+        // The original statistics dialog maps the same levels to their display-name keys; level 1
+        // in the load table (Canyonlands) is its index 0.
+        const int levelIndex = (int)cur - JONESLEVEL_FIRSTLEVELNUM;
+        if ( levelIndex >= 0 && levelIndex <= JONESLEVEL_LASTLEVELNUM )
+        {
+            return JonesUiContext_ResolveString(JonesUiEndScreens_LevelNameKey(levelIndex));
+        }
+
+        break;
+    }
+
+    return levelFileName;
+}
+
+std::string JonesUiSave_RowText(const JonesUiSaveEntry& entry)
+{
+    std::string text = entry.displayName;
+    if ( !entry.levelName.empty() )
+    {
+        text += " - ";
+        text += entry.levelName;
+    }
+
+    if ( !entry.dateText.empty() )
+    {
+        text += " - ";
+        text += entry.dateText;
+    }
+
+    return text;
+}
+
+babylon::ui::Image JonesUiSave_ThumbnailImage(babylon::ui::ImageId image)
+{
+    if ( image == 0 )
+    {
+        return babylon::ui::Image{ 0, babylon::ui::Size{}, babylon::ui::TextAlign::Center };
+    }
+
+    return babylon::ui::Image{ image, kJonesThumbnailSize, babylon::ui::TextAlign::Center };
 }
 
 std::string JonesUiSave_SanitizeName(const char* pName)
@@ -508,9 +540,10 @@ bool JonesUiSave_CollectEntries(babylon::files::FileSystem& fileSystem, const ch
         saveEntry.path            = JonesUiSave_JoinPath(pSaveDir, entry.name);
 
         char aLevelName[64] = { 0 };
-        if ( sithGamesave_LoadLevelFilename(saveEntry.path.c_str(), aLevelName) == 0 )
+        if ( sithGamesave_LoadLevelFilename(saveEntry.path.c_str(), aLevelName) == 0
+            && aLevelName[0] )
         {
-            saveEntry.levelName = aLevelName;
+            saveEntry.levelName = JonesUiSave_LevelDisplayName(aLevelName);
         }
         else
         {
@@ -546,8 +579,10 @@ int JonesUiSave_RunSaveScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainte
     JonesUiSave_Thumbnails thumbnails(pImagePainter);
     thumbnails.Load(entries);
 
+    // The world names levels by file name; the default save name uses their display names.
+    const std::string levelDisplayName = JonesUiSave_LevelDisplayName(pLevelName ? pLevelName : "");
     const std::string defaultName = JonesUiSave_SanitizeName(
-        JonesUiSave_MakeDefaultName(pLevelName, now).c_str());
+        JonesUiSave_MakeDefaultName(levelDisplayName.c_str(), now).c_str());
 
     babylon::ui::Screen screen = JonesUiSave_BuildSaveScreen(title, defaultName, entries,
         thumbnails, cancelText);

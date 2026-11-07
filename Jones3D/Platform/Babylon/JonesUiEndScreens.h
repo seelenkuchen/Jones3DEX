@@ -39,6 +39,10 @@ struct JonesUiStatisticsRow
 // "hours : minutes" with a zero-padded minute below ten and the original's trailing space.
 std::string JonesUiEndScreens_FormatTime(uint32_t elapsedTime);
 
+// The original statistics dialog's JONES_STR key for a level's display name. levelIndex 0 is
+// Canyonlands (index 1 of JonesMain_aCndLevelLoadInfos) through 16 for Return to Peru.
+const char* JonesUiEndScreens_LevelNameKey(int levelIndex);
+
 // Every Statistics row in the order the screen offers them: the summary first and then the levels
 // from statistics.curLevelNum down to 0. totalIQPoints is jonesInventory_GetTotalIQPoints(), the
 // value the original drew for the summary; a level uses its own SithLevelStatistic::iqPoints.

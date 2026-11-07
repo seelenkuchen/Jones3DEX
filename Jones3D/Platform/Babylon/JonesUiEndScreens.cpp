@@ -113,10 +113,7 @@ namespace
                 kJonesStatisticsLevelKeys[JONESLEVEL_LASTLEVELNUM]);
         }
 
-        const int index = levelNum < 0 ? 0
-            : levelNum > JONESLEVEL_LASTLEVELNUM ? JONESLEVEL_LASTLEVELNUM
-                                                : levelNum;
-        return JonesUiContext_ResolveString(kJonesStatisticsLevelKeys[index]);
+        return JonesUiContext_ResolveString(JonesUiEndScreens_LevelNameKey(levelNum));
     }
 
     JonesUiStatisticsRow JonesUiEndScreens_MakeStatisticsRow(
@@ -239,6 +236,14 @@ namespace
 
         return path;
     }
+}
+
+const char* JonesUiEndScreens_LevelNameKey(int levelIndex)
+{
+    const int index = levelIndex < 0 ? 0
+        : levelIndex > JONESLEVEL_LASTLEVELNUM ? JONESLEVEL_LASTLEVELNUM
+                                               : levelIndex;
+    return kJonesStatisticsLevelKeys[index];
 }
 
 std::string JonesUiEndScreens_FormatTime(uint32_t elapsedTime)

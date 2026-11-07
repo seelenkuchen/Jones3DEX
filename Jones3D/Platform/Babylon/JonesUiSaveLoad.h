@@ -13,6 +13,7 @@
 #include <babylon/files/FileSystem.h>
 #include <babylon/ui/Painter.h>
 #include <babylon/ui/Ui.h>
+#include <babylon/ui/Widget.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -23,8 +24,9 @@
 class JonesUiPainter;
 
 // One save in the save directory. fileName is the bare name with its .nds extension, displayName
-// the same without the extension, path the engine path the save code opens, and dateText the
-// modification date the file list shows.
+// the same without the extension, levelName the level's display name (or the file name when the
+// level is unknown), path the engine path the save code opens, and dateText the modification date
+// the file list shows.
 struct JonesUiSaveEntry
 {
     std::string fileName;
@@ -47,10 +49,23 @@ std::string JonesUiSave_SanitizeName(const char* pName);
 std::string JonesUiSave_MakeDefaultName(const char* pLevelName, const std::tm& timeValue);
 
 // Lists the .nds files directly in pSaveDir, newest modification first and file name ascending
-// for equal times. A file saves its level name from the NdsHeader; a damaged header falls back to
-// the file name. Returns false when the directory cannot be resolved or read.
+// for equal times. A file saves its level display name from the NdsHeader's level file name; a
+// damaged header or an unknown level falls back to the file name. Returns false when the directory
+// cannot be resolved or read.
 bool JonesUiSave_CollectEntries(babylon::files::FileSystem& fileSystem, const char* pSaveDir,
     std::vector<JonesUiSaveEntry>& entries);
+
+// The display name of a save's level from the level file name stored in its header. The name is
+// matched case-insensitively against the CND level table and resolved through the game's strings;
+// when no level matches, the level file name is returned unchanged.
+std::string JonesUiSave_LevelDisplayName(const std::string& levelFileName);
+
+// The line one save row shows: save name, level name and modification date, separated by " - ".
+std::string JonesUiSave_RowText(const JonesUiSaveEntry& entry);
+
+// The thumbnail widget for a row. A zero image id (the save has no thumbnail) gives a zero-size
+// image, so the layout reserves no space and nothing is drawn in its place.
+babylon::ui::Image JonesUiSave_ThumbnailImage(babylon::ui::ImageId image);
 
 // Runs the Save screen. Writes the chosen engine path to pOutPath and returns 1, or returns 2
 // when the player cancels. pImagePainter may be null, which skips thumbnails (the logic tests);

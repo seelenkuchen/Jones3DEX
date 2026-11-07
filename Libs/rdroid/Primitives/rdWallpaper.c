@@ -61,6 +61,23 @@ void J3DAPI rdWallpaper_Free(rdWallpaper* pWallpaper)
     }
 }
 
+void J3DAPI rdWallpaper_AdvanceCels(rdWallpaper* pWallpaper)
+{
+    if ( !pWallpaper )
+    {
+        return;
+    }
+
+    for ( size_t i = 0; i < STD_ARRAYLEN(pWallpaper->aMatCelNums); ++i )
+    {
+        if ( pWallpaper->aMaterials[i].numCels > 0
+            && (size_t)pWallpaper->aMatCelNums[i] < pWallpaper->aMaterials[i].numCels - 1 )
+        {
+            ++pWallpaper->aMatCelNums[i];
+        }
+    }
+}
+
 void J3DAPI rdWallpaper_Draw(const rdWallpaper* pWallpaper)
 {
     uint32_t height, width;
