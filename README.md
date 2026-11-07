@@ -46,6 +46,19 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
   ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)).
 - **Next:** an owner play-test on a real display, speakers and gamepad, then the M8 release.
 
+## Screenshots
+
+The new in-game menus, captured from the windowed Babylon build; the [full set](Docs/References/M7/README.md)
+has eleven screens.
+
+| Main menu | Pause menu |
+|---|---|
+| ![Main menu](Docs/References/M7/main-menu.png) | ![Pause menu](Docs/References/M7/pause-menu.png) |
+
+| Save game | Display options |
+|---|---|
+| ![Save game](Docs/References/M7/save-game.png) | ![Display options](Docs/References/M7/display-options.png) |
+
 ## The Babylon Engine
 
 Babylon lives in [`Babylon/`](Babylon/README.md) and knows nothing about Jones3D: it never includes game code
