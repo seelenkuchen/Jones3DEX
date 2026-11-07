@@ -39,12 +39,6 @@ extern "C" const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(voi
     return NULL;
 }
 
-extern "C" int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
-{
-    (void)hWnd;
-    return 2;
-}
-
 extern "C" void JonesPlatformNull_SetLoadPath(const char* pPath);
 extern "C" void JonesPlatformNull_ClearLoadPath(void);
 

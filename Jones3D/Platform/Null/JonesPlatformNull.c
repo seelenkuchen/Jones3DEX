@@ -173,10 +173,5 @@ void JonesPlatformNull_ClearLoadPath(void)
     jonesPlatformNull_pLoadPath = NULL;
 }
 
-int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
-{
-    J3D_UNUSED(hWnd);
-    // Altered: DialogBoxParam with the user cancelling (EndDialog(hWnd, 2) trackers in
-    // jonesConfig.c) hands back IDCANCEL; the control dialog has no Null substitute.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
+// Added: jonesConfig_ShowControlOptions moved to JonesPlatformNullControlOptions.c so the Babylon
+// column can replace it with its in-game screen.
