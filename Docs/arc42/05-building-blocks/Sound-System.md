@@ -18,6 +18,9 @@ Primary source files:
 - [`Libs/sound/AudioLib.c`](../../../Libs/sound/AudioLib.c)
 - `Libs/sound/DriverNull.c`
 
+From M7, whether a channel is still playing follows game time, not the device
+([ADR-0027](../09-decisions/ADR-0027-sound-completion-on-game-time.md)).
+
 ## Startup And Ownership Layers
 
 The top-level gameplay entry point is [`sithSound_Startup()`](../../../Libs/sith/Devices/sithSound.c#L55).
