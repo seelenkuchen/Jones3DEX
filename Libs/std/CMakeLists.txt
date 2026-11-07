@@ -93,6 +93,10 @@ if (J3D_PLATFORM_BABYLON)
         babylon::render
         stdBabylonShaders
     )
+
+    # Added: lets the shared stdControlNull.c know that the Babylon device adapter supplies the
+    # joystick enumeration and needs its mouse axes registered at startup.
+    target_compile_definitions(${PROJECT_NAME} PRIVATE STDCONTROL_BABYLON_DEVICES=1)
 endif()
 
 # Added: the Null platform links no DirectX backend, but stdJSON.c still needs jansson.
