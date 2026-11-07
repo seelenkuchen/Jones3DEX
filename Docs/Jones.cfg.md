@@ -268,6 +268,7 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 | `ui.menu.music.music` | string | `mus_gen_maploadloop.wav` | Menu music filename. Exact key name is legacy. |
 | `ui.menu.music.file` | float | `0.55` | Menu music volume. Exact key name is legacy. |
 | `ui.menu.music.fade` | float | `0.75` | Menu music fade duration in seconds. |
+| `engine.ui.hud.systemIcons` | bool | `true` | Presentation only, both profiles. False hides the HUD menu's Statistics, Save, Load, Settings and Exit items; the pause menu still offers all of them. |
 | `ui.hud.itemChanged.showDuration` | int | `2000` | Item-change popup duration in milliseconds. |
 | `ui.hud.itemChanged.slideEaseInRate` | float | `4000.0` | Slide ease-in rate. |
 | `ui.hud.itemChanged.slideSpeedRate` | int | `3` | Slide speed multiplier. |

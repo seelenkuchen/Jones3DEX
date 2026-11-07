@@ -1,8 +1,16 @@
 #include <unity_fixture.h>
 
 #include <stdint.h>
+#include <string.h>
 
+#include <Jones3D/Display/JonesConsole.h>
+#include <Jones3D/Display/JonesHud.h>
+#include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
+#include <Jones3D/Play/jonesCog.h>
+#include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerControls.h>
+#include <sith/World/sithWorld.h>
 #include <std/General/stdUtil.h>
 #include <std/types.h>
 
@@ -10,10 +18,25 @@ TEST_GROUP(JonesMain);
 
 TEST_SETUP(JonesMain)
 {
+    sithPlayer_g_pLocalPlayerThing = NULL;
+    sithPlayerControls_g_bCutsceneMode = 0;
+    sithWorld_g_bLoading              = 0;
+    jonesCog_g_bMenuVisible           = 0;
+    JonesConsole_g_bVisible           = 0;
+    JonesHud_EnableMenu(1);
 }
 
 TEST_TEAR_DOWN(JonesMain)
 {
+}
+
+static SithThing JonesMainTest_player;
+
+static void JonesMainTest_SetPlayer(unsigned int flags)
+{
+    memset(&JonesMainTest_player, 0, sizeof(JonesMainTest_player));
+    JonesMainTest_player.flags     = flags;
+    sithPlayer_g_pLocalPlayerThing = &JonesMainTest_player;
 }
 
 static void JonesMainTest_BuildMode(StdVideoMode* pMode, uint32_t width, uint32_t height, uint32_t bpp, uint32_t refreshRate)
@@ -318,6 +341,58 @@ TEST(JonesMain, TestUsesRequestedDeviceModes)
     TEST_ASSERT_EQUAL_size_t(1u, JonesMain_FindClosestVideoMode(&env, &requested, 1));
 }
 
+TEST(JonesMain, TestPauseMenuNeedsAPlayer)
+{
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+}
+
+TEST(JonesMain, TestPauseMenuOpensInPlay)
+{
+    JonesMainTest_SetPlayer(0);
+    TEST_ASSERT_EQUAL_INT(1, JonesMain_CanOpenPauseMenu());
+}
+
+TEST(JonesMain, TestPauseMenuStaysClosedInEachBlockingState)
+{
+    JonesMainTest_SetPlayer(0);
+
+    sithPlayerControls_g_bCutsceneMode = 1;
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+    sithPlayerControls_g_bCutsceneMode = 0;
+
+    sithWorld_g_bLoading = 1;
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+    sithWorld_g_bLoading = 0;
+
+    jonesCog_g_bMenuVisible = 1;
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+    jonesCog_g_bMenuVisible = 0;
+
+    JonesConsole_g_bVisible = 1;
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+    JonesConsole_g_bVisible = 0;
+
+    JonesHud_EnableMenu(0);
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+    JonesHud_EnableMenu(1);
+
+    TEST_ASSERT_EQUAL_INT(1, JonesMain_CanOpenPauseMenu());
+}
+
+TEST(JonesMain, TestNullPauseMenuAnswersAtOnce)
+{
+    TEST_ASSERT_EQUAL_INT(2, jonesConfig_ShowPauseMenu(NULL));
+}
+
+TEST(JonesMain, TestPauseMenuStaysClosedForDeadOrDyingPlayer)
+{
+    JonesMainTest_SetPlayer(SITH_TF_DYING);
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+
+    JonesMainTest_SetPlayer(SITH_TF_DESTROYED);
+    TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
+}
+
 TEST_GROUP_RUNNER(JonesMain)
 {
     RUN_TEST_CASE(JonesMain, TestExactMatchAtRequestedRateAfterOtherRate);
@@ -334,4 +409,9 @@ TEST_GROUP_RUNNER(JonesMain)
     RUN_TEST_CASE(JonesMain, TestNoModeAtRequestedBpp);
     RUN_TEST_CASE(JonesMain, TestEmptyModeList);
     RUN_TEST_CASE(JonesMain, TestUsesRequestedDeviceModes);
+    RUN_TEST_CASE(JonesMain, TestPauseMenuNeedsAPlayer);
+    RUN_TEST_CASE(JonesMain, TestPauseMenuOpensInPlay);
+    RUN_TEST_CASE(JonesMain, TestPauseMenuStaysClosedInEachBlockingState);
+    RUN_TEST_CASE(JonesMain, TestNullPauseMenuAnswersAtOnce);
+    RUN_TEST_CASE(JonesMain, TestPauseMenuStaysClosedForDeadOrDyingPlayer);
 }

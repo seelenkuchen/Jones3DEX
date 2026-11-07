@@ -63,6 +63,12 @@ int J3DAPI jonesConfig_ShowStoreDialog(tSysWindow hWnd, int* pBalance, int* pIte
 
 int J3DAPI jonesConfig_ShowExitGameDialog(tSysWindow hWnd, char* pSaveGameFilePath);
 
+// Added: the pause menu (ADR-0026). It runs while the caller has paused the game, offers Resume,
+// Save, Load, Settings, Statistics and Exit, and returns 2 when it closes (Resume or Back). Each
+// entry takes the same path the HUD menu's system item takes. On a column without the screen the
+// call answers 2 at once, so headless runs and their traces are unchanged.
+int J3DAPI jonesConfig_ShowPauseMenu(tSysWindow hWnd);
+
 int J3DAPI jonesConfig_ShowDialogInsertCD(tSysWindow hWnd, intptr_t dwInitParam);
 
 void jonesConfig_UpdateCurrentLevelNum(void); // Updates cached current level num from JonesMain module. 

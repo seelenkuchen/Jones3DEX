@@ -48,6 +48,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiDisplaySettings.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSoundSettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSoundSettings.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPauseMenu.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPauseMenu.h"
 )
 
 # Added: the Null message/insert-CD stubs, split from JonesPlatformNull.c so the Babylon column
@@ -74,6 +76,12 @@ set(JONES3D_NULL_SETTINGS_DIALOG_SOURCE
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullSettingsDialog.c"
 )
 
+# Added: the Null pause menu stub, split from JonesPlatformNull.c so the Babylon column can provide
+# the in-game screen and the headless runner still answers at once.
+set(JONES3D_NULL_PAUSEMENU_DIALOG_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullPauseMenu.c"
+)
+
 # Added: the Babylon column swaps the Null main() for the Platform/Babylon composition root.
 set(JONES3D_HEADLESS_SOURCES ${JONES3D_NULL_SOURCES})
 if (J3D_PLATFORM_BABYLON)
@@ -85,6 +93,7 @@ if (J3D_PLATFORM_BABYLON)
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_SAVELOAD_DIALOG_SOURCE}")
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_ENDSCREENS_DIALOG_SOURCE}")
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_SETTINGS_DIALOG_SOURCE}")
+    list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_PAUSEMENU_DIALOG_SOURCE}")
     list(APPEND JONES3D_HEADLESS_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/main.cpp"
         ${JONES3D_BABYLON_UI_SOURCES}
@@ -147,7 +156,8 @@ if (J3D_PLATFORM_BABYLON)
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_MESSAGE_DIALOG_SOURCE}"
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_SAVELOAD_DIALOG_SOURCE}"
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_ENDSCREENS_DIALOG_SOURCE}"
-            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_SETTINGS_DIALOG_SOURCE}")
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_SETTINGS_DIALOG_SOURCE}"
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_PAUSEMENU_DIALOG_SOURCE}")
             list(APPEND JONES3D_WINDOWED_SOURCES ${JONES3D_NULL_SOURCE})
         endif()
     endforeach()

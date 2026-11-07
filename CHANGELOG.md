@@ -15,6 +15,8 @@
     `rand` and other random choices follow the retail sequence; this also makes the jeep's bumps work natively.
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
+  - The Babylon column has a pause menu on Escape or gamepad Start: Resume, Save, Load, Settings, Statistics
+    and Exit. Tab or gamepad Back opens the HUD menu, and `engine.ui.hud.systemIcons` can hide its system items.
 
 ### M6: The Babylon renderer
   - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system
