@@ -49,7 +49,8 @@ headless traces, byte for byte.
 ## 5.2 Level 2: Babylon Engine
 
 Modules marked M5 exist and are used by the Babylon column. Render exists from M6.4 and the game uses it since
-M6.6 (`std3D`) and M6.7 (`stdDisplay`); the others are still planned.
+M6.6 (`std3D`) and M6.7 (`stdDisplay`). Audio has its interface and Null backend from M7.1 and joins the game
+with the miniaudio backend in M7.2; the others are still planned.
 
 | Module | Role | Backends | Adapter that uses it | State |
 |---|---|---|---|---|
@@ -61,7 +62,7 @@ M6.6 (`std3D`) and M6.7 (`stdDisplay`); the others are still planned.
 | Files | Files, directory listing, base, current and user directories | SDL3, Null | `stdFileBabylon.cpp`, `stdFileUtilBabylon.cpp`, `stdBabylonPath.cpp` | M5 |
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
 | Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
-| Audio | Devices, voices, 3D positioning, streaming | miniaudio, Null | `Driver_*` | M7 |
+| Audio | Devices, voices, 3D positioning, streaming | Null; miniaudio in M7.2 | `Driver_*` in M7.2 | M7.1: interface and Null backend |
 | UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null; draws through Render | `jonesConfig_*` screens | M7 |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
