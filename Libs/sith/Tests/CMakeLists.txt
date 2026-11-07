@@ -2,6 +2,7 @@ set(SITH_TEST_SOURCES
     sithTestRunner.c
     sithGamesaveTest.c
     ../Cog/Tests/sithCogTest.c
+    ../Engine/Tests/sithCameraTest.c
     ../World/Tests/sithTemplateTest.c
     ../World/Tests/sithThingTest.c
     ../World/Tests/sithVoiceTest.c

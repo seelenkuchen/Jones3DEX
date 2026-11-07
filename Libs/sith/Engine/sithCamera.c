@@ -538,9 +538,13 @@ void J3DAPI sithCamera_Update(SithCamera* pCamera)
         switch ( type )
         {
             case SITHCAMERA_CINEMATIC:
-                // Guard: 00_CYN_Opening.cog (CD1.GOB) makes the cinematic camera current (immediate update) one statement
-                // before it sets the secondary focus (a script bug).
-                STD_GUARD_VOID(pThing1 && pThing2);
+                // Fixed: 00_CYN_Opening.cog (CD1.GOB) makes the cinematic camera current (immediate update) one
+                // statement before it sets the secondary focus, a known bug in the original game data. Return until
+                // the script supplies it; the camera updates normally on the next frame.
+                if ( !pThing1 || !pThing2 )
+                {
+                    return;
+                }
                 SITH_ASSERTREL(pThing1 != NULL);
                 SITH_ASSERTREL(pThing2 != NULL);
                 SITH_ASSERTREL(sithThing_ValidateThingPointer(pWorld, pThing1));
