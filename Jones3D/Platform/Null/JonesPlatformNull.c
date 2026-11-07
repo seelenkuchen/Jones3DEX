@@ -164,6 +164,16 @@ void JonesPlatformNull_SetLoadPath(const char* pPath)
     jonesPlatformNull_pLoadPath = pPath;
 }
 
+const char* JonesPlatformNull_GetLoadPath(void)
+{
+    return jonesPlatformNull_pLoadPath;
+}
+
+void JonesPlatformNull_ClearLoadPath(void)
+{
+    jonesPlatformNull_pLoadPath = NULL;
+}
+
 int jonesConfig_Startup(void)
 {
     if ( jonesConfig_bStartup )
@@ -184,39 +194,6 @@ void jonesConfig_Shutdown(void)
     jonesConfig_bStartup = 0;
 }
 
-int J3DAPI jonesConfig_GetLoadGameFilePath(tSysWindow hWnd, char* pDestNdsPath)
-{
-    J3D_UNUSED(hWnd);
-
-    // Added: JonesPlatformNull_SetLoadPath lets the headless runner answer the dialog
-    // the way a chosen file does; without one it still cancels.
-    if ( !jonesPlatformNull_pLoadPath || !jonesPlatformNull_pLoadPath[0] || !pDestNdsPath )
-    {
-        // Altered: The Windows OpenFileName dialog returns 1 with a chosen path and 2 when
-        // the user cancels; there is no game list on this platform, so the dialog cancels.
-        return JONESPLATFORM_NULL_IDCANCEL;
-    }
-
-    // Added: Fill pDestNdsPath the way the Windows dialog does on success (the OpenFileName
-    // result forced to the .nds extension, then copied) and return its success value.
-    char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-    stdUtil_StringCopy(aPath, STD_ARRAYLEN(aPath), jonesPlatformNull_pLoadPath);
-    stdFnames_ChangeExtEx(aPath, STD_ARRAYLEN(aPath), "nds");
-    stdUtil_StringCopy(pDestNdsPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, aPath);
-
-    // Added: One-shot, so a later load-game request (from a menu) cancels again.
-    jonesPlatformNull_pLoadPath = NULL;
-    return 1;
-}
-
-int J3DAPI jonesConfig_GetSaveGameFilePath(tSysWindow hWnd, char* pOutFilePath)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pOutFilePath);
-    // Altered: Same DialogBoxParam cancel answer as GetLoadGameFilePath (1 = saved).
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
 int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
 {
     J3D_UNUSED(hWnd);
@@ -232,16 +209,6 @@ int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd, StdDisplayEnvi
     J3D_UNUSED(pDSettings);
     // Altered: 1 applies changed display settings; the Null dialog cancels like the
     // Windows WM_CLOSE path (EndDialog(hWnd, 2)), so no settings are applied.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-int J3DAPI jonesConfig_ShowExitGameDialog(tSysWindow hWnd, char* pSaveGameFilePath)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pSaveGameFilePath);
-    // Altered: The Windows exit dialog answers 1 ("exit"), 1187 ("exit and save") or 2
-    // (cancel); the Null dialog always answers the cancel value, so the game does not
-    // exit through this path.
     return JONESPLATFORM_NULL_IDCANCEL;
 }
 

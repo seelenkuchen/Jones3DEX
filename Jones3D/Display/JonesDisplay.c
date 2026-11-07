@@ -1,5 +1,6 @@
 #include "JonesDisplay.h"
 
+#include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 
 #include <rdroid/Engine/rdCanvas.h>
@@ -149,6 +150,9 @@ int J3DAPI JonesDisplay_Startup(JonesDisplaySettings* pSettings)
 
 void JonesDisplay_Shutdown(void)
 {
+    // Added: release the column's dialog/UI display resources while the device is still open.
+    jonesConfig_ReleaseDisplayResources();
+
     rdClose();
     std3D_Close();
     stdDisplay_ClearMode();

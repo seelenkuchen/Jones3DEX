@@ -34,6 +34,22 @@ extern "C" const char* J3DAPI jonesString_GetString(const char* pKey)
     return pKey;
 }
 
+// The game-layer and Null-platform symbols the public screen wrappers name. The cases call the
+// explicit-directory runners, so only the linker needs these.
+extern "C" int J3DAPI JonesMain_HasStarted(void)
+{
+    return 0;
+}
+
+extern "C" const char* JonesPlatformNull_GetLoadPath(void)
+{
+    return NULL;
+}
+
+extern "C" void JonesPlatformNull_ClearLoadPath(void)
+{
+}
+
 namespace
 {
     using namespace babylon;

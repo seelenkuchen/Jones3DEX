@@ -20,5 +20,10 @@ J3D_EXTERN_C_START
 // must stay valid until the dialog is answered or the path is set again.
 void JonesPlatformNull_SetLoadPath(const char* pPath);
 
+// The path set above, or NULL; the dialog consumes it with JonesPlatformNull_ClearLoadPath after
+// it has copied it into the caller's buffer. The Babylon column uses these from its load screen.
+const char* JonesPlatformNull_GetLoadPath(void);
+void JonesPlatformNull_ClearLoadPath(void);
+
 J3D_EXTERN_C_END
 #endif // JONES3D_PLATFORM_NULL_JONESPLATFORMNULL_H
