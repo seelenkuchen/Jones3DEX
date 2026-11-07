@@ -202,8 +202,3 @@ int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     return JONESPLATFORM_NULL_IDCANCEL;
 }
 
-int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd)
-{
-    J3D_UNUSED(hWnd);
-    return JONESPLATFORM_NULL_IDCANCEL;
-}

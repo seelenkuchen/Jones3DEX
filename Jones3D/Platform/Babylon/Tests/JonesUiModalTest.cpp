@@ -57,11 +57,6 @@ extern "C" size_t JonesMain_GetCurrentLevelNum(void)
     return 0;
 }
 
-extern "C" int J3DAPI jonesInventory_GetTotalIQPoints(void)
-{
-    return 0;
-}
-
 extern "C" const char* JonesPlatformNull_GetLoadPath(void)
 {
     return g_testLoadPath;
