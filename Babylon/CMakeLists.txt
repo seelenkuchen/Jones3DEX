@@ -39,6 +39,8 @@ if (BABYLON_BUILD_TESTS)
     add_subdirectory(third_party/doctest)
 endif()
 
+add_subdirectory(third_party/miniaudio)
+
 add_subdirectory(core)
 add_subdirectory(log)
 add_subdirectory(time)

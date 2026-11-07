@@ -60,8 +60,13 @@ pan, pitch, per-voice 3D position, distance attenuation and a listener, and
 feeds streaming PCM blocks from the caller. Device loss is a polled event, and
 sounds, voices and their settings survive closing, reopening and switching
 outputs. The Null backend keeps the whole state without a device and advances
-playback only through a test helper; the contract tests run through the
-interface so the miniaudio backend added in M7.2 can run the same cases.
+playback only through a test helper. The miniaudio backend
+(`createMiniaudioDevice`, M7.2) mixes the voices itself on a low-level
+`ma_device`; an option runs it on miniaudio's own null output, so the contract
+tests run every case on both backends without a sound card. The null backend
+has no controllable clock, so the cases that step a voice forward report a
+skip there; `backends/miniaudio/tests/` covers play-to-end and stream
+underrun on the host clock instead.
 
 ## Declaring a module
 

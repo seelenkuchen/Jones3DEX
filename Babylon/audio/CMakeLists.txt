@@ -5,7 +5,10 @@
 
 babylon_add_module(audio
     SOURCES src/Device.cpp src/NullDevice.cpp
-    DEPS log)
+        backends/miniaudio/MiniaudioDevice.cpp
+    DEPS log
+    LIBS miniaudio)
 babylon_add_module_tests(audio
     DEPS log
-    SOURCES tests/AudioContractTest.cpp tests/NullDeviceTest.cpp)
+    SOURCES tests/AudioContractTest.cpp tests/NullDeviceTest.cpp
+        backends/miniaudio/tests/MiniaudioDeviceTest.cpp)
