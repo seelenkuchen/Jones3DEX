@@ -663,14 +663,17 @@ TEST_CASE("binding capture accepts every gamepad axis")
 
         tap(ui, platform::Key::Enter);
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.49f)));
-        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+        const auto resting = drain(ui);
+        CHECK(findEvent<BindingCaptured>(resting) == nullptr);
 
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightY, -0.49f)));
-        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+        const auto stillResting = drain(ui);
+        CHECK(findEvent<BindingCaptured>(stillResting) == nullptr);
 
         // The axis captures only once it crosses the threshold.
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightY, -0.9f)));
-        const BindingCaptured* captured = findEvent<BindingCaptured>(drain(ui));
+        const auto crossed = drain(ui);
+        const BindingCaptured* captured = findEvent<BindingCaptured>(crossed);
         REQUIRE(captured != nullptr);
         CHECK(captured->binding.axis == platform::GamepadAxis::RightY);
         CHECK(captured->binding.axisDirection == -1.0f);
@@ -690,13 +693,16 @@ TEST_CASE("binding capture accepts every gamepad axis")
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.9f)));
         tap(ui, platform::Key::Enter);
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.9f)));
-        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+        const auto held = drain(ui);
+        CHECK(findEvent<BindingCaptured>(held) == nullptr);
 
         // It returns to rest and then crosses the other way.
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.0f)));
-        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+        const auto returned = drain(ui);
+        CHECK(findEvent<BindingCaptured>(returned) == nullptr);
         ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, -0.9f)));
-        const BindingCaptured* captured = findEvent<BindingCaptured>(drain(ui));
+        const auto crossed = drain(ui);
+        const BindingCaptured* captured = findEvent<BindingCaptured>(crossed);
         REQUIRE(captured != nullptr);
         CHECK(captured->binding.axis == platform::GamepadAxis::RightX);
         CHECK(captured->binding.axisDirection == -1.0f);

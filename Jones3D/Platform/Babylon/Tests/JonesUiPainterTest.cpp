@@ -61,6 +61,7 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
+#include <std/Babylon/stdBabylonTour.h>
 #include <std/Babylon/stdRenderBabylon.h>
 
 #include <std/General/std.h>
@@ -1412,6 +1413,140 @@ TEST_CASE("the Jones controls screen draws the action list")
     const std::string bmpPath = "ui-controls-sample.bmp";
     REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
     MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the scripted tour drives a modal screen by present count")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the scripted modal tour");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    platform::NullPlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        &platform, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    // The script's frame number is the present count: the screen opens on present 1, Down is
+    // delivered at 2 and Enter at 3, so the second button is the answer.
+    const std::filesystem::path scriptPath("ui-tour-script.txt");
+    const std::filesystem::path logPath("ui-tour-present.log");
+    const std::filesystem::path shotDir("ui-tour-shots");
+    std::error_code removeError;
+    std::filesystem::remove(scriptPath, removeError);
+    std::filesystem::remove(logPath, removeError);
+    std::filesystem::remove_all(shotDir, removeError);
+    {
+        std::ofstream script(scriptPath, std::ios::binary | std::ios::trunc);
+        REQUIRE(script);
+        script << "frame 2: key Down down\n"
+                  "frame 3: key Enter down\n";
+    }
+
+    StdBabylonTourOptions options;
+    options.inputPath        = scriptPath.string();
+    options.presentLogPath   = logPath.string();
+    options.screenshotDir    = shotDir.string();
+    options.screenshotFrames = { 1u };
+    std::string error;
+    REQUIRE(stdBabylonTour_Configure(options, 0, error));
+    struct TourGuard
+    {
+        ~TourGuard() { stdBabylonTour_Shutdown(); }
+    } tourGuard;
+
+    Screen screen;
+    screen.title   = "Scripted";
+    screen.widgets = {
+        Button{ "One", 1, true },
+        Button{ "Two", 2, true },
+    };
+    screen.backResult = 2;
+
+    const int result = JonesUiModal_Run(ui, &painter, screen,
+        [](babylon::ui::ResultCode code) { return (int)code; });
+    CHECK(result == 2);
+    CHECK(stdBabylonTour_GetPresentCount() == 3u);
+    stdBabylonTour_Shutdown();
+
+    // Every present names the open screen in the log.
+    std::ifstream log(logPath, std::ios::binary);
+    std::string line;
+    const char* const aExpectedLog[] = {
+        "frame 1: Scripted",
+        "frame 2: Scripted",
+        "frame 3: Scripted",
+    };
+    for ( const char* pExpected : aExpectedLog )
+    {
+        REQUIRE(std::getline(log, line));
+        CHECK(line == pExpected);
+    }
+
+    // The requested present was written as a 640 x 480, 24-bit BMP.
+    std::ifstream bmp(shotDir / "frame-1.bmp", std::ios::binary);
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(bmp)),
+        std::istreambuf_iterator<char>());
+    const std::uint64_t stride = ((std::uint64_t)640u * 3u + 3u) & ~std::uint64_t(3u);
+    REQUIRE(bytes.size() == 54u + stride * 480u);
+    CHECK(bytes[0] == 'B');
+    CHECK(bytes[1] == 'M');
+    CHECK(bytes[18] == (std::uint8_t)(640u & 0xFFu));
+    CHECK(bytes[19] == (std::uint8_t)(640u >> 8));
+    CHECK(bytes[22] == (std::uint8_t)(480u & 0xFFu));
+    CHECK(bytes[23] == (std::uint8_t)(480u >> 8));
+    CHECK(bytes[28] == 24u);
+
+    std::filesystem::remove(scriptPath, removeError);
+    std::filesystem::remove(logPath, removeError);
+    std::filesystem::remove_all(shotDir, removeError);
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();

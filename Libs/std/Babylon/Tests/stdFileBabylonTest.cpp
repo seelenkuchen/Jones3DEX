@@ -844,6 +844,7 @@ static void runAllTests(void)
     RUN_TEST_GROUP(stdFileUtilBabylon);
     RUN_TEST_GROUP(stdControlBabylon);
     RUN_TEST_GROUP(stdBabylonEvents);
+    RUN_TEST_GROUP(stdBabylonTour);
     RUN_TEST_GROUP(stdCvarBabylon);
 }
 

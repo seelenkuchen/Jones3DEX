@@ -13,6 +13,7 @@
 #include <std/Babylon/std3DBabylon.h>
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
+#include <std/Babylon/stdBabylonTour.h>
 
 #include <std/General/std.h>
 #include <std/General/std3D.h>
@@ -203,6 +204,10 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
         return mapResult(screen.backResult);
     }
 
+    // Added: name this screen in the scripted tour's present log until it closes. A screen opened
+    // from a handler pushes and pops over this one.
+    stdBabylonTour_PushScreenTitle(screen.title.c_str());
+
     StdBabylonContext& rContext = stdBabylon_RequireContext("JonesUiModal_Run");
     babylon::platform::Window* pWindow = rContext.pWindow;
 
@@ -335,6 +340,8 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     {
         static_cast<void>(std3D_StartScene());
     }
+
+    stdBabylonTour_PopScreenTitle();
 
     return mapResult(result);
 }

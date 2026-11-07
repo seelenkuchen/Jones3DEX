@@ -12,12 +12,29 @@
 #include <cstddef>
 #include <deque>
 #include <optional>
+#include <variant>
 #include <vector>
 
 #include "stdBabylon.h"
+#include "stdBabylonTour.h"
 
 namespace
 {
+    // The event kinds the scripted tour replaces while its input script is active. Window, focus,
+    // resize and quit events stay the platform's.
+    bool stdBabylonEvents_IsScriptedInput(const babylon::platform::Event& rEvent)
+    {
+        return std::holds_alternative<babylon::platform::KeyChanged>(rEvent)
+            || std::holds_alternative<babylon::platform::MouseMoved>(rEvent)
+            || std::holds_alternative<babylon::platform::MouseButtonChanged>(rEvent)
+            || std::holds_alternative<babylon::platform::MouseWheelMoved>(rEvent)
+            || std::holds_alternative<babylon::platform::TextInput>(rEvent)
+            || std::holds_alternative<babylon::platform::GamepadConnected>(rEvent)
+            || std::holds_alternative<babylon::platform::GamepadDisconnected>(rEvent)
+            || std::holds_alternative<babylon::platform::GamepadButtonChanged>(rEvent)
+            || std::holds_alternative<babylon::platform::GamepadAxisMoved>(rEvent);
+    }
+
     // The state every pumped event goes into; owned here, read through stdBabylonEvents_InputState().
     babylon::input::InputState inputState;
 
@@ -37,6 +54,10 @@ std::size_t stdBabylonEvents_Pump()
 
     const babylon::platform::WindowId windowId = rContext.pWindow ? rContext.pWindow->id() : 0;
 
+    // Added: while the scripted tour's input script is active, the script's events replace the
+    // platform's key, mouse, gamepad and text events; the window's own events still come through.
+    const bool bScriptedInput = stdBabylonTour_InputActive();
+
     lastEvents.clear();
     std::size_t numEvents = 0;
     for ( ;; )
@@ -48,6 +69,12 @@ std::size_t stdBabylonEvents_Pump()
         }
 
         ++numEvents;
+
+        if ( bScriptedInput && stdBabylonEvents_IsScriptedInput(*pEvent) )
+        {
+            continue;
+        }
+
         lastEvents.push_back(*pEvent);
 
         // Events that carry no input (window, quit) are ignored by InputState, except the focus
@@ -79,6 +106,23 @@ std::size_t stdBabylonEvents_Pump()
         {
             focusChanges.push_back(pFocus->focused);
         }
+    }
+
+    if ( bScriptedInput )
+    {
+        // At most one delivery per present count, though the pump may run several times per frame.
+        for ( const babylon::platform::Event& rEvent : stdBabylonTour_TakeInputEvents() )
+        {
+            lastEvents.push_back(rEvent);
+            inputState.apply(rEvent);
+            ++numEvents;
+        }
+    }
+
+    // Added: --quit-after-script ends the run once the script's last frame has been presented.
+    if ( stdBabylonTour_TakeQuitAfterScript() )
+    {
+        quitRequested = true;
     }
 
     return numEvents;

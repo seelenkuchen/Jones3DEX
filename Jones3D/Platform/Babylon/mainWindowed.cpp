@@ -6,6 +6,7 @@
 // the game window (M6.6, M6.7).
 #include <cstdio>
 #include <memory>
+#include <string>
 
 #include <babylon/audio/Device.h>
 #include <babylon/audio/MiniaudioDevice.h>
@@ -25,11 +26,38 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonCvars.h>
+#include <std/Babylon/stdBabylonTour.h>
 
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
 
+namespace
+{
+    // Added: the windowed run's options beyond the game's own command line. The game command line
+    // itself has no usage text; these options are printed when the scripted tour rejects one.
+    void PrintUsage(const char* pProgramName)
+    {
+        fprintf(stderr,
+            "usage: %s [--load <save.nds>] [--input <script>] [--quit-after-script] "
+            "[--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] [--present-log <file>]\n",
+            pProgramName ? pProgramName : "Jones3D");
+    }
+}
+
 int main(int argc, char** argv)
 {
+    // Added: the scripted tour's options are taken out before the game command line is built, so
+    // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad
+    // option exits before any engine code runs, like the headless runner's --input.
+    int tourArgc = argc;
+    StdBabylonTourOptions tourOptions;
+    std::string tourError;
+    if ( !stdBabylonTour_TakeOptions(&tourArgc, argv, tourOptions, tourError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: %s\n", tourError.c_str());
+        PrintUsage(argv[0]);
+        return 1;
+    }
+
     std::unique_ptr<babylon::platform::Platform> pPlatform = babylon::platform::createSdlPlatform();
     if ( !pPlatform )
     {
@@ -42,6 +70,14 @@ int main(int argc, char** argv)
     if ( !pWindow )
     {
         fprintf(stderr, "ERROR: Jones3D: could not create the game window!\n");
+        return 1;
+    }
+
+    // Added: read the tour's input script and open its files now, so a bad script or path stops the
+    // run before any engine code. The script's events carry the game window id.
+    if ( !stdBabylonTour_Configure(tourOptions, pWindow->id(), tourError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: %s\n", tourError.c_str());
         return 1;
     }
 
@@ -86,8 +122,11 @@ int main(int argc, char** argv)
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), pPlatform.get(),
         nullptr, pWindow.get(), &cvars, pRenderDevice.get(), pAudioDevice.get() };
     stdBabylon_SetContext(&context);
-    int exitCode = JonesBabylon_Run(argc, argv);
+    int exitCode = JonesBabylon_Run(tourArgc, argv);
     stdBabylon_SetContext(nullptr);
+
+    // Added: close the present log and forget the tour after the run that used it.
+    stdBabylonTour_Shutdown();
 
     // Scope end destroys pWindow before pPlatform, the order the Platform interface requires.
     // Added: and pRenderDevice before pWindow, which the SDL GPU device's swapchain needs.

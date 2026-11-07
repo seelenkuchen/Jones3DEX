@@ -35,7 +35,8 @@
   - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
     Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
   - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
-  - The Controls screen (rebinding keys and gamepad buttons) follows in M7.17b.
+  - The Controls screen rebinds keys and gamepad buttons: a scheme picker, one rebind list for keys
+    and gamepad controls, and a reset to the defaults.
 
 ### M6: The Babylon renderer
   - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system

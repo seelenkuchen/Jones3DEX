@@ -26,7 +26,7 @@ Where Jones3D EX stands and what comes next. The reasons behind the order are in
 | M7.1 Sound | The Babylon audio interface with its Null backend, the miniaudio backend, the game's sound and cutscene sound through Babylon, the output device choice ([ADR-0027](arc42/09-decisions/ADR-0027-sound-completion-on-game-time.md)) | Done (2026-11-07) |
 | M7.2 Saving | Portable savegame thumbnails and the Save, Load and Exit screens, so the Babylon builds save and load with thumbnails | Done (2026-11-07) |
 | M7.3 Input | Mouse axes, gamepads, text input, and the player's control schemes in the windowed Babylon build | Done (2026-11-07) |
-| M7.4 Menus | The in-game screens in place of the Win32 dialogs: the main menu and the windowed start-mode rules, pause, save/load/exit, settings, statistics, level completed, store and game over ([ADR-0026](arc42/09-decisions/ADR-0026-in-game-menus.md)) | Done (2026-11-07), except the Controls screen (M7.17b) |
+| M7.4 Menus | The in-game screens in place of the Win32 dialogs: the main menu and the windowed start-mode rules, pause, save/load/exit, settings (including the Controls screen), statistics, level completed, store and game over ([ADR-0026](arc42/09-decisions/ADR-0026-in-game-menus.md)) | Done (2026-11-07) |
 | M7.5 Polish | Menu sounds, the Display screen's window mode, fullscreen and Alt+Enter | Done (2026-11-07) |
 | M7. Playable | The Babylon build plays with sound, saving and in-game menus; the owner's play-test on real hardware remains | In progress |
 | M8. Release | Packages (Linux as AppImage or Flatpak, so nothing is installed into the system), game data installation, macOS signing, first Jones3D EX release | |

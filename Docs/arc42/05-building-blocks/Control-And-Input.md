@@ -274,4 +274,4 @@ interface action, which the default scheme binds to `I`. The original also bound
 gamepad button through the removed Win32 controls dialog, so a loaded scheme can have no interface
 binding today; Tab and gamepad Back (button 6) then stand in as a fallback while a scheme is active
 (`jonesConfig_HasActiveControlScheme`). The headless run and the Null column have no scheme and keep
-their old bindings. The Controls screen (M7.17b) will make the menu binds editable again.
+their old bindings. The Controls screen makes the menu binds editable again.
