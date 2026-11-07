@@ -733,3 +733,16 @@ extern "C" int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd,
     JonesUiContext_Release(pUiContext);
     return result;
 }
+
+#ifdef J3D_TEST
+void JonesUiDisplay_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    JonesDisplaySettings settings{};
+    const std::vector<JonesUiDisplayVideoMode> modes;
+    const std::vector<int> bitDepths;
+
+    JonesUiDisplayLayout layout;
+    screens.push_back(JonesUiDisplay_BuildScreen(&settings, modes, bitDepths, 0, 0, 0, false,
+        false, layout));
+}
+#endif

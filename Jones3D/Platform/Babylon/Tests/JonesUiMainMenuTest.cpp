@@ -5,6 +5,7 @@
 #include <doctest.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -22,14 +23,20 @@
 #include <babylon/ui/Ui.h>
 
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
 #include <Jones3D/types.h>
 
 #include <rdroid/Primitives/rdWallpaper.h>
 
+#include <sith/Main/sithMain.h>
+
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
+#include <std/General/std.h>
 #include <std/General/stdUtil.h>
+
+#include <wkernel/wkernel.h>
 
 // The game-layer and platform symbols the main menu wrapper names. The cases call the runner with
 // hooks, so these stubs only satisfy the linker of jonesConfig_ShowMainMenu.
@@ -49,6 +56,31 @@ extern "C" void JonesPlatformNull_ClearLoadPath(void);
 namespace
 {
     using namespace babylon;
+
+    int J3DAPI TestPrint(const char* pFormat, ...)
+    {
+        (void)pFormat;
+        return 0;
+    }
+
+    tHostServices g_hostServices;
+
+    // The modal loop logs its background state; a case that runs alone needs the print hooks.
+    void SetupHostServices()
+    {
+        std::memset(&g_hostServices, 0, sizeof(g_hostServices));
+        g_hostServices.pStatusPrint  = TestPrint;
+        g_hostServices.pMessagePrint = TestPrint;
+        g_hostServices.pWarningPrint = TestPrint;
+        g_hostServices.pErrorPrint   = TestPrint;
+        g_hostServices.pDebugPrint   = TestPrint;
+        g_hostServices.pMalloc       = malloc;
+        g_hostServices.pFree         = free;
+        g_hostServices.pRealloc      = realloc;
+
+        std_g_pHS  = &g_hostServices;
+        sith_g_pHS = &g_hostServices;
+    }
 
     // Delivers one event per modal frame, like JonesUiSaveLoadTest's platform. If a screen never
     // closes, a quit request ends it with its back result instead of hanging the suite.
@@ -73,6 +105,7 @@ namespace
                 if ( ++m_emptyPolls > 200 )
                 {
                     m_emptyPolls = 0;
+                    ++m_quitFallbacks;
                     return platform::Event{ platform::QuitRequested{} };
                 }
 
@@ -99,10 +132,16 @@ namespace
                 platform::KeyChanged{ 1, key, false, false } });
         }
 
+        int QuitFallbacks() const
+        {
+            return m_quitFallbacks;
+        }
+
     private:
         std::deque<platform::Event> m_events;
         bool m_delivering = false;
         int m_emptyPolls  = 0;
+        int m_quitFallbacks = 0;
     };
 
     struct MenuTestContext
@@ -129,6 +168,8 @@ namespace
             {
                 static_cast<void>(stdBabylonEvents_TakeQuitRequest());
             }
+
+            SetupHostServices();
         }
 
         ~MenuTestContext()
@@ -157,6 +198,7 @@ namespace
             context.pRenderDevice   = nullptr;
 
             stdBabylon_SetContext(&context);
+            SetupHostServices();
         }
 
         ~StartModeTestContext()
@@ -238,6 +280,20 @@ TEST_CASE("the headless start mode keeps its configured value")
         == JONES_STARTMODE_STARTGAME);
 }
 
+TEST_CASE("the Babylon close message makes the next loop check report quit")
+{
+    StartModeTestContext testContext;
+    while ( stdBabylonEvents_TakeQuitRequest() )
+    {
+    }
+
+    // The Null stub returned 1 without ending the game; the Babylon version records the same
+    // quit request a window close does, which is the WM_QUIT the game loop ends on.
+    CHECK(JonesMainSys_PostCloseMessage() == 1);
+    CHECK(wkernel_PeekProcessEvents() == 1);
+    CHECK(wkernel_PeekProcessEvents() == 0);
+}
+
 TEST_CASE("the main menu uses the load screen's finished wallpaper state")
 {
     // The load screen advances one cel step at each of its three completion stages; the main
@@ -296,7 +352,7 @@ TEST_CASE("New Game closes the main menu with the new-game action")
     CHECK(ui.screenCount() == 0u);
 }
 
-TEST_CASE("Quit closes the main menu without any action")
+TEST_CASE("Back closes the main menu with the quit action")
 {
     MenuTestContext testContext;
     ui::NullPainter painter;
@@ -308,6 +364,33 @@ TEST_CASE("Quit closes the main menu without any action")
     CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
     CHECK(ui.screenCount() == 0u);
+
+    // Back closes the screen at once; the platform's empty-poll quit fallback is never needed.
+    CHECK(testContext.platform.QuitFallbacks() == 0);
+}
+
+TEST_CASE("the Quit button closes the main menu with the quit action")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiMainMenuHooks hooks;
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    // Focus starts on New Game; three downs reach Quit and Enter accepts it.
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::Quit);
+    CHECK(ui.screenCount() == 0u);
+
+    // A zero action id would report nothing and only the empty-poll quit fallback would close
+    // the menu; a real action id closes it on the Enter itself.
+    CHECK(testContext.platform.QuitFallbacks() == 0);
 }
 
 TEST_CASE("a disabled Load row is skipped")

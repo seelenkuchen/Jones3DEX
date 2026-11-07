@@ -148,32 +148,13 @@ void JonesUiSound_CollectOutputDevices(std::vector<JonesUiSoundOutputDevice>& de
     }
 }
 
-int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesSoundSettings* pData)
+static babylon::ui::Screen JonesUiSound_BuildScreen(const JonesSoundSettings* pData,
+    const std::vector<JonesUiSoundOutputDevice>& devices, std::size_t curDevice,
+    JonesUiSoundLayout& layout, JonesUiSoundValues& values)
 {
-    if ( !pData )
-    {
-        return kJonesDialogCancel;
-    }
-
-    std::vector<JonesUiSoundOutputDevice> devices;
-    JonesUiSound_CollectOutputDevices(devices);
-
-    const std::string currentDevice = SoundDriver_GetCurrentOutputDevice();
-    std::size_t curDevice = 0;
-    for ( std::size_t cur = 0; cur < devices.size(); ++cur )
-    {
-        if ( devices[cur].id == currentDevice )
-        {
-            curDevice = cur;
-            break;
-        }
-    }
-
     babylon::ui::Screen screen;
     screen.title = JonesUiContext_ResolveString(kJonesSoundTitleText);
 
-    JonesUiSoundLayout layout;
     layout.volume = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Slider{
         JonesUiContext_ResolveString(kJonesSoundVolumeText), std::string(), 0.0, 1.0, 0.01, true,
@@ -207,10 +188,38 @@ int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPain
     screen.backResult   = kJonesDialogCancel;
     screen.initialFocus = 0;
 
-    JonesUiSoundValues values;
     values.volume       = (double)std::clamp(pData->maxSoundVolume, 0.0f, 1.0f);
     values.bReverse     = pData->bReverseSound != 0;
     values.outputDevice = curDevice;
+    return screen;
+}
+
+int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    JonesSoundSettings* pData)
+{
+    if ( !pData )
+    {
+        return kJonesDialogCancel;
+    }
+
+    std::vector<JonesUiSoundOutputDevice> devices;
+    JonesUiSound_CollectOutputDevices(devices);
+
+    const std::string currentDevice = SoundDriver_GetCurrentOutputDevice();
+    std::size_t curDevice = 0;
+    for ( std::size_t cur = 0; cur < devices.size(); ++cur )
+    {
+        if ( devices[cur].id == currentDevice )
+        {
+            curDevice = cur;
+            break;
+        }
+    }
+
+    JonesUiSoundLayout layout;
+    JonesUiSoundValues values;
+    const babylon::ui::Screen screen = JonesUiSound_BuildScreen(pData, devices, curDevice,
+        layout, values);
 
     bool bApply = false;
     const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
@@ -288,3 +297,18 @@ extern "C" int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd, Jones
     JonesUiContext_Release(pUiContext);
     return result;
 }
+
+#ifdef J3D_TEST
+void JonesUiSound_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    JonesSoundSettings data{};
+    data.maxSoundVolume = 1.0f;
+
+    std::vector<JonesUiSoundOutputDevice> devices;
+    JonesUiSound_CollectOutputDevices(devices);
+
+    JonesUiSoundLayout layout;
+    JonesUiSoundValues values;
+    screens.push_back(JonesUiSound_BuildScreen(&data, devices, 0, layout, values));
+}
+#endif

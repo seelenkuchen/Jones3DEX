@@ -17,6 +17,7 @@
 #include <rdroid/types.h>
 
 #include <functional>
+#include <vector>
 
 // The value JonesUiMainMenu_Run answers when one of its actions closes the menu.
 enum class JonesUiMainMenuAction
@@ -53,5 +54,10 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 // Puts a wallpaper into the finished load screen's state: the load screen advances its cels at
 // each of its three completion stages before it closes. The menu uses this for its background.
 void JonesUiMainMenu_SetFinishedWallpaper(rdWallpaper* pWallpaper);
+
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiMainMenu_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIMAINMENU_H

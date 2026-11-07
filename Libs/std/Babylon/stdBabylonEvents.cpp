@@ -150,6 +150,11 @@ bool stdBabylonEvents_TakeQuitRequest()
     return bQuit;
 }
 
+void stdBabylonEvents_RequestQuit()
+{
+    quitRequested = true;
+}
+
 std::optional<bool> stdBabylonEvents_TakeFocusChange()
 {
     if ( focusChanges.empty() )

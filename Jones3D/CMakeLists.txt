@@ -125,6 +125,18 @@ set(JONES3D_NULL_CONTROLOPTIONS_DIALOG_SOURCE
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullControlOptions.c"
 )
 
+# Added: the Null PostCloseMessage stub, split from JonesPlatformNull.c so the Babylon column's
+# own JonesBabylonMainSys.cpp can record the quit request that really ends its loop.
+set(JONES3D_NULL_MAINSYS_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullMainSys.c"
+)
+
+# Added: the Babylon column's JonesMainSys replacements, compiled into its headless and windowed
+# executables and the UI tests.
+set(JONES3D_BABYLON_MAINSYS_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonMainSys.cpp"
+)
+
 # Added: the Babylon column swaps the Null main() for the Platform/Babylon composition root.
 set(JONES3D_HEADLESS_SOURCES ${JONES3D_NULL_SOURCES})
 if (J3D_PLATFORM_BABYLON)
@@ -141,10 +153,12 @@ if (J3D_PLATFORM_BABYLON)
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_GAMEPLAY_DIALOG_SOURCE}")
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_CONFIG_SOURCE}")
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_CONTROLOPTIONS_DIALOG_SOURCE}")
+    list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_MAINSYS_SOURCE}")
     list(APPEND JONES3D_HEADLESS_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/main.cpp"
         ${JONES3D_BABYLON_UI_SOURCES}
         ${JONES3D_CONTROL_SCHEME_SOURCES}
+        ${JONES3D_BABYLON_MAINSYS_SOURCE}
     )
 endif()
 
@@ -199,6 +213,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylon.c"
         ${JONES3D_BABYLON_UI_SOURCES}
         ${JONES3D_CONTROL_SCHEME_SOURCES}
+        ${JONES3D_BABYLON_MAINSYS_SOURCE}
     )
     foreach(JONES3D_NULL_SOURCE ${JONES3D_NULL_SOURCES})
         if (NOT JONES3D_NULL_SOURCE MATCHES "/Platform/Null/(main|JonesHeadless)\\.c$"
@@ -210,7 +225,8 @@ if (J3D_PLATFORM_BABYLON)
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_PAUSEMENU_DIALOG_SOURCE}"
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_GAMEPLAY_DIALOG_SOURCE}"
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_CONFIG_SOURCE}"
-            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_CONTROLOPTIONS_DIALOG_SOURCE}")
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_CONTROLOPTIONS_DIALOG_SOURCE}"
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_MAINSYS_SOURCE}")
             list(APPEND JONES3D_WINDOWED_SOURCES ${JONES3D_NULL_SOURCE})
         endif()
     endforeach()

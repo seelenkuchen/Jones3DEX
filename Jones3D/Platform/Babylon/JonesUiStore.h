@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 // JonesHud_aStoreItems has 14 entries; the array the caller passes has one int per entry.
 inline constexpr std::size_t kJonesStoreItemCount = 14;
@@ -107,5 +108,10 @@ std::string JonesUiStore_BuildPurchaseText(const JonesUiStoreCart& cart);
 // prompt; a quit closes without it. pPainter may be null.
 int JonesUiStore_RunStoreScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     int* pBalance, int* apItemsState, int unknown2);
+
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiStore_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISTORE_H

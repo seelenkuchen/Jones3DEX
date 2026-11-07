@@ -38,6 +38,7 @@
     binds none. `engine.ui.hud.systemIcons` can hide the HUD menu's system items.
   - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
     Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
+  - The main menu's Quit button and the in-game Exit now end the game, as closing the window does.
   - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
   - The Controls screen rebinds keys and gamepad buttons: a scheme picker, one rebind list for keys
     and gamepad controls, and a reset to the defaults.

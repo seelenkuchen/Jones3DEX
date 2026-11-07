@@ -14,6 +14,8 @@
 #include <babylon/ui/Painter.h>
 #include <babylon/ui/Ui.h>
 
+#include <vector>
+
 // Runs the Gameplay screen through ui. bEnhancedProfile is the run's game.profile: true for
 // Enhanced, false for Retail. On OK it applies the original options, writes their Jones.cfg keys,
 // writes the enhancement keys and returns 1. The profile itself is fixed by the build, so its row
@@ -21,5 +23,10 @@
 // null, which runs the screen without drawing.
 int JonesUiGameplay_RunGameplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     bool bEnhancedProfile);
+
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiGameplay_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIGAMEPLAYSETTINGS_H
