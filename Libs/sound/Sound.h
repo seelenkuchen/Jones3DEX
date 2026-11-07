@@ -117,6 +117,9 @@ void Sound_TestSetSoundBank(size_t bankNum, SoundInfo* pSoundInfos, size_t numSo
 void Sound_TestSetNoLipSync(int bNoLipSync);
 void Sound_TestSetCurrentPosition(size_t position);
 void Sound_TestSetUncompressFunc(SoundTestUncompressFunc pfUncompress);
+// Added: drive the sound layer's clock from a test, and return it to the driver clock.
+void Sound_TestSetTimeMsec(uint32_t msec);
+void Sound_TestClearTime(void);
 #endif
 
 void Sound_ResetGlobals(void);

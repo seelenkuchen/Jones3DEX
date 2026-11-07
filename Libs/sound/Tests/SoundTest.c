@@ -10,7 +10,6 @@
 #include <sound/Sound.h>
 #include <std/General/std.h>
 #include <std/General/stdUtil.h>
-#include <std/Null/stdPlatformNull.h>
 #include <std/types.h>
 
 #define SOUND_TEST_SOUND_HANDLE       1234u
@@ -41,6 +40,7 @@ static size_t SoundTest_maxAllocationSize;
 static size_t SoundTest_numReallocCalls;
 static size_t SoundTest_numUncompressCalls;
 static unsigned int SoundTest_lastUncompressSize;
+static uint32_t SoundTest_timeMsec;
 
 TEST_GROUP(Sound);
 
@@ -207,7 +207,10 @@ static void SoundTest_ConfigurePlayingChannel(tSoundChannelFlag flags, float pit
 
 static void SoundTest_AdvanceTime(uint32_t msec)
 {
-    stdPlatformNull_AdvanceClock(msec);
+    // Added: advance the sound layer's own test clock, not the platform clock, so the suite is
+    // independent of the column stdPlatform_GetTimeMsec reads.
+    SoundTest_timeMsec += msec;
+    Sound_TestSetTimeMsec(SoundTest_timeMsec);
     Sound_Update(NULL, NULL, NULL, NULL);
 }
 
@@ -247,7 +250,7 @@ static void SoundTest_AssertLipSyncFailure(int msecLipSyncOffset)
 TEST_SETUP(Sound)
 {
     // Altered: ADR-0027 - drive the sound layer's clock explicitly instead of reading wall time.
-    stdPlatformNull_UseVirtualClock(0);
+    SoundTest_timeMsec = 0;
 
     STD_ZEROMEM(&SoundTest_hostServices, sizeof(SoundTest_hostServices));
     SoundTest_hostServices.pStatusPrint  = SoundTest_Print;
@@ -270,6 +273,8 @@ TEST_SETUP(Sound)
     SoundTest_lastUncompressSize = 0;
 
     Sound_TestResetLipSyncState();
+    // Added: the override has to be set after the reset, which clears it.
+    Sound_TestSetTimeMsec(SoundTest_timeMsec);
     TEST_ASSERT_EQUAL_INT(0, Sound_Initialize(&SoundTest_hostServices));
     Sound_TestSetOpenState();
     SoundTest_ConfigureDefaultFixture();
