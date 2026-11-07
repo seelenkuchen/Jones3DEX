@@ -156,6 +156,7 @@ namespace
         float distanceFactor = 1.0f;
         float dopplerFactor = 1.0f;
         std::deque<DeviceEvent> events;
+        std::vector<OutputDevice> outputs{ OutputDevice{ "null", "Null output" } };
         HandlePool<SoundTag, std::shared_ptr<NullSound>> sounds;
         HandlePool<VoiceTag, NullVoice> voices;
     };
@@ -171,15 +172,29 @@ namespace
 
     std::vector<OutputDevice> NullDevice::listOutputDevices() const
     {
-        return { OutputDevice{ "null", "Null output" } };
+        return m_state->outputs;
     }
 
     bool NullDevice::open(std::string_view deviceId)
     {
-        if ( !deviceId.empty() && deviceId != "null" )
+        if ( !deviceId.empty() )
+        {
+            const auto found = std::find_if(m_state->outputs.begin(), m_state->outputs.end(),
+                [deviceId](const OutputDevice& device) { return device.id == deviceId; });
+            if ( found == m_state->outputs.end() )
+            {
+                m_state->open = false;
+                log::warning("audio: open: unknown output device \"{}\"", deviceId);
+                return false;
+            }
+            m_state->open = true;
+            return true;
+        }
+
+        if ( m_state->outputs.empty() )
         {
             m_state->open = false;
-            log::warning("audio: open: unknown output device \"{}\"", deviceId);
+            log::warning("audio: open: there is no default output device");
             return false;
         }
         m_state->open = true;
@@ -285,6 +300,11 @@ namespace
         }
         m_state->open = false;
         m_state->events.push_back(DeviceEvent::DeviceLost);
+    }
+
+    void NullDevice::setOutputDevices(std::vector<OutputDevice> devices)
+    {
+        m_state->outputs = std::move(devices);
     }
 
     std::optional<VoiceMix> NullDevice::voiceMix(VoiceHandle voice) const
