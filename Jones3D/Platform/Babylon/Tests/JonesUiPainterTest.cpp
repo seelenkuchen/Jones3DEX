@@ -45,6 +45,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
+#include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
@@ -196,6 +197,59 @@ namespace
             font.pName      = const_cast<char*>("synthetic");
             font.fontSize   = 14;
             font.pMaterial  = &material;
+            return true;
+        }
+
+        void shutdown()
+        {
+            std3D_ClearSystemTexture(&texture);
+        }
+    };
+
+    // A solid-color 8 x 8 material used as the main menu's load-screen background.
+    struct SyntheticMaterial
+    {
+        rdMaterial material;
+        tSystemTexture texture;
+
+        bool startup(std::uint32_t argb)
+        {
+            memset(&material, 0, sizeof(material));
+            memset(&texture, 0, sizeof(texture));
+
+            tRasterInfo raster;
+            memset(&raster, 0, sizeof(raster));
+            raster.width     = 8;
+            raster.height    = 8;
+            raster.colorInfo = stdColor_cfARGB8888;
+
+            tVBuffer* pBuffer = stdDisplay_VBufferNew(&raster, 0, 0);
+            if ( !pBuffer )
+            {
+                return false;
+            }
+
+            std::uint32_t* pPixels = reinterpret_cast<std::uint32_t*>(pBuffer->pPixels);
+            const std::size_t count = pBuffer->rasterInfo.size / sizeof(std::uint32_t);
+            for ( std::size_t cur = 0; cur < count; ++cur )
+            {
+                pPixels[cur] = argb;
+            }
+
+            tVBuffer* aMips[1] = { pBuffer };
+            std3D_AllocSystemTexture(&texture, aMips, 1u, STDCOLOR_FORMAT_RGBA);
+            std3D_AddToTextureCache(&texture, STDCOLOR_FORMAT_RGBA);
+            stdDisplay_VBufferFree(pBuffer);
+            if ( !texture.pCachedTexture )
+            {
+                return false;
+            }
+
+            material.formatType = STDCOLOR_FORMAT_RGBA;
+            material.width      = 8;
+            material.height     = 8;
+            material.numCels    = 1;
+            material.aTextures  = &texture;
             return true;
         }
 
@@ -595,6 +649,115 @@ TEST_CASE("the modal loop draws the message over the frozen frame")
     }
     CHECK(panelPixels > 1000u);
 
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the main menu draws the level map behind its panel")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the main menu image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    ScriptedPlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+    SyntheticMaterial backgroundMaterial;
+    REQUIRE(backgroundMaterial.startup(STD_RGBA(20, 110, 90, 255)));
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    const ImageId backgroundImage =
+        painter.registerMaterialImage(&backgroundMaterial.material, 0);
+    REQUIRE(backgroundImage != 0);
+
+    // The 8 x 8 source is cover-scaled to the 640 x 480 canvas; the corner shows it undimmed.
+    const JonesUiModalBackground background{ backgroundImage, 8.0f, 8.0f };
+    JonesUiMainMenuHooks hooks;
+    CHECK(JonesUiMainMenu_Run(ui, &painter, background, true, hooks)
+        == JonesUiMainMenuAction::Quit);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    REQUIRE(width == 640u);
+    REQUIRE(height == 480u);
+
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::string bmpPath = "ui-mainmenu-sample.bmp";
+    REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
+    MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    const Rgb corner = PixelAt(pixels, width, 2u, 2u);
+    CHECK(Near(corner.r, 20, 8));
+    CHECK(Near(corner.g, 110, 8));
+    CHECK(Near(corner.b, 90, 8));
+
+    // The menu panel is opaque over the map.
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    size_t panelPixels = 0;
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            const Rgb pixel = PixelAt(pixels, width, x, y);
+            if ( Near(pixel.r, panelColor.r) && Near(pixel.g, panelColor.g)
+                && Near(pixel.b, panelColor.b) )
+            {
+                ++panelPixels;
+            }
+        }
+    }
+    CHECK(panelPixels > 1000u);
+
+    painter.unregisterImage(backgroundImage);
+
+    backgroundMaterial.shutdown();
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();
     stdDisplay_Shutdown();

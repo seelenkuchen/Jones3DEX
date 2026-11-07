@@ -76,6 +76,12 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
 | `2` | Developer dialog |
 | `3` | Sound settings |
 | `4` | Display settings |
+| `5` | Main menu (windowed Babylon build) |
+
+In the windowed Babylon build, a missing `startMode` and the value `2` (the developer dialog, which
+has no screen any more) both open the main menu. `0`, `1`, `3` and `4` keep their meaning, and a
+`--load` path still loads that save directly. The headless runs and the Null column keep the values
+above unchanged.
 
 ### `log.mode`
 
@@ -147,7 +153,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `installPath` | string | empty | Installation path. Usually engine-managed. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
-| `startMode` | int | `2` | Uses the `startMode` enum above. |
+| `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |
 | `log.mode` | int | `0` | Uses the `log.mode` enum above. |
 | `log.level` | int | `1` | Uses the `log.level` enum above. |
 

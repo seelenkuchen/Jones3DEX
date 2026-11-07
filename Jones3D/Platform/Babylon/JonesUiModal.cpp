@@ -98,15 +98,42 @@ namespace
             stdDisplay_VBufferFree(pRgb);
         }
 
-        void Draw(babylon::ui::Ui& ui, JonesUiPainter& painter) const
+        // Cover-scales an image to the canvas: it keeps its aspect and fills the canvas, cropping
+        // the overhang. A zero source size stretches to the whole canvas.
+        static babylon::ui::Rect CoverRect(const babylon::ui::Size& canvas,
+            const JonesUiModalBackground& background)
+        {
+            babylon::ui::Rect rect;
+            if ( !(background.width > 0.0f) || !(background.height > 0.0f) )
+            {
+                rect.width  = canvas.width;
+                rect.height = canvas.height;
+                return rect;
+            }
+
+            // Cover: the larger of the two scale factors, so neither canvas axis is left empty;
+            // the overhang is centered and cropped by the painter's clip.
+            const float scaleX = canvas.width / background.width;
+            const float scaleY = canvas.height / background.height;
+            const float scale  = scaleX > scaleY ? scaleX : scaleY;
+            rect.width  = background.width * scale;
+            rect.height = background.height * scale;
+            rect.x = (canvas.width - rect.width) * 0.5f;
+            rect.y = (canvas.height - rect.height) * 0.5f;
+            return rect;
+        }
+
+        void Draw(babylon::ui::Ui& ui, JonesUiPainter& painter,
+            const JonesUiModalBackground& background) const
         {
             const babylon::ui::Size canvas = ui.canvasSize();
             babylon::ui::Rect full;
             full.width  = canvas.width;
             full.height = canvas.height;
 
-            // Without a captured frame, clear so the previous modal frame does not show through.
-            if ( image == 0 )
+            // Without a captured frame or background image, clear so the previous modal frame does
+            // not show through.
+            if ( image == 0 && background.image == 0 )
             {
                 stdDisplay_BackBufferFill(0, NULL);
             }
@@ -117,12 +144,22 @@ namespace
                 return;
             }
 
-            if ( image != 0 )
+            if ( background.image != 0 )
             {
-                painter.drawImage(image, full);
+                // The menu background is drawn at full brightness; the panel is opaque enough to
+                // keep the text readable.
+                painter.drawImage(background.image, CoverRect(canvas, background));
+            }
+            else
+            {
+                if ( image != 0 )
+                {
+                    painter.drawImage(image, full);
+                }
+
+                painter.fillRect(full, ui.skin().dim);
             }
 
-            painter.fillRect(full, ui.skin().dim);
             ui.draw();
 
             std3D_EndScene();
@@ -156,7 +193,7 @@ namespace
 
 static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
-    const JonesUiModalEventHandler& handler)
+    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background)
 {
     const babylon::ui::ScreenId screenId = ui.push(screen);
     if ( screenId == babylon::ui::kInvalidScreen )
@@ -180,7 +217,7 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     // path behind it.
     JonesUiPainter* pFramePainter = dynamic_cast<JonesUiPainter*>(pPainter);
     FrozenFrame frame;
-    if ( pFramePainter && stdDisplay_IsOpen() )
+    if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 )
     {
         frame.Capture(*pFramePainter);
     }
@@ -265,7 +302,7 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
 
         if ( pFramePainter && stdDisplay_IsOpen() )
         {
-            frame.Draw(ui, *pFramePainter);
+            frame.Draw(ui, *pFramePainter, background);
         }
         else if ( numEvents == 0 )
         {
@@ -290,14 +327,16 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
 }
 
 int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult)
+    const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
+    const JonesUiModalBackground& background)
 {
-    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, JonesUiModalEventHandler());
+    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, JonesUiModalEventHandler(),
+        background);
 }
 
 int JonesUiModal_RunHandled(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
-    const JonesUiModalEventHandler& handler)
+    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background)
 {
-    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler);
+    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler, background);
 }
