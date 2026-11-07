@@ -1,4 +1,4 @@
-# Test list of the smush Movie area (M6.8): the Babylon column's silent SNDDRIVER (DsndSilent.c), polled timer
+# Test list of the smush Movie area (M6.8): the Babylon column's SNDDRIVER (DsndBabylon.cpp), polled timer
 # (TimerPolled.c) and SmushPlay end to end on a synthetic stream. The group is empty on the Null column.
 list(APPEND SMUSH_TEST_SOURCES
     SmushMovieTest.c

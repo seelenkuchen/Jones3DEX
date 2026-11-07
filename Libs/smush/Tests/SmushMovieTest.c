@@ -1,4 +1,4 @@
-// Added: movie playback on the Babylon column (M6.8): the silent sound driver (DsndSilent.c), the polled timer
+// Added: movie playback on the Babylon column (M6.8): the sound driver (DsndBabylon.cpp), the polled timer
 // (TimerPolled.c) and SmushPlay end to end on a synthetic SMUSH stream, all on a fake millisecond clock injected through
 // TimerPolled_SetClockForTest. The Null column keeps DsndNull.c and the tick thread, where movies are skipped
 // (SmushCore.SmushPlay_PlayMovie_NoStartup), so this group is empty there.
