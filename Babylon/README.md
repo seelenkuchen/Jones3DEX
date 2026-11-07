@@ -40,8 +40,9 @@ widgets (labels, images, buttons, toggles, sliders, choices, lists, binding
 capture and text entry), automatic layout on a canvas 480 units high and
 480 * aspect units wide, keyboard/mouse/gamepad focus, cvar-bound values and
 one polled event queue. It draws through the `Painter` interface, so the
-module never depends on `render`; `NullPainter` records draw calls for tests
-and the render-backed painter arrives in M7.9.
+module never depends on `render`; `NullPainter` records draw calls for tests,
+and the game's render-backed painter lives in `Jones3D/Platform/Babylon/`
+(M7.9).
 
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`

@@ -41,10 +41,11 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
   window or sound. This is what the behavior checks use.
 - **Renders the game:** the Babylon column draws the 3D scene, the 2D layer, HUD and console text, and the intro
   movie on Vulkan, Direct3D 12 or Metal, whichever the system provides.
-- **Not playable yet:** the Win32 and DirectX 9 build inherited from OpenJones3D is gone
-  ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)). Windowed play still lacks sound and
-  saving until M7.
-- **Next:** sound, dialogs and saving (M7), then playable on all three platforms.
+- **Playable:** the windowed Babylon build plays with sound (through miniaudio), saving with thumbnails and
+  the in-game menus. The Win32 and DirectX 9 build inherited from OpenJones3D is gone
+  ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)).
+- **Next:** the Controls screen (M7.17b) and an owner play-test on a real display, speakers and gamepad, then
+  the M8 release.
 
 ## The Babylon Engine
 
@@ -60,6 +61,8 @@ CMake target that hides one platform decision:
 | `platform`, `input` | Windows and OS events, and the per-frame input state built from them |
 | `cvars` | Named, typed settings with defaults, ranges and change callbacks |
 | `render` | The GPU: textures, buffers, pipelines and one command list per frame, on SDL3 GPU (Vulkan, Direct3D 12, Metal) |
+| `audio` | The sound device: output device choice, sounds, voices, 3D and streaming voices, on miniaudio with a Null backend |
+| `ui` | Menu screens: widgets, layout, focus, keyboard/mouse/gamepad navigation and cvar binding |
 
 Each module that touches the system has an SDL3 backend and a Null backend that keeps the same contract without a
 device. The game reaches Babylon through a thin adapter in `Libs/std`, which keeps the original function names and behavior, so
@@ -138,8 +141,8 @@ cmake -S . -B build/win64 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-x86_64.cma
 cmake --build build/win64
 ```
 
-Both produce `Jones3D-headless.exe` and the windowed `Jones3D.exe`, which renders the game but lacks sound and
-saving until M7. 32-bit Windows is not supported.
+Both produce `Jones3D-headless.exe` and the windowed `Jones3D.exe`, which plays the game with sound, saving
+and the in-game menus. 32-bit Windows is not supported.
 
 ## Documentation
 

@@ -243,8 +243,8 @@ That separation is one of the cleaner parts of the engine architecture. Even tho
 The Babylon column restores the original `.kfg` control schemes in
 [`JonesControlSchemes.c`](../../../Jones3D/Platform/Babylon/JonesControlSchemes.c), the Win32
 `jonesConfig.c` scheme code without its dialogs. `Jones.cfg`'s `controls.configFile` names the
-active scheme; the windowed run loads it at HUD startup and binds it after `sithControl` registers
-its functions. The headless run keeps the engine's default bindings.
+active scheme; the windowed run loads it at startup and binds it from `JonesControl_Startup` after
+`sithControl` registers its functions. The headless run keeps the engine's default bindings.
 
 The files live in the key-sets directory the original built: `<installPath>\<keysets>` when
 `installPath` is set, else `..\<keysets>` relative to the working directory. A file starts with the
@@ -257,3 +257,21 @@ RZ axes. It cannot name mouse buttons or the right-stick RX/RY axes. Those bindi
 trailing `EXTRAS` section after the 37 action lines, which the original reader skips because its
 action loop ends there. Each extras line is `"<action>" "<control>"`, where the control is
 `MOUSE1`..`MOUSE4`, `Z-`/`Z+` (the left trigger), or `RX-`/`RX+`/`RY-`/`RY+`.
+
+The original default scheme differs from the engine defaults in three ways: activate moves off the
+grave key, `I` opens the HUD menu, and joystick binds are dropped while `controls.controller` is false.
+
+## Menu And Pause Keys
+
+[`JonesMain_ProcessMenu()`](../../../Jones3D/Main/JonesMain.c) opens the pause menu on Escape or
+gamepad Start (button 7). It does so only when the player is alive and no cutscene, load, HUD menu,
+console or pause owns the frame (`JonesMain_CanOpenPauseMenu`), and it uses the same game-time and
+sound pause pair as the HUD menu. The pause menu's entries run the HUD menu's system-item functions
+([In-Game-Menus.md](In-Game-Menus.md)).
+
+Escape no longer opens the HUD item menu. The HUD menu opens on the active control scheme's
+interface action, which the default scheme binds to `I`. The original also bound it to a key and a
+gamepad button through the removed Win32 controls dialog, so a loaded scheme can have no interface
+binding today; Tab and gamepad Back (button 6) then stand in as a fallback while a scheme is active
+(`jonesConfig_HasActiveControlScheme`). The headless run and the Null column have no scheme and keep
+their old bindings. The Controls screen (M7.17b) will make the menu binds editable again.

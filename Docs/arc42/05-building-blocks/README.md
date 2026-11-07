@@ -39,31 +39,32 @@ Dependencies only point down. Babylon depends on nothing above it, and nothing i
 or Sith concept ([ADR-0006](../09-decisions/ADR-0006-babylon-engine-in-repo.md),
 [ADR-0007](../09-decisions/ADR-0007-adapter-between-game-and-babylon.md)).
 
-**Today (M6.10):** two platform columns exist, chosen at configure time. The **Null column** is the M4 backend
+**Today (M7):** two platform columns exist, chosen at configure time. The **Null column** is the M4 backend
 described in [Platform-Layer.md](Platform-Layer.md). The **Babylon column**
 (`-DJONES3D_PLATFORM_BABYLON=ON`; the default and only choice on Windows, which builds it as a 64-bit program)
-is the Null column with time, files, input, the window and rendering moved onto Babylon; sound still uses the
-Null backend until M7. The Win32 and DirectX columns were removed in M6.3. All columns produce identical
-headless traces, byte for byte.
+is the Null column with time, files, input, the window, rendering and sound moved onto Babylon, plus saving
+and the in-game screens ([In-Game-Menus.md](In-Game-Menus.md)). The Win32 and DirectX columns were removed in
+M6.3. All columns produce identical headless traces, byte for byte.
 
 ## 5.2 Level 2: Babylon Engine
 
 Modules marked M5 exist and are used by the Babylon column. Render exists from M6.4 and the game uses it since
-M6.6 (`std3D`) and M6.7 (`stdDisplay`). Audio has its interface and Null backend from M7.1 and joins the game
-with the miniaudio backend in M7.2; the others are still planned.
+M6.6 (`std3D`) and M6.7 (`stdDisplay`). Audio has its interface and Null backend from M7.1, the miniaudio
+backend from M7.2 and the game's driver from M7.3. UI exists from M7.8; the game's painter is from M7.9 and
+the modal loop and screens from M7.10. Threads are still planned.
 
 | Module | Role | Backends | Adapter that uses it | State |
 |---|---|---|---|---|
 | core | Shared types, version, locale-free number parsing | | | M5 |
 | Log | Leveled logging with sinks | | | M5 (the game still logs through `STDLOG_*`) |
-| Platform | Windows and the one event queue (window, key, mouse and gamepad events) | SDL3, Null | `wkernelBabylon.cpp`, `stdBabylonEvents.cpp` | M5 |
-| Input | Input state built from platform events; input scripts (ADR-0018) | none of its own: events come from Platform or a script | `stdControlDevicesBabylon.cpp` | M5 (keys and mouse buttons; mouse axes and gamepads later) |
+| Platform | Windows and the one event queue (window, key, mouse, gamepad and text-input events) | SDL3, Null | `wkernelBabylon.cpp`, `stdBabylonEvents.cpp` | M5; text input and gamepads in M7.7 |
+| Input | Input state built from platform events; input scripts (ADR-0018) | none of its own: events come from Platform or a script | `stdControlDevicesBabylon.cpp` | M5 (keys and mouse buttons); mouse axes, gamepads and text input in M7.7 |
 | Time | Monotonic clock and a caller-driven Null clock | SDL3, Null | `stdPlatformTimeBabylon.cpp` | M5 |
 | Files | Files, directory listing, base, current and user directories | SDL3, Null | `stdFileBabylon.cpp`, `stdFileUtilBabylon.cpp`, `stdBabylonPath.cpp` | M5 |
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
 | Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
-| Audio | Devices, voices, 3D positioning, streaming | Null, miniaudio | `Driver_*` in M7.3 | M7.1: interface and Null backend; M7.2: miniaudio backend (low-level `ma_device` with own mixer, null-device mode for tests) |
-| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null painter; the game supplies the real painter (ADR-0026 amendment) | `jonesConfig_*` screens | M7.8 (interface, layout and Null painter); the Jones3D painter in M7.9 |
+| Audio | Devices, voices, 3D positioning, streams | Null, miniaudio | `Driver_*` (M7.3), `DsndBabylon.cpp` (M7.4) | M7.1: interface and Null backend; M7.2: miniaudio backend (low-level `ma_device` with own mixer, null-device mode for tests); M7.3: the game's driver; M7.4: the SMUSH stream; M7.5: the output device choice |
+| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null painter; the game supplies the real painter (ADR-0026 amendment) | `jonesConfig_*` screens | M7.8 (interface, layout and Null painter); the Jones3D painter in M7.9; the modal loop and screens from M7.10 to M7.20, with the Controls screen still to come (M7.17b) |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
 The adapter files live in `Libs/std/Babylon/` and `Libs/wkernel/`; they reach Babylon through one context

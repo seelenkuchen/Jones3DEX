@@ -5,7 +5,8 @@ movie (`jonesopn.snm`) in the Babylon column, through the silent SMUSH sound dri
 drawing each movie frame into the back buffer through `stdDisplay`. The run was `Jones3D-headless --render gpu
 --capture` with `startMode` 0 (SDL GPU on Mesa lavapipe, no window); the capture was then rendered with
 `Jones3D-replay --render gpu --frames-out --every 20`. It holds 2,034 frames, close to the 2,014 of the DX9 intro
-capture of M6.1, and replays with no mismatch. Sound is silent until M7.
+capture of M6.1, and replays with no mismatch. The capture predates the M7 sound work; the frames are
+unaffected.
 
 Recorded 2026-11-06 at `3e51cdc4` (M6.8).
 
