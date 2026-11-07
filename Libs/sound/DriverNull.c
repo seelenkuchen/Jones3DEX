@@ -1,9 +1,11 @@
 // Added: Null version of Libs/sound/DriverDX9.c (the DirectSound driver). There is no sound
 // device: SoundDriver_Open succeeds, CreateAndPlay hands out a small malloc'd handle that
 // Release frees, playback never starts (Stop/Play are no-ops) and GetCurrentPosition stays
-// 0, so every sound "finishes" immediately. The settable state (volume, pan, frequency) is
-// kept per handle like the DirectSound buffer state, and the listener mix path mirrors
-// DriverDX9.c's software path because there is never 3D hardware here.
+// 0. Sound completion is not this backend's job: per ADR-0027 the sound layer computes each
+// channel's play position from its own clock, so a Null sound still plays for its full length.
+// The settable state (volume, pan, frequency) is kept per handle like the DirectSound buffer
+// state, and the listener mix path mirrors DriverDX9.c's software path because there is never
+// 3D hardware here.
 #include <j3dcore/j3d.h>
 
 #include <math.h>
@@ -155,8 +157,8 @@ tSysSoundBuffer* J3DAPI SoundDriver_CreateAndPlay(size_t samplesPerSec, size_t n
     pBuf->pan       = 0.0f;
     pBuf->frequency = SOUNDDRIVER_DEFAULT_FREQUENCY;
 
-    // Added: The buffer is always software-mixed here and never starts playing;
-    // GetStatusAndCaps reports it stopped, so the engine ends the channel at once.
+    // Added: The buffer is always software-mixed here and never starts playing; the sound layer
+    // tracks the play position itself (ADR-0027), so GetStatusAndCaps is not consulted for it.
     *pFlags |= SOUND_CHANNEL_SWMIXING;
     return pBuf;
 }

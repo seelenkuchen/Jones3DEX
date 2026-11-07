@@ -111,6 +111,7 @@ typedef void (J3DAPI* SoundTestUncompressFunc)(tAudioCompressorState* pCompresso
 
 // Added: Test-only state and dependency controls for deterministic lip-sync unit tests.
 void Sound_TestResetLipSyncState(void);
+void Sound_TestSetOpenState(void); // Added: ADR-0027 - open the layer's clock without touching a driver
 void Sound_TestSetChannels(tSoundChannel* pChannels, size_t numChannels);
 void Sound_TestSetSoundBank(size_t bankNum, SoundInfo* pSoundInfos, size_t numSounds, uint8_t* pSoundCache, size_t cacheSize);
 void Sound_TestSetNoLipSync(int bNoLipSync);
