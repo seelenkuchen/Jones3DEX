@@ -21,6 +21,7 @@
 
 | Debt | Where | Plan |
 |---|---|---|
+| Indy's left forearm and hand disappear for a few frames while walking backwards in the Babylon renderer (found by the owner 2026-11-07; not in the DX9 build) | A visible model regression of the new renderer | Narrow it down with a deterministic headless capture replayed with lit faces on and off; suspects are the lit-faces path, depth clipping of pre-transformed vertices, and culling |
 | QOL behavior as one compile-time profile | `J3D_QOL_IMPROVEMENTS`, `J3D_SPEEDRUN_BUILD`; only `engine.renderer.vfx.weapon.fireFlash.enabled`, `engine.world.cnd.materials.loadExternal` and `engine.world.cnd.keyframes.loadExternal` are runtime options today | Make the rest individual runtime options ([ADR-0003](09-decisions/ADR-0003-fidelity-split.md)) |
 | New UI labels are English literals | The M7 screens in `Jones3D/Platform/Babylon/JonesUi*.cpp`, marked `TODO: [COMPAT]` | Replace them with localized `JONES_STR_*` strings |
 | DirectDraw type names in shared headers | `LPDDCOLORKEY` in `std3D.h`, `stdColor.h`, `stdDisplay.h` and `stdRenderBackendApi.h` (the Direct3D vertex types are gone since M6.3) | Rename to a neutral colour-key type |
