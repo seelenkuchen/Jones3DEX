@@ -1,8 +1,7 @@
 # In-game menus
 
-Status: built in the Babylon column on 2026-11-07 ([ADR-0026](../09-decisions/ADR-0026-in-game-menus.md)).
-The Controls screen is in progress (M7.17b); until it lands, the column's `jonesConfig_ShowControlOptions`
-is still the Null stub. The Null column keeps all of its default-returning stubs.
+Status: built in the Babylon column on 2026-11-07 ([ADR-0026](../09-decisions/ADR-0026-in-game-menus.md)),
+including the Controls screen. The Null column keeps all of its default-returning stubs.
 
 ## Layers
 
@@ -23,7 +22,7 @@ is still the Null stub. The Null column keeps all of its default-returning stubs
 | Save, Load | Pause menu, HUD menu, main menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level and date; default save name; overwrite and load warnings |
 | Exit | Pause menu, HUD menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
 | Gameplay settings | Settings | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the enhancements that are runtime keys |
-| Controls | Settings | M7.17b | Coming; the Null stub answers now. Scheme picker, one rebind list for keys and gamepad, reset to defaults |
+| Controls | Settings | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, reset to defaults; writes `controls.configFile` and applies the active scheme on OK |
 | Display | Settings | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in) |
 | Sound | Settings | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
 | Statistics | Pause menu, HUD menu | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | |
@@ -41,7 +40,7 @@ Dropped: Insert CD (all data is installed; a missing file gets a message screen 
   window's aspect. New labels added in M7 are English literals marked `TODO: [COMPAT]`.
 - The HUD item menu keeps working with keyboard and gamepad through the normal game actions. Escape opens
   the pause menu; the HUD menu opens on the active control scheme's interface key, with Tab and gamepad Back
-  as a fallback when the scheme binds none. The Controls screen will make those binds editable
+  as a fallback when the scheme binds none. The Controls screen makes those binds editable
   ([Control-And-Input.md](Control-And-Input.md#menu-and-pause-keys)).
 - Menus play the HUD item menu's own sounds through `sithSoundMixer`: `inv_move.wav` when focus
   moves, and `inv_expand.wav` when a screen accepts or goes back. The HUD loads those sounds with

@@ -44,8 +44,7 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
 - **Playable:** the windowed Babylon build plays with sound (through miniaudio), saving with thumbnails and
   the in-game menus. The Win32 and DirectX 9 build inherited from OpenJones3D is gone
   ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)).
-- **Next:** the Controls screen (M7.17b) and an owner play-test on a real display, speakers and gamepad, then
-  the M8 release.
+- **Next:** an owner play-test on a real display, speakers and gamepad, then the M8 release.
 
 ## The Babylon Engine
 

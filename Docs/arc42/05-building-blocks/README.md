@@ -64,7 +64,7 @@ the modal loop and screens from M7.10. Threads are still planned.
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
 | Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
 | Audio | Devices, voices, 3D positioning, streams | Null, miniaudio | `Driver_*` (M7.3), `DsndBabylon.cpp` (M7.4) | M7.1: interface and Null backend; M7.2: miniaudio backend (low-level `ma_device` with own mixer, null-device mode for tests); M7.3: the game's driver; M7.4: the SMUSH stream; M7.5: the output device choice |
-| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null painter; the game supplies the real painter (ADR-0026 amendment) | `jonesConfig_*` screens | M7.8 (interface, layout and Null painter); the Jones3D painter in M7.9; the modal loop and screens from M7.10 to M7.20, with the Controls screen still to come (M7.17b) |
+| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null painter; the game supplies the real painter (ADR-0026 amendment) | `jonesConfig_*` screens | M7.8 (interface, layout and Null painter); the Jones3D painter in M7.9; the modal loop and screens from M7.10 to M7.20 |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
 The adapter files live in `Libs/std/Babylon/` and `Libs/wkernel/`; they reach Babylon through one context

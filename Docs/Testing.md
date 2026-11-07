@@ -576,6 +576,14 @@ reference shots, and [M6.6](References/M6.6/README.md), [M6.7](References/M6.7/R
 with their PSNR and differing-pixel counts. The captures themselves contain game data and stay in the private
 reference repository; the screenshots under `Docs/References/` are committed.
 
+The windowed `Jones3D` can take screenshots of a scripted menu tour without game data in the test tree. `--input
+<script>` feeds a Babylon `InputScript` instead of the window's key, mouse, gamepad and text events; its frame
+number is the present count, so it drives modal screens as well as the game loop. `--present-log <file>` writes
+one `frame <n>: <title>` line per present, naming the open screen's title or `game`. `--screenshot-dir <dir>
+--screenshot-at <n>[,<n>...]` writes `frame-<n>.bmp` (24-bit, bottom row first) after those presents, and
+`--quit-after-script` ends the run when the script's frames are used up. The BMPs contain game data and stay
+local.
+
 <a name="renderer-reference-masks"></a>
 
 #### 🖼️ Renderer Reference Masks
