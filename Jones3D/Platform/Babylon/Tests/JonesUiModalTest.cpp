@@ -25,6 +25,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/jonesString.h>
+#include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Play/jonesInventory.h>
@@ -32,10 +33,30 @@
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
 
+#include <cstring>
+
 // The wrapper's string lookup, stubbed so this executable need not link the game layer. The
-// string-key cases fall back to the readable text JonesUiModalMessage.cpp supplies.
+// string-key cases fall back to the readable text JonesUiModalMessage.cpp supplies. A case may
+// inject one table entry to exercise lookup behavior.
+namespace
+{
+    const char* g_pTestStringKey   = nullptr;
+    const char* g_pTestStringValue = nullptr;
+}
+
+extern "C" void JonesUiTest_SetString(const char* pKey, const char* pValue)
+{
+    g_pTestStringKey   = pKey;
+    g_pTestStringValue = pValue;
+}
+
 extern "C" const char* J3DAPI jonesString_GetString(const char* pKey)
 {
+    if ( g_pTestStringKey && std::strcmp(pKey, g_pTestStringKey) == 0 )
+    {
+        return g_pTestStringValue;
+    }
+
     return pKey;
 }
 
@@ -278,6 +299,16 @@ TEST_CASE("a nested modal returns to the outer screen")
     CHECK(ui.screenCount() == 1u);
     CHECK(ui.topScreen() == outerId);
     CHECK(ui.isOpen(outerId));
+}
+
+TEST_CASE("the string resolver strips the string table's dialog mnemonics")
+{
+    JonesUiTest_SetString("JONES_STR_TEST_MNEMONIC", "&Load Game && &More");
+    CHECK(JonesUiContext_ResolveString("JONES_STR_TEST_MNEMONIC") == "Load Game & More");
+    JonesUiTest_SetString(nullptr, nullptr);
+
+    // Text without a table entry passes through unchanged.
+    CHECK(JonesUiContext_ResolveString("Back") == "Back");
 }
 
 TEST_CASE("the message dialogs answer the Null value headless")

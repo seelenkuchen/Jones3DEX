@@ -52,17 +52,17 @@ babylon::ui::Screen JonesUiPauseMenu_BuildScreen(void)
     screen.title = "Pause"; // TODO: [COMPAT] add a JONES_STR key
 
     screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_RESUME"), kJonesPauseResume, true });
+        JonesUiContext_ResolveString("JONES_STR_EXIT3"), kJonesPauseResume, true });
     screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_SAVEGM"), kJonesPauseSave, true });
+        JonesUiContext_ResolveString("JONES_STR_INV_SAVE"), kJonesPauseSave, true });
     screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_LOAD"), kJonesPauseLoad, true });
+        JonesUiContext_ResolveString("JONES_STR_INV_LOAD"), kJonesPauseLoad, true });
     screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_SETTINGS"), kJonesPauseSettings, true });
+        "Settings", kJonesPauseSettings, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
     screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_IQ"), kJonesPauseStatistics, true });
+        JonesUiContext_ResolveString("JONES_STR_INV_STATS"), kJonesPauseStatistics, true });
     screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_EXIT"), kJonesPauseExit, true });
+        JonesUiContext_ResolveString("JONES_STR_INV_EXIT"), kJonesPauseExit, true });
 
     screen.backResult   = kJonesPauseClosed;
     screen.initialFocus = 0;
@@ -72,7 +72,8 @@ babylon::ui::Screen JonesUiPauseMenu_BuildScreen(void)
 babylon::ui::Screen JonesUiPauseMenu_BuildSettingsScreen(void)
 {
     babylon::ui::Screen screen;
-    screen.title = JonesUiContext_ResolveString("JONES_STR_SETTINGS");
+    // JONES_STR_SETTINGS is "Settings for %s", a format string with no plain title.
+    screen.title = "Settings"; // TODO: [COMPAT] no game key holds a plain "Settings"
 
     screen.widgets.emplace_back(babylon::ui::Button{
         JonesUiContext_ResolveString("JONES_STR_GMPLY_OPTS"), kJonesSettingsGamePlay, true });

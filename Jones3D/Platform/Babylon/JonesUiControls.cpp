@@ -502,7 +502,7 @@ namespace
             kJonesControlsRemoveText, bindings, 0, kJonesAssignActionRemove,
             bEditable && !bindings.empty() });
         screen.widgets.emplace_back(babylon::ui::Button{
-            ResolveLabel("JONES_STR_BACK", "Back"), kJonesDialogCancel, true });
+            "Back", kJonesDialogCancel, true }); // TODO: [COMPAT] JONES_STR_BACK is "BACK SPACE"
 
         screen.backResult   = kJonesDialogCancel;
         screen.initialFocus = bEditable ? kJonesAssignCapture

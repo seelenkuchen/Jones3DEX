@@ -66,17 +66,18 @@ namespace
     Screen BuildSettingsScreen(void)
     {
         Screen screen;
-        screen.title = MenuLabel("JONES_STR_SETTINGS", "Settings");
+        // JONES_STR_SETTINGS is "Settings for %s", a format string with no plain title.
+        screen.title = "Settings"; // TODO: [COMPAT] no game key holds a plain "Settings"
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_GAMEPLAY", "Gameplay"), kGameplayAction, true });
+            MenuLabel("JONES_STR_INV_DFCTLY", "Gameplay Options"), kGameplayAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_CONTROLS", "Controls"), kControlsAction, true });
+            MenuLabel("JONES_STR_INV_CONFIG", "Control Options"), kControlsAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_DISPLAYSETTINGS", "Display"), kDisplayAction, true });
+            MenuLabel("JONES_STR_INV_DSPLY", "Display Options"), kDisplayAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_SOUNDSETTINGS", "Sound"), kSoundAction, true });
+            MenuLabel("JONES_STR_INV_SND", "Sound Options"), kSoundAction, true });
         screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_BACK", "Back"), kBackAction, true });
+            "Back", kBackAction, true }); // TODO: [COMPAT] JONES_STR_BACK is "BACK SPACE"
         screen.backResult   = kBackAction;
         screen.initialFocus = 0;
         return screen;
@@ -87,13 +88,14 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
     const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks)
 {
     Screen menu;
-    menu.title = MenuLabel("JONES_STR_MAINMENU", "Indiana Jones and the Infernal Machine");
+    // No game key holds the game's full title or a plain "New Game".
+    menu.title = "Indiana Jones and the Infernal Machine"; // TODO: [COMPAT]
     menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_NEWGAME", "New Game"), kNewGameAction, true });
+        "New Game", kNewGameAction, true }); // TODO: [COMPAT]
     menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_LOADGAME", "Load"), kLoadAction, bCanLoad });
+        MenuLabel("JONES_STR_LOADGM", "Load Game"), kLoadAction, bCanLoad });
     menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_SETTINGS", "Settings"), kSettingsAction, true });
+        "Settings", kSettingsAction, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
     menu.widgets.emplace_back(Button{
         MenuLabel("JONES_STR_QUIT", "Quit"), kQuitAction, true });
     menu.backResult   = kQuitAction;

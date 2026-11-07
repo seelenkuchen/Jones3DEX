@@ -276,9 +276,15 @@ TEST_CASE("the pause menu has the original six entries and back closes it")
     CHECK(std::get<ui::Button>(screen.widgets[4]).action == 5);
     CHECK(std::get<ui::Button>(screen.widgets[5]).action == 6);
 
-    for ( const ui::Widget& widget : screen.widgets )
+    // Without a string table the stub returns each key unchanged; the Settings entry has no game
+    // key and is the English literal.
+    const char* const aExpectedText[] = {
+        "JONES_STR_EXIT3", "JONES_STR_INV_SAVE", "JONES_STR_INV_LOAD", "Settings",
+        "JONES_STR_INV_STATS", "JONES_STR_INV_EXIT",
+    };
+    for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
     {
-        CHECK(std::get<ui::Button>(widget).text.rfind("JONES_STR_", 0) == 0);
+        CHECK(std::get<ui::Button>(screen.widgets[i]).text == aExpectedText[i]);
     }
 
     {

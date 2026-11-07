@@ -22,6 +22,33 @@ namespace
     constexpr float kJonesUiFontSize = 16.0f;
 
     JonesUiContext* g_pContext = nullptr;
+
+    // Removes the Win32 dialog mnemonics the game's string table stores: a lone '&' marks the
+    // access key and is dropped, while "&&" stands for a literal '&'.
+    std::string StripMnemonics(const char* pText)
+    {
+        std::string text;
+        if ( !pText )
+        {
+            return text;
+        }
+
+        text.reserve(std::strlen(pText));
+        for ( const char* pCur = pText; *pCur; ++pCur )
+        {
+            if ( *pCur != '&' )
+            {
+                text.push_back(*pCur);
+            }
+            else if ( pCur[1] == '&' )
+            {
+                text.push_back('&');
+                ++pCur;
+            }
+        }
+
+        return text;
+    }
 }
 
 JonesUiContext::~JonesUiContext()
@@ -137,9 +164,9 @@ std::string JonesUiContext_ResolveString(const char* pValue)
         const char* pResolved = jonesString_GetString(pValue);
         if ( pResolved && pResolved[0] )
         {
-            return std::string(pResolved);
+            return StripMnemonics(pResolved);
         }
     }
 
-    return std::string(pValue);
+    return StripMnemonics(pValue);
 }
