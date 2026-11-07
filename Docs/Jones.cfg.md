@@ -227,6 +227,7 @@ For these CND `*.loadExternal` options, `external` means loose files on disk tha
 | `sound.reverse` | bool | `false` | Reverses left/right sound channels. |
 | `sound.volume` | float | `1.0` | Master sound volume. |
 | `sound.swmixer.falloff` | int | `2` | Default build uses logarithmic falloff. Legacy/QOL-off builds use `0`. |
+| `engine.audio.outputDevice` | string | empty | Presentation only, in every build and both profiles. The opaque id of the sound output device, as listed by the device selection. Empty selects the system default. Read with the other sound settings when sound opens; a device that is missing at startup falls back to the default and is used again when it returns. The settings screen writes this key when the choice changes. |
 
 ## Reticle options
 

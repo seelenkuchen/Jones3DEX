@@ -8,6 +8,7 @@
 
 #include <sound/AudioLib.h>
 #include <sound/Sound.h>
+#include <sound/DriverOutput.h>
 #include <std/General/std.h>
 #include <std/General/stdUtil.h>
 #include <std/types.h>
@@ -673,6 +674,21 @@ TEST(Sound, TestPlayProgressUsesComputedPosition)
     TEST_ASSERT_FALSE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
 }
 
+TEST(Sound, OutputDeviceStubsReportNoDevicesAndRefuseSwitching)
+{
+    char aId[16]   = "keep";
+    char aName[16] = "keep";
+
+    TEST_ASSERT_EQUAL_size_t(0u, SoundDriver_GetNumOutputDevices());
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_GetOutputDevice(0, aId, sizeof(aId), aName, sizeof(aName)));
+    TEST_ASSERT_EQUAL_STRING("keep", aId);
+    TEST_ASSERT_EQUAL_STRING("keep", aName);
+
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_SetOutputDevice("null"));
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_SetOutputDevice(NULL));
+    TEST_ASSERT_EQUAL_STRING("", SoundDriver_GetCurrentOutputDevice());
+}
+
 TEST_GROUP_RUNNER(Sound)
 {
     RUN_TEST_CASE(Sound, TestFailures);
@@ -690,4 +706,5 @@ TEST_GROUP_RUNNER(Sound)
     RUN_TEST_CASE(Sound, TestSoundStartedWhilePausedPlays);
     RUN_TEST_CASE(Sound, TestPlayAcrossPauseResume);
     RUN_TEST_CASE(Sound, TestPlayProgressUsesComputedPosition);
+    RUN_TEST_CASE(Sound, OutputDeviceStubsReportNoDevicesAndRefuseSwitching);
 }

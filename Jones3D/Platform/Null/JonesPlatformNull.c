@@ -202,69 +202,8 @@ int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     return JONESPLATFORM_NULL_IDCANCEL;
 }
 
-int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd, StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pDSettings)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pDisplayEnv);
-    J3D_UNUSED(pDSettings);
-    // Altered: 1 applies changed display settings; the Null dialog cancels like the
-    // Windows WM_CLOSE path (EndDialog(hWnd, 2)), so no settings are applied.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-int J3DAPI jonesConfig_ShowGameOverDialog(tSysWindow hWnd, char* pRestoreFilename, tSoundHandle hSndGameOVerMus, tSoundChannelHandle* pSndChnlMus)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pRestoreFilename);
-    J3D_UNUSED(hSndGameOVerMus);
-    J3D_UNUSED(pSndChnlMus);
-    // Altered: Buttons are 1177 ("restart") and 1178 ("load game"); anything else
-    // (including the EndDialog(hwnd, 2) cancel of the Windows dialog) just stops the
-    // died-music channel, which is the natural Null answer.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
 int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd)
 {
     J3D_UNUSED(hWnd);
     return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-int J3DAPI jonesConfig_ShowLevelCompletedDialog(tSysWindow hWnd, int* pBalance, int* apItemsState, int a4, int elapsedTime, int qiPoints, int numFoundTrasures, int foundTrasureValue, int totalTreasureValue)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pBalance);
-    J3D_UNUSED(apItemsState);
-    J3D_UNUSED(a4);
-    J3D_UNUSED(elapsedTime);
-    J3D_UNUSED(qiPoints);
-    J3D_UNUSED(numFoundTrasures);
-    J3D_UNUSED(foundTrasureValue);
-    J3D_UNUSED(totalTreasureValue);
-    // Altered: The Windows store dialog answers 1 when the bonus map was bought; the
-    // Null dialog cancels, so no store purchases and no bonus map happen.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd, JonesSoundSettings* pData)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pData);
-    // Altered: 1 applies changed sound settings; the Null dialog cancels like the
-    // Windows cancel paths.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-int J3DAPI jonesConfig_ShowStatisticsDialog(tSysWindow hWnd, SithGameStatistics* pStatistics)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(pStatistics);
-    // Altered: The statistics dialog's result is only consumed as a modal wait; cancel
-    // is the Windows EndDialog(hwnd, 2) answer.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-void jonesConfig_UpdateCurrentLevelNum(void)
-{
-    // Added: No statistics dialog dialog on this platform; nothing to track.
 }

@@ -289,6 +289,37 @@ TEST_CASE("bound and unbound value widgets write cvars and report ValueChanged")
     CHECK(std::get<std::int64_t>(ui.widgetValue(id, 7).value()) == 1);
 }
 
+TEST_CASE("unbound value widgets start from their declared values")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Screen screen;
+    screen.title = "Initial values";
+    screen.widgets = {
+        Toggle{ "Toggle", "", true, true },
+        Slider{ "Slider", "", 0.0, 10.0, 1.0, true, 4.0 },
+        Slider{ "Clamped", "", 0.0, 10.0, 1.0, true, 20.0 },
+        Choice{ "Choice", "", { "A", "B", "C" }, true, 2 },
+        Choice{ "Clamped choice", "", { "A", "B" }, true, 7 },
+    };
+    const ScreenId id = ui.push(screen);
+    REQUIRE(id != kInvalidScreen);
+
+    CHECK(std::get<bool>(ui.widgetValue(id, 0).value()));
+    CHECK(std::get<double>(ui.widgetValue(id, 1).value()) == doctest::Approx(4.0));
+    CHECK(std::get<double>(ui.widgetValue(id, 2).value()) == doctest::Approx(10.0));
+    CHECK(std::get<std::int64_t>(ui.widgetValue(id, 3).value()) == 2);
+    CHECK(std::get<std::int64_t>(ui.widgetValue(id, 4).value()) == 1);
+
+    tap(ui, platform::Key::Down);
+    tap(ui, platform::Key::Right);
+    CHECK(std::get<double>(ui.widgetValue(id, 1).value()) == doctest::Approx(5.0));
+
+    drain(ui);
+}
+
 TEST_CASE("a ReadOnly cvar is skipped by focus and drawn disabled")
 {
     NullPainter painter;

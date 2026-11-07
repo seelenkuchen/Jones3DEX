@@ -109,16 +109,22 @@ namespace
     {
         if ( const Toggle* toggle = get<Toggle>(widget) )
         {
-            (void)toggle;
-            return false;
+            return toggle->value;
         }
         if ( const Slider* slider = get<Slider>(widget) )
         {
-            return slider->min;
+            return std::max(slider->min, std::min(slider->value, slider->max));
         }
-        if ( get<Choice>(widget) != nullptr )
+        if ( const Choice* choice = get<Choice>(widget) )
         {
-            return std::int64_t{ 0 };
+            if ( choice->options.empty() )
+            {
+                return std::int64_t{ 0 };
+            }
+
+            const std::size_t selected = std::min(choice->selected,
+                choice->options.size() - 1);
+            return static_cast<std::int64_t>(selected);
         }
         if ( const TextEntry* entry = get<TextEntry>(widget) )
         {

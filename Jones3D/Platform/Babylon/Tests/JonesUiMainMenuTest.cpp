@@ -51,23 +51,6 @@ extern "C" int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     return 2;
 }
 
-extern "C" int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd,
-    StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pDSettings)
-{
-    (void)hWnd;
-    (void)pDisplayEnv;
-    (void)pDSettings;
-    return 2;
-}
-
-extern "C" int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd,
-    JonesSoundSettings* pData)
-{
-    (void)hWnd;
-    (void)pData;
-    return 2;
-}
-
 extern "C" void JonesPlatformNull_SetLoadPath(const char* pPath);
 extern "C" void JonesPlatformNull_ClearLoadPath(void);
 

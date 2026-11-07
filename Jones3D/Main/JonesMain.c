@@ -34,6 +34,7 @@
 #include <sound/AudioLib.h>
 #include <sound/Sound.h>
 #include <sound/Driver.h>
+#include <sound/DriverOutput.h>
 
 #include <smush/SmushPlay.h>
 
@@ -2534,6 +2535,17 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
 
     pConfig->soundSettings.b3DHWSupport  = stdConfig_GetBool(JONESCONFIG_CFG_SOUND_HW, false);
     pConfig->soundSettings.bReverseSound = stdConfig_GetBool(JONESCONFIG_CFG_SOUND_REVERSE, false);
+
+    // Added: the output device is presentation only, in both profiles. Read with the other sound
+    // settings; the driver keeps the id and opens it when sound opens.
+    char aOutputDevice[SOUNDDRIVER_OUTPUTDEVICE_ID_MAX + 1] = { 0 };
+    stdConfig_GetString(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE, aOutputDevice, STD_ARRAYLEN(aOutputDevice), "");
+    if ( !stdConfig_Contains(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE) )
+    {
+        stdConfig_SetString(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE, aOutputDevice);
+    }
+
+    SoundDriver_SetConfiguredOutputDevice(aOutputDevice);
 }
 
 // Added: Startup display environment read by the dev dialog in the platform layer
