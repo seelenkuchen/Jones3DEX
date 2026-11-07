@@ -37,6 +37,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesWindowMode.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesWindowMode.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModalMessage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiContext.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiContext.h"

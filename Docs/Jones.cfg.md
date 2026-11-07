@@ -178,7 +178,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `graphics.allDevices` | bool | `false` | Show all display devices, including less-preferred ones. |
-| `graphics.window` | bool | `false` | Windowed mode toggle. |
+| `graphics.window` | bool | `false` | Windowed mode toggle. The windowed build also switches it at runtime with Alt+Enter. |
 | `graphics.dualMonitor` | bool | `false` | Dual-monitor window mode toggle. |
 | `graphics.buffering` | bool | `false` | Buffered display mode toggle. |
 | `graphics.mipmapFilter` | int | `2` | Uses the `graphics.mipmapFilter` enum above. |

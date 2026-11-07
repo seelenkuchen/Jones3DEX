@@ -1,7 +1,9 @@
 // Added: the Babylon column's modal screen loop; see JonesUiModal.h.
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
+#include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 
 #include <babylon/platform/Event.h>
 #include <babylon/platform/Window.h>
@@ -248,6 +250,9 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
             ui.handleEvent(event);
         }
 
+        // Added: Alt+Enter switches windowed/fullscreen from a menu too.
+        (void)JonesWindowMode_HandleHotkey();
+
         // A quit or close closes this screen with its back result but leaves the recorded request
         // for the game loop, which turns it into the WM_QUIT it expects after a dialog.
         if ( bQuit && ui.isOpen(screenId) )
@@ -292,6 +297,14 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 {
                     static_cast<void>(pWindow->setTextInput(pTextInput->on));
                 }
+            }
+            else if ( const babylon::ui::SoundCue* pSound =
+                    std::get_if<babylon::ui::SoundCue>(&*pEvent) )
+            {
+                // Added: play the HUD menu's own sound for the cue. The HUD owns the menu sounds
+                // and loads them with its menu; before a world opens (the main menu at startup)
+                // its handles are zero and the cue stays silent.
+                JonesHud_PlayMenuSoundCue((int)pSound->cue);
             }
         }
 

@@ -31,8 +31,9 @@ babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont)
     skin.minPanelWidth = 240.0f;
     skin.canvasMargin = 16.0f;
 
-    skin.focusSound  = 0;
-    skin.acceptSound = 0;
-    skin.backSound   = 0;
+    // Added: the HUD item menu's own cues (JonesUiSkin.h).
+    skin.focusSound  = kJonesUiSoundCueFocus;
+    skin.acceptSound = kJonesUiSoundCueAccept;
+    skin.backSound   = kJonesUiSoundCueBack;
     return skin;
 }

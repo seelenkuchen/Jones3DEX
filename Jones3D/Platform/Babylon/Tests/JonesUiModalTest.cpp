@@ -20,10 +20,13 @@
 #include <babylon/ui/Ui.h>
 #include <babylon/ui/Widget.h>
 
+#include <Jones3D/Display/JonesDisplay.h>
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/jonesString.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
+#include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Play/jonesInventory.h>
 
 #include <std/Babylon/stdBabylon.h>
@@ -65,6 +68,24 @@ extern "C" const char* JonesPlatformNull_GetLoadPath(void)
 extern "C" void JonesPlatformNull_ClearLoadPath(void)
 {
     g_testLoadPath = NULL;
+}
+
+// Added: the HUD sound cue the modal loop forwarded, standing in for the real JonesHud.c that this
+// executable does not link. The real function plays the cue through sithSoundMixer_PlaySound.
+namespace
+{
+    constexpr int kMaxRecordedMenuCues = 8;
+    int g_aMenuSoundCues[kMaxRecordedMenuCues] = { 0 };
+    int g_numMenuSoundCues = 0;
+}
+
+extern "C" void J3DAPI JonesHud_PlayMenuSoundCue(int cueIdx)
+{
+    if ( g_numMenuSoundCues < kMaxRecordedMenuCues )
+    {
+        g_aMenuSoundCues[g_numMenuSoundCues] = cueIdx;
+    }
+    ++g_numMenuSoundCues;
 }
 
 namespace
@@ -140,6 +161,58 @@ TEST_CASE("the modal loop maps OK and back")
     testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Escape, true, false });
     CHECK(JonesUiModal_Run(ui, &painter, MakeMessageScreen(), Identity) == 2);
     CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
+{
+    const ui::Skin skin = JonesUiSkin_Create(0);
+
+    // Focus is slot 2 (inv_move.wav); accepting and going back are slot 3 (inv_expand.wav), the
+    // sounds the HUD item menu plays when it opens, selects and closes.
+    CHECK(kJonesUiSoundCueFocus == 2);
+    CHECK(kJonesUiSoundCueAccept == 3);
+    CHECK(kJonesUiSoundCueBack == 3);
+    CHECK(skin.focusSound == kJonesUiSoundCueFocus);
+    CHECK(skin.acceptSound == kJonesUiSoundCueAccept);
+    CHECK(skin.backSound == kJonesUiSoundCueBack);
+}
+
+TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
+{
+    TestContext testContext;
+    ui::NullPainter painter;
+
+    cvars::Registry cvars;
+    ui::Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0)));
+
+    ui::Screen screen;
+    screen.title   = "Cues";
+    screen.widgets = {
+        ui::Button{ "One", 1, true },
+        ui::Button{ "Two", 2, true },
+    };
+    screen.backResult = 2;
+
+    // Moving to the second button and accepting it: focus then accept.
+    g_numMenuSoundCues = 0;
+    testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Down, true, false });
+    testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Enter, true, false });
+
+    CHECK(JonesUiModal_Run(ui, &painter, screen, Identity) == 2);
+    REQUIRE(g_numMenuSoundCues == 2);
+    CHECK(g_aMenuSoundCues[0] == (int)kJonesUiSoundCueFocus);
+    CHECK(g_aMenuSoundCues[1] == (int)kJonesUiSoundCueAccept);
+
+    // A fresh screen closed with back reports the back cue.
+    testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Down, false, false });
+    testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Enter, false, false });
+    testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Escape, true, false });
+
+    g_numMenuSoundCues = 0;
+    CHECK(JonesUiModal_Run(ui, &painter, screen, Identity) == 2);
+    REQUIRE(g_numMenuSoundCues == 1);
+    CHECK(g_aMenuSoundCues[0] == (int)kJonesUiSoundCueBack);
 }
 
 TEST_CASE("the modal loop applies a window resize to the viewport")

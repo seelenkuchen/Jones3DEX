@@ -37,3 +37,6 @@ Dropped: Insert CD (all data is installed; a missing file gets a message screen 
 - Text comes from the `JONES_STR_*` strings; layout uses a virtual canvas 480 units high, as wide as the
   window's aspect.
 - The HUD item menu keeps working with keyboard and gamepad through the normal game actions.
+- Menus play the HUD item menu's own sounds through `sithSoundMixer`: `inv_move.wav` when focus
+  moves, and `inv_expand.wav` when a screen accepts or goes back. The HUD loads those sounds with
+  its menu, so the startup main menu, which runs before a world opens, is silent.
