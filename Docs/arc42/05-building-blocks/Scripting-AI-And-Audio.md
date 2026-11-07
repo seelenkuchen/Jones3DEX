@@ -215,7 +215,7 @@ This is a strong architectural split. The lowest layer does not know about secto
 - cached loaded sounds
 - device/backend state
 
-The backend underneath that layer depends on the build. Since M6.3 it is `DriverNull.c` on every column; the Babylon audio module replaces it in M7. The DirectX 6 and DirectX 9 drivers (`DriverDX6.c`, `DriverDX9.c`) went with the Win32 game.
+The backend underneath that layer depends on the build. The Null column keeps `DriverNull.c`; the Babylon column plays through `DriverBabylon.cpp` on the Babylon audio module and miniaudio since M7. The DirectX 6 and DirectX 9 drivers (`DriverDX6.c`, `DriverDX9.c`) went with the Win32 game.
 
 The sound layer therefore mirrors the renderer's design: upper engine code talks to a stable interface while the backend changes underneath.
 

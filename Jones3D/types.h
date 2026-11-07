@@ -275,12 +275,14 @@ typedef struct sJonesFileHandle
 
 typedef struct sJonesLevelInfo
 {
-    char* pFilename;
-    char* pMatFilename;
+    // Altered: the three string fields are const char*, so the string-literal tables in
+    // Jones3D/Main/JonesLevel.h can also be compiled by C++ translation units.
+    const char* pFilename;
+    const char* pMatFilename;
     rdVector2 wallineStart;
     rdVector2 wallineEnd;
     int bPrimaryMusicTheme;
-    char* pName;
+    const char* pName;
 } JonesLevelInfo;
 
 typedef struct sJonesHudMenuItem

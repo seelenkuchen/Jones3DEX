@@ -57,9 +57,11 @@ message or game state depends on a subtitle's expiry.
 ## Sound clock
 
 `Sound.c` keeps its own elapsed time from `SoundDriver_GetTimeMsec()` (`:383` to `:3041`), for fades and
-pause bookkeeping. The Null sound driver's clock is deterministic. Open point: whether any simulation code
-waits on a sound's end or position (COG verbs that query a playing sound, voice lines that gate scripts),
-which would make the sound clock a simulation input once a real driver (miniaudio, M7) plays at real speed.
+pause bookkeeping. The Null sound driver's clock is deterministic. Simulation code does wait on a sound's end
+or position (COG verbs that query a playing sound, voice lines that gate scripts), which would make the sound
+clock a simulation input if the device's play position reached it. [ADR-0027](../arc42/09-decisions/ADR-0027-sound-completion-on-game-time.md)
+settles this: completion follows the sound layer's clock, and the real driver's play position stays
+presentation-only.
 
 ## Random numbers
 

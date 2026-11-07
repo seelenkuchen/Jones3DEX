@@ -167,7 +167,7 @@ Architecturally, this keeps the original "embedded resources in the world file" 
 
 ## Renderer Backends
 
-The original renderer architecture is preserved as a layered stack. OpenJones3D added two lower backends, DirectX 6.1c and DirectX 9; both were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Until the Babylon renderer lands (M6.6) the only backend is the Null one in `Libs/std/Null/`, which accepts every call and draws nothing.
+The original renderer architecture is preserved as a layered stack. OpenJones3D added two lower backends, DirectX 6.1c and DirectX 9; both were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column renders through the Babylon renderer ([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)); the Null backend in `Libs/std/Null/` remains for headless runs and draws nothing.
 
 The DX9 path added:
 

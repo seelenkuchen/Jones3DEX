@@ -36,6 +36,7 @@ builds in two columns: the Null column (non-Windows) and the Babylon column
         - [🖼️ Renderer Reference Masks](#renderer-reference-masks)
     - [🔬 Deterministic Unit And Regression Tests](#deterministic-unit-and-regression-tests)
     - [🖥️ System And Device Tests](#system-and-device-tests)
+    - [🎧 M7 UI, Screen And Audio Tests](#m7-ui-screen-and-audio-tests)
 - [📦 Original-Engine I/O Test Vectors](#original-engine-io-test-vectors)
 - [▶️ Running Tests](#running-tests)
     - [🐧 Native Unit Builds](#native-unit-builds)
@@ -610,6 +611,42 @@ When multiple system tests share host setup, keep that setup in a small local su
 
 Tests that can change fullscreen display modes, reset or recreate graphics devices, or disturb desktop input focus are disruptive: keep them in separate source files named `*DisruptiveSystemTest.c`, label them `disruptive`, keep them out of default builds, and make host capability failures explicit with Unity ignore messages.
 
+<a name="m7-ui-screen-and-audio-tests"></a>
+
+### 🎧 M7 UI, Screen And Audio Tests
+
+The in-game screens are tested by `Jones3D.UiPainter`, which builds `Jones3DUiPainterTests` from
+`JonesUiPainterTest.cpp`, `JonesUiModalTest.cpp`, `JonesUiSaveLoadTest.cpp`, `JonesUiMainMenuTest.cpp`,
+`JonesUiEndScreensTest.cpp`, `JonesUiSettingsTest.cpp`, `JonesUiPauseMenuTest.cpp` and
+`JonesUiStoreTest.cpp`, together with the screen sources. The suite is labelled `unit;Jones3D` and runs with
+SDL's offscreen video driver, so it needs no display.
+
+- The logic cases use `babylon::ui::NullPainter` and a `platform::NullPlatform` whose event queue the test
+  scripts one event per frame. They cover each screen's return values and outputs: the exact statistics
+  strings of synthetic statistics, save names and paths, the store's item-state bytes and refunds, settings
+  written only on OK, the start-mode mapping per column, the pause menu's thumbnail capture, the HUD system
+  items it shares, and Game Over's nested Load and sound channel. Headless runs check the Null stubs'
+  answers.
+- The GPU cases draw sample screens with a synthetic `rdFont` and material on the SDL GPU device, read the
+  back buffer and write a BMP for review: `ui-painter-sample.bmp` (settings), `ui-message-sample.bmp`,
+  `ui-mainmenu-sample.bmp`, `ui-save-sample.bmp`, `ui-levelcompleted-sample.bmp`,
+  `ui-store-sample.bmp` and `ui-display-sample.bmp`. Linux CI runs them on Mesa's lavapipe; without a GPU
+  device they print a skip and pass, and `BABYLON_REQUIRE_GPU=1` makes that a failure. The rendered BMPs
+  were reviewed with the slices.
+- The `ui` module's own `babylon.ui` suite covers widgets, layout, navigation, cvar binding and text entry;
+  its `NullPainter` records draw calls for the screen tests.
+
+The audio tests cover the interface and both backends. `babylon.audio` runs the same `Device` contract in
+`AudioContractTest.cpp` on the `NullDevice` and on the miniaudio backend with its null output
+(`MiniaudioOptions::useNullBackend`, `ma_backend_null`), so the suite needs no sound card. The Null backend
+advances playback through `advanceFrames()`; miniaudio has no controllable clock, so the clock-stepping cases
+report a skip there, and `MiniaudioDeviceTest.cpp` covers play-to-end and stream underrun on the host clock
+instead. `NullDeviceTest.cpp` covers the Null backend, including the test-only several-output list. The
+sound layer's suite (`sound.Babylon`) checks `DriverBabylon.cpp` on a Null voice, and `smush.DsndBabylon`
+covers the cutscene stream's pushed blocks, gain, queue limit and pacing. Every clock read in `Sound.c` goes
+through `Sound_GetTimeMsec()`, which `J3D_TEST` overrides with `Sound_TestSetTimeMsec()`; the sound tests use
+that clock instead of the platform clock, so the ADR-0027 cases run the same in every column.
+
 <a name="original-engine-io-test-vectors"></a>
 
 ## 📦 Original-Engine I/O Test Vectors
@@ -805,8 +842,8 @@ ctest --test-dir build/asan --output-on-failure -L unit
 Windows builds the Babylon column only, as a 64-bit program. Configuring with
 `-DJONES3D_PLATFORM_BABYLON=OFF` or for 32-bit Windows is a configure error.
 The column uses the real Microsoft CRT and, like the other Babylon hosts, the
-polled SMUSH timer (`TimerPolled.c`) and the silent SMUSH sound driver (`DsndSilent.c`). The windowed
-`Jones3D.exe` renders the game, without sound or saving until M7.
+polled SMUSH timer (`TimerPolled.c`) and the SMUSH sound driver (`DsndBabylon.cpp`). The windowed
+`Jones3D.exe` renders and plays the game, with sound, saving and the in-game menus.
 
 With MinGW-w64 (x86_64) from Linux, the tests run under wine; the toolchain file
 sets wine as `CMAKE_CROSSCOMPILING_EMULATOR`, so CTest starts every test
@@ -1061,8 +1098,8 @@ D_wave, Decode), `SmushStreamTest.c` (Cdstream, Framestream, Stdfile, Stdio, Zfi
 `SmushMovieTest.c` and `SmushAsmTest.c`.
 
 `SmushMovieTest.c` (group `SmushMovie`, Babylon column only; empty on the Null column) covers movie playback without
-game assets: the silent sound driver `DsndSilent.c` consumes the engine's audio at the 22050 Hz stream rate, the polled
-timer `TimerPolled.c` ticks at 60 Hz on the clock, `SmushPlay_SysStartup` succeeds, and a synthetic SMUSH stream (an
+game assets: the sound driver `DsndBabylon.cpp` pushes the engine's 22050 Hz audio blocks into a Babylon stream at the
+driver's rate, the polled timer `TimerPolled.c` ticks at 60 Hz on the clock, `SmushPlay_SysStartup` succeeds, and a synthetic SMUSH stream (an
 `SHDR` and 60 `FRME` chunks of one raw 8x8 `Bl16` object each, written by the test) plays to the end with one blit per
 frame at 15 fps, or stops on the blit that asks to abort. The timer runs on a fake millisecond clock injected through
 `TimerPolled_SetClockForTest` (TimerPolled.c is compiled into the test executable with `J3D_TEST`). On the Babylon
@@ -1089,9 +1126,10 @@ production cache, allocation, generation, and mouth-position paths remain in
 use. Coverage includes uncompressed and compressed input, lazy cache reuse,
 blocks larger than the original 8192-byte temporary buffer, allocation cleanup,
 playback window boundaries, time offsets, generated-data lookup, and every
-seven-bit input to `SOUND_LIPSYNC_GETMOUTHLEVEL()`. Malformed
-sound-bank metadata belongs to the `Sound_Load()` and `Sound_ImportBank()` test
-fixtures because those functions own admission of data into the bank.
+seven-bit input to `SOUND_LIPSYNC_GETMOUTHLEVEL()`. The suite drives every clock read through
+`Sound_TestSetTimeMsec()` (the `J3D_TEST` override of `Sound_GetTimeMsec()`), so its playback and completion
+cases are independent of the host clock. Malformed sound-bank metadata belongs to the `Sound_Load()` and
+`Sound_ImportBank()` test fixtures because those functions own admission of data into the bank.
 
 <a name="siththing-fixtures"></a>
 
