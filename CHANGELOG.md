@@ -29,8 +29,9 @@
   - World surfaces and models reach the renderer with view-space normals (`engine.renderer.litFaces.enabled` in
     `Jones.cfg`, on by default), for the per-pixel passes to come; the picture is unchanged, and off restores
     the classic path exactly.
-  - Saving is not available in the Babylon builds yet: the savegame thumbnail surface is missing, so the save is
-    refused. It comes with the audio and dialogs in M7.
+  - Savegame thumbnails are portable now: every column captures the back buffer, scales it to 128 x 96 and writes
+    the same RGB bytes as before, and a save proceeds without a thumbnail when the back buffer cannot be locked.
+    The save and load screens still come with the audio and dialogs in M7.
 
 ## v0.4.0
 ### DirectX 9 Port, Redesigned HUD, Auto Aim Reticle, Enhanced Graphics & Gameplay QOL Improvements
