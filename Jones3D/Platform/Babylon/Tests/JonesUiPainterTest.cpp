@@ -44,6 +44,7 @@
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesLevel.h>
+#include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
@@ -851,6 +852,140 @@ TEST_CASE("the Jones level completed screen draws its statistics")
     }
     CHECK(panelPixels > 1000u);
     CHECK(titlePixels > 20u);
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the Jones display screen draws the settings list")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the display image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    ScriptedPlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    const std::uint32_t aSizes[][2] = {
+        { 512u, 384u }, { 640u, 480u }, { 800u, 600u }, { 1024u, 768u },
+    };
+
+    std::vector<StdVideoMode> aModes;
+    for ( const auto& aSize : aSizes )
+    {
+        StdVideoMode mode;
+        memset(&mode, 0, sizeof(mode));
+        mode.rasterInfo.width               = aSize[0];
+        mode.rasterInfo.height              = aSize[1];
+        mode.rasterInfo.colorInfo.bpp       = 32;
+        mode.rasterInfo.colorInfo.colorMode = STDCOLOR_RGB;
+        mode.refreshRate                    = 60;
+        aModes.push_back(mode);
+    }
+
+    StdDisplayInfo info;
+    memset(&info, 0, sizeof(info));
+    snprintf(info.displayDevice.aDriverName, sizeof(info.displayDevice.aDriverName), "%s",
+        "Sample display");
+    info.displayDevice.bHAL = 1;
+    info.aModes             = aModes.data();
+    info.numModes           = aModes.size();
+
+    StdDisplayEnvironment env;
+    memset(&env, 0, sizeof(env));
+    env.numInfos      = 1;
+    env.aDisplayInfos = &info;
+
+    JonesDisplaySettings settings;
+    memset(&settings, 0, sizeof(settings));
+    settings.displayDeviceNum = 0;
+    settings.videoModeNum     = 1;
+    settings.filter           = STD3D_MIPMAPFILTER_TRILINEAR;
+    settings.width            = 640;
+    settings.height           = 480;
+    settings.bFog             = 1;
+    settings.geoMode          = RD_GEOMETRY_FULL;
+    settings.lightMode        = RD_LIGHTING_GOURAUD;
+    settings.fogDensity       = 1.0f;
+
+    const int result = JonesUiDisplay_RunDisplayScreen(ui, &painter, &env, &settings);
+    CHECK(result == 2);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    REQUIRE(width == 640u);
+    REQUIRE(height == 480u);
+
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::string bmpPath = "ui-display-sample.bmp";
+    REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
+    MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    // The centered panel is drawn over the frozen frame.
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    size_t panelPixels = 0;
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            const Rgb pixel = PixelAt(pixels, width, x, y);
+            if ( Near(pixel.r, panelColor.r) && Near(pixel.g, panelColor.g)
+                && Near(pixel.b, panelColor.b) )
+            {
+                ++panelPixels;
+            }
+        }
+    }
+    CHECK(panelPixels > 1000u);
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();

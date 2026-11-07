@@ -5,6 +5,7 @@
 // driver's tables.
 #include <unity_fixture.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -17,6 +18,7 @@
 
 #include <sound/AudioLib.h>
 #include <sound/Driver.h>
+#include <sound/DriverOutput.h>
 
 #include <std/Babylon/stdBabylon.h>
 
@@ -79,6 +81,10 @@ TEST_SETUP(SoundDriverBabylon)
     pClock  = dynamic_cast<babylon::time::NullClock*>(rContext.pClock);
     TEST_ASSERT_NOT_NULL(pDevice);
     TEST_ASSERT_NOT_NULL(pClock);
+
+    // Added: each test starts with the default Null output list and the system default device.
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "null", "Null output" } });
+    SoundDriver_SetConfiguredOutputDevice(NULL);
 
     numLogs = 0;
     TEST_ASSERT_EQUAL_INT(1, SoundDriver_Open(0, 0, NULL, NULL, NULL, NULL, TestLog));
@@ -441,6 +447,126 @@ TEST(SoundDriverBabylon, CompressedSoundIsDecompressedBeforePlayback)
     SoundDriver_Release(pBuffer);
 }
 
+TEST(SoundDriverBabylon, OutputDeviceListIsCachedAndStringsAreTruncated)
+{
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "device-a", "Device A" },
+        babylon::audio::OutputDevice{ "device-b-long", "Device B long name" } });
+
+    TEST_ASSERT_EQUAL_size_t(2u, SoundDriver_GetNumOutputDevices());
+
+    char aId[16]   = { 0 };
+    char aName[8]  = { 0 };
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_GetOutputDevice(0, aId, sizeof(aId), aName, sizeof(aName)));
+    TEST_ASSERT_EQUAL_STRING("device-a", aId);
+    TEST_ASSERT_EQUAL_STRING("Device ", aName);
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_GetOutputDevice(2, aId, sizeof(aId), aName, sizeof(aName)));
+
+    // The list read by GetNum is cached, so a later plug change does not shift the indices.
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "device-a", "Device A" } });
+    char aSecondId[16] = { 0 };
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_GetOutputDevice(1, aSecondId, sizeof(aSecondId), NULL, 0));
+    TEST_ASSERT_EQUAL_STRING("device-b-long", aSecondId);
+
+    // A null buffer or zero size skips that string and still succeeds.
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_GetOutputDevice(0, NULL, 0, NULL, 0));
+}
+
+TEST(SoundDriverBabylon, SetOutputDeviceSwitchesAndKeepsVoices)
+{
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "device-a", "Device A" },
+        babylon::audio::OutputDevice{ "device-b", "Device B" } });
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_SetOutputDevice("device-a"));
+    TEST_ASSERT_EQUAL_STRING("device-a", SoundDriver_GetCurrentOutputDevice());
+
+    std::vector<uint8_t> pcm = MakePcm(480, 2, 1);
+    tSoundChannelFlag flags = SOUND_CHANNEL_PLAYING;
+    tSysSoundBuffer* pBuffer = SoundDriver_CreateAndPlay(48000, 16, 1, pcm.data(), pcm.size(), &flags, NULL);
+    TEST_ASSERT_NOT_NULL(pBuffer);
+    pDevice->advanceFrames(10);
+    TEST_ASSERT_EQUAL_UINT64(20u, PositionOf(pBuffer));
+
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_SetOutputDevice("device-b"));
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+    TEST_ASSERT_EQUAL_STRING("device-b", SoundDriver_GetCurrentOutputDevice());
+    TEST_ASSERT_EQUAL_UINT64(20u, PositionOf(pBuffer));
+    pDevice->advanceFrames(5);
+    TEST_ASSERT_EQUAL_UINT64(30u, PositionOf(pBuffer));
+
+    // An unknown device is refused and the previous output stays in use.
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_SetOutputDevice("missing"));
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+    TEST_ASSERT_EQUAL_STRING("device-b", SoundDriver_GetCurrentOutputDevice());
+    TEST_ASSERT_EQUAL_UINT64(30u, PositionOf(pBuffer));
+
+    // Empty and NULL both select the system default.
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_SetOutputDevice(NULL));
+    TEST_ASSERT_EQUAL_STRING("", SoundDriver_GetCurrentOutputDevice());
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+
+    SoundDriver_Release(pBuffer);
+}
+
+TEST(SoundDriverBabylon, ConfiguredDeviceMissingAtOpenUsesTheDefault)
+{
+    SoundDriver_Close();
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "device-a", "Device A" } });
+    SoundDriver_SetConfiguredOutputDevice("device-gone");
+
+    numLogs = 0;
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_Open(0, 0, NULL, NULL, NULL, NULL, TestLog));
+    TEST_ASSERT_EQUAL_INT(1, numLogs);
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+    TEST_ASSERT_EQUAL_STRING("", SoundDriver_GetCurrentOutputDevice());
+
+    numLogs = 0;
+}
+
+TEST(SoundDriverBabylon, LossPrefersTheConfiguredDeviceAndSwitchesBackWhenItReturns)
+{
+    SoundDriver_Close();
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "default", "Default" },
+        babylon::audio::OutputDevice{ "device-b", "Device B" } });
+    SoundDriver_SetConfiguredOutputDevice("device-b");
+
+    numLogs = 0;
+    TEST_ASSERT_EQUAL_INT(1, SoundDriver_Open(0, 0, NULL, NULL, NULL, NULL, TestLog));
+    TEST_ASSERT_EQUAL_INT(0, numLogs);
+    TEST_ASSERT_EQUAL_STRING("device-b", SoundDriver_GetCurrentOutputDevice());
+
+    std::vector<uint8_t> pcm = MakePcm(480, 2, 1);
+    tSoundChannelFlag flags = SOUND_CHANNEL_PLAYING;
+    tSysSoundBuffer* pBuffer = SoundDriver_CreateAndPlay(48000, 16, 1, pcm.data(), pcm.size(), &flags, NULL);
+    TEST_ASSERT_NOT_NULL(pBuffer);
+    pDevice->advanceFrames(10);
+    TEST_ASSERT_EQUAL_UINT64(20u, PositionOf(pBuffer));
+
+    // While the configured device is available, a loss reopens it.
+    pDevice->loseDevice();
+    SoundDriver_ListenerCommitDeferred();
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+    TEST_ASSERT_EQUAL_STRING("device-b", SoundDriver_GetCurrentOutputDevice());
+
+    // When it is gone, the default opens instead and the voices keep their positions.
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "default", "Default" } });
+    pDevice->loseDevice();
+    SoundDriver_ListenerCommitDeferred();
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+    TEST_ASSERT_EQUAL_STRING("", SoundDriver_GetCurrentOutputDevice());
+    TEST_ASSERT_EQUAL_UINT64(20u, PositionOf(pBuffer));
+
+    // The device returns; the once-a-second check switches back to it.
+    pDevice->setOutputDevices({ babylon::audio::OutputDevice{ "default", "Default" },
+        babylon::audio::OutputDevice{ "device-b", "Device B" } });
+    static_cast<void>(pClock->advance(std::chrono::milliseconds(1001)));
+    SoundDriver_ListenerCommitDeferred();
+    TEST_ASSERT_TRUE(pDevice->isOpen());
+    TEST_ASSERT_EQUAL_STRING("device-b", SoundDriver_GetCurrentOutputDevice());
+    TEST_ASSERT_EQUAL_UINT64(20u, PositionOf(pBuffer));
+
+    SoundDriver_Release(pBuffer);
+    numLogs = 0;
+}
+
 TEST_GROUP_RUNNER(SoundDriverBabylon)
 {
     RUN_TEST_CASE(SoundDriverBabylon, CreateAndPlayStartsAndStopKeepsThePosition);
@@ -456,4 +582,8 @@ TEST_GROUP_RUNNER(SoundDriverBabylon)
     RUN_TEST_CASE(SoundDriverBabylon, DeviceLossReopensAndVoicesSurvive);
     RUN_TEST_CASE(SoundDriverBabylon, WithoutADeviceEveryCallStillWorksSilently);
     RUN_TEST_CASE(SoundDriverBabylon, CompressedSoundIsDecompressedBeforePlayback);
+    RUN_TEST_CASE(SoundDriverBabylon, OutputDeviceListIsCachedAndStringsAreTruncated);
+    RUN_TEST_CASE(SoundDriverBabylon, SetOutputDeviceSwitchesAndKeepsVoices);
+    RUN_TEST_CASE(SoundDriverBabylon, ConfiguredDeviceMissingAtOpenUsesTheDefault);
+    RUN_TEST_CASE(SoundDriverBabylon, LossPrefersTheConfiguredDeviceAndSwitchesBackWhenItReturns);
 }

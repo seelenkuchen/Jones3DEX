@@ -8,6 +8,7 @@ add_executable(Jones3DUiPainterTests
     JonesUiModalTest.cpp
     JonesUiSaveLoadTest.cpp
     JonesUiEndScreensTest.cpp
+    JonesUiSettingsTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
@@ -15,6 +16,8 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiContext.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSaveLoad.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiEndScreens.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplaySettings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
     # Added: the sound layer compiled with J3D_TEST, so the Game Over case can install a synthetic
     # sound bank without a game asset. The library's copy is not pulled because this object
     # defines every Sound function.

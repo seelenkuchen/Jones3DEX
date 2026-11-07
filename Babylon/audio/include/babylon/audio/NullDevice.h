@@ -52,9 +52,11 @@ namespace babylon::audio
     // and warnings, handle lifetimes, gain, pan, pitch, 3D settings and
     // stream queues, all kept in memory. Playback advances only through
     // advanceFrames(), so a test controls how many frames every playing
-    // voice consumes; nothing reads a real clock. Its one output device has
-    // the id "null" and the name "Null output"; open() with an empty id or
-    // "null" succeeds and every other id is refused. isPlaying(),
+    // voice consumes; nothing reads a real clock. The output list starts as
+    // one device with the id "null" and the name "Null output"; open() with
+    // an empty id opens the first listed device and a non-empty id must be
+    // listed, otherwise it is refused. setOutputDevices() lets a test model
+    // several outputs, an unplugged device and its return. isPlaying(),
     // voicePosition() and streamState() report real state, but nothing can
     // hear the result.
     class NullDevice final : public Device
@@ -97,6 +99,15 @@ namespace babylon::audio
         // open() opens the output again. Does nothing when no output is
         // open.
         void loseDevice();
+
+        // Test helper: replaces the outputs listOutputDevices() reports and
+        // that open() accepts. The default is the single "null" device. An
+        // empty id opens the first listed device; a non-empty id must be
+        // listed or open() refuses it. Removing a device that is currently
+        // open does not close the output; loseDevice() reports that loss.
+        // Devices may be added back later, which models plugging them in.
+        // The default list is restored by creating a new device.
+        void setOutputDevices(std::vector<OutputDevice> devices);
 
     private:
         const SoundInfo* findSound(SoundHandle sound) const override;
