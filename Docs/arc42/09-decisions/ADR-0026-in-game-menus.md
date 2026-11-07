@@ -50,3 +50,12 @@ constructors, which Babylon forbids (ADR-0015).
 - The menu sounds use the M7 audio path, so the UI work follows the sound work.
 - A data-driven menu format remains possible but costs a parser, validation and an action registry when it
   comes.
+
+## Amendment (2026-11-07)
+
+The `ui` module's `Painter` is implemented by the game, not by a Babylon render painter: Jones3D draws text
+with its own `rdFont` fonts (the HUD's `.gcf` materials) and rectangles and images through the same rdroid and
+`std3D` path the HUD uses, so the menus look like the HUD without a second font system. Babylon keeps only the
+`Painter` interface and the `NullPainter`; a render-backed painter can be added when a second game needs one.
+The painter and the screens live in the Babylon column of the game (`Jones3D/Platform/Babylon/`, C++); the
+Null column keeps its default-returning dialog stubs.

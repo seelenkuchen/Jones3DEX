@@ -6,7 +6,8 @@ Status: decided 2026-11-07 for M7 ([ADR-0026](../09-decisions/ADR-0026-in-game-m
 
 | Part | Where | Responsibility |
 |---|---|---|
-| `ui` module | `Babylon/ui/` | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding. Game-agnostic, with a Null backend |
+| `ui` module | `Babylon/ui/` | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding, the `Painter` interface. Game-agnostic, with a Null painter |
+| Painter | `Jones3D/Platform/Babylon/` | Draws the ui through `rdFont` and the HUD's rdroid and `std3D` 2D path (ADR-0026 amendment) |
 | Screens | `Jones3D/` | The Jones3D screens as declarative structs, the Indy font and skin, the HUD sounds |
 | Wrappers | `Jones3D/` | The recovered `jonesConfig_*` functions: each runs a frame loop around its screen and returns the original result |
 
