@@ -59,3 +59,9 @@ with its own `rdFont` fonts (the HUD's `.gcf` materials) and rectangles and imag
 `Painter` interface and the `NullPainter`; a render-backed painter can be added when a second game needs one.
 The painter and the screens live in the Babylon column of the game (`Jones3D/Platform/Babylon/`, C++); the
 Null column keeps its default-returning dialog stubs.
+
+## Amendment (2026-11-07, owner)
+
+After playing the windowed build, the owner decided that the HUD item menu's system icons (save, load, options,
+exit) are off by default: the pause menu on Escape or Start replaces them. `engine.ui.hud.systemIcons` defaults to
+false; true brings them back.
