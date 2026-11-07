@@ -62,7 +62,7 @@ with the miniaudio backend in M7.2; the others are still planned.
 | Files | Files, directory listing, base, current and user directories | SDL3, Null | `stdFileBabylon.cpp`, `stdFileUtilBabylon.cpp`, `stdBabylonPath.cpp` | M5 |
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
 | Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
-| Audio | Devices, voices, 3D positioning, streaming | Null; miniaudio in M7.2 | `Driver_*` in M7.2 | M7.1: interface and Null backend |
+| Audio | Devices, voices, 3D positioning, streaming | Null, miniaudio | `Driver_*` in M7.3 | M7.1: interface and Null backend; M7.2: miniaudio backend (low-level `ma_device` with own mixer, null-device mode for tests) |
 | UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null painter; the game supplies the real painter (ADR-0026 amendment) | `jonesConfig_*` screens | M7.8 (interface, layout and Null painter); the Jones3D painter in M7.9 |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 

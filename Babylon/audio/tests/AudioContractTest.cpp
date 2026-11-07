@@ -5,6 +5,7 @@
 
 #include <babylon/audio/Device.h>
 #include <babylon/audio/Handle.h>
+#include <babylon/audio/MiniaudioDevice.h>
 #include <babylon/audio/NullDevice.h>
 #include <babylon/audio/Sound.h>
 #include <babylon/audio/Spatial.h>
@@ -43,15 +44,27 @@ namespace
 
     using DeviceFactory = std::function<DeviceUnderTest()>;
 
-    // The backends the Device contract runs against. M7.2 adds the miniaudio
-    // backend here; a backend without a deterministic clock leaves advance
-    // empty and the time-dependent cases report a skip.
+    // The backends the Device contract runs against. The miniaudio backend
+    // runs on miniaudio's null device so the cases work without a sound
+    // card. It has no controllable clock, so advance stays empty and the
+    // time-dependent cases report a skip: the voice-clock blocks of
+    // "A voice keeps playing after its sound is destroyed", "Stream pushes,
+    // the queue cap and the reported state follow the contract" and "Closing
+    // and reopening keeps every handle and setting", and the whole "Pitch
+    // and loop arithmetic follow the output clock" case. What still runs for
+    // miniaudio is every handle, validation, warning, stream-queue and
+    // state-retention check, plus opening and closing a real output.
     const DeviceFactory kDeviceFactories[] = {
         [] {
             std::unique_ptr<NullDevice> device = createNullDevice();
             NullDevice* const raw = device.get();
             return DeviceUnderTest{ "null", std::move(device),
                 [raw](std::uint64_t frames) { raw->advanceFrames(frames); } };
+        },
+        [] {
+            MiniaudioOptions options;
+            options.useNullBackend = true;
+            return DeviceUnderTest{ "miniaudio", createMiniaudioDevice(options), {} };
         },
     };
 
