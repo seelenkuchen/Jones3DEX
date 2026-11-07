@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <memory>
 
+#include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
 #include <babylon/files/FileSystem.h>
 #include <babylon/files/SdlFileSystem.h>
@@ -47,10 +48,14 @@ int main(int argc, char** argv)
     }
 
     cvars.finishStartup();
+    // Added: the sound driver plays on a Null audio device, so the game tests create real voices
+    // without reading a clock or touching an output. A test that needs exact voice positions can
+    // reach it through the context and drive NullDevice::advanceFrames().
+    std::unique_ptr<babylon::audio::NullDevice> pAudioDevice = babylon::audio::createNullDevice();
     // Added: no game window in the game tests: the context's pWindow stays null.
     // Added: no game test draws: std3D is never started there, so there is no render device either.
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform, nullptr, &cvars,
-        nullptr };
+        nullptr, pAudioDevice.get() };
     stdBabylon_SetContext(&context);
 
     // C++ refuses the char** to const char** qualification change that C accepts for main's argv.

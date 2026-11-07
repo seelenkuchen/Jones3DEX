@@ -24,7 +24,8 @@ function(std_use_babylon_test_main target runner_source)
     set_property(SOURCE "${runner_source}" APPEND PROPERTY COMPILE_DEFINITIONS
         "J3D_TEST_RUNNER_ENTRY=j3dTestRunner_Main")
     # Added: the test main registers the game's cvars into the context's registry (ADR-0020), so it
-    # needs the cvars module as well.
-    target_link_libraries(${target} PRIVATE babylon::time babylon::files babylon::platform babylon::cvars)
+    # needs the cvars module as well. It also installs a Null audio device for the sound driver.
+    target_link_libraries(${target} PRIVATE babylon::time babylon::files babylon::platform babylon::cvars
+        babylon::audio)
     set_target_properties(${target} PROPERTIES LINKER_LANGUAGE CXX)
 endfunction()

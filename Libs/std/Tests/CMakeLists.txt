@@ -202,6 +202,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::files
         babylon::platform
         babylon::cvars
+        babylon::audio
     )
 
     set_target_properties(stdTestsBabylon PROPERTIES
