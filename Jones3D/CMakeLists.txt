@@ -52,6 +52,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSoundSettings.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiGameplaySettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiGameplaySettings.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiStore.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiStore.h"
 )
 
 # Added: the Null message/insert-CD stubs, split from JonesPlatformNull.c so the Babylon column

@@ -26,6 +26,7 @@
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
+#include <Jones3D/Platform/Babylon/JonesUiStore.h>
 #include <Jones3D/Play/jonesInventory.h>
 
 #include <sith/Dss/sithGamesave.h>
@@ -503,20 +504,38 @@ void JonesUiEndScreens_ResetStoreCallCount(void)
     g_storeCallCount = 0;
 }
 
-// Added: the Store screen entry point until the later store slice replaces the body with the
-// screen. The original's store dialog answers 1 (Done) or 2 (cancel) and writes *pBalance and the
-// item states; the stub cancels without touching either, so Level Completed passes its outputs
-// through unchanged for now.
+// Added: the Store screen entry point. The screen itself is in JonesUiStore.cpp; this wrapper
+// keeps the original's headless behavior (cancel without touching the outputs) and the call count
+// the Level Completed tests use.
 extern "C" int J3DAPI jonesConfig_ShowStoreDialog(tSysWindow hWnd, int* pBalance,
     int* pItemsState, int a4)
 {
     (void)hWnd;
-    (void)pBalance;
-    (void)pItemsState;
-    (void)a4;
 
     ++g_storeCallCount;
-    return kJonesDialogCancel;
+
+    if ( !pBalance || !pItemsState )
+    {
+        return kJonesDialogCancel;
+    }
+
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    if ( !pContext || !pContext->pWindow || !pContext->pFileSystem )
+    {
+        // Headless: the Null stub answers cancel without blocking.
+        return kJonesDialogCancel;
+    }
+
+    JonesUiContext* pUiContext = JonesUiContext_Acquire();
+    if ( !pUiContext )
+    {
+        return kJonesDialogCancel;
+    }
+
+    const int result = JonesUiStore_RunStoreScreen(*pUiContext->pUi,
+        &pUiContext->painter, pBalance, pItemsState, a4);
+    JonesUiContext_Release(pUiContext);
+    return result;
 }
 
 extern "C" int J3DAPI jonesConfig_ShowStatisticsDialog(tSysWindow hWnd,
