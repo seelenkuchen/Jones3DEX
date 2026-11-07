@@ -62,6 +62,7 @@ M6.6 (`std3D`) and M6.7 (`stdDisplay`); the others are still planned.
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
 | Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
 | Audio | Devices, voices, 3D positioning, streaming | miniaudio, Null | `Driver_*` | M7 |
+| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null; draws through Render | `jonesConfig_*` screens | M7 |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
 The adapter files live in `Libs/std/Babylon/` and `Libs/wkernel/`; they reach Babylon through one context
@@ -152,6 +153,7 @@ These pages describe the game's subsystems as they are today:
 | [Rendering-And-Visibility.md](Rendering-And-Visibility.md) | Camera stack, sector visibility, PVS, thing and light collection, dynamic lighting |
 | [Scripting-AI-And-Audio.md](Scripting-AI-And-Audio.md) | COG VM, AI control blocks and awareness, the audio stack |
 | [Sound-System.md](Sound-System.md) | Sound engine, gameplay mixer, sound classes, voice playback |
+| [In-Game-Menus.md](In-Game-Menus.md) | The M7 menus and screens that replace the Win32 dialogs |
 | [Platform-Layer.md](Platform-Layer.md) | The M3 and M4 platform layer that Babylon replaces |
 
 Tests live beside the code they cover, in `Tests/` directories. See [Testing.md](../../Testing.md).

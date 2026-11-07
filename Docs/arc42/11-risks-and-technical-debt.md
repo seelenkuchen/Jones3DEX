@@ -20,7 +20,7 @@
 |---|---|---|
 | QOL behavior as one compile-time profile | `J3D_QOL_IMPROVEMENTS`, `J3D_SPEEDRUN_BUILD` | Individual runtime options ([ADR-0003](09-decisions/ADR-0003-fidelity-split.md)) |
 | DirectDraw type names in shared headers | `LPDDCOLORKEY` in `std3D.h`, `stdColor.h`, `stdDisplay.h` and `stdRenderBackendApi.h` (the Direct3D vertex types are gone since M6.3) | Rename to a neutral colour-key type |
-| Settings and message dialogs are Null stubs | `Jones3D/Platform/Null/JonesPlatformNull.c` (the Win32 dialogs went in M6.3) | Replaced by in-game screens in M7 |
+| Settings and message dialogs are Null stubs | `Jones3D/Platform/Null/JonesPlatformNull.c` (the Win32 dialogs went in M6.3) | Replaced by in-game screens in M7 ([ADR-0026](09-decisions/ADR-0026-in-game-menus.md)) |
 | Sound parser can read before its input buffer | `AudioLib_ParseWaveFileHeader` | Fix with a regression test; a malformed sound file triggers it |
 | Lip-sync pointer restored from sound banks | `Sound.c` | Force to NULL on load; a wild pointer on 64-bit |
 | Cutscene blitter relies on 32-bit pointer wrap | `Libs/smush/insane/Bitmap/BlitAsm.c` | Not reached by the game: its only caller (`mixer_Blit` through `blit_Wrapper`) passes row 0 and clip-bounded rows, and SmushPlay's movies blit through the game's callback instead (M6.8). Only the captured vectors hit it |
