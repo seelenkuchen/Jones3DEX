@@ -35,6 +35,14 @@ recorded events so headless runs see exactly what a device would (ADR-0018).
 callbacks (ADR-0013, ADR-0020); a `Registry` is an ordinary object owned by the
 composition root, never a global.
 
+`ui` is the game-agnostic menu toolkit (ADR-0026): a screen stack, declarative
+widgets (labels, images, buttons, toggles, sliders, choices, lists, binding
+capture and text entry), automatic layout on a canvas 480 units high and
+480 * aspect units wide, keyboard/mouse/gamepad focus, cvar-bound values and
+one polled event queue. It draws through the `Painter` interface, so the
+module never depends on `render`; `NullPainter` records draw calls for tests
+and the render-backed painter arrives in M7.9.
+
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`
 (passes, bindings, draws, copies) and submitted once, and `Device::submit`

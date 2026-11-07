@@ -62,7 +62,7 @@ M6.6 (`std3D`) and M6.7 (`stdDisplay`); the others are still planned.
 | Cvars | Named, typed settings with flags, ranges and change callbacks (ADR-0020) | | `stdCvarBabylon.cpp` (`game.profile`) | M5 |
 | Render | Devices, textures, buffers, shaders, draw submission | SDL3 GPU, Null | `std3D` (from M6.6), `stdDisplay` (from M6.7) | M6.4 (interface and both backends; game use in M6.6 and M6.7) |
 | Audio | Devices, voices, 3D positioning, streaming | miniaudio, Null | `Driver_*` | M7 |
-| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null; draws through Render | `jonesConfig_*` screens | M7 |
+| UI | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding (ADR-0026) | Null painter; draws through Render from M7.9 | `jonesConfig_*` screens | M7.8 (interface, layout and Null painter; render painter in M7.9) |
 | Threads | Threads, jobs, synchronization | SDL3 | | M11 and later |
 
 The adapter files live in `Libs/std/Babylon/` and `Libs/wkernel/`; they reach Babylon through one context

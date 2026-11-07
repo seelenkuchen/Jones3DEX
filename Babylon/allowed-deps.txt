@@ -15,3 +15,4 @@ platform: log SDL3-static
 input: platform core
 cvars: log core
 render: log platform SDL3-static
+ui: log cvars platform
