@@ -46,6 +46,15 @@ or on a window of the SDL platform, whose `SDL_Window` it gets through
 `platform::sdlWindowOf`; the contract tests run against it too, on Mesa's
 lavapipe where there is no GPU, and report it as skipped without a driver.
 
+`audio` hides the sound output (ADR-0010): a `Device` lists and opens output
+devices, owns immutable sounds and typed voices behind handles, applies gain,
+pan, pitch, per-voice 3D position, distance attenuation and a listener, and
+feeds streaming PCM blocks from the caller. Device loss is a polled event, and
+sounds, voices and their settings survive closing, reopening and switching
+outputs. The Null backend keeps the whole state without a device and advances
+playback only through a test helper; the contract tests run through the
+interface so the miniaudio backend added in M7.2 can run the same cases.
+
 ## Declaring a module
 
     babylon_add_module(<name>

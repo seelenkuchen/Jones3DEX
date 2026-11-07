@@ -46,6 +46,7 @@ add_subdirectory(files)
 add_subdirectory(platform)
 add_subdirectory(input)
 add_subdirectory(cvars)
+add_subdirectory(audio)
 add_subdirectory(render)
 
 # Machine checks for the Babylon boundary and the module graph (ADR-0006,
