@@ -22,6 +22,7 @@
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_video.h>
 
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,6 +38,67 @@ namespace
     // runs one platform at a time: the factory sets the flag, the destructor
     // clears it, and a second platform while one lives is refused.
     bool videoInUse = false;
+
+    // SDL sizes a window in window coordinates (points) but Window works in
+    // pixels. On a high-density display one point is several pixels, so a
+    // requested pixel size is converted with the window's pixel density and
+    // the result checked. Returns true when size() reports the size asked
+    // for; a refusal logs one warning.
+    bool setWindowPixelSize(SDL_Window* window, Size size)
+    {
+        int curWidth = 0;
+        int curHeight = 0;
+        if ( !SDL_GetWindowSizeInPixels(window, &curWidth, &curHeight) )
+        {
+            log::warning("platform: reading the window size failed: {}", SDL_GetError());
+            return false;
+        }
+
+        if ( curWidth == size.width && curHeight == size.height )
+        {
+            return true;
+        }
+
+        const float density = SDL_GetWindowPixelDensity(window);
+        if ( !(density > 0.0f) )
+        {
+            log::warning("platform: the window reported an invalid pixel density {}", density);
+            return false;
+        }
+
+        // The density is pixels per point; the point size is rounded and then
+        // checked against the pixels the window system actually applied.
+        const int pointWidth  = static_cast<int>(std::lround(size.width / density));
+        const int pointHeight = static_cast<int>(std::lround(size.height / density));
+        if ( pointWidth < 1 || pointHeight < 1 )
+        {
+            log::warning("platform: {}x{} pixels are less than one window point at density {}",
+                size.width, size.height, density);
+            return false;
+        }
+
+        if ( !SDL_SetWindowSize(window, pointWidth, pointHeight) )
+        {
+            log::warning("platform: resizing the window to {}x{} pixels ({}x{} points) failed: {}",
+                size.width, size.height, pointWidth, pointHeight, SDL_GetError());
+            return false;
+        }
+        if ( !SDL_SyncWindow(window) )
+        {
+            log::warning("platform: waiting for the resize to {}x{} pixels failed: {}",
+                size.width, size.height, SDL_GetError());
+            return false;
+        }
+
+        if ( !SDL_GetWindowSizeInPixels(window, &curWidth, &curHeight)
+            || curWidth != size.width || curHeight != size.height )
+        {
+            log::warning("platform: the window system made the window {}x{} pixels, not {}x{}; "
+                "pixel density {}", curWidth, curHeight, size.width, size.height, density);
+            return false;
+        }
+        return true;
+    }
 
     // One window SDL created. SDL_Window* is owned here and destroyed with
     // this object, which must happen before the SdlPlatform quits the video
@@ -87,6 +149,27 @@ namespace
                 log::warning("platform: reading the window size failed: {}", SDL_GetError());
             }
             return Size{width, height};
+        }
+
+        // With no fullscreen mode set, SDL_SetWindowFullscreen's bool overload
+        // is desktop/borderless fullscreen at the display's current
+        // resolution: exactly the fullscreen this interface promises. It may
+        // fail on a driver with no display, which is one warning and the mode
+        // unchanged.
+        bool setFullscreen(bool enabled) override
+        {
+            if ( !SDL_SetWindowFullscreen(m_window, enabled) )
+            {
+                log::warning("platform: setting fullscreen {} on the window failed: {}",
+                    enabled, SDL_GetError());
+                return false;
+            }
+            return true;
+        }
+
+        bool fullscreen() const override
+        {
+            return (SDL_GetWindowFlags(m_window) & SDL_WINDOW_FULLSCREEN) != 0;
         }
 
         WindowId id() const override
@@ -141,26 +224,12 @@ namespace
         }
 
     private:
-        // SDL applies a requested size asynchronously, so this waits for the
-        // window system with SDL_SyncWindow: size() reports the new size as
-        // soon as resize() returned true.
+        // The shared check passed a pixel size; setWindowPixelSize converts
+        // it to SDL's window coordinates and waits until the window reports
+        // exactly that many pixels, so size() is right when this returns.
         bool doResize(Size size) override
         {
-            if ( !SDL_SetWindowSize(m_window, size.width, size.height) )
-            {
-                log::warning("platform: resizing the window to {}x{} failed: {}",
-                    size.width, size.height, SDL_GetError());
-                return false;
-            }
-            // A failed sync means the window system never confirmed the new
-            // size; the caller must not believe it was applied.
-            if ( !SDL_SyncWindow(m_window) )
-            {
-                log::warning("platform: waiting for the resize to {}x{} failed: {}",
-                    size.width, size.height, SDL_GetError());
-                return false;
-            }
-            return true;
+            return setWindowPixelSize(m_window, size);
         }
 
         SDL_Window* m_window;
@@ -194,7 +263,10 @@ namespace
                     kMaxWindowDimension);
                 return nullptr;
             }
-            const SDL_WindowFlags flags = desc.resizable ? SDL_WINDOW_RESIZABLE : 0;
+            // The high-density flag asks for a drawable at pixel resolution;
+            // the size below is then corrected from SDL's points to pixels.
+            const SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY
+                | (desc.resizable ? SDL_WINDOW_RESIZABLE : 0);
             SDL_Window* const window =
                 SDL_CreateWindow(desc.title.c_str(), desc.size.width, desc.size.height, flags);
             if ( window == nullptr )
@@ -210,6 +282,14 @@ namespace
             {
                 log::warning("platform: asking the new window for its id failed: {}",
                     SDL_GetError());
+                SDL_DestroyWindow(window);
+                return nullptr;
+            }
+            // The window's size is a pixel size on the interface; SDL took
+            // the same number as points, which differs on a high-density
+            // display. Correct it and refuse the window if it cannot match.
+            if ( !setWindowPixelSize(window, desc.size) )
+            {
                 SDL_DestroyWindow(window);
                 return nullptr;
             }

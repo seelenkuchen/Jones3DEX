@@ -19,7 +19,9 @@ namespace babylon::platform
     inline constexpr int kMaxWindowDimension = 16384;
 
     // How a window is created. The title is shown as given; an empty title
-    // is allowed and means the window system's own default.
+    // is allowed and means the window system's own default. size is the
+    // client size in pixels, even on a high-density display whose window
+    // coordinates are larger.
     struct WindowDesc
     {
         std::string title;
@@ -51,8 +53,24 @@ namespace babylon::platform
         // setTitle() set last unless the backend refused it.
         virtual std::string title() const = 0;
 
-        // The current client size in pixels, excluding decorations.
+        // The current client size in pixels, excluding decorations. On a
+        // high-density display this is the drawable size, not the window
+        // coordinate size.
         virtual Size size() const = 0;
+
+        // Sets the display mode. Windowed is decorated and keeps the size
+        // last set; fullscreen is desktop/borderless fullscreen on the
+        // display that holds the window at that display's current
+        // resolution, so size() then reports the display's pixel size.
+        // Returns false and logs one warning if the backend refused,
+        // leaving fullscreen() as it was. The Null backend always accepts
+        // and records the state; it has no display, so its size() stays the
+        // size it was given.
+        [[nodiscard]] virtual bool setFullscreen(bool enabled) = 0;
+
+        // The display mode the backend reports now: what setFullscreen()
+        // set last unless it was refused.
+        virtual bool fullscreen() const = 0;
 
         // The id this window was created with, stable for its lifetime and
         // never 0. Events about this window carry it.

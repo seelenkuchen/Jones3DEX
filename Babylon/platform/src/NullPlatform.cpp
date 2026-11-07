@@ -45,6 +45,19 @@ namespace
             return m_size;
         }
 
+        // There is no display behind a Null window, so nothing can refuse:
+        // the mode is only the state the interface promises to report back.
+        bool setFullscreen(bool enabled) override
+        {
+            m_fullscreen = enabled;
+            return true;
+        }
+
+        bool fullscreen() const override
+        {
+            return m_fullscreen;
+        }
+
         WindowId id() const override
         {
             return m_id;
@@ -90,6 +103,7 @@ namespace
         std::string m_title;
         Size m_size;
         WindowId m_id;
+        bool m_fullscreen = false;
         bool m_relativeMouse = false;
         bool m_textInput = false;
     };
