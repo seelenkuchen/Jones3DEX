@@ -8,6 +8,8 @@
 #include "stdPlatformSys.h"
 #include "stdUtil.h"
 
+#include <stdio.h> // vsnprintf
+
 static bool stdPlatform_bAssert = false;
 
 void stdPlatform_ResetGlobals(void)

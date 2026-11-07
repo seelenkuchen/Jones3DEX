@@ -27,7 +27,7 @@
 
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #include <stdlib.h>
 #include <wchar.h>

@@ -56,5 +56,8 @@ flowchart TB
 | Game files | Original GOB archives and loose files, read through the game's resource code | Game |
 | Headless runs | No window, no device: null backends, scripted input, state trace output | Babylon null backends plus the game's headless runner |
 
-Until the new renderer reaches parity (milestone M6), the legacy Win32 and DirectX 9 path still exists on
-Windows, outside Babylon. It is the visual reference for the new renderer, and is removed after that.
+Until the new renderer reached parity (milestone M6), the legacy Win32 and DirectX 9 path was the visual
+reference for the new renderer, outside Babylon. It was removed in M6.3 once the reference screenshots and
+render captures were recorded ([ADR-0011](09-decisions/ADR-0011-retire-win32-directx.md)); Windows now builds
+the Babylon column as a 64-bit program. The Babylon renderer draws the game since M6.6 and the 2D layer since
+M6.7; sound and saving come in M7.

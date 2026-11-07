@@ -8,6 +8,8 @@
  * The `TIMER=insane` service Timer.c publishes (`timer_interface`), subscribed by the animation player (Pcplay.c), the
  * DirectSound driver (Dsnd.c) and the sound engine (Engine.c, as `TIMER.external_sync`). The tick runs on a
  * TIME_CRITICAL thread (timer_Thread); `busy` is shared with it.
+ * Added: on the Babylon column there is no tick thread: TimerPolled.c delivers the ticks on the caller's thread from
+ * timer_Update, which animplay_Pace and timer_Wait call (see TimerSys.h).
  */
 
 J3D_EXTERN_C_START
@@ -76,6 +78,11 @@ void J3DAPI timer_Sync(int ticks);
 void timer_Tick(void);
 void timer_Poll(void);
 void timer_RunDeferred(void);
+
+// Added: delivers the ticks that are due on the platform clock where no tick thread does (TimerPolled.c), and does
+// nothing where one does. Returns the number of ticks delivered. Safe to call at any time, also before timer_Start
+// (then nothing is due) and from a timer callback (then it returns 0).
+int timer_Update(void);
 
 void Timer_ResetGlobals(void);
 

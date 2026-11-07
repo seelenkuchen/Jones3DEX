@@ -50,6 +50,13 @@ static rdLightMode lightingMode               = RD_LIGHTING_NONE;
 static rdVector3 localCamera                  = { 0 };
 static rdVector3 aView[RDMODEL3_MAX_VERTICES] = { 0 };
 
+// Added: the lit path of the mesh being drawn (option A L3, ADR-0023): whether its faces are lit
+// (rdGetLitFaces when the mesh was started), its model-view matrix and its vertex normals rotated
+// into view space (only when bLitMesh and the mesh has vertex normals).
+static bool bLitMesh                                 = false;
+static rdMatrix34 meshViewMatrix                     = { 0 };
+static rdVector3 aViewNormals[RDMODEL3_MAX_VERTICES] = { 0 };
+
 static size_t numMeshLights = 0;
 static rdLight* apMeshLights[RDCAMERA_MAX_LIGHTS] = { 0 };
 rdVector3 aLocalLightPos[RDCAMERA_MAX_LIGHTS]     = { 0 };
@@ -1724,6 +1731,18 @@ void J3DAPI rdModel3_DrawMesh(const rdModel3Mesh* pMesh, const rdMatrix34* orien
         rdMatrix_Multiply34(&tmat, &rdCamera_g_pCurCamera->viewMatrix, orient); // Combine model-view matrices
         rdMatrix_TransformPointList34(&tmat, pCurMesh->apVertices, aView, pCurMesh->numVertices); // Transform vertices to view space (i.e. rotate to orinet and convert to view space)
 
+        // Added: lit faces carry view-space normals: the vertex normals rotated by the model-view
+        // matrix (rdClip_FaceToPlaneLit renormalizes them, so a scaled placement is fine)
+        bLitMesh       = rdGetLitFaces();
+        meshViewMatrix = tmat;
+        if ( bLitMesh && pCurMesh->aVertNormals )
+        {
+            for ( size_t i = 0; i < pCurMesh->numVertices && i < STD_ARRAYLEN(aViewNormals); ++i )
+            {
+                rdMatrix_TransformVector34(&aViewNormals[i], &pCurMesh->aVertNormals[i], &tmat);
+            }
+        }
+
         // Calculate model matrix
         rdMatrix34 InvModelMatrix;
         rdMatrix_InvertOrtho34(&InvModelMatrix, orient);
@@ -1824,11 +1843,11 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
     rdCacheProcEntry* pPoly;
     if ( bTranslucent )
     {
-        pPoly = rdCache_GetAlphaProcEntry();
+        pPoly = bLitMesh ? rdCache_GetLitAlphaProcEntry() : rdCache_GetAlphaProcEntry(); // Altered: lit faces (option A L3)
     }
     else
     {
-        pPoly = rdCache_GetProcEntry();
+        pPoly = bLitMesh ? rdCache_GetLitProcEntry() : rdCache_GetProcEntry(); // Altered: lit faces (option A L3)
     }
 
     pPoly->lightingMode  = pFace->lightingMode;
@@ -1840,7 +1859,35 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
     // Project vertices to view space and assign to poly
     // Fyi, grimengine uses either rdPrim3_ClipFace or rdPrim3_NoClipFace because it does manual clipping of polys that are not in clip frustum
     // We expect HW / GPU API will do the clipping for us
-    if ( !rdClip_FaceToPlane(rdCamera_g_pCurCamera->pFrustum, pPoly, pFace, aTransformedVertices, pCurMesh->apTexVertices, pCurMesh->aLightIntensities, NULL) )
+    if ( bLitMesh )
+    {
+        // Added: option A L3. Gouraud faces take the mesh's vertex normals, the others (flat shaded)
+        // and meshes without vertex normals the face normal, all in view space; a back face drawn
+        // (double sided, or backface culling off) is seen from behind, so its normals are negated.
+        rdVector3 viewFaceNormal;
+        rdMatrix_TransformVector34(&viewFaceNormal, &pFace->normal, &meshViewMatrix);
+
+        const rdVector3* aViewVertNormals = NULL;
+        if ( pPoly->lightingMode == RD_LIGHTING_GOURAUD && pCurMesh->aVertNormals && pCurMesh->numVertices <= STD_ARRAYLEN(aViewNormals) )
+        {
+            aViewVertNormals = aViewNormals;
+        }
+
+        if ( !rdClip_FaceToPlaneLit(rdCamera_g_pCurCamera->pFrustum, pPoly, pFace, aTransformedVertices, pCurMesh->apTexVertices, pCurMesh->aLightIntensities, NULL, aViewVertNormals, &viewFaceNormal) )
+        {
+            // Poly is fully outside of the frustum
+            return;
+        }
+
+        if ( bIsBackFace )
+        {
+            for ( size_t i = 0; i < pFace->numVertices; ++i )
+            {
+                rdVector_Neg3Acc(&pPoly->aViewNormals[i]);
+            }
+        }
+    }
+    else if ( !rdClip_FaceToPlane(rdCamera_g_pCurCamera->pFrustum, pPoly, pFace, aTransformedVertices, pCurMesh->apTexVertices, pCurMesh->aLightIntensities, NULL) )
     {
         // Poly is fully outside of the frustum
         return;

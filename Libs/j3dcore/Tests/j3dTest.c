@@ -47,49 +47,11 @@ static void J3DAPI J3DTest_RecordAssert(const char* pText, const char* pFile, in
 
 void J3DTest_MapRtiMemory(uintptr_t address, size_t size)
 {
-#if defined(J3D_OS_WINDOWS)
-    SYSTEM_INFO systemInfo;
-    uintptr_t allocationGranularity;
-    uintptr_t pageSize;
-    uintptr_t allocationBase;
-    uintptr_t endAddress;
-    uintptr_t allocationEnd;
-    SIZE_T allocationSize;
-    MEMORY_BASIC_INFORMATION memoryInfo;
-    void* pMappedPage;
-
-    TEST_ASSERT_NOT_EQUAL(0u, address);
-    TEST_ASSERT_NOT_EQUAL(0u, size);
-
-    GetSystemInfo(&systemInfo);
-    allocationGranularity = (uintptr_t)systemInfo.dwAllocationGranularity;
-    pageSize = (uintptr_t)systemInfo.dwPageSize;
-
-    endAddress = address + size;
-    TEST_ASSERT_TRUE(endAddress >= address);
-
-    allocationBase = address & ~(allocationGranularity - 1u);
-    allocationEnd = (endAddress + pageSize - 1u) & ~(pageSize - 1u);
-    allocationSize = (SIZE_T)(allocationEnd - allocationBase);
-
-    if ( VirtualQuery((LPCVOID)address, &memoryInfo, sizeof(memoryInfo)) == sizeof(memoryInfo)
-        && memoryInfo.State == MEM_COMMIT
-        && (uintptr_t)memoryInfo.BaseAddress <= address
-        && (uintptr_t)memoryInfo.BaseAddress + memoryInfo.RegionSize >= endAddress )
-    {
-        return;
-    }
-
-    pMappedPage = VirtualAlloc((LPVOID)allocationBase, allocationSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-    TEST_ASSERT_EQUAL_PTR((void*)allocationBase, pMappedPage);
-#else
-    // Added: A standalone build (the native Null platform) has no retail executable: every RTI
+    // Added: A standalone build has no retail executable: every RTI
     // global is a real variable in the linked image, and the test targets bind host services at the
     // address of such a variable, so there is nothing to map. Keep the address checks.
     TEST_ASSERT_NOT_EQUAL(0u, address);
     TEST_ASSERT_NOT_EQUAL(0u, size);
-#endif
 }
 
 void J3DTest_Startup(void)

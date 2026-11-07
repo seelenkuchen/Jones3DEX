@@ -1,5 +1,6 @@
 #include <unity_fixture.h>
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1207,6 +1208,49 @@ TEST(SmushStream, zfilio_PlainFilesPassThroughToChainedFilio)
     TEST_ASSERT_EQUAL_INT(frees + 1, Test_numFrees);
 }
 
+// Added: regression test for the 64-bit handle fix of the published FILIO (Zfilio.c, zfilio_handleInterface): the
+// streamer opens movies through the int-handle FilioInterface, which truncated the ZfileHandle* on 64-bit builds and
+// crashed on the first call that used it.
+TEST(SmushStream, zfilio_PublishedFilioCarriesWholeHandles)
+{
+    SmushStreamTest_StartZfilio();
+    uint8_t data[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    Test_AddFile("plain.bin", data, 8);
+
+    FilioInterface* pFilio = Test_Enumerate("FILIO", 0);
+    TEST_ASSERT_NOT_NULL(pFilio);
+
+    int fh = pFilio->Open("plain.bin", "rb");
+    TEST_ASSERT_NOT_EQUAL(0, fh);
+    int fh2 = pFilio->Open("plain.bin", "rb");
+    TEST_ASSERT_NOT_EQUAL(0, fh2);
+    TEST_ASSERT_NOT_EQUAL(fh, fh2);
+
+    uint8_t buf[4] = { 0 };
+    TEST_ASSERT_EQUAL_INT(4, pFilio->Read(fh, buf, 4));
+    TEST_ASSERT_EQUAL_UINT8(1, buf[0]);
+    TEST_ASSERT_EQUAL_UINT8(4, buf[3]);
+    TEST_ASSERT_EQUAL_INT(4, pFilio->Tell(fh));
+    pFilio->Seek(fh, 2, 0);
+    TEST_ASSERT_EQUAL_INT(2, pFilio->Tell(fh));
+    pFilio->Flush(fh);
+    TEST_ASSERT_EQUAL_INT(1, Test_numFileFlushes);
+
+    int closes = Test_numFileCloses;
+    pFilio->Close(fh);
+    pFilio->Close(fh2);
+    TEST_ASSERT_EQUAL_INT(closes + 2, Test_numFileCloses);
+
+    TEST_ASSERT_EQUAL_INT(0, pFilio->Open("missing.bin", "rb"));
+#if UINTPTR_MAX > INT_MAX
+    // A closed or unknown slot is refused instead of dereferenced
+    TEST_ASSERT_EQUAL_INT(0, pFilio->Read(fh, buf, 4));
+    TEST_ASSERT_EQUAL_INT(-1, pFilio->Seek(0, 0, 0));
+    pFilio->Close(fh);
+    TEST_ASSERT_EQUAL_INT(closes + 2, Test_numFileCloses);
+#endif
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Frame (ANIMFRAME)
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1627,6 +1671,7 @@ TEST_GROUP_RUNNER(SmushStream)
     RUN_TEST_CASE(SmushStream, zfilio_ConfigureLimitsExtensionCount);
     RUN_TEST_CASE(SmushStream, zfilio_GzFileTracksLogicalPosition);
     RUN_TEST_CASE(SmushStream, zfilio_PlainFilesPassThroughToChainedFilio);
+    RUN_TEST_CASE(SmushStream, zfilio_PublishedFilioCarriesWholeHandles);
     RUN_TEST_CASE(SmushStream, animframe_StartupRequiresBitmapAndMemory);
     RUN_TEST_CASE(SmushStream, animframe_ParseDispatchesChunksToDecoderByTag);
     RUN_TEST_CASE(SmushStream, animframe_DecodeMapsDecoderResultToOutputFlags);

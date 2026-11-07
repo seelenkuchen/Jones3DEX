@@ -18,13 +18,17 @@
 
 #include <sound/Sound.h>
 
+#include <ctype.h>
+#include <string.h>
+
 #include <std/General/std.h>
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdRenderCapture.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 int JonesConsole_g_bVisible;
@@ -62,6 +66,7 @@ int J3DAPI JonesConsole_NextLevel(const SithConsoleCommand* pFunc, const char* p
 int J3DAPI JonesConsole_EndLevel(const SithConsoleCommand* pFunc, const char* pArg); // Added: From debug version
 int J3DAPI JonesConsole_Restart(const SithConsoleCommand* pFunc, const char* pArg); // Added: From debug version
 int J3DAPI JonesConsole_ShowEndCredits(const SithConsoleCommand* pFunc, const char* pArg);
+int J3DAPI JonesConsole_Capture(const SithConsoleCommand* pFunc, const char* pArg); // Added
 
 void J3DAPI JonesConsole_EnableDevMode(bool bEnable); // Added
 int J3DAPI JonesConsole_DevMode(const SithConsoleCommand* pFunc, const char* pArg); // Added
@@ -125,6 +130,8 @@ int JonesConsole_Open(void)
     sithConsole_RegisterCommand(JonesConsole_PrintFramerate, "framerate", 0);
     sithConsole_RegisterCommand(JonesConsole_PrintPolys, "polys", 0);
     sithConsole_RegisterCommand(JonesConsole_ShowEndCredits, "endcredit", 0);
+
+    sithConsole_RegisterCommand(JonesConsole_Capture, "capture", 0); // Added
 
     // Added: Following commands were added from debug version
     sithConsole_RegisterCommand(JonesConsole_JumpLevel, "jumplevel", SITHCONSOLE_DEVMODE);
@@ -494,6 +501,104 @@ int J3DAPI JonesConsole_ShowEndCredits(const SithConsoleCommand* pFunc, const ch
     J3D_UNUSED(pFunc);
     J3D_UNUSED(pArg);
     JonesMain_ShowEndCredits();
+    return 1;
+}
+
+// Added: skip the spaces the console passes before an argument.
+static const char* JonesConsole_SkipSpaces(const char* pText)
+{
+    while ( pText && *pText && isspace((unsigned char)*pText) )
+    {
+        ++pText;
+    }
+
+    return pText;
+}
+
+// Added: the state line shared by the plain command and the frames switch.
+static void JonesConsole_PrintCaptureState(void)
+{
+    if ( !stdRenderCapture_IsOpen() )
+    {
+        sithConsole_PrintString("Render capture: closed");
+        return;
+    }
+
+    SITHCONSOLE_PRINTF("Render capture: open, frames %s", stdRenderCapture_GetFramesEnabled() ? "on" : "off");
+}
+
+int J3DAPI JonesConsole_Capture(const SithConsoleCommand* pFunc, const char* pArg)
+{
+    (void)pFunc;
+
+    const char* pCur = JonesConsole_SkipSpaces(pArg);
+    if ( !pCur || !*pCur )
+    {
+        JonesConsole_PrintCaptureState();
+        return 0;
+    }
+
+    static const char aFrames[] = "frames";
+    size_t framesSize           = sizeof(aFrames) - 1;
+    if ( strncmp(pCur, aFrames, framesSize) != 0
+      || (pCur[framesSize] != '\0' && !isspace((unsigned char)pCur[framesSize])) )
+    {
+        sithConsole_PrintString("usage: capture [frames on|off]");
+        return 0;
+    }
+
+    const char* pValue = JonesConsole_SkipSpaces(pCur + framesSize);
+    if ( !*pValue )
+    {
+        sithConsole_PrintString("usage: capture [frames on|off]");
+        return 0;
+    }
+
+    size_t valueSize = 0;
+    while ( pValue[valueSize] && !isspace((unsigned char)pValue[valueSize]) )
+    {
+        ++valueSize;
+    }
+
+    if ( *JonesConsole_SkipSpaces(pValue + valueSize) )
+    {
+        sithConsole_PrintString("usage: capture [frames on|off]");
+        return 0;
+    }
+
+    char aValue[8] = { 0 };
+    if ( valueSize >= sizeof(aValue) )
+    {
+        sithConsole_PrintString("usage: capture [frames on|off]");
+        return 0;
+    }
+
+    memcpy(aValue, pValue, valueSize);
+    aValue[valueSize] = '\0';
+
+    bool bEnabled;
+    if ( streqi(aValue, "on") )
+    {
+        bEnabled = true;
+    }
+    else if ( streqi(aValue, "off") )
+    {
+        bEnabled = false;
+    }
+    else
+    {
+        sithConsole_PrintString("usage: capture [frames on|off]");
+        return 0;
+    }
+
+    if ( !stdRenderCapture_IsOpen() )
+    {
+        sithConsole_PrintString("Render capture: no capture is open (start the game with -capture <file>).");
+        return 0;
+    }
+
+    stdRenderCapture_SetFramesEnabled(bEnabled);
+    JonesConsole_PrintCaptureState();
     return 1;
 }
 

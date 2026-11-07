@@ -8,7 +8,7 @@ This page documents how OpenJones3D preserves the original architecture while st
 
 Primary source files:
 
-- [`Libs/j3dcore/j3d.h`](../../../Libs/j3dcore/j3d.h)
+- [`Libs/j3dcore/j3d.h`](../../../Libs/j3dcore/j3d.h.in) (generated from `j3d.h.in`)
 - [`CMakeLists.txt`](../../../CMakeLists.txt)
 - [`Libs/sith/Engine/sithRender.h`](../../../Libs/sith/Engine/sithRender.h)
 - [`Libs/sith/Engine/sithRender.c`](../../../Libs/sith/Engine/sithRender.c)
@@ -44,9 +44,9 @@ it is tagged `upstream-compatible-final`. `j3dcore` keeps the shared macros, siz
 
 The main build-time switches are:
 
-- `JONES3D_USE_DIRECTX9`
 - `JONES3D_QOL_IMPROVEMENTS`
 - `JONES3D_SPEEDRUN_BUILD`
+- `JONES3D_RUNTIME_GUARDS`
 
 `J3D_QOL_VALUE(newValue, legacyValue)` is the main mechanism used inside the codebase to keep both the modernized and legacy behavior profiles available.
 
@@ -58,12 +58,12 @@ The following are some of the most important architecture-level or runtime-level
 
 | Area | Legacy / Original Direction | OpenJones3D Direction |
 | --- | --- | --- |
-| Graphics backend | DirectX 6.1c path only | DirectX 9 backend added, legacy DX6 path kept |
+| Graphics backend | DirectX 6.1c path only | DirectX 9 backend added, legacy DX6 path kept; both removed in M6.3, the Babylon renderer replaces them in M6 |
 | Hook model | Original binary only | Hooks into the original executable during the reconstruction; removed in Jones3D EX |
 | Configuration | Windows Registry | `Jones.cfg` JSON with registry fallback/migration |
 | Off-screen thing/light traversal | Legacy DFS-like traversal | BFS traversal available and enabled by default under `QOL` |
 | Thing/light collection distance | 8.0 / 8.0 default | 18.0 / 18.0 default under `QOL` |
-| Timer source | `timeGetTime()` | `QueryPerformanceCounter()` under `QOL` |
+| Timer source | `timeGetTime()` | `QueryPerformanceCounter()` under `QOL`; the Win32 timer branches went with the Win32 backend in M6.3, and the Null and Babylon columns use a monotonic clock |
 | Player fixed-step physics | legacy-tuned 50 Hz behavior | configurable fixed-step rate, default 150 Hz under `QOL` |
 | Sound channels | small legacy limit | much larger simultaneous channel budget |
 | SW mixer falloff default | linear | logarithmic under `QOL` |
@@ -167,19 +167,16 @@ Architecturally, this keeps the original "embedded resources in the world file" 
 
 ## Renderer Backends
 
-The original renderer architecture is preserved as a layered stack, but the lower backend layer now has two implementations:
+The original renderer architecture is preserved as a layered stack. OpenJones3D added two lower backends, DirectX 6.1c and DirectX 9; both were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Until the Babylon renderer lands (M6.6) the only backend is the Null one in `Libs/std/Null/`, which accepts every call and draws nothing.
 
-- DirectX 6.1c
-- DirectX 9
-
-The DX9 path adds:
+The DX9 path added:
 
 - shader support
 - VBO/IBO support
 - more modern texture/device capability handling
 - support for higher resolutions and features expected on modern systems
 
-The important architectural point is that the upper scene-building logic in `sith` and `rdroid` remains substantially the same. OpenJones3D modernizes the backend under the existing renderer rather than replacing the whole render model.
+The important architectural point is that the upper scene-building logic in `sith` and `rdroid` remains substantially the same. OpenJones3D modernized the backend under the existing renderer rather than replacing the whole render model.
 
 ## Compatibility Philosophy
 
@@ -189,10 +186,9 @@ OpenJones3D generally follows one of these patterns when introducing improvement
 2. Improve the implementation without changing the public subsystem boundary.
 3. Change the default while still allowing the legacy behavior profile.
 
-That is why the project can support:
+That is why the project supports:
 
-- a legacy-style DirectX 6.1c renderer
-- a DirectX 9 renderer
+- the removed DirectX 6.1c and DirectX 9 renderers, and from M6.6 the Babylon renderer
 - a legacy-compatible non-`QOL` build profile
 - a modernized default profile
 

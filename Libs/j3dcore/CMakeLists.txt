@@ -18,9 +18,10 @@ target_include_directories(${PROJECT_NAME} BEFORE PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
-# Added: Null platform: build the Microsoft CRT shim as a static library and link it through
+# Added: build the Microsoft CRT shim as a static library and link it through
 # j3dcore's interface, so engine code keeps calling the Microsoft names on non-Windows hosts.
-if (J3D_PLATFORM_NULL)
+# The Babylon column on Windows has the real Microsoft CRT and builds no shim.
+if (NOT WIN32)
     add_library(j3dcrt STATIC
         j3dcrt.c
         j3dcrt.h
@@ -33,6 +34,4 @@ endif()
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${HEADERS})
 source_group("Generated" FILES ${J3D_GENERATED_HEADER})
 
-if (JONES3D_BUILD_TESTS OR J3D_PLATFORM_NULL)
-    add_subdirectory(Tests)
-endif()
+add_subdirectory(Tests)

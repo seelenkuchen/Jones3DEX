@@ -19,9 +19,9 @@
 #include <std/General/stdConfig.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/std3D.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
 
 #include <wkernel/wkernel.h>
 
@@ -289,7 +289,15 @@ int J3DAPI JonesDisplay_Open(JonesDisplaySettings* pSettings)
         stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_MAXLIGHTCOLLECTDISTANCE, maxLightColectDist);
     }
 
+    // Added: Load the lit faces setting from config (presentation: not part of the simulation profile)
+    bool bLitFaces = stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+    if ( !stdConfig_Contains(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED) )
+    {
+        stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, bLitFaces);
+    }
+
     rdSetGeometryMode(pSettings->geoMode);
+    rdSetLitFaces(bLitFaces); // Added
     sithRender_SetLightingMode(pSettings->lightMode);
     sithRender_SetRenderFlags(sithRender_GetRenderFlags() | RDROID_USE_AMBIENT_CAMERA_LIGHT);
 

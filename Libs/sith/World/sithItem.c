@@ -10,7 +10,7 @@
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithThing.h>
 
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #include <errno.h>
 #include <stdlib.h>

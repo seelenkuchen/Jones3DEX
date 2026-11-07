@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <std/Win95/stdConsole.h>
+#include <std/General/stdConsole.h>
 
 static int stdConsole_textAttribute = 0;
 static bool stdConsole_bStarted     = false;

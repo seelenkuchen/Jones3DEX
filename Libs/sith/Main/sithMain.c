@@ -45,7 +45,7 @@
 #include <std/General/stdFnames.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 size_t sithMain_g_frameNumber;

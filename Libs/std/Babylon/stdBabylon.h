@@ -14,6 +14,11 @@
 #include <babylon/time/Clock.h>
 #include <babylon/time/NullClock.h>
 
+namespace babylon::render
+{
+    class Device;
+}
+
 struct StdBabylonContext
 {
     babylon::time::Clock*     pClock;        // real clock; never null while installed
@@ -23,6 +28,10 @@ struct StdBabylonContext
     babylon::platform::NullPlatform* pScriptPlatform; // the headless runner's queue, or nullptr
     babylon::platform::Window* pWindow;      // the game window, or nullptr (headless)
     babylon::cvars::Registry* pCvars;        // never null while installed
+    // The render device stdDisplay presents and std3D draws with (stdRenderBabylon.h), or nullptr:
+    // stdDisplay_Startup and std3D_Startup then fail.
+    // The composition root creates it after the window and destroys it before the window.
+    babylon::render::Device* pRenderDevice;
 };
 
 // Installs the context (nullptr uninstalls). The pointer must stay valid until it is uninstalled.

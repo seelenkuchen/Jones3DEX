@@ -1,11 +1,15 @@
-#include <windows.h>
-#include <dbghelp.h>
+// Altered: this suite ran only in the Win32/DirectX build, against std/Win95/stdPlatformWin32.c. It now
+// covers the shared std/General/stdPlatform.c and the platform layer every column links,
+// Null/stdPlatformNull.c with the column's time file. The cases of the Windows layer alone (the stack
+// frame string probe CheckStackFrameStringArg, the QueryPerformanceCounter timer, the unhandled-exception
+// filter and its minidump) went with that file (ADR-0011).
 #include <unity_fixture.h>
 
+#include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <wchar.h>
 
 #include <std/General/std.h>
 #include <std/General/stdFileUtil.h>
@@ -15,39 +19,23 @@
 
 #include "stdGeneralTest.h"
 
-bool CheckStackFrameStringArg(uintptr_t ptr, bool* bWide, char* outAnsiBuf, size_t ansiBufSize, wchar_t* outWideBuf, size_t wideBufSize, size_t* readLen);
-void stdPlatform_InitHighResTimer(void);
-extern LARGE_INTEGER stdPlatform_perfCounterFreq;
-extern LARGE_INTEGER stdPlatform_perfCounterStart;
+// The banner stdPlatform_PrintStackTrace prints before any frame.
+#define STDPLATFORMTEST_STACKTRACE_BANNER "\n==================== STACK TRACE ====================\n"
 
 static char stdPlatformTest_aStackTrace[2048];
-static char stdPlatformTest_aDeathTestDir[MAX_PATH];
 
-static void stdPlatformTest_RemoveDeathTestFiles(void)
+// Altered: formats its arguments; the Null layer passes the frame number and symbol as arguments
+// ("  [%d] %s\n"), where the Windows layer handed in finished lines.
+static void J3DAPI stdPlatformTest_CaptureStackTrace(const char* pFormat, ...)
 {
-    if ( stdPlatformTest_aDeathTestDir[0] )
+    if ( pFormat )
     {
-        char aDumpPath[MAX_PATH + sizeof("\\core.dmp")];
-        STD_FORMAT(aDumpPath, "%s\\core.dmp", stdPlatformTest_aDeathTestDir);
-        DeleteFileA(aDumpPath);
-        RemoveDirectoryA(stdPlatformTest_aDeathTestDir);
-        stdPlatformTest_aDeathTestDir[0] = '\0';
-    }
-}
-
-int StdPlatformTest_RunDeathChild(void)
-{
-    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
-    stdPlatform_InstallSignalHandler();
-    RaiseException(EXCEPTION_ACCESS_VIOLATION, EXCEPTION_NONCONTINUABLE, 0u, NULL);
-    return EXIT_FAILURE;
-}
-
-static void J3DAPI stdPlatformTest_CaptureStackTrace(const char* pText, ...)
-{
-    if ( pText )
-    {
-        stdUtil_StringCat(stdPlatformTest_aStackTrace, sizeof(stdPlatformTest_aStackTrace), pText);
+        char aLine[512];
+        va_list args;
+        va_start(args, pFormat);
+        vsnprintf(aLine, sizeof(aLine), pFormat, args);
+        va_end(args);
+        stdUtil_StringCat(stdPlatformTest_aStackTrace, sizeof(stdPlatformTest_aStackTrace), aLine);
     }
 }
 
@@ -57,13 +45,10 @@ TEST_SETUP(stdPlatform)
 {
     StdGeneralTest_Startup();
     stdPlatformTest_aStackTrace[0] = '\0';
-    stdPlatformTest_aDeathTestDir[0] = '\0';
 }
 
 TEST_TEAR_DOWN(stdPlatform)
 {
-    SetUnhandledExceptionFilter(NULL);
-    stdPlatformTest_RemoveDeathTestFiles();
     stdFileUtil_RmDir("stdPlatformTest_dir");
     StdGeneralTest_Shutdown();
 }
@@ -72,12 +57,13 @@ TEST(stdPlatform, TestInitServicesPopulatesExpectedCallbacksAndClearZerosThem)
 {
     tHostServices services;
     tHostServices zeroServices;
-    HRESULT hr;
 
     STD_ZEROMEM(&services, sizeof(services));
     STD_ZEROMEM(&zeroServices, sizeof(zeroServices));
-    hr = stdPlatform_InitServices(&services);
-    TEST_ASSERT_TRUE(SUCCEEDED(hr) || hr == S_FALSE);
+    // Altered: the result is the platform's COM start-up result; SUCCEEDED(hr) || hr == S_FALSE was the
+    // Windows spelling of "not negative". The Null layer has no COM and returns S_OK, 0.
+    int result = stdPlatform_InitServices(&services);
+    TEST_ASSERT_TRUE(result >= 0);
     TEST_ASSERT_EQUAL_FLOAT(1000.0f, services.unknown1);
     TEST_ASSERT_EQUAL_PTR(stdPlatform_Printf, services.pMessagePrint);
     TEST_ASSERT_EQUAL_PTR(stdPlatform_Printf, services.pStatusPrint);
@@ -142,175 +128,52 @@ TEST(stdPlatform, TestTimerPrintfAndDirExists)
     TEST_ASSERT_FALSE(stdPlatform_DirExists("stdPlatformTest_missing_dir"));
 }
 
-TEST(stdPlatform, TestTimeMsecUsesActiveTimerBranch)
+// Altered: was TestTimeMsecUsesActiveTimerBranch; the QueryPerformanceCounter branch it also checked
+// went with the Windows layer. Sleep is the engine's stdPlatform_Sleep instead of the Win32 one.
+TEST(stdPlatform, TestTimeMsecDoesNotGoBackAcrossSleep)
 {
-#ifdef J3D_QOL_IMPROVEMENTS
-    stdPlatform_InitHighResTimer();
-    TEST_ASSERT_TRUE(stdPlatform_perfCounterFreq.QuadPart > 0);
-    TEST_ASSERT_TRUE(stdPlatform_perfCounterStart.QuadPart > 0);
-#endif
-
     tStdTime first = stdPlatform_GetTimeMsec();
-    Sleep(1);
+    stdPlatform_Sleep(1u);
     TEST_ASSERT_TRUE(stdPlatform_GetTimeMsec() >= first);
 }
 
-TEST(stdPlatform, TestCheckStackFrameStringArgRejectsInvalidAndReadsStrings)
+// Altered: was TestInstallSignalHandlerAndZeroFrameStackTrace. stdPlatform_InstallSignalHandler has no
+// definition any more (only the Windows layer had one), so only the zero-frame trace is left. The Null
+// layer prints the banner and no closing line; the Windows layer closed with a line of '='.
+TEST(stdPlatform, TestZeroFrameStackTracePrintsOnlyTheBanner)
 {
-    char aAnsiText[32];
-    const wchar_t awWideText[] = L"Sanctuary";
-    char aAnsiBuf[32] = { 0 };
-    wchar_t awWideBuf[32] = { 0 };
-    bool bWide = true;
-    size_t readLen = 99u;
-
-    // Keep the byte after the ANSI terminator non-zero so the wide-string probe cannot accept it first.
-    STD_FILLMEM(aAnsiText, 0xFF, sizeof(aAnsiText));
-    STD_STRCPY(aAnsiText, "Temple");
-
-    TEST_ASSERT_FALSE(CheckStackFrameStringArg(0u, &bWide, aAnsiBuf, STD_ARRAYLEN(aAnsiBuf), awWideBuf, STD_ARRAYLEN(awWideBuf), &readLen));
-    TEST_ASSERT_FALSE(bWide);
-    TEST_ASSERT_EQUAL_size_t(0u, readLen);
-
-    TEST_ASSERT_FALSE(CheckStackFrameStringArg(1u, &bWide, aAnsiBuf, STD_ARRAYLEN(aAnsiBuf), awWideBuf, STD_ARRAYLEN(awWideBuf), &readLen));
-
-    TEST_ASSERT_TRUE(CheckStackFrameStringArg((uintptr_t)aAnsiText, &bWide, aAnsiBuf, STD_ARRAYLEN(aAnsiBuf), awWideBuf, STD_ARRAYLEN(awWideBuf), &readLen));
-    TEST_ASSERT_FALSE(bWide);
-    TEST_ASSERT_EQUAL_STRING("Temple", aAnsiBuf);
-
-    TEST_ASSERT_TRUE(CheckStackFrameStringArg((uintptr_t)awWideText, &bWide, aAnsiBuf, STD_ARRAYLEN(aAnsiBuf), awWideBuf, STD_ARRAYLEN(awWideBuf), &readLen));
-    TEST_ASSERT_TRUE(bWide);
-    TEST_ASSERT_EQUAL(0, wcscmp(L"Sanctuary", awWideBuf));
-}
-
-TEST(stdPlatform, TestCheckStackFrameStringArgRejectsNonPrintableAndUnterminatedStrings)
-{
-    char aNonPrintable[] = { 'O', 'k', '\x01', '\0' };
-    char aUnterminated[32];
-    char aAnsiBuf[32] = { 0 };
-    wchar_t awWideBuf[32] = { 0 };
-    bool bWide = false;
-    size_t readLen = 0;
-
-    STD_FILLMEM(aUnterminated, 'A', sizeof(aUnterminated));
-
-    TEST_ASSERT_FALSE(CheckStackFrameStringArg(
-        (uintptr_t)aNonPrintable,
-        &bWide,
-        aAnsiBuf,
-        STD_ARRAYLEN(aAnsiBuf),
-        awWideBuf,
-        STD_ARRAYLEN(awWideBuf),
-        &readLen
-    ));
-    TEST_ASSERT_FALSE(bWide);
-
-    TEST_ASSERT_FALSE(CheckStackFrameStringArg(
-        (uintptr_t)aUnterminated,
-        &bWide,
-        aAnsiBuf,
-        STD_ARRAYLEN(aAnsiBuf),
-        awWideBuf,
-        STD_ARRAYLEN(awWideBuf),
-        &readLen
-    ));
-}
-
-TEST(stdPlatform, TestInstallSignalHandlerAndZeroFrameStackTrace)
-{
-    stdPlatform_InstallSignalHandler();
     stdPlatform_PrintStackTrace(stdPlatformTest_CaptureStackTrace, 0u);
 
+#ifdef _WIN32
+    // The Null layer on Windows has no unwinder and says so after the banner.
     TEST_ASSERT_EQUAL_STRING(
-        "\n==================== STACK TRACE ====================\n"
-        "=========================================================\n",
+        STDPLATFORMTEST_STACKTRACE_BANNER
+        "  no stack trace on this platform\n",
         stdPlatformTest_aStackTrace
     );
-}
-
-TEST(stdPlatform, TestUnhandledExceptionWritesMiniDump)
-{
-    char aTempPath[MAX_PATH];
-    DWORD tempPathLen = GetTempPathA(STD_ARRAYLEN(aTempPath), aTempPath);
-    TEST_ASSERT_TRUE(tempPathLen > 0u && tempPathLen < STD_ARRAYLEN(aTempPath));
-    TEST_ASSERT_NOT_EQUAL_UINT(0u, GetTempFileNameA(aTempPath, "OJD", 0u, stdPlatformTest_aDeathTestDir));
-    TEST_ASSERT_TRUE(DeleteFileA(stdPlatformTest_aDeathTestDir));
-    TEST_ASSERT_TRUE(CreateDirectoryA(stdPlatformTest_aDeathTestDir, NULL));
-
-    char aExecutablePath[MAX_PATH];
-    DWORD executablePathLen = GetModuleFileNameA(NULL, aExecutablePath, STD_ARRAYLEN(aExecutablePath));
-    TEST_ASSERT_TRUE(executablePathLen > 0u && executablePathLen < STD_ARRAYLEN(aExecutablePath));
-
-    char aCommandLine[MAX_PATH * 2u];
-    STD_FORMAT(aCommandLine, "\"%s\" --std-platform-death-child", aExecutablePath);
-
-    STARTUPINFOA startupInfo;
-    PROCESS_INFORMATION processInfo;
-    STD_ZEROMEM(&startupInfo, sizeof(startupInfo));
-    STD_ZEROMEM(&processInfo, sizeof(processInfo));
-    startupInfo.cb = sizeof(startupInfo);
-
-    BOOL bCreated = CreateProcessA(
-        aExecutablePath,
-        aCommandLine,
-        NULL,
-        NULL,
-        FALSE,
-        CREATE_NO_WINDOW,
-        NULL,
-        stdPlatformTest_aDeathTestDir,
-        &startupInfo,
-        &processInfo
-    );
-    TEST_ASSERT_TRUE(bCreated);
-
-    DWORD waitResult = WaitForSingleObject(processInfo.hProcess, 30000u);
-    if ( waitResult == WAIT_TIMEOUT )
-    {
-        TerminateProcess(processInfo.hProcess, ERROR_TIMEOUT);
-        WaitForSingleObject(processInfo.hProcess, 5000u);
-    }
-
-    DWORD exitCode    = 0u;
-    BOOL bGotExitCode = GetExitCodeProcess(processInfo.hProcess, &exitCode);
-    CloseHandle(processInfo.hThread);
-    CloseHandle(processInfo.hProcess);
-    TEST_ASSERT_TRUE(bGotExitCode);
-    TEST_ASSERT_EQUAL_UINT32(WAIT_OBJECT_0, waitResult);
-    TEST_ASSERT_EQUAL_HEX32(EXCEPTION_ACCESS_VIOLATION, exitCode);
-
-    char aDumpPath[MAX_PATH + sizeof("\\core.dmp")];
-    STD_FORMAT(aDumpPath, "%s\\core.dmp", stdPlatformTest_aDeathTestDir);
-    HANDLE hDump = CreateFileA(aDumpPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    TEST_ASSERT_TRUE(hDump != INVALID_HANDLE_VALUE);
-
-    LARGE_INTEGER dumpSize;
-    MINIDUMP_HEADER header;
-    DWORD numRead    = 0u;
-    BOOL bGotSize    = GetFileSizeEx(hDump, &dumpSize);
-    BOOL bReadHeader = ReadFile(hDump, &header, sizeof(header), &numRead, NULL);
-    CloseHandle(hDump);
-
-    TEST_ASSERT_TRUE(bGotSize);
-    TEST_ASSERT_TRUE(dumpSize.QuadPart > (LONGLONG)sizeof(MINIDUMP_HEADER));
-    TEST_ASSERT_TRUE(bReadHeader);
-    TEST_ASSERT_EQUAL_UINT32(sizeof(header), numRead);
-    TEST_ASSERT_EQUAL_HEX32(MINIDUMP_SIGNATURE, header.Signature);
-    TEST_ASSERT_EQUAL_UINT16((uint16_t)MINIDUMP_VERSION, (uint16_t)(header.Version & 0xFFFFu));
-    TEST_ASSERT_TRUE(header.NumberOfStreams > 0u);
-    TEST_ASSERT_TRUE(header.StreamDirectoryRva >= sizeof(header));
-    TEST_ASSERT_TRUE(
-        (uint64_t)header.StreamDirectoryRva + (uint64_t)header.NumberOfStreams * sizeof(MINIDUMP_DIRECTORY)
-        <= (uint64_t)dumpSize.QuadPart
-    );
+#else
+    TEST_ASSERT_EQUAL_STRING(STDPLATFORMTEST_STACKTRACE_BANNER, stdPlatformTest_aStackTrace);
+#endif
 }
 
 TEST(stdPlatform, TestOneFrameStackTraceProducesFrameOutput)
 {
     stdPlatform_PrintStackTrace(stdPlatformTest_CaptureStackTrace, 1u);
 
-    TEST_ASSERT_NOT_NULL(strstr(stdPlatformTest_aStackTrace, "STACK TRACE"));
-    TEST_ASSERT_NOT_NULL(strstr(stdPlatformTest_aStackTrace, "#00"));
+    // Altered: the Windows layer numbered its frames "#00"; the Null layer prints glibc's frames as
+    // "  [0] <symbol>" and, on Windows, no frame at all.
+    TEST_ASSERT_EQUAL_MEMORY(STDPLATFORMTEST_STACKTRACE_BANNER, stdPlatformTest_aStackTrace, sizeof(STDPLATFORMTEST_STACKTRACE_BANNER) - 1u);
+#ifdef _WIN32
+    TEST_ASSERT_EQUAL_STRING(
+        STDPLATFORMTEST_STACKTRACE_BANNER
+        "  no stack trace on this platform\n",
+        stdPlatformTest_aStackTrace
+    );
+#else
+    const char* pFrame = &stdPlatformTest_aStackTrace[sizeof(STDPLATFORMTEST_STACKTRACE_BANNER) - 1u];
+    TEST_ASSERT_EQUAL_MEMORY("  [0] ", pFrame, 6u);
+    TEST_ASSERT_NULL(strstr(pFrame, "  [1] "));
+#endif
 }
 
 TEST_GROUP_RUNNER(stdPlatform)
@@ -318,10 +181,7 @@ TEST_GROUP_RUNNER(stdPlatform)
     RUN_TEST_CASE(stdPlatform, TestInitServicesPopulatesExpectedCallbacksAndClearZerosThem);
     RUN_TEST_CASE(stdPlatform, TestHandleAllocationReallocationFreeAndLock);
     RUN_TEST_CASE(stdPlatform, TestTimerPrintfAndDirExists);
-    RUN_TEST_CASE(stdPlatform, TestTimeMsecUsesActiveTimerBranch);
-    RUN_TEST_CASE(stdPlatform, TestCheckStackFrameStringArgRejectsInvalidAndReadsStrings);
-    RUN_TEST_CASE(stdPlatform, TestCheckStackFrameStringArgRejectsNonPrintableAndUnterminatedStrings);
-    RUN_TEST_CASE(stdPlatform, TestInstallSignalHandlerAndZeroFrameStackTrace);
-    RUN_TEST_CASE(stdPlatform, TestUnhandledExceptionWritesMiniDump);
+    RUN_TEST_CASE(stdPlatform, TestTimeMsecDoesNotGoBackAcrossSleep);
+    RUN_TEST_CASE(stdPlatform, TestZeroFrameStackTracePrintsOnlyTheBanner);
     RUN_TEST_CASE(stdPlatform, TestOneFrameStackTraceProducesFrameOutput);
 }

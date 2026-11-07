@@ -1,0 +1,101 @@
+#ifndef STD_STD3D_H
+#define STD_STD3D_H
+#include <j3dcore/j3d.h>
+#include <std/types.h>
+
+#include "stdShader.h"
+
+// Added following macros from rdCache to use for VBO & IBO sizes
+#define STD3D_MAXFACEVERTICES 64 
+#define STD3D_MAXVERTICES     32768
+
+// Added: the most lights std3D_SetLights takes, RDCAMERA_MAX_LIGHTS (rdroid checks they agree)
+#define STD3D_MAXLIGHTS 128u
+
+#define STD3D_CFG_MIPMAPAUTOGEN     "graphics.mipmapAutoGen"
+#define STD3D_CFG_ANISOTROPICFILTER "graphics.anisotropicFilter"
+
+#define STD3D_CFG_MSAAENABLED "graphics.msaa.enabled"
+#define STD3D_CFG_MSAASAMPLES "graphics.msaa.samples"
+
+J3D_EXTERN_C_START
+
+extern float std3D_g_fogDensity;
+extern size_t std3D_g_maxVertices;
+
+int std3D_Startup(void);
+void std3D_Shutdown(void);
+
+const Device3D* std3D_GetCurrentDevice(void); // Added
+
+size_t std3D_GetNumDevices(void);
+const Device3D* std3D_GetAllDevices(void);
+void J3DAPI std3D_SetFindAllDevices(int bFindAll);
+
+int J3DAPI std3D_Open(size_t deviceNum);
+void std3D_Close(void);
+
+void J3DAPI std3D_GetTextureFormat(StdColorFormatType type, ColorInfo* pDest, int* pbColorKeySet, LPDDCOLORKEY* ppColorKey);
+StdColorFormatType J3DAPI std3D_GetColorFormat(const ColorInfo* pCi);
+size_t std3D_GetNumTextureFormats(void);
+
+int std3D_StartScene(void);
+void std3D_EndScene(void);
+
+void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
+
+// Added: std3D_DrawRenderList for vertices that carry their view-space position and normal
+// (StdVertexLit, option A L1). Everything std3D_DrawRenderList promises holds unchanged for the
+// tl part of each vertex: the render state it sets, the texture, the limits on numVerts and the
+// indices, numIndices / 3 triangles, and the color it draws, bit for bit. The position and normal
+// only feed the backend's per-pixel targets (a backend without them ignores them). The arrays are
+// read during the call only; a draw it refuses draws nothing, as std3D_DrawRenderList.
+void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
+
+// Added: the light list of the frame (option A L4, ADR-0023): numLights lights in the order of the
+// rdroid camera's list, positions in view space (StdLight). A backend with per-pixel lighting keeps a
+// copy for its lit draws (std3D_DrawRenderListLit): the lit draws of a scene pass see the last list
+// set before the pass ends. No shader reads it yet, so it changes no pixel; backends without
+// per-pixel lighting (Null) ignore the call. aLights is read during the call only and may be NULL
+// when numLights is 0, which sets the empty list. A backend that keeps the list refuses more than
+// STD3D_MAXLIGHTS lights, or a NULL aLights with lights, with a logged error, and sets the empty
+// list. May be called outside a scene. The game calls it once per sithRender_Draw, and only with
+// engine.renderer.litFaces.enabled (rdGetLitFaces).
+void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights);
+
+void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts);
+void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts);
+void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags);
+void std3D_SetWireframeRenderState(void);
+
+void J3DAPI std3D_AllocSystemTexture(tSystemTexture* pTexture, tVBuffer** apVBuffers, size_t numMipLevels, StdColorFormatType formatType);
+void J3DAPI std3D_GetValidDimensions(uint32_t width, uint32_t height, uint32_t* pOutWidth, uint32_t* pOutHeight);
+void J3DAPI std3D_ClearSystemTexture(tSystemTexture* pTex);
+
+void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorFormatType format);
+void std3D_ResetTextureCache(void);
+
+size_t J3DAPI std3D_GetMipMapCount(const tSystemTexture* pTexture);
+void J3DAPI std3D_UpdateFrameCount(tSystemTexture* pTexture);
+size_t J3DAPI std3D_FindClosestFormat(const ColorInfo* pMatch);
+
+// On success 0 is returned
+int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
+int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);
+void J3DAPI std3D_EnableFog(int bEnabled, float density);
+void J3DAPI std3D_SetFog(float red, float green, float blue, float startDepth, float endDepth);
+void std3D_ClearZBuffer(void);
+
+StdDisplayEnvironment* J3DAPI std3D_BuildDisplayEnvironment();
+void J3DAPI std3D_FreeDisplayEnvironment(StdDisplayEnvironment* pEnv);
+
+// New funcs
+bool std3D_IsShaderSystemActive(void);
+bool std3D_IsAnisotropicFilteringSupported(void); // Checks if underlying GAPI supports anisotropic texute filtering. Note, device might still not support it.
+bool std3D_IsMipmapAutoGenSupported(void);        // Checks if underlying GAPI supports automatic generation of Mipmaps. Note, device might still not support it.
+bool std3D_IsMSAASupported(void);                 // Checks if underlying GAPI supports Multisample anti-aliasing (MSAA). Note, device might still not support it.
+
+void std3D_ResetGlobals(void);
+
+J3D_EXTERN_C_END
+#endif // STD_STD3D_H

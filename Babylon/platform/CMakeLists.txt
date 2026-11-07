@@ -11,7 +11,8 @@ babylon_add_module(platform
 babylon_add_module_tests(platform
     DEPS log
     SOURCES tests/PlatformContractTest.cpp tests/NullPlatformTest.cpp
-        tests/KeysTest.cpp backends/sdl/tests/SdlEventTranslationTest.cpp)
+        tests/KeysTest.cpp backends/sdl/tests/SdlEventTranslationTest.cpp
+        backends/sdl/tests/SdlWindowAccessTest.cpp)
 if (TARGET babylon_platform_tests)
     # SDL's offscreen video driver needs no display, so the tests run in CI and over SSH.
     # On macOS the offscreen driver cannot create a window ("Could not initialize OpenGL /

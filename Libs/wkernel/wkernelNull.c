@@ -46,3 +46,14 @@ WKERNELACTIVATEPROC J3DAPI wkernel_SetActivateCallback(WKERNELACTIVATEPROC pfPro
     wkernel_pfActivate = pfProc;
     return pfCurProc;
 }
+
+// Added: the intro skip callback exists for the Babylon column's wkernel (see wkernel.h). Stored so the Null column
+// links; there is no input on this platform, so it is never called.
+static WKERNELSKIPPROC wkernel_pfIntroSkip = NULL;
+
+WKERNELSKIPPROC J3DAPI wkernel_SetIntroSkipCallback(WKERNELSKIPPROC pfProc)
+{
+    WKERNELSKIPPROC pfCurProc = wkernel_pfIntroSkip;
+    wkernel_pfIntroSkip = pfProc;
+    return pfCurProc;
+}

@@ -1,49 +1,96 @@
-set(JONES3D_TEST_SOURCES
-    jones3dTestRunner.c
-    JonesMainTest.c
+# Added: the command-line parser is pure C, so its tests run without the rest of the game.
+add_executable(jonesCaptureTests
+    JonesCaptureTestRunner.c
+    JonesCaptureTest.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesCapture.c"
 )
 
-# The test target links the game sources directly, mirroring how the standalone Jones3D exe is built, because
-# JonesMain.c depends on the rest of the game layer. The tests only call the pure lookup function
-# JonesMain_FindClosestVideoMode, so the fixed-address retail globals are never touched.
-get_filename_component(JONES3D_TEST_GAME_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
-file(GLOB_RECURSE JONES3D_TEST_GAME_SOURCES "${JONES3D_TEST_GAME_ROOT}/*.c")
-list(FILTER JONES3D_TEST_GAME_SOURCES EXCLUDE REGEX ".*/Tests/.*")
-list(FILTER JONES3D_TEST_GAME_SOURCES EXCLUDE REGEX ".*/WinMain\\.c$")
-# Added: Windows test builds never compile the Null platform backend sources.
-list(FILTER JONES3D_TEST_GAME_SOURCES EXCLUDE REGEX ".*/Platform/Null/.*")
-# Added: Windows test builds never compile the Babylon column's platform sources either.
-list(FILTER JONES3D_TEST_GAME_SOURCES EXCLUDE REGEX ".*/Platform/Babylon/.*")
+target_include_directories(jonesCaptureTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+get_property(JONES3D_CAPTURE_TEST_LIBS TARGET Libs PROPERTY INTERFACE_LINK_LIBRARIES)
+# Added: MSVC's link.exe has no group options and no m.lib; like ld64 it rescans the static
+# libraries itself, so the Babylon column under MSVC links as on macOS.
+if (APPLE OR MSVC)
+    target_link_libraries(jonesCaptureTests PRIVATE
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jonesCaptureTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+        m
+    )
+endif()
+
+set_target_properties(jonesCaptureTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    JonesCaptureTestRunner.c
+    JonesCaptureTest.c
+)
+
+add_test(NAME Jones3D.Capture COMMAND jonesCaptureTests)
+set_tests_properties(Jones3D.Capture PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 60
+)
+
+# Added: the video mode lookup JonesMain_FindClosestVideoMode (JonesMainTest.c). JonesMain.c needs
+# the rest of the application layer, so the test links the Jones3DGame objects and the platform
+# helpers of Platform/Null without its main(), like the Babylon column's Jones3D-headless. The
+# tests only call the pure lookup function, so no platform is started. It ran in the Windows
+# jones3dTests of the DirectX 9 Jones3D.exe until that went (ADR-0011); the capture cases that
+# executable also ran are Jones3D.Capture above.
+file(GLOB JONES3D_MAIN_TEST_PLATFORM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../Platform/Null/*.c")
+list(FILTER JONES3D_MAIN_TEST_PLATFORM_SOURCES EXCLUDE REGEX "/Platform/Null/main\\.c$")
 
 add_executable(jones3dTests
-    ${JONES3D_TEST_SOURCES}
-    ${JONES3D_TEST_GAME_SOURCES}
+    jones3dTestRunner.c
+    JonesMainTest.c
+    ${JONES3D_MAIN_TEST_PLATFORM_SOURCES}
 )
 
-target_include_directories(jones3dTests PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+target_include_directories(jones3dTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 
-target_link_libraries(jones3dTests PRIVATE
-    Libs
-    unity
-    comctl32
-)
+# Added: no group options on macOS and MSVC, as for jonesCaptureTests above.
+if (APPLE OR MSVC)
+    target_link_libraries(jones3dTests PRIVATE
+        Jones3DGame
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jones3dTests PRIVATE
+        -Wl,--start-group
+        Jones3DGame
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+    )
+endif()
+if (NOT APPLE AND NOT WIN32)
+    target_link_libraries(jones3dTests PRIVATE m)
+endif()
+if (J3D_PLATFORM_BABYLON)
+    set_target_properties(jones3dTests PROPERTIES LINKER_LANGUAGE CXX)
+endif()
 
 set_target_properties(jones3dTests PROPERTIES
     FOLDER "Tests/Jones3D"
 )
 
-source_group("Tests" FILES ${JONES3D_TEST_SOURCES})
-source_group("Tested Sources" FILES ${JONES3D_TEST_GAME_SOURCES})
-
-set(JONES3D_TEST_BACKEND_LABEL "")
-if (J3D_DIRECTX6)
-    set(JONES3D_TEST_BACKEND_LABEL "DirectX6")
-elseif (J3D_DIRECTX9)
-    set(JONES3D_TEST_BACKEND_LABEL "DirectX9")
-endif()
+source_group("Tests" FILES
+    jones3dTestRunner.c
+    JonesMainTest.c
+)
 
 add_test(NAME Jones3D.Main COMMAND jones3dTests)
 set_tests_properties(Jones3D.Main PROPERTIES
-    LABELS "unit;Jones3D;${JONES3D_TEST_BACKEND_LABEL}"
+    LABELS "unit;Jones3D"
     TIMEOUT 60
 )

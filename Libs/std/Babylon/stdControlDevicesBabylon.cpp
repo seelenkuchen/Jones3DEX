@@ -18,8 +18,8 @@
 #include <std/Babylon/stdBabylonEvents.h>
 #include <std/Babylon/stdControlDevicesBabylon.h>
 #include <std/Null/stdControlNull.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdKeys.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdKeys.h>
 
 #include <std/General/stdUtil.h>
 

@@ -46,6 +46,13 @@ int _vsnwprintf_s(wchar_t* pBuf, size_t bufSize, size_t count, const wchar_t* pF
 
 errno_t fopen_s(FILE** ppFile, const char* pFilename, const char* pMode);
 
+// Mirrors Microsoft's getenv_s: copies the value of the variable pName into buffer and stores the
+// size it needs, with the terminator, in *pReturnValue (0 when the variable is not set, and then
+// buffer holds an empty string). A null buffer with numberOfElements 0 only reports the size.
+// Returns 0 on success, EINVAL for a null pReturnValue or pName or an inconsistent buffer, and
+// ERANGE when the buffer is too small (buffer is left untouched, *pReturnValue is the size needed).
+errno_t getenv_s(size_t* pReturnValue, char* pBuffer, rsize_t numberOfElements, const char* pName);
+
 // Added: Windows paths are case-insensitive and use backslashes. Writes the real path of pPath to
 // pOut: backslashes become slashes, and each component that doesn't exist exactly is matched
 // case-insensitively in its directory (first match in sorted order). Entries that differ only in

@@ -52,5 +52,8 @@ sequenceDiagram
     R->>R: write the state file
 ```
 
-Today: `Jones3D-headless --load <save> --frames <n> --state <file>`, built with the Null platform. Two runs
-with the same inputs give identical state files on 32-bit, 64-bit and sanitizer builds.
+Today: `Jones3D-headless --load <save> --frames <n> --state <file>`, built with either the Null
+platform or the Babylon platform. In the Babylon column `--render null|gpu` picks what `std3D` draws
+with: `null` (the default) is a Null device that keeps no command record, `gpu` is the SDL GPU device
+without a window ([Testing](../../Testing.md#trace-tests)). Two runs with the same inputs give identical
+state files on 32-bit, 64-bit and sanitizer builds.

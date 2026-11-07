@@ -51,6 +51,17 @@ void J3DAPI rdClip_QClipFaceW(const rdClipFrustum* pFrustrum, const rdPrimit3* p
 // aVerts here should be transformed to camera space.
 int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors);
 
+// Added: option A L1 and L2 (ADR-0023). rdClip_FaceToPlane for an entry of rdCache_GetLitProcEntry or
+// rdCache_GetLitAlphaProcEntry: the same culling and return value, the same aVertices and
+// aVertIntensities bit for bit, and in the entry's aViewVertices and aViewNormals each vertex's
+// view-space position (aVerts[pFace->aVertices[i]]) and normal: aVertNormals[pFace->aVertices[i]],
+// or pFaceNormal for every vertex when aVertNormals is NULL, or zero when both are NULL. The normals
+// are in view space too; they are renormalized here, and a zero normal stays zero. Like
+// rdClip_FaceToPlane it clips no vertex (the GPU clips the projected face, and interpolates the
+// position and normal with the rest), so every output vertex is an input vertex and nothing is
+// interpolated. An entry without lit arrays gets only what rdClip_FaceToPlane writes.
+int J3DAPI rdClip_FaceToPlaneLit(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal);
+
 // Function transforms vertices to screen space and assigns them to out pProcFace 
 // aVerts here should be transformed to camera space.
 void J3DAPI rdClip_VerticesToPlane(rdCacheProcEntry* pProcFace, const rdVector3* aVerts, const rdVector2* aTexVerts, size_t numVerts);

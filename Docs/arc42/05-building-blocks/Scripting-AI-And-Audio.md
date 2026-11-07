@@ -215,10 +215,7 @@ This is a strong architectural split. The lowest layer does not know about secto
 - cached loaded sounds
 - device/backend state
 
-The backend underneath that layer depends on the build:
-
-- [`DriverDX6.c`](../../../Libs/sound/DriverDX6.c)
-- [`DriverDX9.c`](../../../Libs/sound/DriverDX9.c)
+The backend underneath that layer depends on the build. Since M6.3 it is `DriverNull.c` on every column; the Babylon audio module replaces it in M7. The DirectX 6 and DirectX 9 drivers (`DriverDX6.c`, `DriverDX9.c`) went with the Win32 game.
 
 The sound layer therefore mirrors the renderer's design: upper engine code talks to a stable interface while the backend changes underneath.
 
@@ -262,7 +259,7 @@ The architecture stays the same, but OpenJones3D extends several defaults:
 
 - software-mixer falloff defaults to logarithmic under `QOL`
 - maximum simultaneous sound channels increase from the legacy budget to a much larger one
-- modern backend fixes exist in both DX6 and DX9 paths
+- backend fixes from the DX6 and DX9 paths remain in the shared sound layer; the drivers themselves were removed in M6.3
 
 These changes are documented in more detail in [QOL-And-Compatibility.md](../08-crosscutting/QOL-And-Compatibility.md), but they do not replace the original layered audio design.
 

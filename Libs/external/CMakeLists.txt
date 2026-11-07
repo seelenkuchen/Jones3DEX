@@ -1,23 +1,14 @@
 cmake_minimum_required(VERSION 3.15)
 
-if (J3D_DIRECTX6)
-    set(EXTERNAL_MODULES
-        DirectX61c
-    )
-endif()
-
 set(EXTERNAL_MODULES
-    ${EXTERNAL_MODULES}
     jansson
 )
 
-# Altered: the Null platform enables unity for its native j3dcore.Crt test target.
-if (JONES3D_BUILD_TESTS OR J3D_PLATFORM_NULL)
-    set(EXTERNAL_MODULES
-        ${EXTERNAL_MODULES}
-        unity
-    )
-endif()
+# Altered: unity is always built; the native j3dcore.Crt test target needs it.
+set(EXTERNAL_MODULES
+    ${EXTERNAL_MODULES}
+    unity
+)
 
 # Add external modules
 
@@ -33,9 +24,7 @@ if (MSVC)
     set(JANSSON_STATIC_CRT OFF)
 endif ()
 
-if (JONES3D_BUILD_TESTS OR J3D_PLATFORM_NULL)
-    set(UNITY_EXTENSION_FIXTURE ON CACHE BOOL "Compiles Unity with the fixture extension." FORCE)
-endif()
+set(UNITY_EXTENSION_FIXTURE ON CACHE BOOL "Compiles Unity with the fixture extension." FORCE)
 
 foreach(MODULE ${EXTERNAL_MODULES})
     add_subdirectory(${MODULE})

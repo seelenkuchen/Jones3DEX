@@ -35,6 +35,17 @@ recorded events so headless runs see exactly what a device would (ADR-0018).
 callbacks (ADR-0013, ADR-0020); a `Registry` is an ordinary object owned by the
 composition root, never a global.
 
+`render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
+and pipelines behind typed handles, a frame is recorded into a `CommandList`
+(passes, bindings, draws, copies) and submitted once, and `Device::submit`
+checks every command against the live resources the same way for every
+backend. The Null backend keeps contents in memory, so uploads, clears, copies
+and readback are real, and records what it executed for tests. The SDL GPU
+backend (`createSdlGpuDevice`) runs on Vulkan, Direct3D 12 or Metal, headless
+or on a window of the SDL platform, whose `SDL_Window` it gets through
+`platform::sdlWindowOf`; the contract tests run against it too, on Mesa's
+lavapipe where there is no GPU, and report it as skipped without a driver.
+
 ## Declaring a module
 
     babylon_add_module(<name>
@@ -59,6 +70,33 @@ checked like a module dependency and linked PRIVATE to the test executable,
 for modules the tests call that the tested module keeps private, such as
 `log` when a test attaches a `CaptureSink`; such a link adds no edge to the
 module graph.
+
+## Shaders
+
+    babylon_add_shaders(<target>
+        SOURCES <name>.vert.hlsl | <name>.frag.hlsl ...
+        [NAMESPACE <c++ namespace>]          # default babylon::shaders
+        [PUBLIC_HEADER])
+
+It compiles HLSL at build time through SDL_shadercross into
+SPIR-V, DXIL and MSL ([ADR-0022](../Docs/arc42/09-decisions/ADR-0022-shaders-compiled-at-build-time.md)).
+Each file holds one stage and is named `<name>.vert.hlsl` or `<name>.frag.hlsl`; its entry point is
+`main`. The generated header, `#include <babylon/shaders/<target>.h>`, declares one function per file
+(named in camel case, so `my_tint.frag.hlsl` becomes `myTintFrag()`) that returns a
+`const babylon::render::ShaderDesc&`. Textures and samplers use the register spaces SDL GPU expects:
+vertex textures in space0 and vertex uniform blocks in space1, fragment textures in space2 and fragment
+uniform blocks in space3, slots from 0. Shaders must not `#include` other files: the cache key covers
+only the file itself.
+
+It can be called from any directory of a project that added Babylon. The generated header directory is
+PRIVATE to `<target>`; `PUBLIC_HEADER` makes it PUBLIC, for a library of shaders that other targets link
+and include.
+
+`BABYLON_BUILD_SHADERS` (default ON) builds the toolchain and the shaders; OFF skips both, and
+`babylon_add_shaders()` becomes a configure error. `BABYLON_CACHE_DIR` (default `.cache/` under the
+top-level source directory) holds the toolchain under `shadercross/` and the compiled shaders under
+`shaders/`. `BABYLON_SHADERCROSS` names an existing executable to use instead of building one, and
+`BABYLON_DXC_ROOT` a DXC install in the layout of its release packages for hosts without a prebuilt one.
 
 ## Build and test alone
 

@@ -35,33 +35,14 @@ ALLOWLIST_FILE = "Scripts/boundary-allowlist.txt"
 # DirectX freely and is not counted. Interface headers are not listed, so their
 # leaks count.
 PLATFORM_PATHS = [
-    "Jones3D/Platform/Win32/",
-    "Libs/std/Win95/DX6/",
-    "Libs/std/Win95/DX9/",
-    "Libs/std/Win95/stdBmpWin32.c",
-    "Libs/std/Win95/stdComm.c",
-    "Libs/std/Win95/stdConsole.c",
-    "Libs/std/Win95/stdControlTestApi.h",
-    "Libs/std/Win95/stdFileUtilWin32.c",
-    "Libs/std/Win95/stdGob.c",
-    "Libs/std/Win95/stdPlatformWin32.c",
-    "Libs/std/Win95/stdSysTagsWin32.h",
-    "Libs/std/Win95/stdWin95.c",
-    "Libs/sith/Dss/sithGamesaveWin32.c",
-    "Libs/wkernel/wkernel.c",
-    "Libs/wkernel/wkernelWin32.h",
-    "Libs/w32util/wuRegistry.c",
-    "Libs/sound/DriverDX6.c",
-    "Libs/sound/DriverDX9.c",
-    "Libs/smush/insane/Sound/Dsnd.c",
+    "Libs/std/General/stdGob.c",
     "Libs/smush/insane/Timer/TimerWin32.c",
 ]
 
-# Files exempt from the check because they are the Windows injector and the dialog
-# resources.
+# Files exempt from the check because they are the Windows injector. The dialog resources
+# (Jones3D/Indy3D.rc) went with the Win32/DirectX game.
 EXEMPT_FILES = [
     "Jones3D/exemain.cpp",
-    "Jones3D/Indy3D.rc",
 ]
 
 # Forbidden system headers, matched on the base name, case-insensitively.

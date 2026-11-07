@@ -4,12 +4,15 @@
 // Babylon platform of the std adapter context, drained through its one pump stdBabylonEvents_Pump.
 // A recorded quit or game-window close is answered like the WM_QUIT of the Win32 loop, and the
 // game window's recorded focus changes go to the activation callback wkernel_SetActivateCallback
-// installs, the way the Win32 window procedure calls JonesMain_OnAppActivate.
+// installs, the way the Win32 window procedure calls JonesMain_OnAppActivate. While the intro skip callback is installed
+// (wkernel_SetIntroSkipCallback), the intro window procedure's skip keys go to it.
 #include <chrono>
 #include <cstddef>
 #include <optional>
 
+#include <babylon/input/InputState.h>
 #include <babylon/platform/Event.h>
+#include <babylon/platform/Keys.h>
 #include <babylon/platform/Window.h>
 #include <babylon/time/Clock.h>
 
@@ -21,6 +24,16 @@
 namespace
 {
     WKERNELACTIVATEPROC wkernelBabylon_pfActivate = nullptr;
+    WKERNELSKIPPROC wkernelBabylon_pfIntroSkip     = nullptr;
+
+    // True when the frame's input holds a skip key of the Win32 intro window procedure: a press of Enter (VK_RETURN,
+    // both Enter keys) or Escape, or a release of the left mouse button.
+    bool wkernelBabylon_IsIntroSkip(const babylon::input::InputState& rInput)
+    {
+        using babylon::platform::Key;
+        return rInput.keyPressed(Key::Enter) || rInput.keyPressed(Key::KeypadEnter) || rInput.keyPressed(Key::Escape)
+            || rInput.mouseButtonReleased(babylon::platform::MouseButton::Left);
+    }
 
     // Hands every recorded focus change, oldest first, to the activation callback.
     void wkernelBabylon_DeliverFocusChanges()
@@ -39,8 +52,21 @@ extern "C" {
 
 int wkernel_PeekProcessEvents(void)
 {
+    // While the intro plays nothing else reads the input (stdControl starts its frames in the game loop), so the
+    // pump's input state starts a frame here and the skip test sees only this pump's presses.
+    babylon::input::InputState& rInput = stdBabylonEvents_InputState();
+    if ( wkernelBabylon_pfIntroSkip )
+    {
+        rInput.beginFrame();
+    }
+
     stdBabylonEvents_Pump();
     wkernelBabylon_DeliverFocusChanges();
+
+    if ( wkernelBabylon_pfIntroSkip && wkernelBabylon_IsIntroSkip(rInput) )
+    {
+        wkernelBabylon_pfIntroSkip();
+    }
 
     // 1 is the WM_QUIT answer of the Win32 version; the game ends its loop on it.
     return stdBabylonEvents_TakeQuitRequest() ? 1 : 0;
@@ -92,6 +118,13 @@ WKERNELACTIVATEPROC J3DAPI wkernel_SetActivateCallback(WKERNELACTIVATEPROC pfPro
 {
     WKERNELACTIVATEPROC pfCurProc = wkernelBabylon_pfActivate;
     wkernelBabylon_pfActivate = pfProc;
+    return pfCurProc;
+}
+
+WKERNELSKIPPROC J3DAPI wkernel_SetIntroSkipCallback(WKERNELSKIPPROC pfProc)
+{
+    WKERNELSKIPPROC pfCurProc = wkernelBabylon_pfIntroSkip;
+    wkernelBabylon_pfIntroSkip = pfProc;
     return pfCurProc;
 }
 

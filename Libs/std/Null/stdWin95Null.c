@@ -3,7 +3,7 @@
 // window unless a future Null windowing layer calls the setters. Same header contracts.
 #include <j3dcore/j3d.h>
 
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #include <std/General/std.h>
 

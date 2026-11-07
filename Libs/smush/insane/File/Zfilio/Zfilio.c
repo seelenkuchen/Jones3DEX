@@ -2,8 +2,10 @@
 #include <smush/insane/File/Zfilio/Zfilio.h>
 #include <j3dcore/j3d.h>
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <smush/insane/Memory/Memory.h>
@@ -20,6 +22,98 @@ static MemoryDebugInterface* zfilio_pMemory;
 static LecShare* zfilio_pServices;
 static LecDebug* zfilio_pDebug;
 static void* zfilio_pParam;
+
+// Fixed: the module publishes its ZfileHandle* functions as `FILIO=insane_zfilio`, and its users call them through the
+// int-handle FilioInterface (the streamer, Cdstream.c, opens every movie this way). That only holds while a pointer fits
+// into an int; on 64-bit builds the handle was truncated and the streamer's first close or read crashed on it (the
+// same fault Stdio.c fixed for the stdio handles). Where pointers are wider than ints, the published interface hands
+// out slots of the table below instead and the zfilio_* functions keep their ZfileHandle*; 32-bit builds keep
+// publishing zfilio_interface with the original casts.
+#if UINTPTR_MAX > INT_MAX
+
+#define ZFILIO_NUMHANDLES 64
+static ZfileHandle* zfilio_aHandles[ZFILIO_NUMHANDLES];
+
+static ZfileHandle* zfilio_GetHandle(int fh)
+{
+    return ( fh >= 1 && fh <= ZFILIO_NUMHANDLES ) ? zfilio_aHandles[fh - 1] : NULL;
+}
+
+static int zfilio_HandleOpen(const char* pPath, const char* pMode)
+{
+    ZfileHandle* pFile = zfilio_open(pPath, pMode);
+    if ( !pFile )
+    {
+        return 0;
+    }
+
+    for ( int i = 0; i < ZFILIO_NUMHANDLES; ++i )
+    {
+        if ( !zfilio_aHandles[i] )
+        {
+            zfilio_aHandles[i] = pFile;
+            return i + 1;
+        }
+    }
+
+    zfilio_close(pFile);
+    return 0;
+}
+
+static void zfilio_HandleClose(int fh)
+{
+    ZfileHandle* pFile = zfilio_GetHandle(fh);
+    if ( pFile )
+    {
+        zfilio_aHandles[fh - 1] = NULL;
+        zfilio_close(pFile);
+    }
+}
+
+// An unknown handle reads, writes and tells nothing and fails the seek, instead of dereferencing it like the original.
+static int zfilio_HandleRead(int fh, void* pBuf, int size)
+{
+    ZfileHandle* pFile = zfilio_GetHandle(fh);
+    return pFile ? zfilio_read(pFile, pBuf, size) : 0;
+}
+
+static int zfilio_HandleWrite(int fh, const void* pBuf, int size)
+{
+    ZfileHandle* pFile = zfilio_GetHandle(fh);
+    return pFile ? zfilio_write(pFile, pBuf, size) : 0;
+}
+
+static int zfilio_HandleTell(int fh)
+{
+    ZfileHandle* pFile = zfilio_GetHandle(fh);
+    return pFile ? zfilio_tell(pFile) : 0;
+}
+
+static int zfilio_HandleSeek(int fh, int offset, int whence)
+{
+    ZfileHandle* pFile = zfilio_GetHandle(fh);
+    return pFile ? zfilio_seek(pFile, offset, whence) : -1;
+}
+
+static void zfilio_HandleFlush(int fh)
+{
+    ZfileHandle* pFile = zfilio_GetHandle(fh);
+    if ( pFile )
+    {
+        zfilio_flush(pFile);
+    }
+}
+
+static FilioInterface zfilio_handleInterface = {
+    zfilio_HandleOpen, zfilio_HandleClose, zfilio_HandleRead, zfilio_HandleWrite, zfilio_HandleTell, zfilio_HandleSeek, zfilio_HandleFlush
+};
+#define ZFILIO_PUBLISHED_INTERFACE (&zfilio_handleInterface)
+
+#else
+
+#define ZFILIO_PUBLISHED_INTERFACE (&zfilio_interface)
+
+#endif
 
 #if defined(J3D_TEST)
 // Added: Test-only replacement of the executable's zlib gz functions (see Zfilio.h).
@@ -140,6 +234,9 @@ void Zfilio_ResetGlobals(void)
     zfilio_pServices = NULL;
     zfilio_pDebug    = NULL;
     zfilio_pParam    = NULL;
+#if UINTPTR_MAX > INT_MAX
+    memset((void*)zfilio_aHandles, 0, sizeof(zfilio_aHandles)); // Added: see zfilio_handleInterface
+#endif
 }
 
 int J3DAPI zfilio_Register(LecShare* pShare, void* pParam)
@@ -147,7 +244,7 @@ int J3DAPI zfilio_Register(LecShare* pShare, void* pParam)
     zfilio_pServices = pShare;
     zfilio_pParam    = pParam;
     pShare->Publish("LECMODULE=insane_zfilio", &zfilio_module);
-    zfilio_pServices->Publish("FILIO=insane_zfilio", &zfilio_interface);
+    zfilio_pServices->Publish("FILIO=insane_zfilio", ZFILIO_PUBLISHED_INTERFACE); // Fixed: see zfilio_handleInterface
     return 0;
 }
 

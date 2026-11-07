@@ -226,11 +226,19 @@ static int StdGeneralTest_FilePrintf(tFileHandle fh, const char* pFormat, ...)
         return 1;
     }
 
+    // A tFileHandle is the stdFile handle of the column, not a FILE*: format here and write through
+    // stdFileWrite.
+    char aBuffer[1024];
     va_list args;
     va_start(args, pFormat);
-    int result = vfprintf((FILE*)fh, pFormat, args);
+    int result = vsnprintf(aBuffer, sizeof(aBuffer), pFormat, args);
     va_end(args);
-    return result < 0;
+    if ( result < 0 || (size_t)result >= sizeof(aBuffer) )
+    {
+        return 1;
+    }
+
+    return stdFileWrite(fh, aBuffer, (size_t)result) != (size_t)result;
 }
 
 static wchar_t* J3DAPI StdGeneralTest_FileGetws(tFileHandle fh, wchar_t* pOutStr, size_t size)

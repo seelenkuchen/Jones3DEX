@@ -1,6 +1,6 @@
 # Rendering And Visibility
 
-This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the split between the legacy DirectX 6.1c backend and the DirectX 9 backend.
+This page documents the render-facing architecture: cameras, visible-sector construction, PVS, off-screen thing/light collection, dynamic lighting, render submission, and the renderer backend split. The DirectX 6.1c and DirectX 9 backends were removed in M6.3 ([ADR-0011](../09-decisions/ADR-0011-retire-win32-directx.md)). Since M6.6 the Babylon column's `std3D` draws on the Babylon render device (see [Babylon std3D Backend](#babylon-std3d-backend-m66)), and since M6.7 its `stdDisplay` draws and presents on the same device (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)), so the 2D layer, HUD and console text are there too; since M6.8 the game also plays its intro movie and cutscenes through it. The Null column still accepts every call and draws nothing.
 
 Primary source files:
 
@@ -9,10 +9,11 @@ Primary source files:
 - [`Libs/sith/Engine/sithRender.h`](../../../Libs/sith/Engine/sithRender.h)
 - [`Libs/rdroid/Main/rdroid.c`](../../../Libs/rdroid/Main/rdroid.c)
 - [`Libs/rdroid/Raster/rdCache.c`](../../../Libs/rdroid/Raster/rdCache.c)
-- [`Libs/std/Win95/std3D.h`](../../../Libs/std/Win95/std3D.h)
-- [`Libs/std/Win95/DX6/std3DX6.c`](../../../Libs/std/Win95/DX6/std3DX6.c)
-- [`Libs/std/Win95/DX9/std3DX9.c`](../../../Libs/std/Win95/DX9/std3DX9.c)
-- [`Libs/std/Win95/DX9/stdShaderDX9.c`](../../../Libs/std/Win95/DX9/stdShaderDX9.c)
+- [`Libs/std/General/std3D.h`](../../../Libs/std/General/std3D.h)
+- `Libs/std/Null/std3DNull.c` and `Libs/std/Null/stdDisplayNull.c`
+- [`Libs/std/Babylon/std3DBabylon.cpp`](../../../Libs/std/Babylon/std3DBabylon.cpp), [`Libs/std/Babylon/stdDisplayBabylon.cpp`](../../../Libs/std/Babylon/stdDisplayBabylon.cpp) and [`Libs/std/Babylon/stdRenderBabylon.h`](../../../Libs/std/Babylon/stdRenderBabylon.h)
+- [`Libs/std/Babylon/Shaders/std3d.vert.hlsl`](../../../Libs/std/Babylon/Shaders/std3d.vert.hlsl), `std3d.frag.hlsl`, `std3d_wireframe.frag.hlsl` and `present.*.hlsl`
+- [`Jones3D/Platform/Babylon/main.cpp`](../../../Jones3D/Platform/Babylon/main.cpp) and [`mainWindowed.cpp`](../../../Jones3D/Platform/Babylon/mainWindowed.cpp)
 
 ## Layer Split
 
@@ -30,7 +31,7 @@ Rendering is divided across three layers:
 
    Own the actual graphics API backend, device state, texture allocation, projection setup, scene begin/end, and buffer presentation.
 
-The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it to Direct3D.
+The renderer is therefore not a single module. `sith` decides what should be drawn, `rdroid` packages it into renderable primitives, and `std3D` submits it while `stdDisplay` presents it to the selected backend (Null, or the Babylon render device in the Babylon column since M6.6 and M6.7).
 
 ## Camera System
 
@@ -669,7 +670,7 @@ The architecture here is important:
 
 - `sithRender` decides *what* to draw
 - `rdroid` decides *how* those primitives are represented and flushed
-- `std3D` decides *how* the final draw reaches Direct3D
+- `std3D` decides *how* the final draw reaches the graphics device
 
 ## stdDisplay And std3D
 
@@ -689,13 +690,13 @@ The architecture here is important:
 - render-state translation
 - low-level draw calls
 
-From the rest of the engine's perspective, `std3D` is the hardware abstraction layer for rendering.
+From the rest of the engine's perspective, `std3D` is the hardware abstraction layer for rendering and `stdDisplay` for the buffers and presentation. In the Babylon column since M6.6 `std3D` draws on the Babylon render device and since M6.7 `stdDisplay` provides the video modes, the back buffer and the present on that same device, so the 2D layer is there.
 
 ## DirectX 6.1c Backend
 
-The legacy backend lives under [`Libs/std/Win95/DX6/`](../../../Libs/std/Win95/DX6).
+The legacy backend lived under `Libs/std/Win95/DX6/` and was removed in M6.3. It is described here as the reference the Babylon renderer replaces.
 
-Architectural characteristics:
+It had these architectural characteristics:
 
 - built around older DirectDraw/Direct3D interfaces
 - explicit viewport object usage
@@ -706,13 +707,13 @@ This path represents the original renderer architecture most closely.
 
 ## DirectX 9 Backend
 
-The modern backend lives under [`Libs/std/Win95/DX9/`](../../../Libs/std/Win95/DX9).
+The modern backend lived under `Libs/std/Win95/DX9/` and was removed in M6.3. Its recorded screenshots and render captures are the visual and call-stream reference for the Babylon renderer (M6.1).
 
-Architectural extensions introduced there include:
+Its architectural extensions included:
 
 - Direct3D 9 device/runtime management
 - optional vertex and index buffer paths
-- shader system support through [`stdShaderDX9.c`](../../../Libs/std/Win95/DX9/stdShaderDX9.c)
+- shader system support through `stdShaderDX9.c`
 - wider texture-format and device-capability handling
 - modern fog/shader constant handling
 
@@ -723,25 +724,129 @@ metadata describe the actual created surfaces. For example, a host may accept
 an RGB565 fullscreen request but create a 32-bit swap chain; the enumerated
 16-bit mode remains available for later selections.
 
-The shader system owns:
+The shader system owned:
 
 - compiled shader objects
 - shader parameter tables
 - vertex declarations
 - global shader constants such as viewport and fog data
 
-This is not just a backend port. It is a meaningful extension of the renderer architecture while still preserving the same upper-layer scene traversal and submission model.
+This was not just a backend port. It was a meaningful extension of the renderer architecture while still preserving the same upper-layer scene traversal and submission model.
+
+## Babylon std3D Backend (M6.6)
+
+The Babylon column's `std3D` backend ([`std3DBabylon.cpp`](../../../Libs/std/Babylon/std3DBabylon.cpp)) implements the same `std3DBackend_*` functions as the removed DirectX 9 backend, ported from `std3DX9.c`, with the capture forwarders of `std3DCapture.c` still in front ([ADR-0024](../09-decisions/ADR-0024-render-capture-by-renamed-backends.md)).
+
+### Device And Frame Owner
+
+The render device is created by the composition root and passed in the `StdBabylonContext` ([ADR-0025](../09-decisions/ADR-0025-babylon-render-interface.md)). The headless `main.cpp` uses a Null device that records no commands by default, or the SDL GPU device without a window with `--render gpu`; `mainWindowed.cpp` uses the SDL GPU device on the game window and falls back to the Null device without a GPU.
+
+[`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) owns the frame: the command list being recorded and the back buffer. The back buffer is a `Bgra8` color target that is also sampled, plus a depth target that is `D24S8`, or `D32F` where the device lacks `D24S8`, at the display size. On a device with a swapchain, submitting the frame first records a present pass: a full-screen triangle from `present.*.hlsl` samples the color target with a nearest, clamped sampler. `copyTexture` cannot name the swapchain, so a pass is the only way the render interface offers to put an offscreen target on the screen. Through M6.6 `std3D_EndScene` submitted the frame; since M6.7 `stdDisplay_Update` does (see [Babylon stdDisplay Backend](#babylon-stddisplay-backend-m67)).
+
+### Render Passes, Normal Target And Post-Processing Chain (M6.9a)
+
+The frame is a sequence of passes over offscreen targets, ready for per-pixel lighting, SSAO and post-processing ([ADR-0023](../09-decisions/ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md)), with the classic look unchanged:
+
+- **Scene passes** (`std3D`) write two color targets at once: the back buffer color and a **normal target**, plus the depth target. The normal target holds the view-space normal (x right, y up, z toward the viewer) as `n * 0.5 + 0.5` with alpha 1, in `R10G10B10A2` (10 bits per component in 4 bytes), or `Rgba8` where the device can't render to it. It belongs with the depth: it is cleared to 0 (alpha 0, nothing drawn) whenever the scene clears depth, draws that write Z replace it and draws that don't keep it (blended with `ZERO, ONE`), so it holds the normal of what the depth target holds. Draws of `StdVertexTL` write the constant normal facing the viewer; lit draws (`std3D_DrawRenderListLit`, see [Lit Vertices](#lit-vertices-m69b)) write their interpolated normals. The color output is computed exactly as before. The depth target is also sampled where the device can sample its format; the format itself is the one the scene always used.
+- **The post-processing chain** is an ordered list of full-screen passes in `stdRenderBabylon`, empty by default. `stdRenderBabylon_AddPostPass` takes a fragment shader; each pass draws the present pass's full-screen triangle into one of two `Bgra8` targets the chain owns, reading the previous output (the back buffer color for the first pass) in fragment slot 0, the normal target in slot 1 and the depth target in slot 2, as far as its shader declares textures. It runs at every presenting submit (`stdRenderBabylon_SubmitFrame` and `_PresentFrame`), never at `_FlushFrame`. The present pass then samples the chain's last output (`stdRenderBabylon_GetPresentSource`); with an empty chain it samples the back buffer, as before. Later passes (bloom and depth of field in M9, SSAO in M10) add their shaders here; uniforms and their own intermediate targets come with their first user.
+- **What the game reads stays what the game drew.** The chain never writes the back buffer, so `stdDisplay`'s back-buffer lock, `stdRenderBabylon_ReadBackBuffer`, savegame thumbnails, `stdDisplay_SaveScreen` and the replay's frame output read the scene before post-processing. The game reads and writes its back buffer as the surface it drew (the intro movie writes it, the 2D layer draws over it), and feeding a post-processed image back would apply the chain again each frame and make the replay frames depend on presentation settings. With an empty chain the presented image and the back buffer are the same.
+
+### Lit Vertices (M6.9b)
+
+Option A's extended vertex ([ADR-0023](../09-decisions/ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md)) reaches the GPU next to the classic one, which stays as it was:
+
+- **`StdVertexLit`** (`Libs/std/types.h`, 56 bytes): a `StdVertexTL` at offset 0, then the view-space position (`vx, vy, vz`, offset 32) and the view-space unit normal (`nx, ny, nz`, offset 44), in rdroid's camera space (x right, y forward, z up). A zero normal means none is known.
+- **`rdCache`**: `rdCache_GetLitProcEntry` and `rdCache_GetLitAlphaProcEntry` hand out entries whose `aViewVertices` and `aViewNormals` point at room next to `aVertices`; `rdCache_GetProcEntry` and `rdCache_GetAlphaProcEntry` set them to NULL. `rdCache_SendFaceListToHardware` computes every vertex's color as before and starts a new draw when a face is lit and the previous one is not (or the other way around); a lit draw goes to **`std3D_DrawRenderListLit`** with the same texture, render state and indices, a classic one to `std3D_DrawRenderList`.
+- **`rdClip_FaceToPlaneLit`**: `rdClip_FaceToPlane` plus each vertex's view-space position and normal (per vertex, or the face normal for all), renormalized. `rdClip_FaceToPlane`, which world surfaces (`sithRender.c`) and models (`rdModel3.c`) use, culls faces wholly outside one frustum plane and clips none: the GPU clips the projected faces and interpolates the position and normal with the other attributes, perspective-correctly, since the clip-space position the vertex shader rebuilds is a linear function of the view-space one. So no CPU clipper interpolates normals; the sky (`rdClip_QClipFaceW`) and debug paths (`rdPrimit3_ClipFace`) that do clip stay classic.
+- **Babylon `std3D`**: lit draws use their own pipelines (one per Z write) with `std3d_lit.vert.hlsl` and `std3d_lit.frag.hlsl`, and stream into their own vertex buffer, made on the first lit draw, so classic draws issue the same device calls as before. The shaders compute the color exactly as the default ones; the vertex shader maps the position and normal to the normal target's space as `(x, z, -y)`, and the fragment shader writes the normalized interpolated normal (the constant one for a zero normal).
+- **Capture**: `std3D_DrawRenderListLit` records as id 35 ([RCAP](../../Formats/RCAP.md)); older captures replay unchanged.
+
+Since M6.9b2 the game fills them, behind the presentation option `engine.renderer.litFaces.enabled` ([Jones.cfg](../../Jones.cfg.md), on by default), which `JonesDisplay_Open` hands to `rdSetLitFaces`:
+
+- **World surfaces** (`sithRender_RenderSectors` for every non-sky surface, `sithRender_RenderAlphaAdjoins` for translucent adjoins) take lit entries and `rdClip_FaceToPlaneLit`. Levels store a face normal per surface only, so `sithRender_Open` computes **smoothed corner normals** once per world with `rdFace_CalcSmoothNormals`: a corner of a surface averages the unit normals of the surfaces sharing its vertex whose normals are less than 45 degrees from its own (`SITHRENDER_SMOOTHNORMAL_MAXANGLE`, to be tuned in M10); without such a partner it keeps the face normal, so hard corners stay hard. Sky surfaces and surfaces without geometry never smooth a neighbour. The normals live in renderer-side arrays freed by `sithRender_Close`, not in the world or savegames. Each frame a drawn surface's corner normals are rotated by the view matrix, like its vertices, and renormalized; if the arrays could not be made, lit surfaces use their rotated face normal.
+- **Models** (`rdModel3_DrawMesh`, `rdModel3_DrawFace`): the mesh's vertex normals are rotated by the model-view matrix once per mesh; Gouraud faces take them by vertex, flat-shaded faces (and meshes without vertex normals) the rotated face normal, and a back face that is drawn (double-sided or culling off) gets them negated. Translucent faces go through `rdCache_GetLitAlphaProcEntry`.
+- **Classic**: the sky, sprites, particles, polylines, shadows, the overlay map and the HUD (its 3D inventory icons turn lit faces off around `rdModel3_Draw`). With the option off every face is classic, exactly as before: record 14 in captures, the same frames.
+
+`Jones3D-replay --render gpu --frames-out <dir> --normals` writes the normal target of each replayed frame next to the frame image, to look at what the lit path emits ([Testing](../../Testing.md)).
+
+### The Frame's Light List (M6.9c)
+
+With the same option the renderer also gets the frame's lights, for per-pixel lighting (option A L5, M10), which nothing reads yet:
+
+- **`sithRender_Draw`**, after the visible sector and thing lists and `sithRender_BuildDynamicLights`, calls **`rdCamera_BuildStdLights`** and **`std3D_SetLights`** once per frame. The list is the rdroid camera's: the thing lights and head lights the visibility pass collected through `rdCamera_AddLight`, in that order and up to `RDCAMERA_MAX_LIGHTS` (128, equal to `STD3D_MAXLIGHTS`), so nothing new is selected. It is read only. Not in it: the sector point light `sithRender_RenderThings` adds around each model and removes after it, and the per-sector subset `sithRender_BuildDynamicLights` picks (lights whose `minRadius` reaches the sector's bounding sphere); per-pixel lighting has to apply those rules itself.
+- **`StdLight`** (`Libs/std/types.h`, 48 bytes, three groups of four 32-bit values): the view-space position (the camera's view matrix applied to the light's world position) and `minRadius`; the color (`rdLight.color`, alpha as stored); `maxRadius`, the camera's `attenuationMin` and `attenuationMax`, and flags (`STD_LIGHT_ENABLED` for `rdLight.bEnabled`). These are all the inputs of `rdLight_CalcVertexIntensities` (full intensity within `maxRadius`, linear to zero at `minRadius`, times the normal's cosine), `rdLight_CalcFaceIntensity` (plane distance times `attenuationMin` subtracted, within `minRadius`, enabled lights only) and the dynamic vertex lights (distance times `attenuationMax` subtracted, within `maxRadius`, clamped to 0..1). `rdLight.type` (always 2, a point light) and `direction` are read by none of them and are left out.
+- **Babylon `std3D`** copies the list into a storage buffer (made on first use: a 16-byte header with the count, then the lights as they are) in the first scene pass after it changed, before the pass, and binds it to fragment storage slot 0 of the pass's lit draws. `std3d_lit.frag.hlsl` declares no buffer yet (its compiler drops one nothing reads), so its compiled code and colour are unchanged; SDL GPU keeps the binding without passing it on. A test shader in Babylon's render tests reads a storage buffer on lavapipe. The Null `std3D` ignores the call.
+- **Off**: no `std3D_SetLights`, no lit draws, no light buffer; the classic device calls exactly as before.
+- **Capture**: `std3D_SetLights` records as id 36 ([RCAP](../../Formats/RCAP.md)); older captures replay unchanged.
+
+The option is presentation, not part of the Retail or Enhanced simulation profile: the colour is the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with it on and off.
+
+### Textures And Cache
+
+Five DX9 texture formats are offered, each matched to a Babylon format with the same bit layout:
+
+- `X8R8G8B8` and `A8R8G8B8` map to `Bgra8` (opaque and alpha variants)
+- `R5G6B5` maps to `B5G6R5`
+- `A1R5G5B5` maps to `B5G5R5A1`
+- `A4R4G4B4` maps to `B4G4R4A4`
+
+`R8G8B8` is left out because no GPU API samples 24-bit texels. Texture allocation keeps owned system-memory copies of every mip, and the cache uploads every mip whose dimensions halve as Babylon's chain expects; a level that does not ends the chain with a warning. Pixels whose `ColorInfo` already matches the format's layout are copied unchanged, others are converted through `stdColor`, and formats without alpha get alpha 255. The texture cache follows `std3DX9.c`: frame counts, the linked cache list, and a purge of old entries when a texture does not fit the device's reported free memory.
+
+### Pipelines, Samplers And Draws
+
+`std3D_GetPipeline` caches one pipeline per primitive and Z-write bit: three primitives (triangle list, line strip, point list) times Z write on or off. Triangles use `std3d.frag.hlsl`, lines and points the wireframe shader. All of them blend source alpha over inverse source alpha, test Z with `LessOrEqual`, write Z as `STD3D_RS_ZWRITE_DISABLED` says, and cull nothing, as `std3DX9.c` set the Direct3D state. Their second color target is the normal target (see above).
+
+`std3D_GetSampler` caches 16 samplers, indexed by four bits worked out at each draw: linear filtering, linear mip filtering, clamp U and clamp V. It creates each one on first use. Anisotropic requests filter linearly because no device here filters anisotropically, as in `std3DX9.c`; the mip filter is linear for trilinear and nearest otherwise.
+
+A draw streams its vertices, and for triangles its indices, into the frame's vertex and index buffers with `CommandList::updateBuffer` at growing offsets. `updateBuffer` cannot be recorded inside a pass, so the draw is streamed right away and the pass is recorded when it ends, at `std3D_EndScene` and at a `std3D_ClearZBuffer` inside a scene. The scene's Direct3D clears become the pass load operations, and the buffers start smaller than the DX9 64 MiB ones and grow when a frame needs more, destroying the old buffer after the frame's submit.
+
+### Shaders
+
+The game shaders (`std3d.vert.hlsl`, `std3d.frag.hlsl` and `std3d_wireframe.frag.hlsl`) are ports of the DX9 `default_vs.hlsl`, `default_ps.hlsl`, `default_wf_ps.hlsl` and `common.hlsli`, kept with their DX9 behavior; `present.*.hlsl` is the new full-screen present pass:
+
+- The vertices are `StdVertexTL`, already transformed, with screen x and y in pixels, z in 0..1 and `rhw = 1 / w`. The vertex shader rebuilds clip space with `w = 1 / rhw`, so the GPU interpolates perspective-correctly and divides back to the same screen position and z.
+- Screen position gets a half-pixel shift. Direct3D 9 puts pixel centers at integer screen coordinates, while SDL GPU (Direct3D 12, Vulkan, Metal) puts them at integer + 0.5; the shift makes the same pixels be covered and sampled.
+- Colors arrive as bytes `B, G, R, A` and are swizzled with `.zyxw`, matching Direct3D 9's `D3DCOLOR`.
+- The fragment color is texture times diffuse; untextured draws sample the white texture. Specular is not added, because `std3DX9.c` disabled `D3DRS_SPECULARENABLE` and its pixel shader ignored it.
+- Fog is linear in `w`, as DX9 passed it: `saturate((w - start) * (1 / (end - start)))` lerps RGB to the fog color and keeps alpha.
+- The alpha test is fixed-function DX9 behavior in the shader: when `STD3D_RS_ALPHAREF_SET` is set, fragments with alpha not greater than `160 / 255` are discarded (`D3DCMP_GREATER`).
+- Lines and points use the wireframe shader's constant opaque white times diffuse, with no texture and no fog.
+- Both fragment shaders write the constant normal `(0, 0, 1)`, encoded, to the normal target (`SV_Target1`): `StdVertexTL` carries no normal. The lit shaders (`std3d_lit.*.hlsl`) write the interpolated one (see [Lit Vertices](#lit-vertices-m69b)).
+
+The vertex shader's outputs are ordered so the pixel shader's inputs are a prefix of them: diffuse, texture coordinate and `w` come first and the unread specular color last. Direct3D 12 links a pixel shader only when its inputs match the vertex outputs in the same registers, and the DXIL comes through SPIR-V, which drops inputs a pixel shader never reads; the earlier specular gap made D3D12 refuse every game pipeline with `E_INVALIDARG`.
+
+## Babylon stdDisplay Backend (M6.7)
+
+The Babylon column's `stdDisplay` backend ([`stdDisplayBabylon.cpp`](../../../Libs/std/Babylon/stdDisplayBabylon.cpp)) implements the same `stdDisplayBackend_*` functions as the removed DirectX 9 backend, ported from `stdDisplayDX9.c`, with the capture forwarders of `stdDisplayCapture.c` still in front ([ADR-0024](../09-decisions/ADR-0024-render-capture-by-renamed-backends.md)). It drives the frame owner in [`stdRenderBabylon.cpp`](../../../Libs/std/Babylon/stdRenderBabylon.cpp) that `std3D` also draws through: `stdDisplay_Open` opens it and `stdDisplay_Close` closes it. The game-facing functions from `stdDisplay.h` keep their recovered names and answers.
+
+### Video Modes And SetMode
+
+One display device stands for the render device, named "Jones3D Babylon Display" with driver "stdDisplayBabylon"; its video memory is the largest texture's area times four, half of it reported free. Babylon's platform has no display-mode query, so the list is fixed. A headless run lists the default 640x480 in RGB565 (`stdColor_cfRGB565`) and X8R8G8B8 (`stdColor_cfRGB8888`) only: what `stdDisplayDX9.c` listed on a 640x480 display, such as the M6.1 DX9 recordings' Xvfb screen, so their fullscreen SetMode of mode 1 replays at the recorded size. A windowed run lists 16 fixed sizes (320x200, 320x240, 400x300, 512x384, 640x400, 640x480, 800x600, 1024x768, 1152x864, 1280x720, 1280x960, 1280x1024, 1600x900, 1600x1200, 1920x1080 and 1920x1200) in both formats, plus the window's own size when it fits the device limit, sorted by bit depth, width and height. All list 60 Hz; aspect ratio is 1 except the non-square windowed 320x200, 320x400 and 640x400 modes at 0.75, and a headless mode uses width/height. Before `stdDisplay_SetMode` the back buffer already reports 640x480 X8R8G8B8, as in the Null backend.
+
+`stdDisplay_SetMode` takes a copy of the enumerated mode for fullscreen; a windowed mode uses the primary mode at `stdDisplay_SetDefaultResolution`'s size in X8R8G8B8. It neither switches the window to fullscreen nor resizes it: the game sizes the window to the back buffer afterwards, and the present scales the back buffer to the swapchain. The mode creates the back buffer through `stdRenderBabylon_SetBackBufferSize` and makes `stdDisplay_g_frontBuffer` and `stdDisplay_g_backBuffer` hardware VBuffers of that size without CPU surfaces, fills the buffer, presents it once, and fills it again for fullscreen. `stdDisplay_ClearMode` calls the release callback and frees the back buffer.
+
+### Back Buffer, Locks And Fills
+
+The back buffer lives on the GPU in `stdRenderBabylon`'s color target, where `std3D` draws. Its CPU side is a copy in the video mode's pixel format that `stdDisplay_LockBackBuffer` hands out, as DX9 handed out its lockable surface. A lock reads the GPU back buffer into the copy only when the GPU changed it since the copy was last read or written, tracked by `stdRenderBabylon_GetBackBufferVersion`; the last unlock of a write lock uploads the copy after the frame recorded so far (`stdRenderBabylon_WriteBackBuffer`), and a read-only lock uploads nothing. This is what makes the 2D layer draw correctly over the 3D frame: savegame thumbnails (whose GDI surface is still missing in this column, so saving is refused; see [chapter 11](../11-risks-and-technical-debt.md)) and `stdDisplay_SaveScreen` read the frame that `std3D` drew, debug lines draw over the frame, and the intro movie (`JonesMain_IntroMovieBlt*`) locks, writes every pixel, unlocks and presents, so it never reads back after its first frame. A read-only lock cannot be upgraded to a write lock, and a fill while the back buffer is locked fails. Fills of the whole back buffer are clear passes; fills of part of it go through the CPU copy and an upload. `stdDisplay_VBufferNew` always allocates software VBuffers because the render device has no lockable surfaces; locks of the front or back buffer lock the back buffer, other hardware VBuffers fail, and `stdDisplay_EncodeFromRGB565` encodes into the current mode's channels.
+
+### Submit And Present
+
+`stdDisplay_Update` ends the frame. It advances one millisecond of virtual time, as the Null backend does, so headless loops that wait on the clock around a present finish; then `stdRenderBabylon_PresentFrame` submits what `std3D` and the display recorded and, on a device with a swapchain, records the present pass and presents. Without a mode it returns 1 and does nothing. `std3D_EndScene` now leaves the frame open instead of submitting it, so submit and present sit at `stdDisplay_Update`, as `stdDisplayDX9.c` presented.
+
+### Reset Callbacks
+
+`stdDisplay_RegisterDevicePreResetCallback` and `stdDisplay_RegisterDevicePostResetCallback` store their callbacks but nothing calls them, because the render device is never lost or reset; only the release callback runs, from `stdDisplay_ClearMode`. That gap is listed in [chapter 11](../11-risks-and-technical-debt.md).
 
 ## Where OpenJones3D Extends The Original Renderer
 
-The biggest architectural extensions are:
+The biggest architectural extensions were:
 
-- DirectX 9 backend alongside the original DirectX 6.1c backend
-- shader layer for the DX9 path
-- VBO/IBO support in the DX9 path
+- DirectX 9 backend alongside the original DirectX 6.1c backend (both removed in M6.3)
+- shader layer for the DX9 path (removed with it)
+- VBO/IBO support in the DX9 path (removed with it)
 - wider texture-format handling, including true-color textures
 - breadth-first off-screen thing/light traversal
 - longer default collection distances
-- modern filtering options, automatic mipmap generation, and MSAA support in the lower graphics layer
+- modern filtering options, automatic mipmap generation, and MSAA support in the lower graphics layer (removed with DX9)
 
 Crucially, those changes sit underneath or alongside the original scene-graph/sector-portal logic instead of replacing the entire renderer design. The renderer still thinks in terms of sectors, surfaces, adjoins, clip frusta, thing sectors, and per-vertex dynamic lights.

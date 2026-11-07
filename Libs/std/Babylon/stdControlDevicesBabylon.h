@@ -17,7 +17,7 @@
 // One row of the mapping table.
 struct StdBabylonKeyMapping
 {
-    int engineKeyId;               // an engine key id from std/Win95/stdKeys.h
+    int engineKeyId;               // an engine key id from std/General/stdKeys.h
     babylon::platform::Key key;    // the Babylon key of the same physical key
 };
 

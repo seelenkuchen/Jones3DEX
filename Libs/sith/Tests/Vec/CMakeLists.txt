@@ -86,7 +86,7 @@ function(sith_add_vec_test TARGET)
         target_link_options(${TARGET} PRIVATE /BASE:0x20000000 /DYNAMICBASE:NO)
     elseif(MINGW)
         target_link_options(${TARGET} PRIVATE -Wl,--image-base=0x20000000 -Wl,--disable-dynamicbase)
-    elseif(J3D_PLATFORM_NULL)
+    else()
         # Added: The Null platform needs the same fixed, high load address for the same reason:
         # a non-PIE image with its text segment at 0x20000000 (sithVecTest_AssertArenaPlacement
         # requires the arena between 0x10000000 and 0x3C000000).
@@ -100,16 +100,9 @@ function(sith_add_vec_test TARGET)
     source_group("Tests" FILES ${SV_SOURCES})
     source_group("Tested Sources" FILES ${SV_TESTED})
 
-    set(SV_BACKEND_LABEL "")
-    if (J3D_DIRECTX6)
-        set(SV_BACKEND_LABEL "DirectX6")
-    elseif (J3D_DIRECTX9)
-        set(SV_BACKEND_LABEL "DirectX9")
-    endif()
-
     add_test(NAME ${SV_TEST} COMMAND ${TARGET})
     set_tests_properties(${SV_TEST} PROPERTIES
-        LABELS "unit;sith;${SV_BACKEND_LABEL}"
+        LABELS "unit;sith"
         TIMEOUT 60
     )
 endfunction()

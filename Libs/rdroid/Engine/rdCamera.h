@@ -52,6 +52,14 @@ void J3DAPI rdCamera_SetAttenuation(rdCamera* pCamera, float min, float max);
 int J3DAPI rdCamera_AddLight(rdCamera* pCamera, rdLight* pLight, const rdVector3* pPos);
 int J3DAPI rdCamera_ClearLights(rdCamera* pCamera);
 
+// Added: option A L4 (ADR-0023). Writes the camera's light list, as rdCamera_AddLight collected it,
+// to aLights for std3D_SetLights: at most sizeLights lights (all of them with STD3D_MAXLIGHTS, which
+// equals RDCAMERA_MAX_LIGHTS), in the camera's order, each with its position transformed by the
+// camera's view matrix (world to view space), its color, minRadius, maxRadius and bEnabled, and the
+// camera's attenuationMin and attenuationMax. Returns the number written. Reads the camera and its
+// lights only; nothing is chosen or changed, so the CPU lighting and the simulation see the same.
+size_t rdCamera_BuildStdLights(const rdCamera* pCamera, StdLight* aLights, size_t sizeLights);
+
 void J3DAPI rdCamera_SetOverlayDepthRange(bool bEnable);
 bool rdCamera_IsOverlayDepthRangeEnabled(void); // Added
 

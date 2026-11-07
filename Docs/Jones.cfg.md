@@ -183,10 +183,10 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `graphics.bpp` | int | `32` | Requested color depth. |
 | `graphics.refreshRate` | int | `60` | Requested refresh rate. If the display doesn't offer that rate, the closest available rate at the configured size and bit depth is used. |
 | `graphics.performanceLevel` | int | `4` | Performance preset used by the display dialog. |
-| `graphics.mipmapAutoGen` | bool | `true` | DirectX 9 only. Disabled automatically if unsupported by the device. |
-| `graphics.anisotropicFilter` | bool | `true` | DirectX 9 only. Disabled automatically if unsupported by the device. |
-| `graphics.msaa.enabled` | bool | `true` | DirectX 9 only. |
-| `graphics.msaa.samples` | int | `16` | DirectX 9 only. Clamped to `2`, `4`, `8`, or `16`, with runtime fallback if unsupported. |
+| `graphics.mipmapAutoGen` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.anisotropicFilter` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.msaa.enabled` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.msaa.samples` | int | `16` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
 
 ## Renderer, world, and engine options
 
@@ -201,6 +201,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `engine.renderer.culling.culledSectorTraversal.mode` | int | `1` | Default build uses BFS. Legacy/QOL-off builds use `0`. |
 | `engine.renderer.culling.culledSectorTraversal.maxThingCollectDistance` | float | `18.0` | Default build value. Legacy/QOL-off builds use `8.0`. |
 | `engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance` | float | `18.0` | Default build value. Legacy/QOL-off builds use `8.0`. |
+| `engine.renderer.litFaces.enabled` | bool | `true` | Presentation only, in every build and both profiles. On: world surfaces and models reach the renderer as lit faces, with view-space positions and normals (smoothed across level edges under 45 degrees), which fill the normal target for later per-pixel passes; the colour is the same as off. Off: the classic path, exactly as before (classic draws only). Sky, sprites, particles, polylines, shadows and the HUD are always classic. Read when the display opens. |
 | `engine.renderer.vfx.weapon.fireFlash.enabled` | bool | `true` | Default build value. Legacy/QOL-off builds use `false`. |
 | `engine.renderer.vfx.weapon.fireFlash.ambientThreshold` | float | `0.65` | Ambient-light threshold for projectile fire flash effects. |
 | `engine.physics.fixedTimestep` | float | `150.0` | QOL builds only. Expressed as FPS. |
@@ -296,5 +297,5 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 
 - `Jones.cfg` is the correct filename. The engine opens `Jones.cfg`, not `Jones3D.cfg`.
 - Keys under `graphics.display`, `graphics.device`, resolution, refresh rate, and several UI sections are often rewritten by the in-game configuration dialogs.
-- DirectX 9-only settings such as MSAA, anisotropic filtering, and automatic mipmap generation are ignored by the legacy DirectX 6.1c backend.
+- DirectX 9-only settings such as MSAA, anisotropic filtering, and automatic mipmap generation were used by the removed DirectX 9 backend. The keys stay in the file; no current backend reads them.
 - A few defaults depend on whether the build was compiled with `JONES3D_QOL_IMPROVEMENTS=ON`.

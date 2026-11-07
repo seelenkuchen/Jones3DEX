@@ -22,3 +22,10 @@ Every interface has a null backend.
   stays a supported platform and the columns come back once the runners are reliable.
 - Null backends make the whole game run headless, which traces need ([ADR-0003](ADR-0003-fidelity-split.md)).
 - A console port later needs only new backends, kept in their own files ([ADR-0008](ADR-0008-babylon-license.md)).
+
+## CI update (2026-11-05)
+
+The DirectX 6/9 build and test workflows were removed with the game in M6.3. The game workflow
+(`game-native.yml`) now builds the Null column (`linux-null`), the Babylon column (`linux-babylon`) and the
+Babylon column as a 64-bit Windows program (`windows-babylon`, MSVC x64 on `windows-2025-vs2026`). The Babylon
+engine workflow keeps its own Windows jobs, including `windows-msvc-x86` for the framework itself.

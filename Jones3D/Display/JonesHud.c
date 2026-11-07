@@ -11,6 +11,7 @@
 #include <Jones3D/Play/jonesCog.h>
 #include <Jones3D/Play/jonesInventory.h>
 
+#include <rdroid/Main/rdroid.h>
 #include <rdroid/Math/rdMatrix.h>
 #include <rdroid/Math/rdVector.h>
 #include <rdroid/Engine/rdCamera.h>
@@ -46,9 +47,9 @@
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdControl.h>
-#include <std/Win95/stdDisplay.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdControl.h>
+#include <std/General/stdDisplay.h>
+#include <std/General/stdWin95.h>
 
 #include <math.h>
 #include <stdbool.h>
@@ -3176,7 +3177,10 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
         }
 
         rdModel3_SetThingColor(pItem->prdIcon, &color);
+        bool bLitFaces = rdGetLitFaces(); // Added: HUD models stay classic (option A, ADR-0023)
+        rdSetLitFaces(false);
         rdModel3_Draw(pItem->prdIcon, &placement);
+        rdSetLitFaces(bLitFaces);
 
         pItem->alpha = color.alpha;
         color.alpha  = oalpha;
@@ -4096,7 +4100,11 @@ void J3DAPI JonesHud_RenderChangedItem(const JonesHudMenuItem* pItem, float scal
     placement.dvec.x = tvec.x;
     placement.dvec.y = tvec.y;
     placement.dvec.z = tvec.z;
+
+    bool bLitFaces = rdGetLitFaces(); // Added: HUD models stay classic (option A, ADR-0023)
+    rdSetLitFaces(false);
     rdModel3_Draw(pItem->prdIcon, &placement);
+    rdSetLitFaces(bLitFaces);
 }
 
 int JonesHud_ShowLevelCompleted(void)

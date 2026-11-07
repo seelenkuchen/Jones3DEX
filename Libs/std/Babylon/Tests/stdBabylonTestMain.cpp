@@ -48,7 +48,9 @@ int main(int argc, char** argv)
 
     cvars.finishStartup();
     // Added: no game window in the game tests: the context's pWindow stays null.
-    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform, nullptr, &cvars };
+    // Added: no game test draws: std3D is never started there, so there is no render device either.
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform, nullptr, &cvars,
+        nullptr };
     stdBabylon_SetContext(&context);
 
     // C++ refuses the char** to const char** qualification change that C accepts for main's argv.

@@ -9,7 +9,7 @@
 #include <std/General/stdConffile.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdWin95.h>
+#include <std/General/stdWin95.h>
 
 #include <stdlib.h>
 

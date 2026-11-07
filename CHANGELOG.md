@@ -4,19 +4,33 @@
     [roadmap](Docs/Roadmap.md) and the [architecture docs](Docs/arc42/README.md).
   - The last state compatible with OpenJones3D is tagged `upstream-compatible-final`. Entries below are
     OpenJones3D's own history.
-  - The game builds natively on Linux and other systems and runs headless there, on 32-bit and 64-bit.
+  - The game builds natively on Linux and other systems, 32-bit and 64-bit, and on 64-bit Windows, and runs
+    headless there.
   - Binary compatibility with the retail executable is gone: Windows builds always produce the standalone
     `Jones3D.exe`. The `Jones3D.dll` injected into `Indy3D.exe`, its launcher, the `JONES3D_STANDALONE` option
     and the post-build copy options (`JONES3D_ENABLE_POST_BUILD_COPY`, `JONES3D_POST_BUILD_COPY_DIR`) are removed.
-  - The Babylon Engine (`Babylon/`) and a Babylon platform column (`-DJONES3D_PLATFORM_BABYLON=ON`, Linux and
-    macOS): time, files, input and the window run on Babylon. It adds a windowed `Jones3D` that opens a window,
-    runs the game and quits cleanly; it renders nothing yet.
   - `Jones3D-headless` and the windowed `Jones3D` accept `--load <save.nds>`; headless state files start with the
     run's simulation settings (`cvar game.profile enhanced`).
   - Native builds use the same random number generator as the original (Microsoft's `rand`), so AI, COG
     `rand` and other random choices follow the retail sequence; this also makes the jeep's bumps work natively.
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
+
+### M6: The Babylon renderer
+  - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system
+    provides: the 3D scene, the 2D layer, HUD and console text, and the intro movie and cutscenes (silent until
+    the audio work in M7). The windowed `Jones3D` runs the game in a window; `Jones3D-headless` runs without a
+    window or GPU.
+  - Windows builds are now 64-bit only, through the same Babylon column as Linux and macOS. The Win32, DirectX 9
+    and DirectX 6 builds are gone, along with the DirectSound drivers and the bundled DirectX SDK; 32-bit
+    Windows is not supported.
+  - `Jones3D-headless` and `Jones3D-replay` accept `--render null|gpu`; `Jones3D-replay --render gpu
+    --frames-out <dir>` renders a capture to BMP frames, and `--normals` also writes each frame's normal target.
+  - World surfaces and models reach the renderer with view-space normals (`engine.renderer.litFaces.enabled` in
+    `Jones.cfg`, on by default), for the per-pixel passes to come; the picture is unchanged, and off restores
+    the classic path exactly.
+  - Saving is not available in the Babylon builds yet: the savegame thumbnail surface is missing, so the save is
+    refused. It comes with the audio and dialogs in M7.
 
 ## v0.4.0
 ### DirectX 9 Port, Redesigned HUD, Auto Aim Reticle, Enhanced Graphics & Gameplay QOL Improvements

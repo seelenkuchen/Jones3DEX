@@ -130,18 +130,30 @@ namespace
     };
 
     // Whether a directory exists at the resolved, separator-free path (a '/' probe answers the
-    // directory question; the path itself would also match a file there).
+    // directory question; the path itself would also match a file there). A root ("/", or "C:/"
+    // on Windows) already ends with its '/'.
     bool stdFileUtilBabylon_DirectoryExistsAt(babylon::files::FileSystem& rFileSystem, const std::string& aPath)
     {
-        return rFileSystem.exists( ( aPath == "/" ) ? std::string_view("/") : std::string_view(aPath + "/") );
+        return rFileSystem.exists( ( !aPath.empty() && aPath.back() == '/' ) ? std::string_view(aPath) : std::string_view(aPath + "/") );
+    }
+
+    // The directory part of a resolved path that has a '/' at curSeparator. A directory part
+    // without a '/' of its own is the root ("" before "/", "C:" before "C:/"), which keeps its '/'.
+    std::string stdFileUtilBabylon_DirectoryPart(const std::string& aPath, size_t curSeparator)
+    {
+        const bool bRoot = ( aPath.find('/') == curSeparator );
+        return aPath.substr(0, bRoot ? curSeparator + 1 : curSeparator);
     }
 
     // Copies one collected entry into the caller's result, as the Windows version copies the
     // find data.
     void stdFileUtilBabylon_FillInfo(tFoundFileInfo* pFileInfo, const sStdFileUtilFindEntry& rEntry)
     {
-        std::strncpy(pFileInfo->aName, rEntry.aName.c_str(), sizeof(pFileInfo->aName) - 1);
-        pFileInfo->aName[sizeof(pFileInfo->aName) - 1] = '\0';
+        // Same result as strncpy of at most size - 1 characters (zero padded) plus a terminator,
+        // without the CRT call MSVC's /sdl rejects.
+        std::memset(pFileInfo->aName, 0, sizeof(pFileInfo->aName));
+        const size_t numCopy = std::min(std::strlen(rEntry.aName.c_str()), sizeof(pFileInfo->aName) - 1);
+        std::memcpy(pFileInfo->aName, rEntry.aName.c_str(), numCopy);
 
         // Keep the original 32-bit field conversion explicit, as the Posix file does on
         // st_mtime: seconds since the epoch truncated into the field the engine carries.
@@ -162,10 +174,9 @@ namespace
         }
 
         // Split the resolved path into the directory to read and the mask to match its names
-        // against. The resolved path is absolute, so it always has a '/'; an empty directory part
-        // is the root.
-        const size_t curSeparator   = aResolved.rfind('/');
-        const size_t numDirectory   = curSeparator;
+        // against. The resolved path is absolute, so it always has a '/'; a directory part without
+        // a '/' of its own is the root.
+        const size_t curSeparator = aResolved.rfind('/');
         const std::string_view aMask(aResolved.data() + curSeparator + 1, aResolved.size() - curSeparator - 1);
 
         // The POSIX listing reports "." and ".."; the Babylon listing promises to omit them, so
@@ -177,7 +188,7 @@ namespace
         aEntries.push_back({"..", true, 0});
 
         const std::optional<std::vector<babylon::files::DirectoryEntry>> aListing =
-            rFileSystem.listDirectory( ( numDirectory == 0 ) ? std::string_view("/") : std::string_view(aResolved.substr(0, numDirectory)) );
+            rFileSystem.listDirectory(stdFileUtilBabylon_DirectoryPart(aResolved, curSeparator));
         if ( !aListing )
         {
             return nullptr;
@@ -308,7 +319,7 @@ int J3DAPI stdFileUtil_MkDir(const char* pPath)
         return 0; // the resolved path is absolute, so this cannot happen
     }
 
-    std::string aParent = ( curSeparator == 0 ) ? "/" : aPath.substr(0, curSeparator);
+    std::string aParent = stdFileUtilBabylon_DirectoryPart(aPath, curSeparator);
     if ( !stdFileUtilBabylon_DirectoryExistsAt(rFileSystem, aParent) )
     {
         return 0;

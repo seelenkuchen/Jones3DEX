@@ -9,7 +9,7 @@
 #include <sith/World/sithWeapon.h>
 
 #include <std/General/stdConfig.h>
-#include <std/Win95/stdControl.h>
+#include <std/General/stdControl.h>
 
 static bool JonesControl_bStartup = false; // Added: Init to false
 

@@ -26,6 +26,11 @@ Rules:
 Replays record each frame's time and raw input, because the simulation step is variable
 ([ADR-0018](../09-decisions/ADR-0018-replays-record-frame-time-and-raw-input.md)).
 
+The renderer's call stream is checked the same way, through render captures: a headless run records
+every `std3D_` and `stdDisplay_` call, and the replay tool compares a new backend against it call by
+call ([ADR-0024](../09-decisions/ADR-0024-render-capture-by-renamed-backends.md),
+[RCAP](../../Formats/RCAP.md)).
+
 [QOL-And-Compatibility.md](QOL-And-Compatibility.md) lists OpenJones3D's QOL changes as they are today:
 one compile-time profile, which becomes individual runtime options.
 
@@ -55,7 +60,10 @@ crosses it.
 `Jones.cfg` holds the settings inherited from OpenJones3D ([Jones.cfg.md](../../Jones.cfg.md)). New settings
 are Babylon cvars from M5 on ([ADR-0013](../09-decisions/ADR-0013-cvars-in-foundation.md)). Cvars that
 affect the simulation are written into traces, so a trace can be replayed with the settings that made it.
-Which cvars those are is set by a flag ([ADR-0020](../09-decisions/ADR-0020-cvar-flags.md)). Configuration,
+Which cvars those are is set by a flag ([ADR-0020](../09-decisions/ADR-0020-cvar-flags.md)). Presentation
+options the game code reads stay `Jones.cfg` keys next to the renderer options inherited from OpenJones3D until
+the game code reads cvars: for example `engine.renderer.litFaces.enabled` (M6.9b2), which belongs to no
+simulation profile, since it changes only what reaches the GPU and never the trace. Configuration,
 savegames, replays and logs are written to a per-user directory, not next to the game data
 ([ADR-0019](../09-decisions/ADR-0019-user-directory-for-writes.md)).
 
@@ -72,7 +80,7 @@ testing a result. New functions return `bool` for success or failure. Failures a
 | Unit | One function or module, Unity Fixture in C, doctest in C++ ([ADR-0017](../09-decisions/ADR-0017-babylon-toolchain-and-dependencies.md)) | `Tests/` beside the code, `Babylon/` tests inside Babylon |
 | Interface | Each Babylon interface's contract, run against every backend including Null | `Babylon/` |
 | Trace | Whole-game simulation against the retail and default profiles | Headless runner |
-| Visual | The new renderer against DirectX 9, until M6 | Manual and screenshot comparison |
+| Visual | The new renderer against the recorded DirectX 9 reference screenshots and captures (M6.1) | Manual and screenshot comparison |
 
 Details are in [Testing.md](../../Testing.md).
 

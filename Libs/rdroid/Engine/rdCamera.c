@@ -10,7 +10,8 @@
 #include <std/General/stdUtil.h>
 #include <std/General/stdMemory.h>
 
-#include <std/Win95/stdDisplay.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
 
 // Added: Standalone builds have no retail executable to hold these. *_ResetGlobals sets the starting values.
 rdVector3 rdCamera_g_camPYR;
@@ -489,6 +490,37 @@ int J3DAPI rdCamera_ClearLights(rdCamera* pCamera)
 {
     pCamera->numLights = 0;
     return 1;
+}
+
+size_t rdCamera_BuildStdLights(const rdCamera* pCamera, StdLight* aLights, size_t sizeLights)
+{
+    // Added
+    static_assert(RDCAMERA_MAX_LIGHTS == STD3D_MAXLIGHTS, "std3D_SetLights takes the camera's whole light list");
+
+    size_t numLights = J3DMIN(pCamera->numLights, sizeLights);
+    for ( size_t i = 0; i < numLights; ++i )
+    {
+        const rdLight* pLight = pCamera->aLights[i];
+
+        rdVector3 viewPos;
+        rdMatrix_TransformPoint34(&viewPos, &pCamera->aLightPositions[i], &pCamera->viewMatrix);
+
+        StdLight* pOut = &aLights[i];
+        pOut->vx             = viewPos.x;
+        pOut->vy             = viewPos.y;
+        pOut->vz             = viewPos.z;
+        pOut->minRadius      = pLight->minRadius;
+        pOut->red            = pLight->color.red;
+        pOut->green          = pLight->color.green;
+        pOut->blue           = pLight->color.blue;
+        pOut->alpha          = pLight->color.alpha;
+        pOut->maxRadius      = pLight->maxRadius;
+        pOut->attenuationMin = pCamera->attenuationMin;
+        pOut->attenuationMax = pCamera->attenuationMax;
+        pOut->flags          = pLight->bEnabled ? STD_LIGHT_ENABLED : 0u;
+    }
+
+    return numLights;
 }
 
 void J3DAPI rdCamera_SetOverlayDepthRange(bool bEnable)

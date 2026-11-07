@@ -1,6 +1,6 @@
 // Microsoft CRT function shim for non-Windows (Null platform), following Microsoft's documented
 // behavior so engine code compiles unchanged against the Windows secure CRT. Windows never
-// compiles this file (j3dcore builds it into the j3dcrt static library on J3D_PLATFORM_NULL only).
+// compiles this file (j3dcore builds the j3dcrt static library on non-Windows hosts only).
 // The test coverage lives in Tests/j3dCrtTest.c.
 #ifndef _WIN32
 
@@ -548,6 +548,44 @@ FILE* j3dcrt_fopen(const char* pName, const char* pMode)
 
 // Mirrors Microsoft's fopen_s: opens pFilename with j3dcrt_fopen, stores null in *ppFile and returns
 // the errno value when it fails, and 0 on success.
+// Mirrors Microsoft's getenv_s (see j3dcrt.h).
+errno_t getenv_s(size_t* pReturnValue, char* pBuffer, rsize_t numberOfElements, const char* pName)
+{
+    if ( !pReturnValue || !pName || (!pBuffer && numberOfElements != 0) || (pBuffer && numberOfElements == 0) )
+    {
+        if ( pReturnValue )
+        {
+            *pReturnValue = 0;
+        }
+        return EINVAL;
+    }
+
+    const char* pValue = getenv(pName);
+    if ( !pValue )
+    {
+        *pReturnValue = 0;
+        if ( pBuffer )
+        {
+            pBuffer[0] = '\0';
+        }
+        return 0;
+    }
+
+    size_t needed = strlen(pValue) + 1;
+    *pReturnValue = needed;
+    if ( !pBuffer )
+    {
+        return 0;
+    }
+    if ( needed > numberOfElements )
+    {
+        return ERANGE;
+    }
+
+    memcpy(pBuffer, pValue, needed);
+    return 0;
+}
+
 errno_t fopen_s(FILE** ppFile, const char* pFilename, const char* pMode)
 {
     if ( !ppFile )

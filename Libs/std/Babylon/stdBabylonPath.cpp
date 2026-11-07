@@ -75,8 +75,25 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
 
     // A path that starts with '/' is absolute. A path that starts with '\' is relative (j3dcrt:
     // there is no drive to root it against); everything else is relative too. The decision comes
-    // before the copy, which turns every '\' into '/'.
-    const bool bAbsolute = ( pPath[0] == '/' );
+    // before the copy, which turns every '\' into '/'. On Windows a drive path ("C:\..." or
+    // "C:/...") is absolute as well, with its drive as the root.
+    //
+    // aRoot is what the result starts with: "/" for a '/' path, the drive ("C:/") for a drive
+    // path, and the root of fs.currentPath() for relative input ("/" on POSIX hosts, "C:/" on
+    // Windows, where the SDL backend reports the working directory as "C:/...").
+    bool        bAbsolute = ( pPath[0] == '/' );
+    std::string aRoot     = "/";
+    const char* pRest     = pPath;
+#ifdef _WIN32
+    const bool bDriveLetter = ( pPath[0] >= 'A' && pPath[0] <= 'Z' ) || ( pPath[0] >= 'a' && pPath[0] <= 'z' );
+    if ( !bAbsolute && bDriveLetter && pPath[1] == ':' && ( pPath[2] == '\\' || pPath[2] == '/' ) )
+    {
+        bAbsolute = true;
+        aRoot.assign(pPath, 2);
+        aRoot += '/';
+        pRest = pPath + 3;
+    }
+#endif
 
     std::string aNormalized;
     aNormalized.reserve(std::strlen(pPath) + 1);
@@ -89,19 +106,28 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
             return false;
         }
 
-        aNormalized = aCurrentPath;
+        // The current path is absolute and valid, so it has a '/': everything up to the first one
+        // is its root, the rest its segments.
+        const size_t curRootEnd = aCurrentPath.find('/');
+        if ( curRootEnd == std::string::npos )
+        {
+            return false;
+        }
+
+        aRoot.assign(aCurrentPath, 0, curRootEnd + 1);
+        aNormalized.assign(aCurrentPath, curRootEnd + 1, std::string::npos);
 
         // The current path's segments are real directory names, so they exist with the case the
         // backend reports them in and the walk below must not probe them. Count them with the
         // same normalization the split uses: a valid path has no '.' or '..' segment and no
         // empty segment except the leading one.
         size_t curTrusted = 0;
-        while ( curTrusted < aCurrentPath.size() )
+        while ( curTrusted < aNormalized.size() )
         {
-            size_t curEnd = aCurrentPath.find('/', curTrusted);
+            size_t curEnd = aNormalized.find('/', curTrusted);
             if ( curEnd == std::string::npos )
             {
-                curEnd = aCurrentPath.size();
+                curEnd = aNormalized.size();
             }
 
             if ( curEnd != curTrusted )
@@ -113,7 +139,7 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
         }
     }
 
-    for ( const char* p = pPath; *p != '\0'; ++p )
+    for ( const char* p = pRest; *p != '\0'; ++p )
     {
         aNormalized.push_back( ( *p == '\\' ) ? '/' : *p );
     }
@@ -156,9 +182,9 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
 
     // Joins the segments into the absolute result. A helper keeps out unchanged until a valid
     // path has been built.
-    const auto joinSegments = [](const std::vector<std::string>& aJoinSegments)
+    const auto joinSegments = [&aRoot](const std::vector<std::string>& aJoinSegments)
     {
-        std::string aJoined = "/";
+        std::string aJoined = aRoot;
         for ( size_t curJoin = 0; curJoin < aJoinSegments.size(); ++curJoin )
         {
             if ( curJoin != 0 )
@@ -192,13 +218,16 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
             return true;
         }
 
-            // Case: walk the segments from the first untrusted one. A segment that exists with the
-            // case it is written in is kept; otherwise the parent directory is listed and the
-            // smallest name that is ASCII-case-insensitively equal replaces it. Without a match, or
-            // when the listing fails, this and all later segments stay as given. The trusted leading
-            // segments are the backend's own current path: real names, not probed. listNames() is
-            // enough here: only the names decide the pick, no entry metadata.
-            std::string aResolved;
+        // Case: walk the segments from the first untrusted one. A segment that exists with the
+        // case it is written in is kept; otherwise the parent directory is listed and the
+        // smallest name that is ASCII-case-insensitively equal replaces it. Without a match, or
+        // when the listing fails, this and all later segments stay as given. The trusted leading
+        // segments are the backend's own current path: real names, not probed. listNames() is
+        // enough here: only the names decide the pick, no entry metadata.
+        // aResolved holds no trailing '/': it starts as the root without it ("" or "C:"), which
+        // is listed as the root itself.
+        const std::string aRootStem(aRoot, 0, aRoot.size() - 1);
+        std::string aResolved = aRootStem;
         for ( size_t curTrustedSegment = 0; curTrustedSegment < numTrusted; ++curTrustedSegment )
         {
             aResolved += "/";
@@ -215,7 +244,7 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
             }
 
             const std::optional<std::vector<std::string>> aListing =
-                fs.listNames(aResolved.empty() ? std::string_view("/") : std::string_view(aResolved));
+                fs.listNames(( aResolved == aRootStem ) ? std::string_view(aRoot) : std::string_view(aResolved));
             if ( !aListing )
             {
                 break;

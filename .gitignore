@@ -57,16 +57,12 @@ Build/*
 # Generated code
 Libs/j3dcore/j3d.h
 
-# External code
-Libs/external/DirectX61c/include/*
-Libs/external/DirectX61c/libs/*
-
-# Compiled shaders
-Libs/std/Win95/DX9/Shaders/*.h
-
 # vs & vscode
 .vscode/
 .vs/
 
 # jetbrain folder
 .idea/
+
+# Shader toolchain and compiled shader cache (Babylon/cmake/BabylonShaders.cmake)
+.cache/

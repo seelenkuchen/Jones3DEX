@@ -4,6 +4,10 @@ add_executable(rdroidTests
     ../Math/Tests/rdMathTestHost.h
     ../Math/Tests/rdVectorTest.c
     ../Math/Tests/rdMatrixTest.c
+    ../Engine/Tests/rdClipTest.c
+    ../Engine/Tests/rdCameraTest.c
+    ../Raster/Tests/rdCacheTest.c
+    ../Raster/Tests/rdFaceTest.c
     ../Math/rdVector.c
     ../Math/rdMatrix.c
 )

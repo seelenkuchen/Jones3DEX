@@ -7,17 +7,15 @@ set(SMUSH_TEST_SOURCES
 
 set(SMUSH_TESTED_SOURCES "")
 
-# Altered: part 1 excluded the smush Sound area (it mocks IDirectSound and drives Dsnd.c) from every
-# build, but smushTestRunner.c references TEST_SmushSound_GROUP_RUNNER on every non-Null platform, which
-# broke the MinGW link. Exclude it exactly like the runner does: on the Null platform only.
-if (NOT J3D_PLATFORM_NULL)
-    include(smush_sound.cmake)   # Sound: Engine, Mixer, Dsnd, MixerAsm
-endif()
 include(smush_codec.cmake)   # Codec: D_bloc16, D_wave, Bloc16Asm, Decode, DecodeAsm
 include(smush_stream.cmake)  # Stream/File/Anim: Cdstream, Framestream, Stdfile, Stdio, Zfilio, Readauto, Frame, Pcplay
 include(smush_core.cmake)    # Core/Bitmap: SmushPlay, LecShare, Timer, Memory, List, Bitmap, Blit, BlitAsm, MemCopy, MemFill
 include(smush_asm.cmake)     # Assembly translations: Bloc16Asm, DecodeAsm, MixerAsm, BlitAsm, MemCopy, MemFill (original-engine vectors)
 include(smush_vec.cmake)     # C modules: Mixer, D_bloc16, Decode, LecShare, Framestream, Stdfile, Zfilio (original-engine vectors)
+# Altered: the Sound area ran only in the Windows DirectX builds while it also mocked IDirectSound for Dsnd.c; without
+# Dsnd.c (ADR-0011) its engine and mixer cases run everywhere.
+include(smush_sound.cmake)   # Sound: Engine, Mixer, DsndNull
+include(smush_movie.cmake)   # Added: Movie (Babylon column): DsndSilent, TimerPolled, SmushPlay on a synthetic stream
 
 add_executable(smushTests
     ${SMUSH_TEST_SOURCES}
@@ -43,16 +41,9 @@ set_target_properties(smushTests PROPERTIES
 source_group("Tests" FILES ${SMUSH_TEST_SOURCES})
 source_group("Tested Sources" FILES ${SMUSH_TESTED_SOURCES})
 
-set(SMUSH_TEST_BACKEND_LABEL "")
-if (J3D_DIRECTX6)
-    set(SMUSH_TEST_BACKEND_LABEL "DirectX6")
-elseif (J3D_DIRECTX9)
-    set(SMUSH_TEST_BACKEND_LABEL "DirectX9")
-endif()
-
 add_test(NAME smush COMMAND smushTests)
 # The in-memory suites normally finish in under a second; thread tests (timer, sound) may need more on slow hosts.
 set_tests_properties(smush PROPERTIES
-    LABELS "unit;smush;${SMUSH_TEST_BACKEND_LABEL}"
+    LABELS "unit;smush"
     TIMEOUT 60
 )

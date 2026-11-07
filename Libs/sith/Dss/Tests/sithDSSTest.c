@@ -249,13 +249,10 @@ static unsigned sithDSSTest_RunCases(const DssvCase* aCases, unsigned numCases, 
                 sithDSSTest_Describe(aDesc, sizeof(aDesc), fc->pRec, fc->recSize, rec.p, rec.size);
                 size_t len = strlen(pFailText);
                 snprintf(pFailText + len, failTextSize - len, "\n  %s (fill %02x): %s", fc->aName, fill, aDesc);
-#ifdef _WIN32
-                if ( GetEnvironmentVariableA("SITHDSS_VERBOSE", NULL, 0) != 0 )
-#else
-                // Altered: GetEnvironmentVariableA is the Windows-only way this harness asks whether
-                // SITHDSS_VERBOSE is set; the native build reads the same variable with getenv().
-                if ( getenv("SITHDSS_VERBOSE") != NULL )
-#endif
+                // Altered: the harness asked GetEnvironmentVariableA whether SITHDSS_VERBOSE is set; every build
+                // reads the same variable with getenv_s().
+                size_t verboseSize = 0;
+                if ( getenv_s(&verboseSize, NULL, 0, "SITHDSS_VERBOSE") == 0 && verboseSize != 0 )
                 {
                     printf("  %s\n", fc->aName);
                     sithDSSTest_PrintDeltas("expected", fc->pRec, fc->recSize);

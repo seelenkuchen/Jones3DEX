@@ -11,7 +11,7 @@
 
 #include <std/General/stdConffile.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #include <wchar.h>
 

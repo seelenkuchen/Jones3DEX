@@ -6,7 +6,7 @@
 #include "stdJSON.h"
 #include "stdUtil.h"
 
-#include <std/Win95/stdConsole.h>
+#include <std/General/stdConsole.h>
 
 static char aPrintBuffer[2048]     = { 0 };
 static char aFilePrintBuffer[2048] = { 0 };
@@ -42,7 +42,10 @@ void J3DAPI stdStartup(tHostServices* pHS)
         // TODO: consider setting FE_DOWNWARD for round functions (lrintf); i.e.: fesetround(FE_DOWNWARD) to mimic same behavior as OG
         short  tmp = 0;
 #if defined(_MSC_VER)
-        __asm  fnstcw word ptr[tmp];
+        // Altered: MSVC x64 has no inline assembler and the CRT has no x87 query there. Use the control word the
+        // Windows x64 CRT initializes the x87 unit to (0x027F: 53-bit precision, round to nearest, all exceptions
+        // masked); only its low byte is used below and it never reaches simulation state.
+        tmp = 0x027F;
 #elif defined(__i386__) || defined(__x86_64__)
         __asm__ __volatile__("fnstcw %0" : "=m"(tmp)); // Altered: GCC/MinGW inline assembler syntax for the same instruction
 #else

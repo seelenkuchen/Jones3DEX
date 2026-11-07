@@ -4,7 +4,7 @@
 // "not implemented" logs are dropped because an inactive session is the expected state here.
 #include <j3dcore/j3d.h>
 
-#include <std/Win95/stdComm.h>
+#include <std/General/stdComm.h>
 
 #include <std/General/std.h>
 

@@ -219,11 +219,11 @@ The streams written by this implementation use the original format.
   floating-point state is involved; the generators use integer arithmetic only.
 - Two complete runs in fresh processes produced byte-identical files (for the
   original and for the edge-case capture).
-- The reconstructed functions reproduce every case in `ParseWaveFileHeader.tv`,
+- The reconstructed functions reproduced every case in `ParseWaveFileHeader.tv`,
   `CompressBlock.tv`, `UncompressBlock.tv`, `Compress.tv`, `Uncompress.tv`,
   `ResetCompressor.tv` and `WVSMUncompressBlock.tv` and
   `CompressWVSM.tv`, in Debug and Release for both DirectX 6 and DirectX 9
-  builds.
+  builds. Those builds were removed in M6.3; this is a record of the validation they provided.
 
 ### SHA-256
 

@@ -7,14 +7,6 @@
 #include <string.h>
 
 #include <j3dcore/j3d.h>
-#include <windows.h>
-#include <mmsystem.h>
-#include <mmreg.h>
-#if defined (J3D_DIRECTX6)
-#include <DirectX6/dsound.h>
-#elif defined (J3D_DIRECTX9)
-#include <dsound.h>
-#endif
 
 #include <smush/insane/Memory/Memory.h>
 #include <smush/insane/Sound/Dsnd.h>
@@ -22,12 +14,14 @@
 #include <smush/insane/Sound/Mixer.h>
 #include <smush/insane/Timer/Timer.h>
 
-// Unit tests of the smush Sound area (Engine, Mixer, Dsnd) with synthetic data and mocked services: the LEC share table,
-// the debug allocator, the timer, the sound driver and a pure C IDirectSound/IDirectSoundBuffer. MixerAsm is tested by its own lane.
+// Unit tests of the smush Sound area (Engine, Mixer, DsndNull) with synthetic data and mocked services: the LEC share
+// table, the debug allocator, the timer and the sound driver. MixerAsm is tested by its own lane.
+// Altered: the DirectSound driver Dsnd.c and its pure C IDirectSound/IDirectSoundBuffer mock went with the Win32/DirectX
+// game (ADR-0011). The engine and mixer cases never touched it (they drive the engine through the mock SNDDRIVER.driver
+// below), and run unchanged; of the Dsnd cases only the tag loop of dsnd_Configure is left, now on DsndNull.c.
 
-// Test-only resets of the private statics (Engine.c, Dsnd.c under J3D_TEST)
+// Test-only reset of the engine's private statics (Engine.c under J3D_TEST)
 void Engine_TestReset(void);
-void Dsnd_TestReset(void);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Mocks
@@ -1433,478 +1427,38 @@ TEST_GROUP_RUNNER(SmushSoundMixer)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Dsnd tests (mock IDirectSound / IDirectSoundBuffer, no real audio device)
+// DsndNull tests
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_GROUP(SmushSoundDsnd);
+// Altered: was the SmushSoundDsnd group on the DirectSound driver Dsnd.c, with a mock IDirectSound. DsndNull.c, which
+// replaced it, is a configuration store only: it publishes no module or driver and opens no buffer, so the cases of
+// the module and driver tables, the secondary buffer, the volume table, the callback mixing and the play position
+// went with Dsnd.c. The tag loop of dsnd_Configure is the same contract and stays.
+TEST_GROUP(SmushSoundDsndNull);
 
-#define SST_BLOCK 0x1800
-
-typedef struct SstDsBuffer
+TEST_SETUP(SmushSoundDsndNull)
 {
-    IDirectSoundBuffer base;
-    uint8_t mem[16 * SST_BLOCK];
-    int numLock;
-    DWORD lockOffset;
-    DWORD lockBytes;
-    DWORD splitAt; // Non-zero: Lock returns two regions, the first of this size
-    int numUnlock;
-    void* unlockPtr1;
-    DWORD unlockLen1;
-    void* unlockPtr2;
-    DWORD unlockLen2;
-    int numPlay;
-    DWORD playFlags;
-    int numSetVolume;
-    LONG lastVolume;
-    int numRelease;
-    DWORD playCursor;
-    DWORD writeCursor;
-    HRESULT positionResult;
-} SstDsBuffer;
-
-typedef struct SstDs
-{
-    IDirectSound base;
-    int numCreateBuffer;
-    DWORD descFlags;
-    DWORD descBytes;
-    WAVEFORMATEX format;
-    int hasFormat;
-    int numRelease;
-} SstDs;
-
-static SstDsBuffer SstBuf;
-static SstDs SstDS;
-
-static ULONG STDMETHODCALLTYPE SstBufRelease(IDirectSoundBuffer* This)
-{
-    J3D_UNUSED(This);
-    SstBuf.numRelease++;
-    return 0;
 }
 
-static HRESULT STDMETHODCALLTYPE SstBufGetCurrentPosition(IDirectSoundBuffer* This, LPDWORD pdwPlay, LPDWORD pdwWrite)
+TEST_TEAR_DOWN(SmushSoundDsndNull)
 {
-    J3D_UNUSED(This);
-    if ( SstBuf.positionResult != DS_OK ) {
-        return SstBuf.positionResult;
-    }
-
-    *pdwPlay = SstBuf.playCursor;
-    *pdwWrite = SstBuf.writeCursor;
-    return DS_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE SstBufLock(IDirectSoundBuffer* This, DWORD offset, DWORD bytes, LPVOID* ppv1, LPDWORD pLen1, LPVOID* ppv2, LPDWORD pLen2, DWORD flags)
-{
-    J3D_UNUSED(This); J3D_UNUSED(flags);
-    SstBuf.numLock++;
-    SstBuf.lockOffset = offset;
-    SstBuf.lockBytes = bytes;
-    *ppv1 = SstBuf.mem + offset;
-    if ( SstBuf.splitAt && SstBuf.splitAt < bytes )
-    {
-        *pLen1 = SstBuf.splitAt;
-        *ppv2 = SstBuf.mem;
-        *pLen2 = bytes - SstBuf.splitAt;
-    }
-    else
-    {
-        *pLen1 = bytes;
-        *ppv2 = NULL;
-        *pLen2 = 0;
-    }
-
-    return DS_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE SstBufUnlock(IDirectSoundBuffer* This, LPVOID pv1, DWORD len1, LPVOID pv2, DWORD len2)
-{
-    J3D_UNUSED(This);
-    SstBuf.numUnlock++;
-    SstBuf.unlockPtr1 = pv1;
-    SstBuf.unlockLen1 = len1;
-    SstBuf.unlockPtr2 = pv2;
-    SstBuf.unlockLen2 = len2;
-    return DS_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE SstBufPlay(IDirectSoundBuffer* This, DWORD reserved1, DWORD priority, DWORD flags)
-{
-    J3D_UNUSED(This); J3D_UNUSED(reserved1); J3D_UNUSED(priority);
-    SstBuf.numPlay++;
-    SstBuf.playFlags = flags;
-    return DS_OK;
-}
-
-static HRESULT STDMETHODCALLTYPE SstBufSetVolume(IDirectSoundBuffer* This, LONG volume)
-{
-    J3D_UNUSED(This);
-    SstBuf.numSetVolume++;
-    SstBuf.lastVolume = volume;
-    return DS_OK;
-}
-
-static IDirectSoundBufferVtbl SstBufVtbl;
-
-static ULONG STDMETHODCALLTYPE SstDsRelease(IDirectSound* This)
-{
-    J3D_UNUSED(This);
-    SstDS.numRelease++;
-    return 0;
-}
-
-static HRESULT STDMETHODCALLTYPE SstDsCreateSoundBuffer(IDirectSound* This, LPCDSBUFFERDESC pDesc, LPDIRECTSOUNDBUFFER* ppBuffer, LPUNKNOWN pOuter)
-{
-    J3D_UNUSED(This); J3D_UNUSED(pOuter);
-    SstDS.numCreateBuffer++;
-    SstDS.descFlags = pDesc->dwFlags;
-    SstDS.descBytes = pDesc->dwBufferBytes;
-    SstDS.hasFormat = pDesc->lpwfxFormat != NULL;
-    if ( pDesc->lpwfxFormat ) {
-        memcpy(&SstDS.format, pDesc->lpwfxFormat, sizeof(WAVEFORMATEX));
-    }
-
-    memset(SstBuf.mem, 0xAA, sizeof(SstBuf.mem));
-    *ppBuffer = &SstBuf.base;
-    return DS_OK;
-}
-
-static IDirectSoundVtbl SstDsVtbl;
-
-static void SstDsReset(void)
-{
-    memset(&SstBuf, 0, sizeof(SstBuf));
-    memset(&SstDS, 0, sizeof(SstDS));
-    memset(&SstBufVtbl, 0, sizeof(SstBufVtbl));
-    memset(&SstDsVtbl, 0, sizeof(SstDsVtbl));
-    SstBufVtbl.Release = SstBufRelease;
-    SstBufVtbl.GetCurrentPosition = SstBufGetCurrentPosition;
-    SstBufVtbl.Lock = SstBufLock;
-    SstBufVtbl.Unlock = SstBufUnlock;
-    SstBufVtbl.Play = SstBufPlay;
-    SstBufVtbl.SetVolume = SstBufSetVolume;
-    SstDsVtbl.Release = SstDsRelease;
-    SstDsVtbl.CreateSoundBuffer = SstDsCreateSoundBuffer;
-    SstBuf.base.lpVtbl = &SstBufVtbl;
-    SstDS.base.lpVtbl = &SstDsVtbl;
-}
-
-static LecModule* SstDsndModule;
-static SndDriver* SstDsndDrv;
-static int SstDsndStarted;
-static int SstFillCalls;
-static int SstFillChunk;
-static SoundFeed SstFillFeed;
-static int SstFillOffset;
-
-// The engine's fill callback of the tests: feeds a known 4-sample block at the given frame offset
-static void SstFillFn(int n, SoundFeed pfnFeed)
-{
-    static const uint8_t src[4] = { 0x00, 0x80, 0xFF, 0x7F };
-    SstFillCalls++;
-    SstFillChunk = n;
-    SstFillFeed = pfnFeed;
-    pfnFeed((void*)src, SstFillOffset, 4, 4, 1, 127, 0, 0);
-}
-
-TEST_SETUP(SmushSoundDsnd)
-{
-    Dsnd_TestReset();
-    SstShareReset();
-    SstMemReset();
-    SstTimerReset();
-    SstDsReset();
-    SstSh.pTimerClk = &SstTim.iface;
-    SstSh.pMixerMem = &SstMem.iface;
-    SstFillCalls = 0;
-    SstFillChunk = 0;
-    SstFillFeed = NULL;
-    SstFillOffset = 0;
-    SstDsndStarted = 0;
-    TEST_ASSERT_EQUAL_INT(0, dsnd_Register(&SstSh.iface, NULL));
-    SstDsndModule = SstSharePublished("LECMODULE=insane_dsnd");
-    SstDsndDrv = SstSharePublished("SNDDRIVER=insane_dsnd");
-    TEST_ASSERT_NOT_NULL(SstDsndModule);
-    TEST_ASSERT_NOT_NULL(SstDsndDrv);
-}
-
-TEST_TEAR_DOWN(SmushSoundDsnd)
-{
-    if ( SstDsndStarted ) {
-        SstDsndDrv->Stop();
-    }
-
-    SstDsndModule->Shutdown();
-    SstDsndModule->Unregister();
-    Dsnd_TestReset();
-}
-
-static void SstDsndStart(void)
-{
-    TEST_ASSERT_EQUAL_INT(0, dsnd_Configure(5, &SstDS.base, 0));
-    TEST_ASSERT_EQUAL_INT(0, SstDsndModule->Startup());
-    TEST_ASSERT_EQUAL_INT(0, SstDsndDrv->Start(22050, 1, SstFillFn));
-    SstDsndStarted = 1;
-}
-
-TEST(SmushSoundDsnd, RegisterPublishesModuleAndDriver)
-{
-    TEST_ASSERT_EQUAL_INT(2, SstSh.numPublished);
-    TEST_ASSERT_EQUAL_STRING("LECMODULE=insane_dsnd", SstSh.aPublishedNames[0]);
-    TEST_ASSERT_EQUAL_STRING("SNDDRIVER=insane_dsnd", SstSh.aPublishedNames[1]);
-    TEST_ASSERT_TRUE(SstDsndModule->Register == dsnd_Register);
-    TEST_ASSERT_TRUE(SstDsndModule->Unregister == dsnd_Unregister);
-    TEST_ASSERT_TRUE(SstDsndModule->Startup == dsnd_Startup);
-    TEST_ASSERT_TRUE(SstDsndModule->Shutdown == dsnd_Shutdown);
-    TEST_ASSERT_TRUE(SstDsndDrv->Start == dsnd_Start);
-    TEST_ASSERT_TRUE(SstDsndDrv->Stop == dsnd_Stop);
-    TEST_ASSERT_TRUE(SstDsndDrv->SetVolume == dsnd_SetVolume);
-    TEST_ASSERT_TRUE(SstDsndDrv->GetVolume == dsnd_GetVolume);
-    TEST_ASSERT_TRUE(SstDsndDrv->GetRate == dsnd_GetRate);
-    TEST_ASSERT_TRUE(SstDsndDrv->SetRate == (int (*)(int))sound_Null);
-    TEST_ASSERT_EQUAL_INT(0, SstDsndDrv->SetRate(11025));
-    TEST_ASSERT_EQUAL_INT(22050, SstDsndDrv->GetRate());
-}
-
-TEST(SmushSoundDsnd, ConfigureAcceptsKnownTagsOnly)
+TEST(SmushSoundDsndNull, ConfigureAcceptsKnownTagsOnly)
 {
     TEST_ASSERT_EQUAL_INT(0, dsnd_Configure(0));
     TEST_ASSERT_EQUAL_INT(0, dsnd_Configure(1, 10, 2, 20, 3, 30, 4, 40, 0));
     TEST_ASSERT_EQUAL_INT(-1, dsnd_Configure(9, 1, 0));
 }
 
-TEST(SmushSoundDsnd, StartupSubscribesToServices)
+TEST_GROUP_RUNNER(SmushSoundDsndNull)
 {
-    TEST_ASSERT_EQUAL_INT(0, SstDsndModule->Startup());
-    TEST_ASSERT_EQUAL_STRING("TIMER=clock", SstSh.aSubscribeNames[0]);
-    TEST_ASSERT_EQUAL_STRING("MEMORY.mixertable", SstSh.aSubscribeNames[1]);
-    SstDsndModule->Shutdown();
-    TEST_ASSERT_EQUAL_INT(2, SstSh.numUnsubscribed);
-    TEST_ASSERT_TRUE(SstSh.aUnsubscribed[0] == &SstTim.iface);
-    TEST_ASSERT_TRUE(SstSh.aUnsubscribed[1] == &SstMem.iface);
-}
-
-TEST(SmushSoundDsnd, StartupReportsMissingServices)
-{
-    SstSh.pTimerClk = NULL;
-    TEST_ASSERT_EQUAL_INT(-1, SstDsndModule->Startup());
-    TEST_ASSERT_EQUAL_STRING("DirectSoundDriver Module: Cannot allocate timer services.", SstSh.aErrors[0]);
-    SstSh.pTimerClk = &SstTim.iface;
-    SstSh.pMixerMem = NULL;
-    TEST_ASSERT_EQUAL_INT(-1, SstDsndModule->Startup());
-    TEST_ASSERT_EQUAL_INT(2, SstSh.numErrors);
-    SstSh.pMixerMem = &SstMem.iface;
-    TEST_ASSERT_EQUAL_INT(0, SstDsndModule->Startup());
-}
-
-TEST(SmushSoundDsnd, StartCreatesLoopingSecondaryBufferOnGivenObject)
-{
-    SstDsndStart();
-    TEST_ASSERT_EQUAL_INT(1, SstDS.numCreateBuffer);
-    TEST_ASSERT_EQUAL_UINT32(DSBCAPS_GETCURRENTPOSITION2 | DSBCAPS_CTRLVOLUME, SstDS.descFlags);
-    TEST_ASSERT_EQUAL_UINT32(3 * SST_BLOCK, SstDS.descBytes);
-    TEST_ASSERT_TRUE(SstDS.hasFormat);
-    TEST_ASSERT_EQUAL_UINT16(WAVE_FORMAT_PCM, SstDS.format.wFormatTag);
-    TEST_ASSERT_EQUAL_UINT16(2, SstDS.format.nChannels);
-    TEST_ASSERT_EQUAL_UINT32(22050, SstDS.format.nSamplesPerSec);
-    TEST_ASSERT_EQUAL_UINT16(16, SstDS.format.wBitsPerSample);
-    TEST_ASSERT_EQUAL_UINT16(4, SstDS.format.nBlockAlign);
-
-    // The buffer is silenced and started looping at full volume
-    TEST_ASSERT_EQUAL_INT(1, SstBuf.numLock);
-    TEST_ASSERT_EQUAL_UINT32(0, SstBuf.lockOffset);
-    TEST_ASSERT_EQUAL_UINT32(3 * SST_BLOCK, SstBuf.lockBytes);
-    TEST_ASSERT_EQUAL_INT(1, SstBuf.numUnlock);
-    for ( int i = 0; i < 3 * SST_BLOCK; i++ )
-    {
-        if ( SstBuf.mem[i] != 0 ) {
-            TEST_FAIL_MESSAGE("secondary buffer not silenced");
-        }
-    }
-
-    TEST_ASSERT_EQUAL_UINT8(0xAA, SstBuf.mem[3 * SST_BLOCK]);
-    TEST_ASSERT_EQUAL_INT(1, SstBuf.numPlay);
-    TEST_ASSERT_EQUAL_UINT32(DSBPLAY_LOOPING, SstBuf.playFlags);
-    TEST_ASSERT_EQUAL_INT(1, SstBuf.numSetVolume);
-    TEST_ASSERT_EQUAL_INT32(0, SstBuf.lastVolume);
-
-    // The mixer got its buffers and the timer a callback of 1193180 / (22050 / 1024) ticks
-    TEST_ASSERT_EQUAL_INT(2, SstMem.numAllocs);
-    TEST_ASSERT_EQUAL_INT(1, SstTim.numAllocs);
-    TEST_ASSERT_TRUE(SstTim.pfnAlloc == dsnd_Callback);
-    TEST_ASSERT_EQUAL_INT(1193180 / 21, SstTim.allocInterval);
-    TEST_ASSERT_EQUAL_UINT32(2, SstTim.allocFlags);
-    TEST_ASSERT_EQUAL_INT(0, SstTim.allocParam);
-}
-
-TEST(SmushSoundDsnd, StartRaisesTooLowRate)
-{
-    TEST_ASSERT_EQUAL_INT(0, dsnd_Configure(5, &SstDS.base, 0));
-    TEST_ASSERT_EQUAL_INT(0, SstDsndModule->Startup());
-    TEST_ASSERT_EQUAL_INT(0, SstDsndDrv->Start(8000, 1, SstFillFn));
-    SstDsndStarted = 1;
-    TEST_ASSERT_EQUAL_INT(1193180 / 21, SstTim.allocInterval);
-}
-
-TEST(SmushSoundDsnd, StartFailsWhenMixerCannotAllocate)
-{
-    SstMem.failFrom = 1;
-    TEST_ASSERT_EQUAL_INT(0, dsnd_Configure(5, &SstDS.base, 0));
-    TEST_ASSERT_EQUAL_INT(0, SstDsndModule->Startup());
-    TEST_ASSERT_EQUAL_INT(-1, SstDsndDrv->Start(22050, 1, SstFillFn));
-    TEST_ASSERT_EQUAL_INT(0, SstTim.numAllocs);
-    TEST_ASSERT_EQUAL_INT(1, SstDS.numCreateBuffer); // The secondary buffer was created before the mixer failed
-    dsnd_Release();
-    TEST_ASSERT_EQUAL_INT(1, SstBuf.numRelease);
-}
-
-TEST(SmushSoundDsnd, SetVolumeMapsToDecibelTable)
-{
-    SstDsndStart();
-    static const struct { int volume; LONG expect; } aCases[] = {
-        { 0, -10000 }, { 1, -7000 }, { 2, -6000 }, { 3, -5200 }, { 4, -5000 }, { 5, -4500 }, { 6, -4200 }, { 7, -4100 }, { 8, -4000 },
-        { 9, 2000 / 23 - 4000 }, { 31, 46000 / 23 - 4000 }, { 32, -2000 }, { 33, 1000 / 31 - 2000 }, { 63, 31000 / 31 - 2000 },
-        { 64, -1000 }, { 65, 1000 / 63 - 1000 }, { 127, 0 }, { 128, -10000 }, { 255, 0 },
-    };
-
-    for ( size_t i = 0; i < sizeof(aCases) / sizeof(aCases[0]); i++ )
-    {
-        dsnd_SetVolume(aCases[i].volume);
-        char msg[48];
-        sprintf_s(msg, sizeof(msg), "volume %d", aCases[i].volume);
-        TEST_ASSERT_EQUAL_INT32_MESSAGE(aCases[i].expect, SstBuf.lastVolume, msg);
-        TEST_ASSERT_EQUAL_INT_MESSAGE(aCases[i].volume & 0x7F, SstDsndDrv->GetVolume(), msg);
-    }
-}
-
-// The first frame of the fill callback's block: left and right of the mono 8-bit sample 0x00 at the centre (see PanTableSetsChannelGains)
-#define SST_FRAME0_L 26112
-#define SST_FRAME0_R 21760
-
-TEST(SmushSoundDsnd, CallbackMixesNextBlockIntoLockedRegion)
-{
-    SstDsndStart();
-    int lockBefore = SstBuf.numLock;
-
-    // Play cursor in block 1: the first callback writes block 2 (the block after the play cursor)
-    SstBuf.playCursor = 1 * SST_BLOCK + 5;
-    SstTim.pfnAlloc(7, 0);
-    TEST_ASSERT_EQUAL_INT(lockBefore + 1, SstBuf.numLock);
-    TEST_ASSERT_EQUAL_UINT32(2 * SST_BLOCK, SstBuf.lockOffset);
-    TEST_ASSERT_EQUAL_UINT32(SST_BLOCK, SstBuf.lockBytes);
-    TEST_ASSERT_EQUAL_INT(1, SstFillCalls);
-    TEST_ASSERT_EQUAL_INT(0x600, SstFillChunk);
-    TEST_ASSERT_TRUE(SstFillFeed == mixer_Feed);
-    TEST_ASSERT_TRUE(SstBuf.unlockPtr1 == SstBuf.mem + 2 * SST_BLOCK);
-    TEST_ASSERT_EQUAL_UINT32(SST_BLOCK, SstBuf.unlockLen1);
-    TEST_ASSERT_NULL(SstBuf.unlockPtr2);
-
-    const int16_t* pOut = (const int16_t*)(SstBuf.mem + 2 * SST_BLOCK);
-    TEST_ASSERT_EQUAL_INT16(SST_FRAME0_L, pOut[0]);
-    TEST_ASSERT_EQUAL_INT16(SST_FRAME0_R, pOut[1]);
-    TEST_ASSERT_EQUAL_INT16(0, pOut[2]);
-    TEST_ASSERT_EQUAL_INT16(32767, pOut[6]);
-    for ( int i = 8; i < 0xC00; i++ ) {
-        TEST_ASSERT_EQUAL_INT16(0, pOut[i]);
-    }
-
-    TEST_ASSERT_EQUAL_INT(1, SstTim.numSetInterval);
-    TEST_ASSERT_EQUAL_INT(7, SstTim.lastSetIndex);
-    TEST_ASSERT_EQUAL_INT(1193180 / 21, SstTim.lastSetInterval);
-
-    // The same play position: the next block (0) is due
-    SstTim.pfnAlloc(7, 0);
-    TEST_ASSERT_EQUAL_UINT32(0, SstBuf.lockOffset);
-
-    // The play cursor reaches the block after the last one written: nothing to do
-    SstBuf.playCursor = 1 * SST_BLOCK;
-    int locks = SstBuf.numLock;
-    SstTim.pfnAlloc(7, 0);
-    TEST_ASSERT_EQUAL_INT(locks, SstBuf.numLock);
-    TEST_ASSERT_EQUAL_INT(3, SstTim.numSetInterval); // The interval is still re-armed
-}
-
-TEST(SmushSoundDsnd, CallbackSkipsWhenPlayPositionUnavailable)
-{
-    SstDsndStart();
-    int locks = SstBuf.numLock;
-    SstBuf.positionResult = DSERR_GENERIC;
-    SstTim.pfnAlloc(7, 0);
-    TEST_ASSERT_EQUAL_INT(locks, SstBuf.numLock);
-    TEST_ASSERT_EQUAL_INT(0, SstFillCalls);
-    TEST_ASSERT_EQUAL_INT(1, SstTim.numSetInterval);
-    TEST_ASSERT_EQUAL_INT(-1, dsnd_GetPlayPos());
-}
-
-TEST(SmushSoundDsnd, CallbackCopiesWrappedRegionsThroughScratch)
-{
-    SstDsndStart();
-    SstBuf.playCursor = 1 * SST_BLOCK;
-    SstBuf.splitAt = 0x1000; // The locked block wraps: 0x1000 bytes at the offset, 0x800 bytes at the start of the buffer
-    SstFillOffset = 0x400;   // Frame 0x400 is the first one of the second region (0x1000 / 4)
-    SstTim.pfnAlloc(7, 0);
-
-    TEST_ASSERT_EQUAL_INT(0x600, SstFillChunk);
-    TEST_ASSERT_EQUAL_UINT32(0x1000, SstBuf.unlockLen1);
-    TEST_ASSERT_EQUAL_UINT32(0x800, SstBuf.unlockLen2);
-    TEST_ASSERT_TRUE(SstBuf.unlockPtr2 == SstBuf.mem);
-
-    const int16_t* pFirst = (const int16_t*)(SstBuf.mem + 2 * SST_BLOCK);
-    for ( int i = 0; i < 0x800; i++ ) {
-        TEST_ASSERT_EQUAL_INT16(0, pFirst[i]);
-    }
-
-    const int16_t* pSecond = (const int16_t*)SstBuf.mem;
-    TEST_ASSERT_EQUAL_INT16(SST_FRAME0_L, pSecond[0]);
-    TEST_ASSERT_EQUAL_INT16(SST_FRAME0_R, pSecond[1]);
-    TEST_ASSERT_EQUAL_INT16(32767, pSecond[6]);
-    TEST_ASSERT_EQUAL_INT16(0, pSecond[8]);
-}
-
-TEST(SmushSoundDsnd, GetPlayPosReturnsBlockIndex)
-{
-    SstDsndStart();
-    SstBuf.playCursor = 2 * SST_BLOCK + 100;
-    TEST_ASSERT_EQUAL_INT(2, dsnd_GetPlayPos());
-    SstBuf.playCursor = 5 * SST_BLOCK; // Beyond the 3 blocks: wraps by the block count
-    TEST_ASSERT_EQUAL_INT(2, dsnd_GetPlayPos());
-}
-
-TEST(SmushSoundDsnd, StopFreesTimerMixerAndBuffer)
-{
-    SstDsndStart();
-    SstDsndDrv->Stop();
-    SstDsndStarted = 0;
-    TEST_ASSERT_EQUAL_INT(1, SstTim.numFrees);
-    TEST_ASSERT_EQUAL_INT(7, SstTim.lastFreed);
-    TEST_ASSERT_EQUAL_INT(2, SstMem.numFrees);
-    TEST_ASSERT_EQUAL_INT(1, SstBuf.numRelease);
-    TEST_ASSERT_EQUAL_INT(0, SstDS.numRelease);   // The game owns its DirectSound object
-    TEST_ASSERT_EQUAL_INT(-1, dsnd_GetPlayPos()); // No buffer any more
-}
-
-TEST_GROUP_RUNNER(SmushSoundDsnd)
-{
-    RUN_TEST_CASE(SmushSoundDsnd, RegisterPublishesModuleAndDriver);
-    RUN_TEST_CASE(SmushSoundDsnd, ConfigureAcceptsKnownTagsOnly);
-    RUN_TEST_CASE(SmushSoundDsnd, StartupSubscribesToServices);
-    RUN_TEST_CASE(SmushSoundDsnd, StartupReportsMissingServices);
-    RUN_TEST_CASE(SmushSoundDsnd, StartCreatesLoopingSecondaryBufferOnGivenObject);
-    RUN_TEST_CASE(SmushSoundDsnd, StartRaisesTooLowRate);
-    RUN_TEST_CASE(SmushSoundDsnd, StartFailsWhenMixerCannotAllocate);
-    RUN_TEST_CASE(SmushSoundDsnd, SetVolumeMapsToDecibelTable);
-    RUN_TEST_CASE(SmushSoundDsnd, CallbackMixesNextBlockIntoLockedRegion);
-    RUN_TEST_CASE(SmushSoundDsnd, CallbackSkipsWhenPlayPositionUnavailable);
-    RUN_TEST_CASE(SmushSoundDsnd, CallbackCopiesWrappedRegionsThroughScratch);
-    RUN_TEST_CASE(SmushSoundDsnd, GetPlayPosReturnsBlockIndex);
-    RUN_TEST_CASE(SmushSoundDsnd, StopFreesTimerMixerAndBuffer);
+    RUN_TEST_CASE(SmushSoundDsndNull, ConfigureAcceptsKnownTagsOnly);
 }
 
 TEST_GROUP_RUNNER(SmushSound)
 {
     RUN_TEST_GROUP(SmushSoundEngine);
     RUN_TEST_GROUP(SmushSoundMixer);
-    RUN_TEST_GROUP(SmushSoundDsnd);
+    RUN_TEST_GROUP(SmushSoundDsndNull);
 }

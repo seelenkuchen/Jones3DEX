@@ -31,7 +31,7 @@
 #include <std/General/stdConfig.h>
 #include <std/General/stdFnames.h>
 #include <std/General/stdUtil.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdDisplay.h>
 
 #define SITHSAVEGAME_ENDFILE      0x1000
 

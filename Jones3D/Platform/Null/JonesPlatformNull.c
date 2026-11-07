@@ -4,8 +4,11 @@
 // no-op, every dialog answers the DialogBoxParam value of the Windows user pressing
 // Cancel (EndDialog(hwnd, IDCANCEL) == 2), and the timer/mutex/ComputerName services
 // degrade to safe stubs. Same header contracts.
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <j3dcore/j3d.h>
 
@@ -19,6 +22,8 @@
 
 #include <std/General/stdFnames.h>
 #include <std/General/stdUtil.h>
+
+#include <wkernel/wkernel.h>
 
 // Altered: Answers IDCANCEL (2), the value Windows dialogs hand back when the user
 // cancels (WM_CLOSE/Cancel all call EndDialog(hwnd, 2) in jonesConfig.c). Callers treat
@@ -50,17 +55,23 @@ void JonesMainSys_UseGameWindowProc(void)
 {
     // Added: Switches wkernel to JonesMain_GameWndProc on Windows; there is no window or
     // message queue on the Null platform, and the wkernel proc hook is Win32-only, so
-    // nothing to switch.
+    // nothing to switch. The intro's skip keys end with the intro window procedure.
+    wkernel_SetIntroSkipCallback(NULL);
 }
 
 void JonesMainSys_UseIntroWindowProc(void)
 {
-    // Added: See JonesMainSys_UseGameWindowProc.
+    // Added: See JonesMainSys_UseGameWindowProc. The one part of JonesMain_IntroWndProc that
+    // a window-less column keeps: its skip keys (Enter, Escape, left mouse button up) call
+    // JonesMain_OnSkipIntro, through the wkernel callback the Babylon column's event pump
+    // calls (wkernelNull.c never does).
+    wkernel_SetIntroSkipCallback(JonesMain_OnSkipIntro);
 }
 
 void JonesMainSys_ClearWindowProc(void)
 {
     // Added: See JonesMainSys_UseGameWindowProc.
+    wkernel_SetIntroSkipCallback(NULL);
 }
 
 bool JonesMainSys_GetComputerName(char* pDst, size_t size)
@@ -73,7 +84,19 @@ bool JonesMainSys_GetComputerName(char* pDst, size_t size)
     // Added: gethostname fills the same host-name contract as the Windows
     // GetComputerName call (POSIX name, truncated to the buffer).
     char aName[128] = { 0 };
+#ifdef _WIN32
+    // Added: the Babylon column on Windows reads the COMPUTERNAME variable Windows sets to the
+    // GetComputerName name (gethostname there needs Winsock started first). getenv_s is the CRT
+    // form MSVC does not deprecate; a missing or oversized value leaves the buffer empty.
+    size_t numRequired = 0;
+    if ( getenv_s(&numRequired, aName, STD_ARRAYLEN(aName), "COMPUTERNAME") != 0 )
+    {
+        aName[0] = '\0';
+    }
+    if ( !aName[0] )
+#else
     if ( gethostname(aName, STD_ARRAYLEN(aName) - 1) != 0 || !aName[0] )
+#endif
     {
         aName[0] = 'J';
     }

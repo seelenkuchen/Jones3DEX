@@ -89,6 +89,16 @@ void J3DAPI rdSetGeometryMode(rdGeometryMode mode);
 rdLightMode rdGetLightingMode(void); // Added
 void J3DAPI rdSetLightingMode(rdLightMode mode);
 
+// Added: option A L3 (ADR-0023). Whether world surfaces (sithRender) and models (rdModel3) are drawn as
+// lit faces: through rdCache_GetLitProcEntry or rdCache_GetLitAlphaProcEntry and rdClip_FaceToPlaneLit,
+// so their vertices carry view-space positions and normals to std3D_DrawRenderListLit. The colour is
+// the same either way; only the normal target differs. Off draws them the classic way, exactly as
+// before the lit path. Presentation only: nothing that reaches simulation state reads it. Off after
+// rdroid_ResetGlobals; JonesDisplay_Open sets it from Jones.cfg (engine.renderer.litFaces.enabled).
+// Read when a face is handed to rdCache, so a change applies from the next face on.
+bool rdGetLitFaces(void);
+void rdSetLitFaces(bool bEnable);
+
 void rdroid_ResetGlobals(void);
 
 J3D_EXTERN_C_END

@@ -16,8 +16,7 @@ Primary source files:
 - [`Libs/sith/World/sithVoice.c`](../../../Libs/sith/World/sithVoice.c)
 - [`Libs/sound/Sound.c`](../../../Libs/sound/Sound.c)
 - [`Libs/sound/AudioLib.c`](../../../Libs/sound/AudioLib.c)
-- [`Libs/sound/DriverDX9.c`](../../../Libs/sound/DriverDX9.c)
-- [`Libs/sound/DriverDX6.c`](../../../Libs/sound/DriverDX6.c)
+- `Libs/sound/DriverNull.c`
 
 ## Startup And Ownership Layers
 
@@ -384,6 +383,6 @@ OpenJones3D extends that architecture in a few important places without replacin
 - larger simultaneous channel budget via `SITHSOUND_MAXCHANNELS`
 - configurable software falloff with exponential and logarithmic models
 - bug fixes in fade, restart, and subtitle handling
-- improved modern backend behavior in both DX6 and DX9 paths
+- improved backend behavior in the DirectX 6 and DirectX 9 drivers, which were removed in M6.3; `DriverNull.c` is the only driver until the Babylon audio module lands in M7
 
 So the sound system is a good example of the project's general strategy: keep the original layers, but make the modernized behavior live inside those layers rather than inventing a brand-new audio architecture.

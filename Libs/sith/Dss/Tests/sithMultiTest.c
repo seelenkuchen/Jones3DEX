@@ -198,13 +198,10 @@ static unsigned sithMultiTest_RunCases(const char* pPrefix)
                 sithMultiTest_Describe(aDesc, sizeof(aDesc), fc->pRec, fc->recSize, rec.p, rec.size);
                 size_t len = strlen(sithMultiTest_aFailText);
                 snprintf(sithMultiTest_aFailText + len, sizeof(sithMultiTest_aFailText) - len, "\n  %s (fill %02x): %s", fc->aName, fill, aDesc);
-#ifdef _WIN32
-                if ( GetEnvironmentVariableA("SITHMULTI_VERBOSE", NULL, 0) != 0 )
-#else
-                // Altered: GetEnvironmentVariableA is the Windows-only way this harness asks whether
-                // SITHMULTI_VERBOSE is set; the native build reads the same variable with getenv().
-                if ( getenv("SITHMULTI_VERBOSE") != NULL )
-#endif
+                // Altered: the harness asked GetEnvironmentVariableA whether SITHMULTI_VERBOSE is set; every build
+                // reads the same variable with getenv_s().
+                size_t verboseSize = 0;
+                if ( getenv_s(&verboseSize, NULL, 0, "SITHMULTI_VERBOSE") == 0 && verboseSize != 0 )
                 {
                     printf("  %s\n", fc->aName);
                     sithMultiTest_PrintDeltas("expected", fc->pRec, fc->recSize);

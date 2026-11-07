@@ -72,7 +72,7 @@ if (MSVC)
     target_link_options(sithDSSTests PRIVATE /BASE:0x20000000 /DYNAMICBASE:NO)
 elseif(MINGW)
     target_link_options(sithDSSTests PRIVATE -Wl,--image-base=0x20000000 -Wl,--disable-dynamicbase)
-elseif(J3D_PLATFORM_NULL)
+else()
     # Added: The Null platform needs the same fixed, high load address for the same reason (see
     # sithVecTest_AssertArenaPlacement): a non-PIE image with its text segment at 0x20000000.
     target_link_options(sithDSSTests PRIVATE -no-pie -Wl,-Ttext-segment=0x20000000)
@@ -85,16 +85,9 @@ set_target_properties(sithDSSTests PROPERTIES
 source_group("Tests" FILES ${SITHDSS_TEST_SOURCES})
 source_group("Tested Sources" FILES ${SITHDSS_TESTED_SOURCES})
 
-set(SITHDSS_TEST_BACKEND_LABEL "")
-if (J3D_DIRECTX6)
-    set(SITHDSS_TEST_BACKEND_LABEL "DirectX6")
-elseif (J3D_DIRECTX9)
-    set(SITHDSS_TEST_BACKEND_LABEL "DirectX9")
-endif()
-
 add_test(NAME sith.DSS COMMAND sithDSSTests)
 set_tests_properties(sith.DSS PROPERTIES
-    LABELS "unit;sith;${SITHDSS_TEST_BACKEND_LABEL}"
+    LABELS "unit;sith"
     TIMEOUT 60
 )
 
@@ -157,7 +150,7 @@ if (MSVC)
     target_link_options(sithMultiTests PRIVATE /BASE:0x20000000 /DYNAMICBASE:NO)
 elseif(MINGW)
     target_link_options(sithMultiTests PRIVATE -Wl,--image-base=0x20000000 -Wl,--disable-dynamicbase)
-elseif(J3D_PLATFORM_NULL)
+else()
     # Added: The Null platform needs the same fixed, high load address for the same reason (see
     # sithVecTest_AssertArenaPlacement): a non-PIE image with its text segment at 0x20000000.
     target_link_options(sithMultiTests PRIVATE -no-pie -Wl,-Ttext-segment=0x20000000)
@@ -172,6 +165,6 @@ source_group("Tested Sources" FILES ${SITHMULTI_TESTED_SOURCES})
 
 add_test(NAME sith.Multi COMMAND sithMultiTests)
 set_tests_properties(sith.Multi PROPERTIES
-    LABELS "unit;sith;${SITHDSS_TEST_BACKEND_LABEL}"
+    LABELS "unit;sith"
     TIMEOUT 60
 )

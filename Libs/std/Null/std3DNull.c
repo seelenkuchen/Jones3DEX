@@ -8,8 +8,9 @@
 
 #include <j3dcore/j3d.h>
 
-#include <std/Win95/std3D.h>
-#include <std/Win95/stdDisplay.h>
+#include <std/General/stdRenderBackend.h>
+#include <std/General/std3D.h>
+#include <std/General/stdDisplay.h>
 
 #include <std/General/std.h>
 #include <std/General/stdColor.h>
@@ -62,27 +63,27 @@ static void std3D_InitTextureFormats(void)
 
     static const struct
     {
-        ColorInfo colorInfo;
+        const ColorInfo* pColorInfo;
         const char* pName;
     } formats[] =
     {
-        { stdColor_cfRGB888,   "24-bit RGB" },
-        { stdColor_cfRGB8888,  "32-bit RGB" },
-        { stdColor_cfARGB8888, "32-bit ARGB" },
-        { stdColor_cfRGB565,   "16-bit RGB" },
-        { stdColor_cfARGB5551, "16-bit RGBA5551" },
-        { stdColor_cfARGB4444, "16-bit ARGB4444" }
+        { &stdColor_cfRGB888,   "24-bit RGB" },
+        { &stdColor_cfRGB8888,  "32-bit RGB" },
+        { &stdColor_cfARGB8888, "32-bit ARGB" },
+        { &stdColor_cfRGB565,   "16-bit RGB" },
+        { &stdColor_cfARGB5551, "16-bit RGBA5551" },
+        { &stdColor_cfARGB4444, "16-bit ARGB4444" }
     };
 
     for ( size_t i = 0; i < STD_ARRAYLEN(formats); ++i )
     {
         StdTextureFormat* pFormat = &std3D_aTextureFormats[std3D_numTextureFormats];
         STD_ZEROMEM(pFormat, sizeof(*pFormat));
-        pFormat->ci = formats[i].colorInfo;
+        pFormat->ci = *formats[i].pColorInfo;
         pFormat->bColorKey = 0;
         pFormat->pColorKey = NULL;
 
-        if ( formats[i].colorInfo.colorMode == STDCOLOR_RGB )
+        if ( formats[i].pColorInfo->colorMode == STDCOLOR_RGB )
         {
             std3D_bHasRGBTextureFormat = true;
         }
@@ -335,6 +336,22 @@ void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, St
     J3D_UNUSED(numVerts);
     J3D_UNUSED(aIndices);
     J3D_UNUSED(numIndices);
+}
+
+void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexLit* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
+{
+    J3D_UNUSED(pTex);
+    J3D_UNUSED(rdflags);
+    J3D_UNUSED(aVerts);
+    J3D_UNUSED(numVerts);
+    J3D_UNUSED(aIndices);
+    J3D_UNUSED(numIndices);
+}
+
+void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights)
+{
+    J3D_UNUSED(aLights);
+    J3D_UNUSED(numLights);
 }
 
 void J3DAPI std3D_DrawLineStrip(StdVertexTL* aVerts, size_t numVerts)
