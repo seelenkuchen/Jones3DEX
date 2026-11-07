@@ -90,6 +90,7 @@ static int JonesHud_bShowMenu;
 static int JonesHud_bMenuEnabled;
 static int JonesHud_bMapOpen;
 static bool JonesHud_bMenuMusicEnabled       = true; // Added
+static bool JonesHud_bSystemIconsEnabled     = true; // Added: engine.ui.hud.systemIcons
 static char JonesHud_aMenuMusicFilename[64]  = "mus_gen_maploadloop.wav"; // Added
 static float JonesHud_menuMusicVolume        = 0.55f; // Added
 static float JonesHud_menuMusicFadeDuratuion = 0.75f; // Added
@@ -499,6 +500,13 @@ int JonesHud_Open(void)
     if ( !stdConfig_Contains(JONESHUD_CFG_MENU_FADEDURATION) )
     {
         stdConfig_SetFloat(JONESHUD_CFG_MENU_FADEDURATION, JonesHud_menuMusicFadeDuratuion);
+    }
+
+    // Added: presentation only (both profiles). Default true keeps the HUD menu as it is.
+    JonesHud_bSystemIconsEnabled = stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
+    if ( !stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS) )
+    {
+        stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
     }
 
     // Menu item config
@@ -3188,6 +3196,153 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
     }
 }
 
+// Added: the bodies of the HUD menu's system items, shared with the pause menu (ADR-0026). Each
+// returns the original dialog's answer and keeps every side effect the HUD branch had.
+int JonesHud_ShowStatistics(void)
+{
+    jonesInventory_UpdateSolvedHintsStatistics();
+    jonesInventory_UpdateGameTimeStatistics(sithTime_g_msecGameTime);
+    SithGameStatistics* pStatistics = sithGamesave_GetGameStatistics();
+    if ( pStatistics && sithGamesave_LockGameStatistics() )
+    {
+        pStatistics->aLevelStatistic[pStatistics->curLevelNum].iqPoints = jonesInventory_GetTotalIQPoints() - JonesHud_levelStartIQPoints;
+        tSysWindow hwnd = stdWin95_GetWindow();
+        jonesConfig_ShowStatisticsDialog(hwnd, pStatistics);
+        sithGamesave_UnlockGameStatistics();
+    }
+
+    return 2;
+}
+
+int JonesHud_ShowSaveGame(void)
+{
+    int dlgResult = 0;
+    if ( jonesCog_g_bEnableGamesave )
+    {
+        JonesHud_RestoreTreasuresStatistics();
+        char aFilePath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+        tSysWindow hwnd = stdWin95_GetWindow();
+        dlgResult = jonesConfig_GetSaveGameFilePath(hwnd, aFilePath);
+        if ( dlgResult == 1 )
+        {
+            jonesInventory_UpdateGameTimeStatistics(sithTime_g_msecGameTime);
+            sithGamesave_Save(aFilePath, 1);
+        }
+    }
+
+    return dlgResult;
+}
+
+int JonesHud_ShowLoadGame(void)
+{
+    int dlgResult = 0;
+    if ( jonesCog_g_bEnableGamesave )
+    {
+        STD_ZEROMEM(JonesHud_aSlectedNdsFilePath, sizeof(JonesHud_aSlectedNdsFilePath));
+        tSysWindow hwnd = stdWin95_GetWindow();
+        dlgResult = jonesConfig_GetLoadGameFilePath(hwnd, JonesHud_aSlectedNdsFilePath);
+        if ( dlgResult == 1 )
+        {
+            if ( strlen(JonesHud_aSlectedNdsFilePath) )
+            {
+                if ( JonesMain_HasStarted() )
+                {
+                    JonesHud_bRestoreActivated = 1;
+                }
+
+                JonesHud_bRestoreGameStatistics = 1;
+            }
+        }
+    }
+
+    return dlgResult;
+}
+
+int JonesHud_ShowGamePlaySettings(void)
+{
+    tSysWindow hwnd = stdWin95_GetWindow();
+    return jonesConfig_ShowGamePlayOptions(hwnd);
+}
+
+int JonesHud_ShowControlSettings(void)
+{
+    tSysWindow hwnd = stdWin95_GetWindow();
+    return jonesConfig_ShowControlOptions(hwnd);
+}
+
+int JonesHud_ShowDisplaySettings(void)
+{
+    JonesDisplaySettings* pDSettings   = JonesMain_GetDisplaySettings();
+    StdDisplayEnvironment* pDisplayEnv = JonesMain_GetDisplayEnvironment();
+    tSysWindow hwnd = stdWin95_GetWindow();
+    int dlgResult = jonesConfig_ShowDisplaySettingsDialog(hwnd, pDisplayEnv, pDSettings);
+    if ( dlgResult == 1 )
+    {
+        JonesMain_RefreshDisplayDevice();
+    }
+
+    return dlgResult;
+}
+
+int JonesHud_ShowSoundSettings(void)
+{
+    JonesSoundSettings sndSettings;
+    sndSettings.maxSoundVolume = Sound_GetMaxVolume();
+    sndSettings.b3DHWSupport   = Sound_Get3DHWState();
+    sndSettings.bReverseSound  = stdConfig_GetBool(JONESCONFIG_CFG_SOUND_REVERSE, false);
+
+    tSysWindow hwnd = stdWin95_GetWindow();
+    int dlgResult = jonesConfig_ShowSoundSettingsDialog(hwnd, &sndSettings);
+    if ( dlgResult == 1 )
+    {
+        Sound_SetMaxVolume(sndSettings.maxSoundVolume);
+        Sound_Set3DHWState(sndSettings.b3DHWSupport);
+        Sound_SetReverseSound(sndSettings.bReverseSound);
+    }
+
+    return dlgResult;
+}
+
+int JonesHud_ShowExitGame(void)
+{
+    int dlgResult = 0;
+    char aSaveGameFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+    tSysWindow hwnd = stdWin95_GetWindow();
+    dlgResult = jonesConfig_ShowExitGameDialog(hwnd, aSaveGameFilename);
+    if ( dlgResult == 2 )
+    {
+        JonesHud_bExitActivated = 0;
+    }
+    else
+    {
+        JonesHud_bExitActivated = 1;
+        if ( dlgResult == 1187 )
+        {
+            sithGamesave_Save(aSaveGameFilename, 1);
+            if ( sithGamesave_Process() )
+            {
+                const char* pNoSaveFormat = jonesString_GetString("JONES_STR_NOSAVE");
+                if ( pNoSaveFormat )
+                {
+                    char aMsg[256] = { 0 };
+                    STD_FORMAT(aMsg, pNoSaveFormat, aSaveGameFilename);
+                    hwnd = stdWin95_GetWindow();
+                    jonesConfig_ShowMessageDialog(hwnd, "JONES_STR_EXIT", aMsg, 141);
+                }
+
+                dlgResult = 2;
+                JonesHud_bExitActivated = 0;
+            }
+            else
+            {
+                dlgResult = 1;
+            }
+        }
+    }
+
+    return dlgResult;
+}
+
 void JonesHud_MenuActivateItem(void)
 {
     if ( !JonesHud_pCurSelectedMenuItem || !sithPlayer_g_pLocalPlayerThing )
@@ -3286,20 +3441,9 @@ void JonesHud_MenuActivateItem(void)
     {
         case JONESHUD_MENU_UNKNOWN_124:
         case JONESHUD_MENU_IQ: // Show game statistics
-        {
-            jonesInventory_UpdateSolvedHintsStatistics();
-            jonesInventory_UpdateGameTimeStatistics(sithTime_g_msecGameTime);
-            SithGameStatistics* pStatistics = sithGamesave_GetGameStatistics();
-            if ( pStatistics && sithGamesave_LockGameStatistics() )
-            {
-                pStatistics->aLevelStatistic[pStatistics->curLevelNum].iqPoints = jonesInventory_GetTotalIQPoints() - JonesHud_levelStartIQPoints;
-                tSysWindow hwnd = stdWin95_GetWindow();
-                jonesConfig_ShowStatisticsDialog(hwnd, pStatistics);
-                sithGamesave_UnlockGameStatistics();
-            }
-
-            dlgResult = 2;
-        } break;
+            // Altered: the body moved to JonesHud_ShowStatistics so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowStatistics();
+            break;
 
         case JONESHUD_MENU_HELP: // help
             // TODO: Help menu item is not put in place in ResetMenuitems
@@ -3317,125 +3461,39 @@ void JonesHud_MenuActivateItem(void)
             break;
 
         case JONESHUD_MENU_SAVE_GAME: // save game
-        {
-            if ( jonesCog_g_bEnableGamesave )
-            {
-                JonesHud_RestoreTreasuresStatistics();
-                char aFilePath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-                tSysWindow hwnd = stdWin95_GetWindow();
-                dlgResult = jonesConfig_GetSaveGameFilePath(hwnd, aFilePath);
-                if ( dlgResult == 1 )
-                {
-                    jonesInventory_UpdateGameTimeStatistics(sithTime_g_msecGameTime);
-                    sithGamesave_Save(aFilePath, 1);
-                }
-            }
-
-        } break;
+            // Altered: the body moved to JonesHud_ShowSaveGame so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowSaveGame();
+            break;
 
         case JONESHUD_MENU_LOAD_GAME:
-        {
-            if ( jonesCog_g_bEnableGamesave )   // load game
-            {
-                STD_ZEROMEM(JonesHud_aSlectedNdsFilePath, sizeof(JonesHud_aSlectedNdsFilePath));
-                tSysWindow hwnd = stdWin95_GetWindow();
-                dlgResult = jonesConfig_GetLoadGameFilePath(hwnd, JonesHud_aSlectedNdsFilePath);
-                if ( dlgResult == 1 )
-                {
-                    if ( strlen(JonesHud_aSlectedNdsFilePath) )
-                    {
-                        if ( JonesMain_HasStarted() )
-                        {
-                            JonesHud_bRestoreActivated = 1;
-                        }
-
-                        JonesHud_bRestoreGameStatistics = 1;
-                    }
-                }
-            }
-
-        } break;
+            // Altered: the body moved to JonesHud_ShowLoadGame so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowLoadGame();
+            break;
 
         case JONESHUD_MENU_GAME_SETTINGS: // game play options
-        {
-            tSysWindow hwnd = stdWin95_GetWindow();
-            dlgResult = jonesConfig_ShowGamePlayOptions(hwnd);
-        } break;
+            // Altered: the body moved to JonesHud_ShowGamePlaySettings so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowGamePlaySettings();
+            break;
 
         case JONESHUD_MENU_CONTROLS_SETTINGS:   // control options
-        {
-            tSysWindow hwnd = stdWin95_GetWindow();
-            dlgResult = jonesConfig_ShowControlOptions(hwnd);
-        } break;
+            // Altered: the body moved to JonesHud_ShowControlSettings so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowControlSettings();
+            break;
 
         case JONESHUD_MENU_DISPLAY_SETTINGS:    // display settings
-        {
-            JonesDisplaySettings* pDSettings   = JonesMain_GetDisplaySettings();
-            StdDisplayEnvironment* pDisplayEnv = JonesMain_GetDisplayEnvironment();
-            tSysWindow hwnd = stdWin95_GetWindow();
-            dlgResult = jonesConfig_ShowDisplaySettingsDialog(hwnd, pDisplayEnv, pDSettings);
-            if ( dlgResult == 1 )
-            {
-                JonesMain_RefreshDisplayDevice();
-            }
-
-        } break;
+            // Altered: the body moved to JonesHud_ShowDisplaySettings so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowDisplaySettings();
+            break;
 
         case JONESHUD_MENU_SOUND_SETTINGS: // sound settings
-        {
-            JonesSoundSettings sndSettings;
-            sndSettings.maxSoundVolume = Sound_GetMaxVolume();
-            sndSettings.b3DHWSupport   = Sound_Get3DHWState();
-            sndSettings.bReverseSound  = stdConfig_GetBool(JONESCONFIG_CFG_SOUND_REVERSE, false);
-
-            tSysWindow hwnd = stdWin95_GetWindow();
-            dlgResult = jonesConfig_ShowSoundSettingsDialog(hwnd, &sndSettings);
-            if ( dlgResult == 1 )
-            {
-                Sound_SetMaxVolume(sndSettings.maxSoundVolume);
-                Sound_Set3DHWState(sndSettings.b3DHWSupport);
-                Sound_SetReverseSound(sndSettings.bReverseSound);
-            }
-
-        } break;
+            // Altered: the body moved to JonesHud_ShowSoundSettings so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowSoundSettings();
+            break;
 
         case JONESHUD_MENU_EXIT: // exit
-        {
-            char aSaveGameFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-            tSysWindow hwnd = stdWin95_GetWindow();
-            dlgResult = jonesConfig_ShowExitGameDialog(hwnd, aSaveGameFilename);
-            if ( dlgResult == 2 )
-            {
-                JonesHud_bExitActivated = 0;
-            }
-            else
-            {
-                JonesHud_bExitActivated = 1;
-                if ( dlgResult == 1187 )
-                {
-                    sithGamesave_Save(aSaveGameFilename, 1);
-                    if ( sithGamesave_Process() )
-                    {
-                        const char* pNoSaveFormat = jonesString_GetString("JONES_STR_NOSAVE");
-                        if ( pNoSaveFormat )
-                        {
-                            char aMsg[256] = { 0 };
-                            STD_FORMAT(aMsg, pNoSaveFormat, aSaveGameFilename);
-                            hwnd = stdWin95_GetWindow();
-                            jonesConfig_ShowMessageDialog(hwnd, "JONES_STR_EXIT", aMsg, 141);
-                        }
-
-                        dlgResult = 2;
-                        JonesHud_bExitActivated = 0;
-                    }
-                    else
-                    {
-                        dlgResult = 1;
-                    }
-                }
-            }
-
-        } break;
+            // Altered: the body moved to JonesHud_ShowExitGame so the pause menu takes the same path.
+            dlgResult = JonesHud_ShowExitGame();
+            break;
 
         default:
             break;
@@ -3490,10 +3548,19 @@ void JonesHud_ResetMenuItems(void)
         }
     }
 
-    JonesHudMenuItem* pLastSelectedItem = NULL;
+    // Added: engine.ui.hud.systemIcons false hides the system column. The items stay allocated
+    // (their models are loaded with the rest) but leave the menu ring and its navigation.
+    if ( !JonesHud_bSystemIconsEnabled )
+    {
+        JonesHud_selectedSystemMenuItemID = -1;
+    }
+
+    JonesHudMenuItem* pFirstSelectedItem = NULL;
+    JonesHudMenuItem* pLastSelectedItem  = NULL;
     if ( JonesHud_selectedSystemMenuItemID != -1 && JonesHud_apMenuItems[JonesHud_selectedSystemMenuItemID] )
     {
-        pLastSelectedItem = JonesHud_apMenuItems[JonesHud_selectedSystemMenuItemID];
+        pFirstSelectedItem = JonesHud_apMenuItems[JonesHud_selectedSystemMenuItemID];
+        pLastSelectedItem  = pFirstSelectedItem;
     }
 
     if ( JonesHud_selectedItemsMenuItemID != -1 && JonesHud_apMenuItems[JonesHud_selectedItemsMenuItemID] )
@@ -3501,6 +3568,10 @@ void JonesHud_ResetMenuItems(void)
         if ( pLastSelectedItem )
         {
             JonesHud_SetLeftRightItems(JonesHud_apMenuItems[JonesHud_selectedItemsMenuItemID], pLastSelectedItem);
+        }
+        else
+        {
+            pFirstSelectedItem = JonesHud_apMenuItems[JonesHud_selectedItemsMenuItemID];
         }
 
         pLastSelectedItem = JonesHud_apMenuItems[JonesHud_selectedItemsMenuItemID];
@@ -3512,6 +3583,10 @@ void JonesHud_ResetMenuItems(void)
         {
             JonesHud_SetLeftRightItems(JonesHud_apMenuItems[JonesHud_selectedTreasuresMenuItemID], pLastSelectedItem);
         }
+        else
+        {
+            pFirstSelectedItem = JonesHud_apMenuItems[JonesHud_selectedTreasuresMenuItemID];
+        }
 
         pLastSelectedItem = JonesHud_apMenuItems[JonesHud_selectedTreasuresMenuItemID];
     }
@@ -3522,12 +3597,20 @@ void JonesHud_ResetMenuItems(void)
         {
             JonesHud_SetLeftRightItems(JonesHud_apMenuItems[JonesHud_selectedWeaponMenuItemID], pLastSelectedItem);
         }
+        else
+        {
+            pFirstSelectedItem = JonesHud_apMenuItems[JonesHud_selectedWeaponMenuItemID];
+        }
 
         pLastSelectedItem = JonesHud_apMenuItems[JonesHud_selectedWeaponMenuItemID];
     }
 
-    // TODO: Add check for JonesHud_selectedSystemMenuItemID >= 0
-    JonesHud_SetLeftRightItems(JonesHud_apMenuItems[JonesHud_selectedSystemMenuItemID], pLastSelectedItem);
+    // Close the ring through the first column, which is the system column unless it is hidden.
+    if ( pFirstSelectedItem && pLastSelectedItem )
+    {
+        JonesHud_SetLeftRightItems(pFirstSelectedItem, pLastSelectedItem);
+    }
+
     JonesHud_pMenuItemLinkedList = pLastSelectedItem;
 
     // Setup the 3 inventory menus

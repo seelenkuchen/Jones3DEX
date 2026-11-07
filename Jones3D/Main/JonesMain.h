@@ -30,6 +30,9 @@ void J3DAPI JonesMain_PauseGame();
 void J3DAPI JonesMain_ResumeGame();
 int J3DAPI JonesMain_IsGamePaused();
 
+// Added: true when Escape or Start may open the pause menu in the current state.
+int JonesMain_CanOpenPauseMenu(void);
+
 int JonesMain_Process(void);
 int JonesMain_ProcessGamesaveState(void);
 void JonesMain_UpdateLevelNum(void);

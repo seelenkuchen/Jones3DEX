@@ -201,4 +201,3 @@ int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     // jonesConfig.c) hands back IDCANCEL; the control dialog has no Null substitute.
     return JONESPLATFORM_NULL_IDCANCEL;
 }
-

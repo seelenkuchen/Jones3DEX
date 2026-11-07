@@ -25,6 +25,8 @@
 #include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/Gameplay/sithOverlayMap.h>
+#include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Main/sithString.h>
 #include <sith/World/sithModel.h>
@@ -115,6 +117,7 @@ static int JonesMain_curGamesaveState = 0; // Added: Init to 0
 static char JonesMain_aNdsFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE];
 
 static bool JonesMain_bMenuToggled = false; // Added: Init to false
+static bool JonesMain_bPauseMenuToggled = false; // Added: Init to false
 static size_t JonesMain_aToggleMenuKeyIds[JONESCONTROL_ACTION_MAXBINDS] = { 0 }; // Added: Init to 0
 
 static bool JonesMain_bEndCredits = false; // Added: Init to false
@@ -185,6 +188,8 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
     memset(&JonesMain_circBuf, 0, sizeof(JonesMain_circBuf));
     memset(JonesMain_aToggleMenuKeyIds, 0, sizeof(JonesMain_aToggleMenuKeyIds)); // Fixed: Fixed the size
+    JonesMain_bMenuToggled      = false; // Added
+    JonesMain_bPauseMenuToggled = false; // Added
 
     // Setup process routines
     JonesMain_pfProcess = JonesMain_ProcessGame;
@@ -1165,6 +1170,50 @@ int JonesMain_ProcessGame(void)
     return wkernel_PeekProcessEvents();
 }
 
+// Added: the states in which Escape or Start may open the pause menu. The game is not paused
+// elsewhere, the player is alive, and no cutscene, load screen or HUD menu owns the frame.
+int JonesMain_CanOpenPauseMenu(void)
+{
+    if ( !sithPlayer_g_pLocalPlayerThing )
+    {
+        return 0;
+    }
+
+    const unsigned int flags = sithPlayer_g_pLocalPlayerThing->flags;
+    if ( (flags & SITH_TF_DYING) != 0 || (flags & SITH_TF_DESTROYED) != 0 )
+    {
+        return 0;
+    }
+
+    if ( sithPlayerControls_g_bCutsceneMode || sithWorld_g_bLoading || jonesCog_g_bMenuVisible )
+    {
+        return 0;
+    }
+
+    if ( JonesConsole_g_bVisible || !JonesHud_IsMenuEnabled() || JonesMain_bGamePaused )
+    {
+        return 0;
+    }
+
+    return 1;
+}
+
+// Added: reads one gamepad button on any connected slot. The fixed mapping puts Back at 6 and
+// Start at 7 (Docs/arc42/05-building-blocks/Control-And-Input.md).
+static int JonesMain_ReadGamepadButton(unsigned int buttonIndex)
+{
+    for ( size_t joyNum = 0; joyNum < STDCONTROL_MAX_JOYSTICK_DEVICES; ++joyNum )
+    {
+        int numPressed;
+        if ( stdControl_ReadKey(STDCONTROL_JOYSTICK_GETBUTTON(joyNum, buttonIndex), &numPressed) )
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 void JonesMain_ProcessMenu(void)
 {
     int bMenuKeyPressed = 0;
@@ -1179,7 +1228,33 @@ void JonesMain_ProcessMenu(void)
     }
 
     int numPressed;
-    bMenuKeyPressed |= stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);
+    // Added: with Escape taken by the pause menu, Tab and gamepad Back keep the HUD menu reachable.
+    bMenuKeyPressed |= stdControl_ReadKey(STDKEY_TAB, &numPressed);
+    bMenuKeyPressed |= JonesMain_ReadGamepadButton(6); // Back
+
+    int bPauseKeyPressed = stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);
+    bPauseKeyPressed |= JonesMain_ReadGamepadButton(7); // Start
+
+    if ( bPauseKeyPressed && !JonesMain_bPauseMenuToggled )
+    {
+        if ( JonesConsole_g_bVisible )
+        {
+            JonesConsole_HideConsole();
+        }
+        else if ( JonesMain_CanOpenPauseMenu() )
+        {
+            JonesMain_PauseGame();
+            jonesConfig_ShowPauseMenu(stdWin95_GetWindow());
+            JonesMain_ResumeGame();
+        }
+
+        JonesMain_bPauseMenuToggled = true;
+    }
+    else if ( !bPauseKeyPressed )
+    {
+        JonesMain_bPauseMenuToggled = false;
+    }
+
     if ( bMenuKeyPressed && !JonesMain_bMenuToggled && !stdControl_ReadKey(STDKEY_RCONTROL, &numPressed) && !stdControl_ReadKey(STDKEY_LCONTROL, &numPressed) )
     {
         if ( JonesConsole_g_bVisible )
