@@ -19,4 +19,9 @@ struct sSysTexture
     babylon::render::TextureHandle texture;
 };
 
+// True while a scene is between std3D_StartScene and std3D_EndScene. The modal screen loop uses it
+// because a message can open from inside the game's frame: it ends the caller's scene before it
+// captures the frame and draws its own, then starts a new scene for the caller before returning.
+bool std3D_IsInScene(void);
+
 #endif // STD_STD3DBABYLON_H

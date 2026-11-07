@@ -16,7 +16,9 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <SDL3/SDL_stdinc.h>
@@ -25,6 +27,8 @@
 #include <babylon/files/FileSystem.h>
 #include <babylon/files/SdlFileSystem.h>
 #include <babylon/platform/NullPlatform.h>
+#include <babylon/platform/Platform.h>
+#include <babylon/platform/Window.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/SdlGpuDevice.h>
 #include <babylon/time/Clock.h>
@@ -37,6 +41,7 @@
 #include <babylon/ui/Ui.h>
 #include <babylon/ui/Widget.h>
 
+#include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
@@ -44,6 +49,7 @@
 #include <rdroid/Primitives/rdFont.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonEvents.h>
 #include <std/Babylon/stdRenderBabylon.h>
 
 #include <std/General/std.h>
@@ -268,6 +274,45 @@ namespace
         const std::uint8_t* p = &pixels[((size_t)y * width + x) * 4u];
         return Rgb{ p[2], p[1], p[0] };
     }
+
+    // A platform whose queue is empty for the loop's first pump and closes the screen with
+    // Escape on the next one, so the modal loop draws exactly one frame before it returns.
+    class ScriptedPlatform final : public platform::Platform
+    {
+    public:
+        std::unique_ptr<platform::Window> createWindow(const platform::WindowDesc&) override
+        {
+            return nullptr;
+        }
+
+        std::optional<platform::Event> pollEvent() override
+        {
+            if ( m_emptyPolls > 0 )
+            {
+                --m_emptyPolls;
+                return std::nullopt;
+            }
+
+            if ( m_sendClose )
+            {
+                m_sendClose = false;
+                return platform::Event{
+                    platform::KeyChanged{ 1, platform::Key::Escape, true, false } };
+            }
+
+            return std::nullopt;
+        }
+
+        // The test never asks for a box; a scripted platform has none to show.
+        bool showMessageBox(std::string_view, std::string_view) override
+        {
+            return false;
+        }
+
+    private:
+        int m_emptyPolls  = 1;
+        bool m_sendClose  = true;
+    };
 }
 
 TEST_CASE("the Jones painter draws a settings screen")
@@ -405,6 +450,129 @@ TEST_CASE("the Jones painter draws a settings screen")
     }
 
     CHECK(titlePixels > 20u);
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the modal loop draws the message over the frozen frame")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the message image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    ScriptedPlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    // A white frame behind the screen: after the loop draws the skin's translucent black dim over
+    // it, a pixel outside the panel shows the dimmed white, which proves the captured frame was
+    // drawn. The scene is left open like JonesHud_Process leaves it when it shows a message, so
+    // the loop's own scene handling (end the caller's, capture, then reopen for the caller) runs.
+    const babylon::ui::Color white{ 1.0f, 1.0f, 1.0f, 1.0f };
+    REQUIRE(std3D_StartScene() == 0);
+    painter.fillRect(babylon::ui::Rect{ 0.0f, 0.0f, 640.0f, 480.0f }, white);
+
+    Screen screen;
+    screen.title = "Message";
+    screen.widgets = {
+        Label{ "The level file is missing.", "" },
+        Label{ "Insert CD 2.", "" },
+        Button{ "OK", 1, true },
+    };
+    screen.backResult = 2;
+
+    const int result = JonesUiModal_Run(ui, &painter, screen,
+        [](babylon::ui::ResultCode code) { return (int)code; });
+    CHECK(result == 2);
+
+    // The loop reopened the caller's scene before it returned; close it like the game frame does
+    // so the frame is balanced. The pass loads the back buffer and draws nothing, so it keeps the
+    // modal frame the readback checks.
+    std3D_EndScene();
+    REQUIRE(stdDisplay_Update() == 0);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    REQUIRE(width == 640u);
+    REQUIRE(height == 480u);
+
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::string bmpPath = "ui-message-sample.bmp";
+    REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
+    MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    // The corner is outside the centered panel: the frozen white frame under the dim layer.
+    const std::uint8_t dimmed = (std::uint8_t)(255.0f * (1.0f - skin.dim.a));
+    const Rgb corner = PixelAt(pixels, width, 2u, 2u);
+    CHECK(Near(corner.r, dimmed, 6));
+    CHECK(Near(corner.g, dimmed, 6));
+    CHECK(Near(corner.b, dimmed, 6));
+
+    // The panel itself is opaque and covers the dimmed frame.
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    size_t panelPixels = 0;
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            const Rgb pixel = PixelAt(pixels, width, x, y);
+            if ( Near(pixel.r, panelColor.r) && Near(pixel.g, panelColor.g)
+                && Near(pixel.b, panelColor.b) )
+            {
+                ++panelPixels;
+            }
+        }
+    }
+    CHECK(panelPixels > 1000u);
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();
