@@ -11,6 +11,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 
 #include <Jones3D/Main/jonesString.h>
+#include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
@@ -23,15 +24,12 @@
 #include <babylon/ui/Ui.h>
 #include <babylon/ui/Widget.h>
 
-#include <rdroid/Primitives/rdFont.h>
-
 #include <std/Babylon/stdBabylon.h>
 #include <std/General/std.h>
 #include <std/General/stdDisplay.h>
 
 #include <cstdio>
 #include <cstring>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,119 +40,8 @@ namespace
 
     constexpr babylon::ui::ActionId kJonesMessageActionOk = 1;
 
-    constexpr float kJonesMessageFontSize = 16.0f;
-
-    // The default HUD menu font, the same file JonesHud_Startup loads. A message can be shown
-    // before or without the HUD, so the screen loads its own instance and frees it on return.
-    constexpr const char* kJonesMessageFontFile = "mat\\jonesComic Sans MS14.gcf";
-
     constexpr const char* kJonesInsertText1 = "JONES_STR_INSERT1";
     constexpr const char* kJonesInsertText2 = "JONES_STR_INSERT2";
-
-    // One painter, one font and one Ui for the column, created by the outermost screen and freed
-    // when it returns. Inner screens reuse the same Ui, so they stack over the outer screen.
-    struct SharedState
-    {
-        JonesUiPainter painter;
-        rdFont* pFont = nullptr;
-        babylon::ui::FontId font = 0;
-        std::unique_ptr<babylon::ui::Ui> pUi;
-        int depth = 0;
-
-        ~SharedState()
-        {
-            // The Ui does not use the painter when it is destroyed; the painter's destructor
-            // frees images, not fonts, so the font can go first.
-            pUi.reset();
-            if ( pFont )
-            {
-                rdFont_Free(pFont);
-                pFont = nullptr;
-            }
-        }
-    };
-
-    SharedState* g_pSharedState = nullptr;
-
-    bool StartSharedState()
-    {
-        if ( g_pSharedState )
-        {
-            return true;
-        }
-
-        if ( !stdDisplay_IsOpen() )
-        {
-            return false;
-        }
-
-        StdBabylonContext* pContext = stdBabylon_GetContext();
-        if ( !pContext || !pContext->pCvars )
-        {
-            return false;
-        }
-
-        std::unique_ptr<SharedState> pState(new SharedState());
-
-        pState->pFont = rdFont_Load(kJonesMessageFontFile);
-        if ( !pState->pFont )
-        {
-            STDLOG_WARNING("JonesUiModal: could not load the menu font '%s'.\n",
-                kJonesMessageFontFile);
-            return false;
-        }
-
-        pState->font = pState->painter.registerFont(pState->pFont, kJonesMessageFontSize);
-        if ( pState->font == 0 )
-        {
-            return false;
-        }
-
-        pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
-        if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font)) )
-        {
-            return false;
-        }
-
-        uint32_t width  = 0;
-        uint32_t height = 0;
-        stdDisplay_GetBackBufferSize(&width, &height);
-        if ( !width || !height || !pState->pUi->setViewport((int)width, (int)height) )
-        {
-            return false;
-        }
-
-        g_pSharedState = pState.release();
-        return true;
-    }
-
-    void StopSharedState()
-    {
-        delete g_pSharedState;
-        g_pSharedState = nullptr;
-    }
-
-    // Resolves a JONES_STR_* key through the game's string table, like the Win32 dialogs did with
-    // jonesString_GetString. Any other text is used as given. The returned string owns its bytes
-    // because jonesString_GetString hands back one shared buffer.
-    std::string ResolveString(const char* pValue)
-    {
-        if ( !pValue )
-        {
-            return std::string();
-        }
-
-        if ( std::strncmp(pValue, "JONES_STR_", 10) == 0 )
-        {
-            const char* pResolved = jonesString_GetString(pValue);
-            if ( pResolved && pResolved[0] )
-            {
-                return std::string(pResolved);
-            }
-        }
-
-        return std::string(pValue);
-    }
 
     // The widest line the panel gives its labels: the canvas minus its margins and the panel
     // padding on both sides.
@@ -233,14 +120,14 @@ namespace
         return lines;
     }
 
-    babylon::ui::Screen BuildMessageScreen(SharedState& state, const std::string& title,
+    babylon::ui::Screen BuildMessageScreen(JonesUiContext& context, const std::string& title,
         const std::string& text, const std::string& okText)
     {
         babylon::ui::Screen screen;
         screen.title = title;
 
-        const float maxWidth = MessageTextWidth(*state.pUi);
-        for ( const std::string& line : WrapMessageText(state.painter, state.font, maxWidth, text) )
+        const float maxWidth = MessageTextWidth(*context.pUi);
+        for ( const std::string& line : WrapMessageText(context.painter, context.font, maxWidth, text) )
         {
             screen.widgets.emplace_back(babylon::ui::Label{ line, std::string() });
         }
@@ -251,26 +138,21 @@ namespace
         return screen;
     }
 
-    // Runs one message screen through the shared Ui. Returns false when the shared state cannot
+    // Runs one message screen through the shared Ui. Returns false when the shared context cannot
     // start, so the caller can fall back to the native message box.
     bool RunSharedMessage(const std::string& title, const std::string& text,
         const std::string& okText, int& result)
     {
-        if ( !StartSharedState() )
+        JonesUiContext* pContext = JonesUiContext_Acquire();
+        if ( !pContext )
         {
             return false;
         }
 
-        ++g_pSharedState->depth;
-        babylon::ui::Screen screen = BuildMessageScreen(*g_pSharedState, title, text, okText);
-        result = JonesUiModal_Run(*g_pSharedState->pUi, &g_pSharedState->painter, screen,
+        babylon::ui::Screen screen = BuildMessageScreen(*pContext, title, text, okText);
+        result = JonesUiModal_Run(*pContext->pUi, &pContext->painter, screen,
             [](babylon::ui::ResultCode code) { return (int)code; });
-        --g_pSharedState->depth;
-
-        if ( g_pSharedState->depth == 0 )
-        {
-            StopSharedState();
-        }
+        JonesUiContext_Release(pContext);
 
         return true;
     }
@@ -284,8 +166,8 @@ extern "C" int J3DAPI jonesConfig_ShowMessageDialog(tSysWindow hWnd, const char*
     // is ignored and the title keeps the skin's title color.
     (void)iconID;
 
-    const std::string title = ResolveString(pTitle);
-    const std::string text  = ResolveString(pText);
+    const std::string title = JonesUiContext_ResolveString(pTitle);
+    const std::string text  = JonesUiContext_ResolveString(pText);
 
     StdBabylonContext* pContext = stdBabylon_GetContext();
     if ( !pContext || !pContext->pWindow )
@@ -313,7 +195,7 @@ extern "C" int J3DAPI jonesConfig_ShowDialogInsertCD(tSysWindow hWnd, intptr_t d
 
     // The caller passes only the disc number; the missing level file's name is not available here.
     const int cdNum = (int)dwInitParam;
-    std::string text = ResolveString(cdNum == 2 ? kJonesInsertText2 : kJonesInsertText1);
+    std::string text = JonesUiContext_ResolveString(cdNum == 2 ? kJonesInsertText2 : kJonesInsertText1);
     if ( std::strncmp(text.c_str(), "JONES_STR_", 10) == 0 )
     {
         text = cdNum == 2 ? "Insert CD 2" : "Insert CD 1";

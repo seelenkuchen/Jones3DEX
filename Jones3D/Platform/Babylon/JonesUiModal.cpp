@@ -154,8 +154,9 @@ namespace
     }
 }
 
-int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult)
+static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
+    const JonesUiModalEventHandler& handler)
 {
     const babylon::ui::ScreenId screenId = ui.push(screen);
     if ( screenId == babylon::ui::kInvalidScreen )
@@ -224,6 +225,11 @@ int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
 
         while ( const std::optional<babylon::ui::UiEvent> pEvent = ui.pollEvent() )
         {
+            if ( handler && handler(ui, screenId, *pEvent) )
+            {
+                continue;
+            }
+
             if ( const babylon::ui::ActionPressed* pAction =
                     std::get_if<babylon::ui::ActionPressed>(&*pEvent) )
             {
@@ -281,4 +287,17 @@ int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     }
 
     return mapResult(result);
+}
+
+int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult)
+{
+    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, JonesUiModalEventHandler());
+}
+
+int JonesUiModal_RunHandled(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
+    const JonesUiModalEventHandler& handler)
+{
+    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler);
 }

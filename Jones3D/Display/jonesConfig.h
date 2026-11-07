@@ -35,6 +35,11 @@ J3D_EXTERN_C_START
 int jonesConfig_Startup(void);
 void jonesConfig_Shutdown(void);
 
+// Added: frees what the column's dialogs and screens hold on the display, such as the shared
+// Babylon ui painter and its textures. Safe to call when nothing is held, and called before the
+// display shuts down so the resources are released while the device is still open.
+void J3DAPI jonesConfig_ReleaseDisplayResources(void);
+
 int J3DAPI jonesConfig_ShowMessageDialog(tSysWindow hWnd, const char* pTitle, const char* pText, int iconID);
 
 int J3DAPI jonesConfig_GetSaveGameFilePath(tSysWindow hWnd, char* pOutFilePath); // save game dialog

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -41,8 +42,10 @@
 #include <babylon/ui/Ui.h>
 #include <babylon/ui/Widget.h>
 
+#include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
+#include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
 #include <rdroid/Main/rdroid.h>
@@ -57,6 +60,10 @@
 #include <std/General/stdColor.h>
 #include <std/General/stdDisplay.h>
 #include <std/General/stdMemory.h>
+
+#include <sith/Dss/sithGamesave.h>
+#include <sith/Dss/sithGamesaveSys.h>
+#include <sith/types.h>
 
 namespace
 {
@@ -86,6 +93,17 @@ namespace
         g_hostServices.pMalloc       = malloc;
         g_hostServices.pFree         = free;
         g_hostServices.pRealloc      = realloc;
+        g_hostServices.pFileOpen     = stdFileOpen;
+        g_hostServices.pFileClose    = stdFileClose;
+        g_hostServices.pFileRead     = stdFileRead;
+        g_hostServices.pFileGets     = stdFileGets;
+        g_hostServices.pFileWrite    = stdFileWrite;
+        g_hostServices.pFileEOF      = stdFileEof;
+        g_hostServices.pFileTell     = stdFileTell;
+        g_hostServices.pFileSeek     = stdFileSeek;
+        g_hostServices.pFileSize     = stdFileSize;
+        g_hostServices.pFilePrintf   = stdFilePrintf;
+        g_hostServices.pFileGetws    = stdFileGetws;
 
         stdStartup(&g_hostServices);
         rdroid_g_pHS = &g_hostServices;
@@ -573,6 +591,156 @@ TEST_CASE("the modal loop draws the message over the frozen frame")
         }
     }
     CHECK(panelPixels > 1000u);
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the Jones save screen draws thumbnails and the save list")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the save image");
+        return;
+    }
+
+    const std::filesystem::path saveDir("ui-save-sample");
+    std::error_code error;
+    std::filesystem::remove_all(saveDir, error);
+    std::filesystem::create_directories(saveDir, error);
+
+    const auto writeSave = [&saveDir](const char* pName, const char* pLevel,
+        std::uint8_t red, std::uint8_t green, std::uint8_t blue)
+    {
+        NdsHeader header;
+        memset(&header, 0, sizeof(header));
+        header.version    = SITHSAVEGAME_FILEVERSION;
+        header.bThumbnail = 1;
+        snprintf(header.aLevelFilename, sizeof(header.aLevelFilename), "%s", pLevel);
+
+        std::vector<std::uint8_t> thumbnail(SITHSAVEGAME_THUMBSIZE);
+        for ( std::size_t cur = 0; cur < thumbnail.size(); cur += 3 )
+        {
+            thumbnail[cur + 0] = blue;
+            thumbnail[cur + 1] = green;
+            thumbnail[cur + 2] = red;
+        }
+
+        std::ofstream file(saveDir / pName, std::ios::binary | std::ios::trunc);
+        REQUIRE(file);
+        file.write(reinterpret_cast<const char*>(&header), sizeof(header));
+        file.write(reinterpret_cast<const char*>(thumbnail.data()),
+            (std::streamsize)thumbnail.size());
+        file.close();
+        REQUIRE(file);
+    };
+
+    writeSave("first.nds", "FIRST LEVEL", 180, 40, 20);
+    writeSave("second.nds", "SECOND LEVEL", 20, 120, 200);
+    std::filesystem::last_write_time(saveDir / "first.nds",
+        std::filesystem::file_time_type::clock::now() - std::chrono::seconds(50));
+    std::filesystem::last_write_time(saveDir / "second.nds",
+        std::filesystem::file_time_type::clock::now() - std::chrono::seconds(5));
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    ScriptedPlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    std::tm timeValue{};
+    timeValue.tm_year = 126;
+    timeValue.tm_mon  = 10;
+    timeValue.tm_mday = 7;
+    timeValue.tm_hour = 13;
+    timeValue.tm_min  = 5;
+    timeValue.tm_sec  = 9;
+
+    char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+    const int result = JonesUiSave_RunSaveScreen(ui, &painter, &painter, *pFileSystem,
+        "ui-save-sample\\", "Sample Level", timeValue, aPath);
+    CHECK(result == 2);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    REQUIRE(width == 640u);
+    REQUIRE(height == 480u);
+
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::string bmpPath = "ui-save-sample.bmp";
+    REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
+    MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    // The panel is drawn, and the first save's thumbnail is a red block inside it.
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    size_t panelPixels = 0;
+    size_t thumbnailPixels = 0;
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            const Rgb pixel = PixelAt(pixels, width, x, y);
+            if ( Near(pixel.r, panelColor.r) && Near(pixel.g, panelColor.g)
+                && Near(pixel.b, panelColor.b) )
+            {
+                ++panelPixels;
+            }
+
+            // The newest save is selected first; its thumbnail is the blue block.
+            if ( pixel.b > 150 && pixel.g > 80 && pixel.r < 60 )
+            {
+                ++thumbnailPixels;
+            }
+        }
+    }
+    CHECK(panelPixels > 1000u);
+    CHECK(thumbnailPixels > 100u);
+
+    std::filesystem::remove_all(saveDir, error);
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();

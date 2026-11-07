@@ -6,10 +6,13 @@ set(JONES3D_UI_TEST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../..")
 add_executable(Jones3DUiPainterTests
     JonesUiPainterTest.cpp
     JonesUiModalTest.cpp
+    JonesUiSaveLoadTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModalMessage.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiContext.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSaveLoad.cpp"
 )
 
 target_include_directories(Jones3DUiPainterTests PRIVATE
