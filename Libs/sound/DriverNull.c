@@ -11,6 +11,7 @@
 #include <math.h>
 
 #include <sound/Driver.h>
+#include <sound/DriverOutput.h>
 #include <sound/AudioLib.h>
 
 #include <rdroid/Math/rdVector.h>
@@ -360,4 +361,37 @@ void J3DAPI SoundDriver_Sleep(unsigned int dwMilliseconds)
 {
     // Added: DriverDX9.c sleeps on the Windows Sleep; the Null platform layer owns the wait.
     stdPlatform_Sleep(dwMilliseconds);
+}
+
+size_t SoundDriver_GetNumOutputDevices(void)
+{
+    // Added: there is no output device behind this driver, so the list is always empty.
+    return 0;
+}
+
+int SoundDriver_GetOutputDevice(size_t index, char* pId, size_t idSize, char* pName, size_t nameSize)
+{
+    J3D_UNUSED(index);
+    J3D_UNUSED(pId);
+    J3D_UNUSED(idSize);
+    J3D_UNUSED(pName);
+    J3D_UNUSED(nameSize);
+    return 0;
+}
+
+int SoundDriver_SetOutputDevice(const char* pId)
+{
+    // Added: this driver has no output to switch, so every switch is refused.
+    J3D_UNUSED(pId);
+    return 0;
+}
+
+const char* SoundDriver_GetCurrentOutputDevice(void)
+{
+    return "";
+}
+
+void SoundDriver_SetConfiguredOutputDevice(const char* pId)
+{
+    J3D_UNUSED(pId);
 }

@@ -319,3 +319,36 @@ TEST_CASE("The Null device reports the effective gain and pan after 3D")
     device->destroySound(sound);
     babylon::audio::test::noWarning(sink);
 }
+
+TEST_CASE("The Null device's test output list controls enumeration and open")
+{
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    CaptureSink sink;
+
+    const std::vector<OutputDevice> outputs{ OutputDevice{ "one", "Output one" },
+        OutputDevice{ "two", "Output two" } };
+    device->setOutputDevices(outputs);
+    CHECK(device->listOutputDevices() == outputs);
+    CHECK(device->open("two"));
+    babylon::audio::test::noWarning(sink);
+
+    device->close();
+    CHECK_FALSE(device->open("missing"));
+    babylon::audio::test::oneWarning(sink);
+    CHECK_FALSE(device->isOpen());
+
+    CHECK(device->open());
+    babylon::audio::test::noWarning(sink);
+
+    // Removing a device from the list does not close the open output; the
+    // returned list is what open() next accepts.
+    device->setOutputDevices({ outputs[0] });
+    CHECK(device->isOpen());
+    REQUIRE(device->listOutputDevices().size() == 1);
+    CHECK(device->listOutputDevices()[0].id == "one");
+
+    device->setOutputDevices({});
+    device->close();
+    CHECK_FALSE(device->open());
+    babylon::audio::test::oneWarning(sink);
+}

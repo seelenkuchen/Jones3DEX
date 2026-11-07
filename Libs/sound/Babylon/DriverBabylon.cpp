@@ -7,6 +7,7 @@
 // software listener mix runs exactly as DriverNull.c runs it (ADR-0027). Time stays on the
 // platform clock, never on the device (ADR-0027 amendment).
 #include <sound/Driver.h>
+#include <sound/DriverOutput.h>
 
 #include <math.h>
 
@@ -27,8 +28,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <span>
+#include <string>
+#include <vector>
 
 #define SOUNDDRIVER_FARVOLUMETHRESHOLD 0.01f
 
@@ -72,6 +76,10 @@ static tSysSoundBuffer* SoundDriver_pBuffers            = NULL;
 static babylon::audio::Device* SoundDriver_pDevice      = NULL;
 static bool SoundDriver_bOutputLost                     = false;
 static uint32_t SoundDriver_msecNextReopen              = 0;
+static uint32_t SoundDriver_msecNextConfiguredCheck     = 0;
+static std::string SoundDriver_aConfiguredOutputDevice;
+static std::string SoundDriver_aCurrentOutputDevice;
+static std::vector<babylon::audio::OutputDevice> SoundDriver_outputDevices;
 static int SoundDriver_aPanTable[256];
 static rdVector3 SoundDriver_curListenerPos             = { 0.0f, 0.0f, 0.0f };
 static float SoundDriver_frontOrientATan                = 0.0f;
@@ -109,6 +117,9 @@ static void SoundDriver_LinkBuffer(tSysSoundBuffer* pBuffer);
 static void SoundDriver_UnlinkBuffer(tSysSoundBuffer* pBuffer);
 static void SoundDriver_StartOrResume(tSysSoundBuffer* pBuffer, int bLoop);
 static void SoundDriver_PollDevice(void);
+static void SoundDriver_OpenConfiguredOutput(void);
+static bool SoundDriver_IsOutputDeviceAvailable(const std::string& id);
+static void SoundDriver_CopyDeviceString(char* pDst, size_t size, const std::string& src);
 static void SoundDriver_CalcListeneSoundMix(float x, float y, float z, float volume, float pitch, float* newVolume, float* pan, float* newPitch, float minRadius, float maxRadius, SoundEnvFlags envflags);
 
 extern "C"
@@ -116,6 +127,10 @@ extern "C"
 
 void SoundDriver_ResetGlobals(void)
 {
+    SoundDriver_aConfiguredOutputDevice.clear();
+    SoundDriver_aCurrentOutputDevice.clear();
+    SoundDriver_outputDevices.clear();
+    SoundDriver_msecNextConfiguredCheck = 0;
 }
 
 int J3DAPI SoundDriver_Open(int bNoSound3D, int bGlobalFocus, tSysWindow hwnd, tDirectSound* pDirectSound, SoundCalcListenerSoundMixFunc pfCalcListenerSoundMix, SoundDriverGetSoundBufferDataFunc pfGetSoundBufferData, tPrintfFunc pfLogError)
@@ -135,16 +150,19 @@ int J3DAPI SoundDriver_Open(int bNoSound3D, int bGlobalFocus, tSysWindow hwnd, t
     StdBabylonContext* pContext = stdBabylon_GetContext();
     SoundDriver_pDevice = pContext ? pContext->pAudioDevice : NULL;
 
-    SoundDriver_bOutputLost     = false;
-    SoundDriver_msecNextReopen  = 0;
+    SoundDriver_bOutputLost             = false;
+    SoundDriver_msecNextReopen          = 0;
+    SoundDriver_msecNextConfiguredCheck = 0;
+    SoundDriver_aCurrentOutputDevice.clear();
 
     if ( SoundDriver_pDevice )
     {
         // Added: the master gain carries the same hundredths-of-a-dB curve as a channel volume.
         SoundDriver_masterGain = SoundDriver_DecibelsToGain(SoundDriver_GetDecibelVolume(SoundDriver_maxVolume));
         static_cast<void>(SoundDriver_pDevice->setMasterGain(SoundDriver_masterGain));
-        // Opening failure logs one warning inside Device::open(); no second line is added here.
-        static_cast<void>(SoundDriver_pDevice->open());
+        // Added: open the configured output. A missing one falls back to the default and keeps
+        // the configured id, so a periodic check can switch back when it returns.
+        SoundDriver_OpenConfiguredOutput();
     }
     else
     {
@@ -168,10 +186,13 @@ void SoundDriver_Close(void)
         SoundDriver_pDevice->close();
     }
 
-    SoundDriver_pDevice         = NULL;
-    SoundDriver_pDirectSound    = NULL;
-    SoundDriver_bOutputLost     = false;
-    SoundDriver_msecNextReopen  = 0;
+    SoundDriver_pDevice                 = NULL;
+    SoundDriver_pDirectSound            = NULL;
+    SoundDriver_bOutputLost             = false;
+    SoundDriver_msecNextReopen          = 0;
+    SoundDriver_msecNextConfiguredCheck = 0;
+    SoundDriver_aCurrentOutputDevice.clear();
+    SoundDriver_outputDevices.clear();
 }
 
 void SoundDriver_SetMaxVolume(float volume)
@@ -790,6 +811,85 @@ void J3DAPI SoundDriver_Sleep(unsigned int dwMilliseconds)
     stdPlatform_Sleep(dwMilliseconds);
 }
 
+// Added: the output-device selection the Sound settings screen uses. This is the only adapter
+// that can enumerate outputs; the list is cached here for the index-based read below.
+size_t SoundDriver_GetNumOutputDevices(void)
+{
+    SoundDriver_outputDevices.clear();
+    if ( SoundDriver_pDevice )
+    {
+        SoundDriver_outputDevices = SoundDriver_pDevice->listOutputDevices();
+    }
+
+    return SoundDriver_outputDevices.size();
+}
+
+// Added: reads one cached output. Both strings are truncated to fit and always terminated.
+int SoundDriver_GetOutputDevice(size_t index, char* pId, size_t idSize, char* pName, size_t nameSize)
+{
+    if ( index >= SoundDriver_outputDevices.size() )
+    {
+        return 0;
+    }
+
+    const babylon::audio::OutputDevice& rDevice = SoundDriver_outputDevices[index];
+    SoundDriver_CopyDeviceString(pId, idSize, rDevice.id);
+    SoundDriver_CopyDeviceString(pName, nameSize, rDevice.name);
+    return 1;
+}
+
+// Added: switches the output on the chosen device. Babylon keeps the sounds and voices across a
+// close/open, so every voice keeps its state and position. NULL or an empty id selects the default.
+int SoundDriver_SetOutputDevice(const char* pId)
+{
+    const std::string desired = pId ? pId : "";
+
+    if ( !SoundDriver_pDevice )
+    {
+        return 0;
+    }
+
+    const std::string previous = SoundDriver_aCurrentOutputDevice;
+    if ( SoundDriver_pDevice->open(desired) )
+    {
+        SoundDriver_aCurrentOutputDevice   = desired;
+        SoundDriver_aConfiguredOutputDevice = desired;
+        SoundDriver_bOutputLost            = false;
+        SoundDriver_msecNextReopen         = 0;
+        return 1;
+    }
+
+    // Added: a refused switch keeps the previous output, or opens the default when that one is
+    // gone too, exactly as SetOutputDevice promises.
+    if ( !previous.empty() && SoundDriver_IsOutputDeviceAvailable(previous)
+        && SoundDriver_pDevice->open(previous) )
+    {
+        SoundDriver_aCurrentOutputDevice = previous;
+    }
+    else
+    {
+        static_cast<void>(SoundDriver_pDevice->open());
+        SoundDriver_aCurrentOutputDevice.clear();
+    }
+
+    SoundDriver_bOutputLost    = false;
+    SoundDriver_msecNextReopen = 0;
+    return 0;
+}
+
+// Added: the id of the output in use, borrowed until the next call that changes it.
+const char* SoundDriver_GetCurrentOutputDevice(void)
+{
+    return SoundDriver_aCurrentOutputDevice.c_str();
+}
+
+// Added: the startup config read hands the persisted choice to the driver through this before
+// SoundDriver_Open(). The driver reads the key elsewhere; it never writes it.
+void SoundDriver_SetConfiguredOutputDevice(const char* pId)
+{
+    SoundDriver_aConfiguredOutputDevice = pId ? pId : "";
+}
+
 } // extern "C"
 
 static float SoundDriver_DecibelsToGain(int db)
@@ -944,26 +1044,125 @@ static void SoundDriver_PollDevice(void)
         }
     }
 
-    if ( !SoundDriver_bOutputLost )
-    {
-        return;
-    }
-
     const uint32_t now = SoundDriver_GetTimeMsec();
-    if ( (int32_t)(now - SoundDriver_msecNextReopen) < 0 )
+
+    if ( SoundDriver_bOutputLost )
+    {
+        if ( (int32_t)(now - SoundDriver_msecNextReopen) < 0 )
+        {
+            return;
+        }
+
+        // Added: reopen the configured device when it is available again, otherwise the default.
+        const bool bUseConfigured = !SoundDriver_aConfiguredOutputDevice.empty()
+            && SoundDriver_IsOutputDeviceAvailable(SoundDriver_aConfiguredOutputDevice);
+        if ( bUseConfigured && SoundDriver_pDevice->open(SoundDriver_aConfiguredOutputDevice) )
+        {
+            SoundDriver_aCurrentOutputDevice  = SoundDriver_aConfiguredOutputDevice;
+            SoundDriver_bOutputLost           = false;
+            SoundDriver_msecNextConfiguredCheck = now + 1000u;
+        }
+        else if ( SoundDriver_pDevice->open() )
+        {
+            SoundDriver_aCurrentOutputDevice    = "";
+            SoundDriver_bOutputLost             = false;
+            SoundDriver_msecNextConfiguredCheck = now + 1000u;
+        }
+        else
+        {
+            // Added: try again in one second of platform time, never more often.
+            SoundDriver_msecNextReopen = now + 1000u;
+        }
+
+        return;
+    }
+
+    // Added: after a fallback to the default, switch back once the configured device returns.
+    // Checked once a second and never while it is the output already in use.
+    if ( !SoundDriver_aConfiguredOutputDevice.empty()
+        && SoundDriver_aConfiguredOutputDevice != SoundDriver_aCurrentOutputDevice
+        && (int32_t)(now - SoundDriver_msecNextConfiguredCheck) >= 0 )
+    {
+        SoundDriver_msecNextConfiguredCheck = now + 1000u;
+        if ( SoundDriver_IsOutputDeviceAvailable(SoundDriver_aConfiguredOutputDevice)
+            && SoundDriver_pDevice->open(SoundDriver_aConfiguredOutputDevice) )
+        {
+            SoundDriver_aCurrentOutputDevice = SoundDriver_aConfiguredOutputDevice;
+        }
+    }
+}
+
+static void SoundDriver_OpenConfiguredOutput(void)
+{
+    SoundDriver_aCurrentOutputDevice.clear();
+    if ( !SoundDriver_pDevice )
     {
         return;
     }
 
-    if ( SoundDriver_pDevice->open() )
+    if ( SoundDriver_aConfiguredOutputDevice.empty() )
     {
-        SoundDriver_bOutputLost = false;
+        // Opening failure logs one warning inside Device::open(); no second line is added here.
+        static_cast<void>(SoundDriver_pDevice->open());
+        return;
+    }
+
+    if ( !SoundDriver_IsOutputDeviceAvailable(SoundDriver_aConfiguredOutputDevice) )
+    {
+        // Added: the configured device was unplugged since the setting was written; use the
+        // default and keep the id so it is used again when it returns.
+        SoundDriver_LogError("SoundDriver: configured output device is not available; using the default.\n");
+        static_cast<void>(SoundDriver_pDevice->open());
+        return;
+    }
+
+    if ( SoundDriver_pDevice->open(SoundDriver_aConfiguredOutputDevice) )
+    {
+        SoundDriver_aCurrentOutputDevice = SoundDriver_aConfiguredOutputDevice;
     }
     else
     {
-        // Added: try again in one second of platform time, never more often.
-        SoundDriver_msecNextReopen = now + 1000u;
+        static_cast<void>(SoundDriver_pDevice->open());
     }
+}
+
+static bool SoundDriver_IsOutputDeviceAvailable(const std::string& id)
+{
+    if ( !SoundDriver_pDevice || id.empty() )
+    {
+        return false;
+    }
+
+    for ( const babylon::audio::OutputDevice& rDevice : SoundDriver_pDevice->listOutputDevices() )
+    {
+        if ( rDevice.id == id )
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void SoundDriver_CopyDeviceString(char* pDst, size_t size, const std::string& src)
+{
+    if ( !pDst || size == 0 )
+    {
+        return;
+    }
+
+    size_t length = src.size();
+    if ( length >= size )
+    {
+        length = size - 1;
+    }
+
+    if ( length > 0 )
+    {
+        std::memcpy(pDst, src.data(), length);
+    }
+
+    pDst[length] = '\0';
 }
 
 static void SoundDriver_InitPanTable(void)

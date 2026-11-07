@@ -31,6 +31,7 @@ J3D_EXTERN_C_START
 #define JONESCONFIG_CFG_SOUND_HW            "sound.hw"
 #define JONESCONFIG_CFG_SOUND_REVERSE       "sound.reverse"
 #define JONESCONFIG_CFG_SOUND_VOLUME        "sound.volume"
+#define JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE "engine.audio.outputDevice" // Added: presentation only (both profiles)
 
 int jonesConfig_Startup(void);
 void jonesConfig_Shutdown(void);
