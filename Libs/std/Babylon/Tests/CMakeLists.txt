@@ -8,10 +8,12 @@ add_executable(stdBabylonTests
     stdFileBabylonTest.cpp
     stdControlBabylonTest.cpp
     stdBabylonEventsTest.cpp
+    stdBabylonTourTest.cpp
     stdCvarBabylonTest.cpp
     "${STDBABYLON_SOURCE_DIR}/stdBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonCvars.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonEvents.cpp"
+    "${STDBABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdPlatformTimeBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonPath.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdFileBabylon.cpp"
@@ -53,6 +55,7 @@ source_group("Tested Sources" FILES
     "${STDBABYLON_SOURCE_DIR}/stdBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonCvars.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonEvents.cpp"
+    "${STDBABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdPlatformTimeBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonPath.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdFileBabylon.cpp"

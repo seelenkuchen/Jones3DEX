@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "stdBabylon.h"
+#include "stdBabylonTour.h"
 #include "stdRenderBabylon.h"
 
 namespace render = babylon::render;
@@ -874,6 +875,17 @@ int stdDisplay_Update(void)
     {
         STDLOG_ERROR("Error when presenting the frame.\n");
         return 1;
+    }
+
+    // Added: the scripted tour counts every presented frame, logs it, and asks for the BMP of a
+    // requested present after it has been presented.
+    stdBabylonTour_OnPresent();
+    if ( const char* pScreenshotPath = stdBabylonTour_TakeScreenshotPath() )
+    {
+        if ( stdDisplay_SaveScreen(pScreenshotPath) != 0 )
+        {
+            STDLOG_WARNING("stdDisplay: could not write the screenshot '%s'.\n", pScreenshotPath);
+        }
     }
 
     return 0;

@@ -35,6 +35,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonCvars.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonEvents.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonTour.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdPlatformTimeBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonPath.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdFileBabylon.cpp"

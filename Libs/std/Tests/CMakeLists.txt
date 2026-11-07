@@ -236,6 +236,7 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/stdRenderReplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylon.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     )
 
     add_executable(std3DBabylonTests
@@ -266,6 +267,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::time
         babylon::files
         babylon::platform
+        babylon::input
         babylon::cvars
         babylon::render
         babylon::log

@@ -20,8 +20,11 @@
 
 // Drains the context platform's event queue once: input events go into the shared InputState; a
 // QuitRequested, and a WindowCloseRequested or WindowFocusChanged for the context's game window
-// (pWindow; ignored when there is none), are recorded for the window adapter. Returns the number
-// of events taken from the queue. Safe to call any number of times per frame.
+// (pWindow; ignored when there is none), are recorded for the window adapter. While the scripted
+// tour's input script is active, its events replace the platform's key, mouse, gamepad and text
+// events (see stdBabylonTour.h); window, focus, resize and quit events still come from the
+// platform. Returns the number of events taken from the queue plus the script events injected.
+// Safe to call any number of times per frame.
 std::size_t stdBabylonEvents_Pump();
 
 // The input state every pumped event went into (owned here, file-static).
