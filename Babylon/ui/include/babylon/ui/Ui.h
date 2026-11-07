@@ -184,7 +184,8 @@ namespace babylon::ui
         // Number of screens on the stack.
         std::size_t screenCount() const;
 
-        // Feeds one platform event to the top screen. Events of other kinds
+        // Feeds one platform event to the top screen. TextInput inserts
+        // committed text into a focused TextEntry. Events of other kinds
         // (quit, window resize, gamepad connect) are ignored; call
         // setViewport() for WindowResized. Never fails. Call once for every
         // event the platform queue returned, in queue order, before draw().

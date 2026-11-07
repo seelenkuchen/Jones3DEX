@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 namespace babylon::platform::sdl
 {
@@ -263,6 +264,12 @@ namespace
                 }
                 return MouseWheelMoved{ static_cast<WindowId>(event.wheel.windowID), dx, dy };
             }
+
+            case SDL_EVENT_TEXT_INPUT:
+                // SDL hands over UTF-8 that is never empty, and the window's
+                // text input has to be started for this event to arrive.
+                return TextInput{ static_cast<WindowId>(event.text.windowID),
+                    std::string(event.text.text != nullptr ? event.text.text : "") };
 
             case SDL_EVENT_GAMEPAD_ADDED:
                 return GamepadConnected{ static_cast<GamepadId>(event.gdevice.which) };

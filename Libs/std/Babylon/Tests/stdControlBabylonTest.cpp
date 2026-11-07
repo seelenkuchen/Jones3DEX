@@ -9,6 +9,7 @@
 #include <span>
 
 #include <babylon/cvars/Registry.h>
+#include <babylon/platform/Event.h>
 #include <babylon/platform/Keys.h>
 #include <babylon/platform/NullPlatform.h>
 #include <babylon/time/NullClock.h>
@@ -228,6 +229,140 @@ TEST(stdControlBabylon, IdsTheColumnCannotDeliverReturnFalse)
     TEST_ASSERT_EQUAL_INT(0, ReadKeyState(STDKEY_UP, NULL));
 }
 
+TEST(stdControlBabylon, MouseMotionAndWheelReadAsAccumulatedAxes)
+{
+    const int mouseX = (int)STDCONTROL_AID_MOUSE_X;
+    const int mouseY = (int)STDCONTROL_AID_MOUSE_Y;
+    const int mouseZ = (int)STDCONTROL_AID_MOUSE_Z;
+
+    // The startup registration the Babylon column adds, like stdControlDX9.c's InitMouse.
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(mouseX));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(mouseY));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(mouseZ));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableMouse(1));
+
+    // Motion and wheel queued between two reads are summed, in pixels and WHEEL_DELTA units.
+    pPlatform->pushEvent(babylon::platform::MouseMoved{ 0, 0.0f, 0.0f, 5.0f, -3.0f });
+    pPlatform->pushEvent(babylon::platform::MouseWheelMoved{ 0, 0.0f, 1.0f });
+    stdControl_ReadControls();
+
+    TEST_ASSERT_EQUAL_FLOAT(5.0f / 250.0f, stdControl_ReadAxis(mouseX));
+    TEST_ASSERT_EQUAL_FLOAT(-3.0f / 200.0f, stdControl_ReadAxis(mouseY));
+    // One notch is 120 DirectInput units, clamped to the registered -20..20 range.
+    TEST_ASSERT_EQUAL_INT(20, stdControl_ReadAxisRaw(mouseZ));
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdControl_ReadAxis(mouseZ));
+
+    // The next read has no motion since the previous one.
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdControl_ReadAxis(mouseX));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdControl_ReadAxis(mouseY));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdControl_ReadAxis(mouseZ));
+}
+
+TEST(stdControlBabylon, ConnectedGamepadBecomesJoystickZero)
+{
+    const babylon::platform::GamepadId gamepad = 1;
+    pPlatform->pushEvent(babylon::platform::GamepadConnected{ gamepad });
+
+    // Enumerating pumps the queue and registers the slots, like DirectInput's InitJoysticks did.
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+    TEST_ASSERT_EQUAL_INT(1, stdControl_IsGamePad(0));
+    TEST_ASSERT_EQUAL_STRING("Gamepad1", stdControl_GetJoysticDescription(0));
+
+    const int aAxes[] = {
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_X(0),
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_Y(0),
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_Z(0),
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_RX(0),
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_RY(0),
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_RZ(0),
+    };
+    for ( const int axis : aAxes )
+    {
+        TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(axis));
+    }
+
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        gamepad, babylon::platform::GamepadAxis::LeftX, 1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        gamepad, babylon::platform::GamepadAxis::LeftY, 1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        gamepad, babylon::platform::GamepadAxis::LeftTrigger, 1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        gamepad, babylon::platform::GamepadAxis::RightX, -1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        gamepad, babylon::platform::GamepadAxis::RightY, -1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        gamepad, babylon::platform::GamepadAxis::RightTrigger, 1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadButtonChanged{
+        gamepad, babylon::platform::GamepadButton::South, true });
+    pPlatform->pushEvent(babylon::platform::GamepadButtonChanged{
+        gamepad, babylon::platform::GamepadButton::DpadUp, true });
+
+    stdControl_ReadControls();
+
+    // Full-scale values pass both the dead zone and the axis normalization untouched.
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdControl_ReadAxis((size_t)aAxes[0]));
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdControl_ReadAxis((size_t)aAxes[1]));
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdControl_ReadAxis((size_t)aAxes[2]));
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, stdControl_ReadAxis((size_t)aAxes[3]));
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, stdControl_ReadAxis((size_t)aAxes[4]));
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdControl_ReadAxis((size_t)aAxes[5]));
+
+    TEST_ASSERT_EQUAL_INT(1, stdControl_ReadKey(
+        STDCONTROL_JOYSTICK_GETBUTTON(0, 0), NULL));
+    TEST_ASSERT_EQUAL_INT(0, stdControl_ReadKey(
+        STDCONTROL_JOYSTICK_GETBUTTON(0, 1), NULL));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_ReadKey(
+        STDCONTROL_JOYSTICK_GETPOVUP(0, 0), NULL));
+    TEST_ASSERT_EQUAL_INT(0, stdControl_ReadKey(
+        STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0), NULL));
+
+    // Disconnecting releases the slot: axes centre and buttons come up.
+    pPlatform->pushEvent(babylon::platform::GamepadDisconnected{ gamepad });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_size_t(0, stdControl_GetNumJoysticks());
+    TEST_ASSERT_EQUAL_INT(0, stdControl_IsGamePad(0));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdControl_ReadAxis((size_t)aAxes[0]));
+    TEST_ASSERT_EQUAL_INT(0, stdControl_ReadKey(
+        STDCONTROL_JOYSTICK_GETBUTTON(0, 0), NULL));
+    TEST_ASSERT_EQUAL_INT(0, stdControl_ReadKey(
+        STDCONTROL_JOYSTICK_GETPOVUP(0, 0), NULL));
+}
+
+TEST(stdControlBabylon, GamepadSlotsFollowConnectionOrder)
+{
+    const babylon::platform::GamepadId first = 1;
+    const babylon::platform::GamepadId second = 2;
+    pPlatform->pushEvent(babylon::platform::GamepadConnected{ first });
+    pPlatform->pushEvent(babylon::platform::GamepadConnected{ second });
+    TEST_ASSERT_EQUAL_size_t(2, stdControl_GetNumJoysticks());
+
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_X(0)));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(
+        (int)STDCONTROL_GET_JOYSTICK_AXIS_X(1)));
+
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        first, babylon::platform::GamepadAxis::LeftX, 1.0f });
+    pPlatform->pushEvent(babylon::platform::GamepadAxisMoved{
+        second, babylon::platform::GamepadAxis::LeftX, -1.0f });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdControl_ReadAxis(
+        STDCONTROL_GET_JOYSTICK_AXIS_X(0)));
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, stdControl_ReadAxis(
+        STDCONTROL_GET_JOYSTICK_AXIS_X(1)));
+
+    // Removing the first pad moves the second into slot 0 and clears the old slot.
+    pPlatform->pushEvent(babylon::platform::GamepadDisconnected{ first });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+    TEST_ASSERT_EQUAL_FLOAT(-1.0f, stdControl_ReadAxis(
+        STDCONTROL_GET_JOYSTICK_AXIS_X(0)));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdControl_ReadAxis(
+        STDCONTROL_GET_JOYSTICK_AXIS_X(1)));
+}
+
 TEST_GROUP_RUNNER(stdControlBabylon)
 {
     RUN_TEST_CASE(stdControlBabylon, EveryKeyMappingEntryRoundTrips);
@@ -236,4 +371,7 @@ TEST_GROUP_RUNNER(stdControlBabylon)
     RUN_TEST_CASE(stdControlBabylon, PressAndReleaseBeforeOneReadIsNotDown);
     RUN_TEST_CASE(stdControlBabylon, MouseButtonIsOnlyReadWhileTheMouseIsEnabled);
     RUN_TEST_CASE(stdControlBabylon, IdsTheColumnCannotDeliverReturnFalse);
+    RUN_TEST_CASE(stdControlBabylon, MouseMotionAndWheelReadAsAccumulatedAxes);
+    RUN_TEST_CASE(stdControlBabylon, ConnectedGamepadBecomesJoystickZero);
+    RUN_TEST_CASE(stdControlBabylon, GamepadSlotsFollowConnectionOrder);
 }

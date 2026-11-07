@@ -69,6 +69,17 @@ namespace babylon::platform
         // setRelativeMouse() set last unless it was refused.
         virtual bool relativeMouse() const = 0;
 
+        // Starts or stops delivering TextInput events for this window.
+        // Text input is off until it is started, so a game starts it only
+        // while a text field is being edited. Returns false and logs one
+        // warning if the backend refused, leaving textInput() as it was.
+        // The Null backend always accepts and records the state.
+        [[nodiscard]] virtual bool setTextInput(bool enabled) = 0;
+
+        // The text input mode the backend reports now: what setTextInput()
+        // set last unless it was refused.
+        virtual bool textInput() const = 0;
+
     private:
         // Called only with a size that passed the check in resize(). Returns
         // false and logs one warning if the backend refused it.

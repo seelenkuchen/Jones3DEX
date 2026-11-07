@@ -8,6 +8,7 @@
 #include <babylon/platform/Keys.h>
 
 #include <cstdint>
+#include <string>
 #include <variant>
 
 namespace babylon::platform
@@ -100,6 +101,17 @@ namespace babylon::platform
         float dy;
     };
 
+    // The operating system produced text while the window had text input
+    // started. text is UTF-8 and may hold several code points, including
+    // combining marks that arrive together; it is never empty. A backend
+    // only produces this event after the window's setTextInput(true) until
+    // setTextInput(false).
+    struct TextInput
+    {
+        WindowId window;
+        std::string text;
+    };
+
     // A gamepad was plugged in; its id is valid from this event on, and
     // button and axis events carry it.
     struct GamepadConnected
@@ -136,6 +148,7 @@ namespace babylon::platform
     using Event = std::variant<QuitRequested, WindowCloseRequested,
         WindowFocusChanged, WindowResized,
         KeyChanged, MouseMoved, MouseButtonChanged, MouseWheelMoved,
+        TextInput,
         GamepadConnected, GamepadDisconnected, GamepadButtonChanged,
         GamepadAxisMoved>;
 

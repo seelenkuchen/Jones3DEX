@@ -81,6 +81,16 @@ namespace babylon::ui
         std::string text;
     };
 
+    // The top screen started (on == true) or stopped (on == false) editing
+    // a TextEntry, so the game should start or stop the platform's text
+    // input for its window. The ui deliberately knows no window; the game
+    // turns this into Window::setTextInput(). It is reported only when the
+    // state changes, so a game may call setTextInput() from it directly.
+    struct TextInputWanted
+    {
+        bool on = false;
+    };
+
     // A sound cue the skin asked for: focus moved, accepted, or back. cue is
     // one of Skin::focusSound, acceptSound or backSound, never 0 (a zero
     // sound id reports nothing). The module doesn't play anything.
@@ -94,6 +104,6 @@ namespace babylon::ui
     // queue once per frame. Cvar writes happen before their corresponding
     // event is queued.
     using UiEvent = std::variant<ActionPressed, ScreenClosed, ValueChanged,
-        SelectionChanged, BindingCaptured, TextSubmitted, SoundCue>;
+        SelectionChanged, BindingCaptured, TextSubmitted, TextInputWanted, SoundCue>;
 
 }

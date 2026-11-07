@@ -17,6 +17,7 @@
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3/SDL_init.h>
+#include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_video.h>
 
@@ -114,6 +115,28 @@ namespace
         bool relativeMouse() const override
         {
             return SDL_GetWindowRelativeMouseMode(m_window);
+        }
+
+        // SDL delivers SDL_EVENT_TEXT_INPUT only while text input is
+        // started, and an on-screen keyboard or IME may then take the key
+        // presses; a refused start or stop is one warning and the mode
+        // unchanged.
+        bool setTextInput(bool enabled) override
+        {
+            const bool started = enabled ? SDL_StartTextInput(m_window)
+                                         : SDL_StopTextInput(m_window);
+            if ( !started )
+            {
+                log::warning("platform: setting text input {} on the window failed: {}",
+                    enabled, SDL_GetError());
+                return false;
+            }
+            return true;
+        }
+
+        bool textInput() const override
+        {
+            return SDL_TextInputActive(m_window);
         }
 
     private:

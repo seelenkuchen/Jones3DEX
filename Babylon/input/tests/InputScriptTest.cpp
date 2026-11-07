@@ -129,6 +129,36 @@ TEST_CASE("A mouse wheel line gives the exact MouseWheelMoved event")
     CHECK(wheel->dy == -1.0f);
 }
 
+TEST_CASE("A text line gives the exact TextInput event")
+{
+    const Event plain = parseSingleEvent("frame 4: text \"Grüße\"");
+    const babylon::platform::TextInput* input =
+        std::get_if<babylon::platform::TextInput>(&plain);
+    REQUIRE(input != nullptr);
+    CHECK(input->window == kWindow);
+    CHECK(input->text == "Grüße");
+
+    // Spaces, '#' and the escapes inside the quotes survive; a '#' outside
+    // the quotes is still a comment.
+    const Event escaped = parseSingleEvent(
+        "frame 5: text \"a b \\\" # \\\\ \\# \\n\" # trailing comment");
+    input = std::get_if<babylon::platform::TextInput>(&escaped);
+    REQUIRE(input != nullptr);
+    CHECK(input->text == "a b \" # \\ # \n");
+}
+
+TEST_CASE("Malformed text lines name the problem on the exact line")
+{
+    parseFails("frame 0: text Grüße", 1, "expected a double-quoted text string");
+    parseFails("frame 0: text \"Grüße", 1, "unterminated text string");
+    parseFails("frame 0: text \"a\\\"", 1, "unterminated text string");
+    parseFails("frame 0: text \"a\\q\"", 1, "unknown escape '\\q' in text string");
+    parseFails("frame 0: text \"a\" b", 1, "unexpected extra token 'b'");
+    parseFails("frame 0: text \"\\xC3\"", 1, "unknown escape '\\x' in text string");
+    parseFails("frame 0: text \"\xC3\x28\"", 1, "text string is not valid UTF-8");
+    parseFails("frame 0: text \"\"", 1, "text string must not be empty");
+}
+
 TEST_CASE("Gamepad connect and disconnect turn the index into id index + 1")
 {
     const Event connect = parseSingleEvent("frame 0: gamepad 0 connect");

@@ -63,6 +63,21 @@ namespace
             return m_relativeMouse;
         }
 
+        // There is no keyboard or input method behind a Null window, so
+        // nothing can refuse: the mode is only the state the interface
+        // promises to report back. Text arrives only when a test pushes a
+        // TextInput event for this window.
+        bool setTextInput(bool enabled) override
+        {
+            m_textInput = enabled;
+            return true;
+        }
+
+        bool textInput() const override
+        {
+            return m_textInput;
+        }
+
     private:
         // Called only with a size that passed the shared check in resize(). Returns
         // false and logs one warning if the backend refused it.
@@ -76,6 +91,7 @@ namespace
         Size m_size;
         WindowId m_id;
         bool m_relativeMouse = false;
+        bool m_textInput = false;
     };
 
 }

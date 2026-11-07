@@ -127,47 +127,61 @@ namespace
         return false;
     }
 
-    // The printable character a physical key produces on a US layout, or 0.
-    char keyCharacter(platform::Key key, bool shift)
+    // The largest edit buffer a TextEntry may hold, in bytes. A code point
+    // is only ever inserted whole, so the buffer can stay below it.
+    constexpr std::size_t kMaxTextBytes = 1024;
+
+    // The number of bytes of the UTF-8 sequence that starts with lead, or 1
+    // for a byte that is not a valid lead, so an invalid buffer is walked
+    // one byte at a time instead of looping.
+    std::size_t utf8SequenceLength(unsigned char lead)
     {
-        if ( key >= platform::Key::A && key <= platform::Key::Z )
+        if ( lead < 0x80 )
         {
-            const char base = static_cast<char>('a'
-                + (static_cast<int>(key) - static_cast<int>(platform::Key::A)));
-            return shift ? static_cast<char>(base - 'a' + 'A') : base;
+            return 1;
         }
-        if ( key >= platform::Key::Num0 && key <= platform::Key::Num9 )
+        if ( (lead & 0xE0) == 0xC0 )
         {
-            const int digit = static_cast<int>(key) - static_cast<int>(platform::Key::Num0);
-            static constexpr const char* shifted = ")!@#$%^&*(";
-            return shift ? shifted[digit] : static_cast<char>('0' + digit);
+            return 2;
         }
-        if ( key >= platform::Key::Keypad0 && key <= platform::Key::Keypad9 )
+        if ( (lead & 0xF0) == 0xE0 )
         {
-            return static_cast<char>('0'
-                + (static_cast<int>(key) - static_cast<int>(platform::Key::Keypad0)));
+            return 3;
         }
-        switch ( key )
+        if ( (lead & 0xF8) == 0xF0 )
         {
-        case platform::Key::Space: return ' ';
-        case platform::Key::Minus: return shift ? '_' : '-';
-        case platform::Key::Equals: return shift ? '+' : '=';
-        case platform::Key::LeftBracket: return shift ? '{' : '[';
-        case platform::Key::RightBracket: return shift ? '}' : ']';
-        case platform::Key::Backslash: return shift ? '|' : '\\';
-        case platform::Key::Semicolon: return shift ? ':' : ';';
-        case platform::Key::Apostrophe: return shift ? '"' : '\'';
-        case platform::Key::Grave: return shift ? '~' : '`';
-        case platform::Key::Comma: return shift ? '<' : ',';
-        case platform::Key::Period: return shift ? '>' : '.';
-        case platform::Key::Slash: return shift ? '?' : '/';
-        case platform::Key::KeypadDivide: return '/';
-        case platform::Key::KeypadMultiply: return '*';
-        case platform::Key::KeypadMinus: return '-';
-        case platform::Key::KeypadPlus: return '+';
-        case platform::Key::KeypadPeriod: return '.';
-        default: return 0;
+            return 4;
         }
+        return 1;
+    }
+
+    // The start of the code point before pos, walking back over its
+    // continuation bytes. 0 when pos is 0.
+    std::size_t previousCodePoint(const std::string& text, std::size_t pos)
+    {
+        if ( pos == 0 )
+        {
+            return 0;
+        }
+        std::size_t start = pos - 1;
+        while ( start > 0
+            && (static_cast<unsigned char>(text[start]) & 0xC0) == 0x80 )
+        {
+            --start;
+        }
+        return start;
+    }
+
+    // The end of the code point that starts at pos, clamped to the string.
+    std::size_t nextCodePoint(const std::string& text, std::size_t pos)
+    {
+        if ( pos >= text.size() )
+        {
+            return text.size();
+        }
+        const std::size_t length =
+            utf8SequenceLength(static_cast<unsigned char>(text[pos]));
+        return std::min(pos + length, text.size());
     }
 
     float clampFloat(float value, float low, float high)
@@ -250,6 +264,7 @@ struct Ui::State
     std::array<bool, static_cast<std::size_t>(platform::Key::Count)> keysDown = {};
     std::array<bool, 16> gamepadButtons = {};
     bool shiftDown = false;
+    bool textInputOn = false;
 
     AxisState horizontalAxis;
     AxisState verticalAxis;
@@ -654,6 +669,68 @@ struct Ui::State
         }
     }
 
+    // Inserts a whole UTF-8 string at the edit cursor, keeping only the
+    // complete code points that fit in kMaxTextBytes. A sequence is never
+    // cut in half, so the buffer stays valid UTF-8 when the input was.
+    void insertText(ScreenState& state, std::string_view input)
+    {
+        if ( state.focus >= state.screen.widgets.size()
+            || get<TextEntry>(state.screen.widgets[state.focus]) == nullptr
+            || state.focus >= state.local.size() || !state.local[state.focus].has_value() )
+        {
+            return;
+        }
+
+        std::string& text = std::get<std::string>(*state.local[state.focus]);
+        const std::size_t room = text.size() < kMaxTextBytes
+            ? kMaxTextBytes - text.size() : 0;
+        std::string added;
+        for ( std::size_t pos = 0; pos < input.size(); )
+        {
+            const std::size_t length =
+                utf8SequenceLength(static_cast<unsigned char>(input[pos]));
+            if ( length > input.size() - pos || added.size() + length > room )
+            {
+                break;
+            }
+            added.append(input.substr(pos, length));
+            pos += length;
+        }
+        if ( added.empty() )
+        {
+            return;
+        }
+        if ( state.editCursor > text.size() )
+        {
+            state.editCursor = text.size();
+        }
+        text.insert(state.editCursor, added);
+        state.editCursor += added.size();
+    }
+
+    // True when the top screen is editing a TextEntry, so the game should
+    // have the platform's text input started.
+    bool textInputWanted() const
+    {
+        const ScreenState* state = top();
+        return state != nullptr && !state->capturing
+            && state->focus < state->screen.widgets.size()
+            && get<TextEntry>(state->screen.widgets[state->focus]) != nullptr;
+    }
+
+    // Reports a change of textInputWanted() once, after focus, the stack or
+    // a widget changed. The ui owns no window, so the game turns this into
+    // the platform call.
+    void syncTextInput()
+    {
+        const bool wanted = textInputWanted();
+        if ( wanted != textInputOn )
+        {
+            textInputOn = wanted;
+            events.emplace_back(TextInputWanted{ wanted });
+        }
+    }
+
     bool currentToggle(const ScreenState& state, std::size_t index) const
     {
         const Toggle* toggle = get<Toggle>(state.screen.widgets[index]);
@@ -708,13 +785,13 @@ struct Ui::State
         std::size_t selected = 0;
         if ( !choice.cvar.empty() )
         {
-            if ( const std::optional<std::int64_t> value = cvars.getInt(choice.cvar) )
+            if ( const std::optional<std::int64_t> intValue = cvars.getInt(choice.cvar) )
             {
-                selected = static_cast<std::size_t>(std::max<std::int64_t>(0, *value));
+                selected = static_cast<std::size_t>(std::max<std::int64_t>(0, *intValue));
             }
-            else if ( const std::optional<std::string> value = cvars.getString(choice.cvar) )
+            else if ( const std::optional<std::string> stringValue = cvars.getString(choice.cvar) )
             {
-                const auto found = std::find(choice.options.begin(), choice.options.end(), *value);
+                const auto found = std::find(choice.options.begin(), choice.options.end(), *stringValue);
                 selected = found == choice.options.end() ? 0
                     : static_cast<std::size_t>(found - choice.options.begin());
             }
@@ -972,10 +1049,10 @@ struct Ui::State
         }
         else if ( get<TextEntry>(widget) != nullptr )
         {
-            const long cursor = static_cast<long>(state.editCursor) + direction;
-            state.editCursor = static_cast<std::size_t>(
-                std::clamp(cursor, 0L, static_cast<long>(
-                    std::get<std::string>(*state.local[state.focus]).size())));
+            const std::string& text = std::get<std::string>(*state.local[state.focus]);
+            state.editCursor = direction < 0
+                ? previousCodePoint(text, state.editCursor)
+                : nextCodePoint(text, state.editCursor);
         }
     }
 
@@ -1185,8 +1262,10 @@ struct Ui::State
                 std::string& text = std::get<std::string>(*state->local[state->focus]);
                 if ( state->editCursor > 0 && state->editCursor <= text.size() )
                 {
-                    text.erase(state->editCursor - 1, 1);
-                    --state->editCursor;
+                    const std::size_t start =
+                        previousCodePoint(text, state->editCursor);
+                    text.erase(start, state->editCursor - start);
+                    state->editCursor = start;
                 }
                 return;
             }
@@ -1195,7 +1274,9 @@ struct Ui::State
                 std::string& text = std::get<std::string>(*state->local[state->focus]);
                 if ( state->editCursor < text.size() )
                 {
-                    text.erase(state->editCursor, 1);
+                    const std::size_t end =
+                        nextCodePoint(text, state->editCursor);
+                    text.erase(state->editCursor, end - state->editCursor);
                 }
                 return;
             }
@@ -1212,28 +1293,16 @@ struct Ui::State
             }
             if ( key.key == platform::Key::Left )
             {
-                if ( state->editCursor > 0 )
-                {
-                    --state->editCursor;
-                }
+                const std::string& text =
+                    std::get<std::string>(*state->local[state->focus]);
+                state->editCursor = previousCodePoint(text, state->editCursor);
                 return;
             }
             if ( key.key == platform::Key::Right )
             {
-                const std::size_t size =
-                    std::get<std::string>(*state->local[state->focus]).size();
-                state->editCursor = std::min(state->editCursor + 1, size);
-                return;
-            }
-            const char character = keyCharacter(key.key, shiftDown);
-            if ( character != 0 )
-            {
-                std::string& text = std::get<std::string>(*state->local[state->focus]);
-                if ( text.size() < 1024 )
-                {
-                    text.insert(state->editCursor, 1, character);
-                    ++state->editCursor;
-                }
+                const std::string& text =
+                    std::get<std::string>(*state->local[state->focus]);
+                state->editCursor = nextCodePoint(text, state->editCursor);
                 return;
             }
         }
@@ -1254,6 +1323,19 @@ struct Ui::State
         {
             adjustHorizontal(*state, 1);
         }
+    }
+
+    // Inserts the platform's committed text into an active TextEntry. Text
+    // for a screen that is not editing one is ignored, as are text events
+    // while a binding capture owns the input.
+    void handleTextInput(const platform::TextInput& input)
+    {
+        ScreenState* state = top();
+        if ( state == nullptr || state->capturing )
+        {
+            return;
+        }
+        insertText(*state, input.text);
     }
 
     Hit hitTest(const ScreenState& state, Point point) const
@@ -1569,6 +1651,10 @@ struct Ui::State
             else if constexpr ( std::is_same_v<T, platform::MouseWheelMoved> )
             {
                 handleMouseWheel(value);
+            }
+            else if constexpr ( std::is_same_v<T, platform::TextInput> )
+            {
+                handleTextInput(value);
             }
             else if constexpr ( std::is_same_v<T, platform::GamepadButtonChanged> )
             {
@@ -2041,6 +2127,7 @@ ScreenId Ui::push(Screen screen)
     m_state->initLocal(state);
     m_state->resetFocus(state);
     m_state->screens.push_back(std::move(state));
+    m_state->syncTextInput();
     return m_state->screens.back().id;
 }
 
@@ -2135,6 +2222,7 @@ bool Ui::setWidget(ScreenId screenId, std::size_t index, Widget widget)
     }
     m_state->ensureScroll(*state);
     m_state->ensureFocusVisible(*state);
+    m_state->syncTextInput();
     return true;
 }
 
@@ -2161,6 +2249,7 @@ bool Ui::pop(ResultCode result)
     const ScreenId id = state->id;
     m_state->screens.pop_back();
     m_state->events.emplace_back(ScreenClosed{ id, result });
+    m_state->syncTextInput();
     return true;
 }
 
@@ -2183,6 +2272,7 @@ std::size_t Ui::screenCount() const
 void Ui::handleEvent(const platform::Event& event)
 {
     m_state->handleEvent(event);
+    m_state->syncTextInput();
 }
 
 void Ui::draw()

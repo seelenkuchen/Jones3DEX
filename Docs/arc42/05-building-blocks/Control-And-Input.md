@@ -89,7 +89,37 @@ The shared entries are in `Libs/std/Null/stdControlNull.c`:
 - `stdControl_EnableAxis()`
 - `stdControl_SetActivation()`
 
-The device side implements `stdControl_ReadDevices()`. Keys and mouse buttons are read today; mouse axes and gamepads are not read yet. The DirectInput backends of the removed DX6 and DX9 builds polled keyboards, joysticks and mice through the same seam.
+The device side implements `stdControl_ReadDevices()`. It reads keyboard, mouse buttons, mouse axes and gamepads from the same `InputState`. The DirectInput backends of the removed DX6 and DX9 builds polled keyboards, joysticks and mice through the same seam. Mouse motion and the wheel are reported as the movement accumulated since the previous read, in DirectInput's units (a wheel notch is `WHEEL_DELTA`, 120) and with DirectInput's signs (y positive down), clamped to the registered axis range.
+
+A connected gamepad becomes joystick slot 0, 1, ... in `InputState::gamepads()` order, up to `STDCONTROL_MAX_JOYSTICK_DEVICES`. Each pad registers six axes and one POV, with the ranges and signs the removed DX9 backend's `DIJOYSTATE` and XInput paths produced:
+
+| stdControl axis | gamepad axis | state range | notes |
+| --- | --- | --- | --- |
+| X | LeftX | -32768..32767 | left stick dead zone |
+| Y | LeftY | -32768..32767 | down positive |
+| Z | LeftTrigger | -255..255 | 0..255, 30 of 255 threshold |
+| RX | RightX | -32768..32767 | right stick dead zone |
+| RY | RightY | -32768..32767 | down positive |
+| RZ | RightTrigger | -255..255 | 0..255, 30 of 255 threshold |
+
+| button index | gamepad button |
+| --- | --- |
+| 0 | South |
+| 1 | East |
+| 2 | West |
+| 3 | North |
+| 4 | LeftShoulder |
+| 5 | RightShoulder |
+| 6 | Back |
+| 7 | Start |
+| 8 | LeftStick |
+| 9 | RightStick |
+| 10 | Guide |
+
+The d-pad drives POV 0 (left, up, right, down).
+
+Enumeration happens whenever `stdControl_GetNumJoysticks()` is called, which pumps the platform queue, so a pad connected before startup is seen. The game calls it only from `JonesControl_Startup()`. A pad connected or disconnected later is reflected by the device read (the joystick slots follow `InputState::gamepads()`), but the game does not re-enumerate or rebuild its gameplay bindings at runtime: connect a pad before startup, or restart the game. `sithControl_RebindJoystick()` rebuilds the bindings but does not enable axes for newly seen pads.
+
 
 ## Per-Frame Read Pass
 

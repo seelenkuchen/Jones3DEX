@@ -1,17 +1,43 @@
-// Added: the Babylon column's device side of std/Null/stdControlNull.h. The engine's keyboard and
-// mouse buttons come from the Babylon platform event queue through the one shared
-// babylon::input::InputState of stdBabylonEvents.cpp, read once per stdControl_ReadControls as a
-// snapshot of every key's state, the way stdControlDX9.c polls DirectInput; the headless runner's
-// scripted keys go into that same queue. Mouse axes and gamepads are not read yet.
-// Adapter code: no Fixed/Added markers inside.
+// Added: the Babylon column's device side of std/Null/stdControlNull.h. The engine's keyboard,
+// mouse buttons, mouse axes and gamepads come from the Babylon platform event queue through the one
+// shared babylon::input::InputState of stdBabylonEvents.cpp, read once per stdControl_ReadControls
+// as a snapshot of every key's state, the way stdControlDX9.c polls DirectInput; the headless
+// runner's scripted keys go into that same queue.
+//
+// Gamepad mapping (a connected gamepad is one joystick, in InputState::gamepads() order):
+//
+//     stdControl axis   gamepad axis       state range          notes
+//     X                 LeftX              -32768..32767        left stick deadzone
+//     Y                 LeftY              -32768..32767        down positive
+//     Z                 LeftTrigger        -255..255            0..255, 30 threshold
+//     RX                RightX             -32768..32767        right stick deadzone
+//     RY                RightY             -32768..32767        down positive
+//     RZ                RightTrigger      -255..255            0..255, 30 threshold
+//
+//     button index      gamepad button     button index         gamepad button
+//     0                 South              6                    Back
+//     1                 East               7                    Start
+//     2                 West               8                    LeftStick
+//     3                 North              9                    RightStick
+//     4                 LeftShoulder       10                   Guide
+//     5                 RightShoulder
+//
+//     POV 0             d-pad: left, up, right, down
+//
+// The ranges and signs are those stdControlDX9.c's DIJOYSTATE path produced; the trigger bytes
+// and the POV are those its XInput path produced, with the two triggers on separate axes instead
+// of one combined Z. Adapter code: no Fixed/Added markers inside.
 #include <babylon/input/InputState.h>
 #include <babylon/platform/Event.h>
 #include <babylon/platform/Keys.h>
 #include <babylon/platform/NullPlatform.h>
 #include <babylon/platform/Platform.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <optional>
 #include <span>
 
@@ -181,6 +207,206 @@ namespace
 
         return aMouseButtons[(size_t)engineKeyId - STDCONTROL_KID_MOUSE_LBUTTON];
     }
+
+    // The number of joystick slots the previous read applied, so a disconnected gamepad's buttons
+    // and POV directions can be released even though InputState already forgot the pad.
+    size_t stdControlDevicesBabylon_lastJoystickCount = 0;
+
+    // The DirectInput backend's XInput path: these are XINPUT_GAMEPAD_LEFT/RIGHT_THUMB_DEADZONE and
+    // XINPUT_GAMEPAD_TRIGGER_THRESHOLD over their full ranges.
+    constexpr float kLeftStickDeadzone  = 7849.0f / 32767.0f;
+    constexpr float kRightStickDeadzone = 8689.0f / 32767.0f;
+    constexpr float kTriggerDeadzone    = 30.0f / 255.0f;
+
+    constexpr int kStickMin = -32768;
+    constexpr int kStickMax = 32767;
+    constexpr int kTriggerMin = -255;
+    constexpr int kTriggerMax = 255;
+
+    // The ranges stdControlDX9.c's InitMouse registered.
+    constexpr int kMouseXRange = 250;
+    constexpr int kMouseYRange = 200;
+    constexpr int kMouseZRange = 20;
+
+    // stdControlDX9.c's ApplyXInputDeadzone, on the -1..1 value InputState keeps: the dead zone is
+    // removed and the rest stretched back over the full range.
+    float StdControlDevicesBabylon_ApplyDeadzone(float value, float deadzone)
+    {
+        const float magnitude = std::fabs(value);
+        if ( magnitude < deadzone )
+        {
+            return 0.0f;
+        }
+        const float sign = value < 0.0f ? -1.0f : 1.0f;
+        return sign * (magnitude - deadzone) / (1.0f - deadzone);
+    }
+
+    int StdControlDevicesBabylon_StickState(float value, float deadzone)
+    {
+        value = std::clamp(value, -1.0f, 1.0f);
+        value = StdControlDevicesBabylon_ApplyDeadzone(value, deadzone);
+        return static_cast<int>(std::lround(value * 32767.0f));
+    }
+
+    // The trigger byte the XInput path stored, with its 30-of-255 threshold.
+    int StdControlDevicesBabylon_TriggerState(float value)
+    {
+        const long raw = std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f);
+        return raw < 30 ? 0 : static_cast<int>(raw);
+    }
+
+    // Registers one joystick slot's six axes if they are not registered yet. stdControl_Reset()
+    // clears only the enabled flags, and stdControl_Startup() zeroes the axes, so an unregistered
+    // slot is registered again after a restart.
+    void StdControlDevicesBabylon_RegisterJoystickAxes(size_t joyNum)
+    {
+        if ( stdControl_TestAxisFlag(STDCONTROL_GET_JOYSTICK_AXIS_X(joyNum),
+                STDCONTROL_AXIS_REGISTERED) != 0 )
+        {
+            return;
+        }
+
+        stdControl_RegisterAxis(STDCONTROL_GET_JOYSTICK_AXIS_X(joyNum), kStickMin, kStickMax,
+            kLeftStickDeadzone);
+        stdControl_RegisterAxis(STDCONTROL_GET_JOYSTICK_AXIS_Y(joyNum), kStickMin, kStickMax,
+            kLeftStickDeadzone);
+        stdControl_RegisterAxis(STDCONTROL_GET_JOYSTICK_AXIS_Z(joyNum), kTriggerMin, kTriggerMax,
+            kTriggerDeadzone);
+        stdControl_RegisterAxis(STDCONTROL_GET_JOYSTICK_AXIS_RX(joyNum), kStickMin, kStickMax,
+            kRightStickDeadzone);
+        stdControl_RegisterAxis(STDCONTROL_GET_JOYSTICK_AXIS_RY(joyNum), kStickMin, kStickMax,
+            kRightStickDeadzone);
+        stdControl_RegisterAxis(STDCONTROL_GET_JOYSTICK_AXIS_RZ(joyNum), kTriggerMin, kTriggerMax,
+            kTriggerDeadzone);
+
+        for ( size_t axisIndex = 0; axisIndex < STDCONTROL_JOYSTICK_NUMAXES; ++axisIndex )
+        {
+            stdControl_SetAxisFlags(STDCONTROL_GET_JOYSTICK_AXIS(joyNum, axisIndex),
+                STDCONTROL_AXIS_GAMEPAD);
+        }
+    }
+
+    // Registers the mouse axes if they are not registered yet. stdControl_Startup() does it in the
+    // Babylon column; this covers a reset that dropped only the registration.
+    void StdControlDevicesBabylon_RegisterMouseAxes()
+    {
+        if ( stdControl_TestAxisFlag(STDCONTROL_AID_MOUSE_X, STDCONTROL_AXIS_REGISTERED) == 0 )
+        {
+            stdControl_RegisterAxis(STDCONTROL_AID_MOUSE_X, -kMouseXRange, kMouseXRange, 0.0f);
+        }
+        if ( stdControl_TestAxisFlag(STDCONTROL_AID_MOUSE_Y, STDCONTROL_AXIS_REGISTERED) == 0 )
+        {
+            stdControl_RegisterAxis(STDCONTROL_AID_MOUSE_Y, -kMouseYRange, kMouseYRange, 0.0f);
+        }
+        if ( stdControl_TestAxisFlag(STDCONTROL_AID_MOUSE_Z, STDCONTROL_AXIS_REGISTERED) == 0 )
+        {
+            stdControl_RegisterAxis(STDCONTROL_AID_MOUSE_Z, -kMouseZRange, kMouseZRange, 0.0f);
+        }
+    }
+
+    // Pumps the platform queue and returns the number of connected gamepads that fit in joystick
+    // slots, registering their axes when asked.
+    size_t StdControlDevicesBabylon_SyncGamepads(bool bRegister)
+    {
+        stdBabylonEvents_Pump();
+        babylon::input::InputState& rInputState = stdBabylonEvents_InputState();
+
+        const size_t numGamepads = std::min(rInputState.gamepads().size(),
+            static_cast<size_t>(STDCONTROL_MAX_JOYSTICK_DEVICES));
+        if ( bRegister )
+        {
+            for ( size_t joyNum = 0; joyNum < numGamepads; ++joyNum )
+            {
+                StdControlDevicesBabylon_RegisterJoystickAxes(joyNum);
+            }
+        }
+        return numGamepads;
+    }
+
+    // One row of the fixed gamepad button mapping: the Babylon button and the engine joystick
+    // button index it becomes.
+    struct StdBabylonGamepadButtonMapping
+    {
+        babylon::platform::GamepadButton button;
+        size_t engineButtonIndex;
+    };
+
+    constexpr StdBabylonGamepadButtonMapping aGamepadButtons[] =
+    {
+        { babylon::platform::GamepadButton::South,          0  },
+        { babylon::platform::GamepadButton::East,           1  },
+        { babylon::platform::GamepadButton::West,           2  },
+        { babylon::platform::GamepadButton::North,          3  },
+        { babylon::platform::GamepadButton::LeftShoulder,   4  },
+        { babylon::platform::GamepadButton::RightShoulder,  5  },
+        { babylon::platform::GamepadButton::Back,           6  },
+        { babylon::platform::GamepadButton::Start,          7  },
+        { babylon::platform::GamepadButton::LeftStick,      8  },
+        { babylon::platform::GamepadButton::RightStick,     9  },
+        { babylon::platform::GamepadButton::Guide,          10 },
+    };
+
+    void StdControlDevicesBabylon_ApplyGamepad(size_t joyNum,
+        babylon::platform::GamepadId gamepad, babylon::input::InputState& rInputState,
+        uint32_t readTime)
+    {
+        using babylon::platform::GamepadAxis;
+        using babylon::platform::GamepadButton;
+
+        stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS_X(joyNum),
+            StdControlDevicesBabylon_StickState(
+                rInputState.gamepadAxis(gamepad, GamepadAxis::LeftX), kLeftStickDeadzone));
+        stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS_Y(joyNum),
+            StdControlDevicesBabylon_StickState(
+                rInputState.gamepadAxis(gamepad, GamepadAxis::LeftY), kLeftStickDeadzone));
+        stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS_Z(joyNum),
+            StdControlDevicesBabylon_TriggerState(
+                rInputState.gamepadAxis(gamepad, GamepadAxis::LeftTrigger)));
+        stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS_RX(joyNum),
+            StdControlDevicesBabylon_StickState(
+                rInputState.gamepadAxis(gamepad, GamepadAxis::RightX), kRightStickDeadzone));
+        stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS_RY(joyNum),
+            StdControlDevicesBabylon_StickState(
+                rInputState.gamepadAxis(gamepad, GamepadAxis::RightY), kRightStickDeadzone));
+        stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS_RZ(joyNum),
+            StdControlDevicesBabylon_TriggerState(
+                rInputState.gamepadAxis(gamepad, GamepadAxis::RightTrigger)));
+
+        for ( const StdBabylonGamepadButtonMapping& rMapping : aGamepadButtons )
+        {
+            stdControl_UpdateKeyState(
+                STDCONTROL_JOYSTICK_GETBUTTON(joyNum, rMapping.engineButtonIndex),
+                rInputState.gamepadButtonDown(gamepad, rMapping.button) ? 1 : 0, readTime);
+        }
+
+        stdControl_UpdateKeyState(STDCONTROL_JOYSTICK_GETPOVLEFT(joyNum, 0),
+            rInputState.gamepadButtonDown(gamepad, GamepadButton::DpadLeft) ? 1 : 0, readTime);
+        stdControl_UpdateKeyState(STDCONTROL_JOYSTICK_GETPOVUP(joyNum, 0),
+            rInputState.gamepadButtonDown(gamepad, GamepadButton::DpadUp) ? 1 : 0, readTime);
+        stdControl_UpdateKeyState(STDCONTROL_JOYSTICK_GETPOVRIGHT(joyNum, 0),
+            rInputState.gamepadButtonDown(gamepad, GamepadButton::DpadRight) ? 1 : 0, readTime);
+        stdControl_UpdateKeyState(STDCONTROL_JOYSTICK_GETPOVDOWN(joyNum, 0),
+            rInputState.gamepadButtonDown(gamepad, GamepadButton::DpadDown) ? 1 : 0, readTime);
+    }
+
+    // Releases a slot no gamepad uses now, like stdControlDX9.c's ClearXInputState.
+    void StdControlDevicesBabylon_ClearGamepad(size_t joyNum, uint32_t readTime)
+    {
+        for ( size_t axisIndex = 0; axisIndex < STDCONTROL_JOYSTICK_NUMAXES; ++axisIndex )
+        {
+            stdControl_SetAxisState(STDCONTROL_GET_JOYSTICK_AXIS(joyNum, axisIndex), 0);
+        }
+
+        for ( size_t buttonIndex = 0; buttonIndex < STDCONTROL_NUM_JOYSTICK_BUTTONS; ++buttonIndex )
+        {
+            stdControl_UpdateKeyState(STDCONTROL_JOYSTICK_GETBUTTON(joyNum, buttonIndex), 0, readTime);
+        }
+
+        for ( size_t direction = 0; direction < STDCONTROL_NUM_JOYSTICK_POVDIRECTIONS; ++direction )
+        {
+            stdControl_UpdateKeyState(STDCONTROL_JOYSTICK_GETPOV(joyNum, 0, direction), 0, readTime);
+        }
+    }
 }
 
 std::span<const StdBabylonKeyMapping> stdControlDevicesBabylon_KeyMappings()
@@ -218,10 +444,39 @@ int stdControlDevicesBabylon_EngineIdFromKey(babylon::platform::Key key)
 void stdControlDevicesBabylon_ResetForTest()
 {
     stdBabylonEvents_ResetForTest();
+    stdControlDevicesBabylon_lastJoystickCount = 0;
 }
 #endif
 
 extern "C" {
+
+size_t stdControl_GetNumJoysticks(void)
+{
+    // Pumping here means a pad connected before the game enumerates is visible, and so is one
+    // plugged in later when the game asks again. The game enumerates only at startup
+    // (JonesControl_Startup); a pad connected afterwards is read through stdControl, but the
+    // gameplay bindings are not rebuilt until sithControl_RebindJoystick() runs.
+    return StdControlDevicesBabylon_SyncGamepads(true);
+}
+
+const char* J3DAPI stdControl_GetJoysticDescription(int joyNum)
+{
+    const size_t numGamepads = StdControlDevicesBabylon_SyncGamepads(false);
+    if ( joyNum < 0 || (size_t)joyNum >= numGamepads )
+    {
+        return "";
+    }
+
+    static char aDescription[32];
+    snprintf(aDescription, sizeof(aDescription), "Gamepad%d", joyNum + 1);
+    return aDescription;
+}
+
+int J3DAPI stdControl_IsGamePad(int joyNum)
+{
+    const size_t numGamepads = StdControlDevicesBabylon_SyncGamepads(false);
+    return joyNum >= 0 && (size_t)joyNum < numGamepads ? 1 : 0;
+}
 
 void stdControl_ReadDevices(uint32_t readTime, bool bReadMouse)
 {
@@ -252,12 +507,44 @@ void stdControl_ReadDevices(uint32_t readTime, bool bReadMouse)
         }
     }
 
+    // The mouse axes, stdControlDX9.c's stdControl_ApplyMouseAxisState in the sensitivity mode the
+    // game turns on: the motion and wheel accumulated since the previous read, in DirectInput's
+    // units (a wheel notch is WHEEL_DELTA, 120), clamped to the registered range. The platform
+    // reports y positive down, like the DirectInput mouse.
+    if ( bReadMouse )
+    {
+        StdControlDevicesBabylon_RegisterMouseAxes();
+
+        const long mouseX = std::lround(rInputState.mouseDeltaX());
+        const long mouseY = std::lround(rInputState.mouseDeltaY());
+        const long mouseZ = std::lround(rInputState.wheelY() * 120.0f);
+        stdControl_SetAxisState(STDCONTROL_AID_MOUSE_X,
+            (int)std::clamp(mouseX, (long)-kMouseXRange, (long)kMouseXRange));
+        stdControl_SetAxisState(STDCONTROL_AID_MOUSE_Y,
+            (int)std::clamp(mouseY, (long)-kMouseYRange, (long)kMouseYRange));
+        stdControl_SetAxisState(STDCONTROL_AID_MOUSE_Z,
+            (int)std::clamp(mouseZ, (long)-kMouseZRange, (long)kMouseZRange));
+    }
+
+    // Every connected gamepad is one joystick slot, in InputState::gamepads() order. A slot that
+    // just lost its pad is cleared, so its buttons release and its axes return to their centers.
+    const size_t numGamepads = std::min(rInputState.gamepads().size(),
+        static_cast<size_t>(STDCONTROL_MAX_JOYSTICK_DEVICES));
+    for ( size_t joyNum = 0; joyNum < numGamepads; ++joyNum )
+    {
+        StdControlDevicesBabylon_RegisterJoystickAxes(joyNum);
+        StdControlDevicesBabylon_ApplyGamepad(joyNum, rInputState.gamepads()[joyNum],
+            rInputState, readTime);
+    }
+    for ( size_t joyNum = numGamepads; joyNum < stdControlDevicesBabylon_lastJoystickCount; ++joyNum )
+    {
+        StdControlDevicesBabylon_ClearGamepad(joyNum, readTime);
+    }
+    stdControlDevicesBabylon_lastJoystickCount = numGamepads;
+
     // The snapshot is taken: clear the per-frame flags, so the next pump records the next frame's
     // transitions, the way beginFrame before the apply of the frame's events did.
     rInputState.beginFrame();
-
-    // TODO: the mouse axes (stdControl_ReadAxis on STDCONTROL_AID_MOUSE_X, _Y and _Z) and the
-    // gamepad buttons and axes are not read yet; they come with the playable build.
 }
 
 bool stdControl_QueueKeyEvent(int keyId, int bPressed)
