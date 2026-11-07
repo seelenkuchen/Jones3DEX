@@ -152,9 +152,8 @@ bool JonesHudSys_IsProcessRunning(tSysHandle hProcess)
     return false;
 }
 
-// jonesConfig_*: the Win32 side of Jones3D/Display/jonesConfig.c.
-
-static int jonesConfig_bStartup = 0;
+// jonesConfig_*: the Win32 side of Jones3D/Display/jonesConfig.c. Startup, shutdown and the
+// active-scheme hook live in JonesPlatformNullConfig.c so the Babylon column can replace them.
 
 // Added: --load path handed to the Null load-game dialog by JonesPlatformNull_SetLoadPath.
 static const char* jonesPlatformNull_pLoadPath = NULL;
@@ -172,26 +171,6 @@ const char* JonesPlatformNull_GetLoadPath(void)
 void JonesPlatformNull_ClearLoadPath(void)
 {
     jonesPlatformNull_pLoadPath = NULL;
-}
-
-int jonesConfig_Startup(void)
-{
-    if ( jonesConfig_bStartup )
-    {
-        return 1;
-    }
-
-    // Added: The Windows Startup loads the dialog icon bitmaps through stdBmp_Load and
-    // the key-set/key-action tables of the settings dialogs. None of those exist on the
-    // Null platform, so the startup keeps the same "started" answer (returns 1) with no
-    // dialog resources behind it.
-    jonesConfig_bStartup = 1;
-    return 1;
-}
-
-void jonesConfig_Shutdown(void)
-{
-    jonesConfig_bStartup = 0;
 }
 
 int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)

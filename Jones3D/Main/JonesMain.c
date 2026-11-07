@@ -3,6 +3,7 @@
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Display/JonesConsole.h>
+
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Main/JonesFile.h>
@@ -1197,7 +1198,6 @@ int JonesMain_CanOpenPauseMenu(void)
 
     return 1;
 }
-
 // Added: reads one gamepad button on any connected slot. The fixed mapping puts Back at 6 and
 // Start at 7 (Docs/arc42/05-building-blocks/Control-And-Input.md).
 static int JonesMain_ReadGamepadButton(unsigned int buttonIndex)
@@ -1217,6 +1217,7 @@ static int JonesMain_ReadGamepadButton(unsigned int buttonIndex)
 void JonesMain_ProcessMenu(void)
 {
     int bMenuKeyPressed = 0;
+    int bSchemeToggleBound = JonesMain_aToggleMenuKeyIds[0] != 0;
     for ( size_t i = 0; i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds) && JonesMain_aToggleMenuKeyIds[i]; ++i ) // Fixed: Added bounds check for i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds)
     {
         int numPressed;
@@ -1228,9 +1229,16 @@ void JonesMain_ProcessMenu(void)
     }
 
     int numPressed;
-    // Added: with Escape taken by the pause menu, Tab and gamepad Back keep the HUD menu reachable.
-    bMenuKeyPressed |= stdControl_ReadKey(STDKEY_TAB, &numPressed);
-    bMenuKeyPressed |= JonesMain_ReadGamepadButton(6); // Back
+    // The fallback belongs to the windowed run with a loaded scheme, which can omit the
+    // toggle-menu action; the headless run and the Null column have no scheme and keep their old
+    // bindings.
+    if ( !bSchemeToggleBound && jonesConfig_HasActiveControlScheme() )
+    {
+        // Altered: the active control scheme binds no toggle-menu action, so keep Tab and the
+        // gamepad Back button as a fallback (M7.13's stopgap).
+        bMenuKeyPressed |= stdControl_ReadKey(STDKEY_TAB, &numPressed);
+        bMenuKeyPressed |= JonesMain_ReadGamepadButton(6); // Back
+    }
 
     int bPauseKeyPressed = stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);
     bPauseKeyPressed |= JonesMain_ReadGamepadButton(7); // Start
@@ -1254,7 +1262,6 @@ void JonesMain_ProcessMenu(void)
     {
         JonesMain_bPauseMenuToggled = false;
     }
-
     if ( bMenuKeyPressed && !JonesMain_bMenuToggled && !stdControl_ReadKey(STDKEY_RCONTROL, &numPressed) && !stdControl_ReadKey(STDKEY_LCONTROL, &numPressed) )
     {
         if ( JonesConsole_g_bVisible )
@@ -2371,6 +2378,26 @@ J3DNORETURN void J3DAPI JonesMain_Assert(const char* pErrorText, const char* pSr
     stdPlatformSys_DebugBreak(); // Altered: DebugBreak moved behind the platform interface
     JonesMain_Shutdown();
     exit(1);
+}
+
+size_t J3DAPI JonesMain_GetToggleMenuControlKeys(size_t* pOutKeys, size_t maxKeys)
+{
+    // Added: the active scheme's toggle-menu keys, for the Controls screen and the menu fallback.
+    if ( !pOutKeys || !maxKeys )
+    {
+        return 0;
+    }
+
+    size_t count = 0;
+    while ( count < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds)
+        && count < maxKeys
+        && JonesMain_aToggleMenuKeyIds[count] )
+    {
+        pOutKeys[count] = JonesMain_aToggleMenuKeyIds[count];
+        ++count;
+    }
+
+    return count;
 }
 
 void J3DAPI JonesMain_BindToggleMenuControlKeys(const size_t* paKeyIds, size_t numKeys)

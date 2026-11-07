@@ -65,6 +65,10 @@ void JonesMain_RefreshDisplayDevice(void);
 int JonesMain_PlayIntroMovie(void);
 
 void J3DAPI JonesMain_BindToggleMenuControlKeys(const size_t* paKeyIds, size_t numKeys);
+void JonesMain_ProcessMenu(void); // Added: declared for the control scheme tests
+// Added: copies the current toggle-menu keys (the active scheme's JONESCONTROL_ACTION_INTERFACE
+// bindings, or none) and returns their count.
+size_t J3DAPI JonesMain_GetToggleMenuControlKeys(size_t* pOutKeys, size_t maxKeys);
 
 void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText);
 J3DNORETURN void JonesMain_FatalErrorUnknown(void); // Added

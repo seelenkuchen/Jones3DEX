@@ -477,4 +477,3 @@ TEST_CASE("the headless pause menu answers the closed value")
     ScreenTestContext testContext;
     CHECK(jonesConfig_ShowPauseMenu(NULL) == 2);
 }
-

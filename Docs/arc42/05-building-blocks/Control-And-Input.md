@@ -237,3 +237,23 @@ That separation is one of the cleaner parts of the engine architecture. Even tho
 - hardware details do not leak into player movement code
 - gameplay code does not need to know which device produced an action
 - camera idling and control policies can sit above the raw device layer without contaminating it
+
+## Control Scheme Files
+
+The Babylon column restores the original `.kfg` control schemes in
+[`JonesControlSchemes.c`](../../../Jones3D/Platform/Babylon/JonesControlSchemes.c), the Win32
+`jonesConfig.c` scheme code without its dialogs. `Jones.cfg`'s `controls.configFile` names the
+active scheme; the windowed run loads it at HUD startup and binds it after `sithControl` registers
+its functions. The headless run keeps the engine's default bindings.
+
+The files live in the key-sets directory the original built: `<installPath>\<keysets>` when
+`installPath` is set, else `..\<keysets>` relative to the working directory. A file starts with the
+localized heading, the enabled marker `1`, and the `Actions`/`Keys` column header, then one quoted
+action line for each of the 37 actions followed by its quoted keyboard, mouse or joystick bindings.
+Line endings are CRLF, and the columns are padded to the same widths the original used.
+
+The original format can name keyboard keys, joystick buttons, POV directions and the X, Y, Z and
+RZ axes. It cannot name mouse buttons or the right-stick RX/RY axes. Those bindings go in a
+trailing `EXTRAS` section after the 37 action lines, which the original reader skips because its
+action loop ends there. Each extras line is `"<action>" "<control>"`, where the control is
+`MOUSE1`..`MOUSE4`, `Z-`/`Z+` (the left trigger), or `RX-`/`RX+`/`RY-`/`RY+`.

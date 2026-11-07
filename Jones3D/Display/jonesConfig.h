@@ -71,6 +71,13 @@ int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pConfig, char* 
 
 int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd);
 void J3DAPI jonesConfig_EnableMouseControl(int bEnable);
+// Added: applies the remembered active control scheme after sithControl has registered its
+// functions. A no-op when there is no scheme (the first run before the default is chosen) and in
+// the Null column, which has no scheme files.
+void J3DAPI jonesConfig_BindActiveControlScheme(void);
+// Added: whether a control scheme is loaded and active. The Null column has no scheme files and
+// answers 0; the Babylon column answers whether its windowed startup loaded one.
+int J3DAPI jonesConfig_HasActiveControlScheme(void);
 int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd);
 int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd, StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pDSettings);
 int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd, JonesSoundSettings* pData);
