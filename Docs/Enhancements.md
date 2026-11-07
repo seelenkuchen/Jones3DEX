@@ -18,7 +18,7 @@ Rules that apply to all of them ([ADR-0003](arc42/09-decisions/ADR-0003-fidelity
 
 | # | Enhancement | Kind | Game side | Babylon needs | Earliest |
 |---|---|---|---|---|---|
-| E1 | **Weapon and item wheel**: hold a button, pick a weapon or item with the stick or the mouse | Presentation; time slowing down while the wheel is open would be simulation (Enhanced on, Retail off) | Selection goes through the existing weapon and inventory selection, the same actions as the number keys | Gamepad sticks and mouse motion in the input adapter (today's TODOs); a 2D overlay layer (sprites, text, simple shapes) drawn over the 3D view; input routing so the wheel takes the input while open | M7 for input, M9 for the overlay |
+| E1 | **Weapon and item wheel**: hold a button, pick a weapon or item with the stick or the mouse | Presentation; time slowing down while the wheel is open would be simulation (Enhanced on, Retail off) | Selection goes through the existing weapon and inventory selection, the same actions as the number keys | Gamepad sticks and mouse motion in the input adapter (today's TODOs); a 2D overlay layer (sprites, text, simple shapes) drawn over the 3D view; input routing so the wheel takes the input while open | Input landed in M7; M9 for the overlay |
 | E2 | **Inventory screen**: one fast screen where players see all their items and weapons, equip or use them directly and assign them to the quick-access wheel (E1); it replaces wading through the slow escape-menu inventory (no new or modded items) | Presentation: equipping and using go through the existing inventory actions; the wheel slots are a UI setting, not game state | Reads the inventory and calls the existing select and use actions; opening it pauses the game like the escape menu (owner, 2026-11-04); the wheel slots are kept per savegame, because items arrive during the game, in a sidecar file next to the savegame so the `.nds` format stays unchanged; the wheel has at most 8 slots, and a slot whose item is gone becomes empty (owner, 2026-11-04) | The same 2D overlay layer and input routing as E1; UI navigation with keyboard, mouse and gamepad | M9, together with E1 |
 | E3 | **Texture upscaling in the installer** (Real-ESRGAN or similar). **Deferred** (owner, 2026-11-04): not planned for a milestone yet | Presentation, offline tooling | None: the game loads the upscaled textures instead of the originals | High-resolution texture overrides: loose-file or mod-folder overrides (M11 modding), 32-bit RGBA textures with mipmaps next to the 8-bit palettized originals, texture coordinates independent of the stored size; the installer (M8) runs the upscaler as an external tool and writes an override pack | deferred |
 | E4 | **Faster crouching and weapon holster and unholster animations** | Simulation: animation timing changes when actions finish (Enhanced on, Retail off) | Playback speed options in the puppet and key-frame code (`sithPuppet`), one cvar per action group | Simulation cvars (M5.8, in the game from M5.13) | After M5.13 |
@@ -31,10 +31,10 @@ Rules that apply to all of them ([ADR-0003](arc42/09-decisions/ADR-0003-fidelity
 E1, E2 and E6 need the same three Babylon pieces, so they are planned together:
 
 1. **A 2D overlay layer** drawn after the 3D view: textured quads, text with a font, simple shapes, scaled for
-   any resolution. It is also what the M7 in-game dialogs need.
+   any resolution. The M7 in-game dialogs use it.
 2. **Input routing**: an open overlay takes keyboard, mouse and gamepad input before the game does, and gives
    it back when it closes.
-3. **Gamepad and mouse motion** in the input adapter (the TODOs in `stdControlDevicesBabylon.cpp`).
+3. **Gamepad and mouse motion** in the input adapter (landed in M7.7).
 
 ## Open questions
 

@@ -20,10 +20,15 @@ Where Jones3D EX stands and what comes next. The reasons behind the order are in
 | M6.5 Shaders | Build-time shader compilation with SDL_shadercross and a pinned DXC, a local toolchain and shader cache, and the first pipelines and draws on SDL GPU ([ADR-0022](arc42/09-decisions/ADR-0022-shaders-compiled-at-build-time.md)) | Done (2026-11-06) |
 | M6.6 std3D adapter | `std3D` on the Babylon render device: textures and cache, render states, draw lists, fog and Z, so the 3D scene draws on the Babylon column | Done (2026-11-06) |
 | M6.7 stdDisplay adapter | The video modes, back buffer, locks, fills and present on the Babylon render device in `stdDisplayBabylon.cpp`, so the 2D layer, HUD text and the intro movie draw on the Babylon column | Done (2026-11-06) |
-| M6.8 Movies | The intro movie and cutscenes decode and draw through the Babylon column's `stdDisplay`, silent until M7 | Done (2026-11-06) |
+| M6.8 Movies | The intro movie and cutscenes decode and draw through the Babylon column's `stdDisplay`; their sound came in M7 | Done (2026-11-06) |
 | M6.9 Later-graphics foundation and parity | Render passes over offscreen color, depth and normal targets with an empty post-processing chain, view-space normals in lit vertices from world surfaces and models, and the frame's light list as a storage buffer ([ADR-0023](arc42/09-decisions/ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md)); the owner reviewed the M6.6 to M6.9b screenshot pages in the parity review | Done (2026-11-06) |
 | M6.10 Final docs pass | The M6 documentation made consistent: roadmap, rendering building block, testing, risks, ADRs and changelog | In progress (2026-11-06) |
-| M7. Playable | miniaudio sound, the original dialogs as in-game screens, saving in the Babylon column (the savegame thumbnail surface), playable on Windows, Linux and macOS | |
+| M7.1 Sound | The Babylon audio interface with its Null backend, the miniaudio backend, the game's sound and cutscene sound through Babylon, the output device choice ([ADR-0027](arc42/09-decisions/ADR-0027-sound-completion-on-game-time.md)) | Done (2026-11-07) |
+| M7.2 Saving | Portable savegame thumbnails and the Save, Load and Exit screens, so the Babylon builds save and load with thumbnails | Done (2026-11-07) |
+| M7.3 Input | Mouse axes, gamepads, text input, and the player's control schemes in the windowed Babylon build | Done (2026-11-07) |
+| M7.4 Menus | The in-game screens in place of the Win32 dialogs: the main menu and the windowed start-mode rules, pause, save/load/exit, settings, statistics, level completed, store and game over ([ADR-0026](arc42/09-decisions/ADR-0026-in-game-menus.md)) | Done (2026-11-07), except the Controls screen (M7.17b) |
+| M7.5 Polish | Menu sounds, the Display screen's window mode, fullscreen and Alt+Enter | Done (2026-11-07) |
+| M7. Playable | The Babylon build plays with sound, saving and in-game menus; the owner's play-test on real hardware remains | In progress |
 | M8. Release | Packages (Linux as AppImage or Flatpak, so nothing is installed into the system), game data installation, macOS signing, first Jones3D EX release | |
 | M9. Presentation | Widescreen and high-resolution output; bloom and depth of field as post-processing; high frame rates, which first needs an answer to how much of the simulation depends on frame time | |
 | M10. Modern lighting | Per-pixel dynamic lighting and screen-space ambient occlusion, with the original vertex lighting kept as the classic mode | |

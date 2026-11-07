@@ -15,8 +15,27 @@
     `rand` and other random choices follow the retail sequence; this also makes the jeep's bumps work natively.
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
-  - The Babylon column has a pause menu on Escape or gamepad Start: Resume, Save, Load, Settings, Statistics
-    and Exit. Tab or gamepad Back opens the HUD menu, and `engine.ui.hud.systemIcons` can hide its system items.
+
+### M7: Playable
+  - Sound plays in the windowed Babylon build through miniaudio, including cutscene sound, and the Sound
+    settings screen chooses the output device (stored in `engine.audio.outputDevice`). Headless runs use the
+    Null audio device and stay silent.
+  - The Babylon builds save and load. The Save, Load and Exit screens list the save folder with thumbnails,
+    start a new save with the level name and the date and time, and write the portable thumbnail every column
+    captures.
+  - Gamepads, mouse motion and the mouse wheel work in the Babylon column, and text input fills save names and
+    the other text fields. The windowed build loads the player's control scheme from `controls.configFile` and
+    binds it; headless runs keep the engine's default bindings.
+  - In-game menus replace the Win32 dialogs. A main menu at startup (New Game, Load, Settings, Quit) replaces
+    the launcher: `startMode` 5 opens it, the windowed build also opens it for a missing value or 2, and values
+    1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause
+    menu on Escape or gamepad Start offers Resume, Save, Load, Settings, Statistics and Exit; the HUD menu
+    opens on the active control scheme's interface key, with Tab and gamepad Back as a fallback while a scheme
+    binds none. `engine.ui.hud.systemIcons` can hide the HUD menu's system items.
+  - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
+    Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
+  - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
+  - The Controls screen (rebinding keys and gamepad buttons) follows in M7.17b.
 
 ### M6: The Babylon renderer
   - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system

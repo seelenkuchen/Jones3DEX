@@ -192,7 +192,7 @@ changes of both records.
 - Keys/puppets: play key and play key mode (track found and not found), set model
   (known and unknown model name), stop key (track found and not found), bad thing
   and a thing without puppet.
-- Fire (with and without sound, projectile created or not), death (actor with and
+- Fire (with a sound handle and without one, projectile created or not), death (actor with and
   without killer, player kill and no kill, other things), damage (with and without
   perpetrator, sender is the server or not), path move (move to, skip to, finish,
   old frame number, a frame number above 2^31, bad thing/sector), take (client and
