@@ -28,12 +28,24 @@ target_link_libraries(Jones3DGame PUBLIC Libs)
 # Platform/Null main(). Link groups/repeated libs resolve the static-library cycles.
 file(GLOB JONES3D_NULL_SOURCES Platform/Null/*.c)
 
+# Added: the game's babylon::ui painter and first skin (ADR-0026 amendment). They are part of the
+# Babylon column only, compiled into its executables and its painter test.
+set(JONES3D_BABYLON_UI_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.h"
+)
+
 # Added: the Babylon column swaps the Null main() for the Platform/Babylon composition root.
 set(JONES3D_HEADLESS_SOURCES ${JONES3D_NULL_SOURCES})
 if (J3D_PLATFORM_BABYLON)
     enable_language(CXX)
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/main.c")
-    list(APPEND JONES3D_HEADLESS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/main.cpp")
+    list(APPEND JONES3D_HEADLESS_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/main.cpp"
+        ${JONES3D_BABYLON_UI_SOURCES}
+    )
 endif()
 
 add_executable(Jones3D-headless ${JONES3D_HEADLESS_SOURCES})
@@ -74,6 +86,10 @@ if (NOT APPLE AND NOT WIN32)
     target_link_libraries(Jones3D-headless PRIVATE m)
 endif()
 
+if (J3D_PLATFORM_BABYLON)
+    target_link_libraries(Jones3D-headless PRIVATE babylon::ui)
+endif()
+
 # Added: the windowed Jones3D of the Babylon column: the Platform/Babylon composition root
 # and run, plus the Platform/Null helpers except its main() and the headless runner. Linked
 # exactly like Jones3D-headless. Jones3D-headless itself never sees these sources.
@@ -81,6 +97,7 @@ if (J3D_PLATFORM_BABYLON)
     set(JONES3D_WINDOWED_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/mainWindowed.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylon.c"
+        ${JONES3D_BABYLON_UI_SOURCES}
     )
     foreach(JONES3D_NULL_SOURCE ${JONES3D_NULL_SOURCES})
         if (NOT JONES3D_NULL_SOURCE MATCHES "/Platform/Null/(main|JonesHeadless)\\.c$")
@@ -112,8 +129,13 @@ if (J3D_PLATFORM_BABYLON)
     if (NOT APPLE AND NOT WIN32)
         target_link_libraries(Jones3D PRIVATE m)
     endif()
+
+    target_link_libraries(Jones3D PRIVATE babylon::ui)
 endif()
 
 if (JONES3D_BUILD_TESTS)
     add_subdirectory(Main/Tests)
+    if (J3D_PLATFORM_BABYLON)
+        add_subdirectory(Platform/Babylon/Tests)
+    endif()
 endif()
