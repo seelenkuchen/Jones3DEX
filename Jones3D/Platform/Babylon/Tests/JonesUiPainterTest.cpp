@@ -43,9 +43,11 @@
 #include <babylon/ui/Widget.h>
 
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
+#include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
@@ -742,6 +744,114 @@ TEST_CASE("the Jones save screen draws thumbnails and the save list")
     CHECK(thumbnailPixels > 100u);
 
     std::filesystem::remove_all(saveDir, error);
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the Jones level completed screen draws its statistics")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the level completed image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    ScriptedPlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    SithGameStatistics statistics;
+    memset(&statistics, 0, sizeof(statistics));
+    statistics.curLevelNum = JONESLEVEL_LASTLEVELNUM;
+
+    int balance   = 500;
+    int aItems[14] = { 0 };
+    const int result = JonesUiLevelCompleted_RunLevelCompletedScreen(ui, &painter, statistics,
+        0x0205u, 41, 4, 100, 200, &balance, aItems, 11);
+    CHECK(result == 2);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    REQUIRE(width == 640u);
+    REQUIRE(height == 480u);
+
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::string bmpPath = "ui-levelcompleted-sample.bmp";
+    REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
+    MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    // The panel is drawn, and the title and row text are the bright skin colors over it.
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    const Rgb titleColor = { ToByte(skin.title.r), ToByte(skin.title.g), ToByte(skin.title.b) };
+    size_t panelPixels = 0;
+    size_t titlePixels = 0;
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            const Rgb pixel = PixelAt(pixels, width, x, y);
+            if ( Near(pixel.r, panelColor.r) && Near(pixel.g, panelColor.g)
+                && Near(pixel.b, panelColor.b) )
+            {
+                ++panelPixels;
+            }
+
+            if ( Near(pixel.r, titleColor.r, 6) && Near(pixel.g, titleColor.g, 6)
+                && Near(pixel.b, titleColor.b, 6) )
+            {
+                ++titlePixels;
+            }
+        }
+    }
+    CHECK(panelPixels > 1000u);
+    CHECK(titlePixels > 20u);
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();

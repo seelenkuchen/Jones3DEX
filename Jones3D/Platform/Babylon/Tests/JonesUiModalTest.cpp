@@ -21,8 +21,10 @@
 #include <babylon/ui/Widget.h>
 
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/jonesString.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
+#include <Jones3D/Play/jonesInventory.h>
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
@@ -37,6 +39,16 @@ extern "C" const char* J3DAPI jonesString_GetString(const char* pKey)
 // The game-layer and Null-platform symbols the public screen wrappers name. The cases call the
 // explicit-directory runners, so only the linker needs these.
 extern "C" int J3DAPI JonesMain_HasStarted(void)
+{
+    return 0;
+}
+
+extern "C" size_t JonesMain_GetCurrentLevelNum(void)
+{
+    return 0;
+}
+
+extern "C" int J3DAPI jonesInventory_GetTotalIQPoints(void)
 {
     return 0;
 }

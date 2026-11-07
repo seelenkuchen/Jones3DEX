@@ -55,6 +55,12 @@ int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd, JonesSoundSettin
 int J3DAPI jonesConfig_ShowGameOverDialog(tSysWindow hWnd, char* pRestoreFilename, tSoundHandle hSndGameOVerMus, tSoundChannelHandle* pSndChnlMus);
 int J3DAPI jonesConfig_ShowStatisticsDialog(tSysWindow hWnd, SithGameStatistics* pStatistics);
 int J3DAPI jonesConfig_ShowLevelCompletedDialog(tSysWindow hWnd, int* pBalance, int* apItemsState, int a4, int elapsedTime, int qiPoints, int numFoundTrasures, int foundTrasureValue, int totalTreasureValue);
+
+// Added: the Store screen entry point the Level Completed dialog calls after it closes. The store
+// slice fills in the screen; until then it answers 2 (cancel) and leaves the balance and item
+// states unchanged.
+int J3DAPI jonesConfig_ShowStoreDialog(tSysWindow hWnd, int* pBalance, int* pItemsState, int a4);
+
 int J3DAPI jonesConfig_ShowExitGameDialog(tSysWindow hWnd, char* pSaveGameFilePath);
 
 int J3DAPI jonesConfig_ShowDialogInsertCD(tSysWindow hWnd, intptr_t dwInitParam);
