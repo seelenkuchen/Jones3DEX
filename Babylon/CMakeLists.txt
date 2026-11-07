@@ -48,6 +48,7 @@ add_subdirectory(input)
 add_subdirectory(cvars)
 add_subdirectory(audio)
 add_subdirectory(render)
+add_subdirectory(ui)
 
 # Machine checks for the Babylon boundary and the module graph (ADR-0006,
 # ADR-0008, ADR-0015). They inspect the source tree, so they carry the label

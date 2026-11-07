@@ -16,3 +16,4 @@ input: platform core
 cvars: log core
 audio: log
 render: log platform SDL3-static
+ui: log cvars platform
