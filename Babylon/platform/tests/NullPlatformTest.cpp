@@ -79,6 +79,13 @@ TEST_CASE("Null windows get ids counting up from 1")
     CHECK(second->size() == Size{ 320, 200 });
     CHECK(second->resize(Size{ 1, kMaxWindowDimension }));
     CHECK(second->size() == Size{ 1, kMaxWindowDimension });
+
+    // Fullscreen is recorded per window and never refused.
+    CHECK_FALSE(second->fullscreen());
+    CHECK(second->setFullscreen(true));
+    CHECK(second->fullscreen());
+    CHECK(second->setFullscreen(false));
+    CHECK_FALSE(second->fullscreen());
     sink.clear();
     CHECK(platform.pollEvent() == std::nullopt);   // window creation queues nothing
     CHECK(sink.records().empty());

@@ -85,6 +85,12 @@ int JonesHud_ShowExitGame(void);
 
 void JonesHud_Process(void);
 
+// Added: play the HUD menu's own sound for a Babylon UI sound cue.
+// cueIdx is an index of JonesHud_aSoundFxIdxs (the ids in JonesUiSkin.h), and the call is the HUD
+// item menu's sithSoundMixer_PlaySound call. It does nothing when the HUD has not loaded the sounds
+// (before a world opens, such as the main menu at startup) or the index is out of range.
+void J3DAPI JonesHud_PlayMenuSoundCue(int cueIdx);
+
 void J3DAPI JonesHud_BindActivateControlKeys(const size_t* aKeyIds, size_t numKeys);
 void J3DAPI JonesHud_InventoryItemChanged(int typeId);
 

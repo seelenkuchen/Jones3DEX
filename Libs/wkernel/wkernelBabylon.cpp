@@ -95,9 +95,11 @@ int wkernel_ProcessEvents(void)
 int J3DAPI wkernel_SetWindowSize(int width, int height)
 {
     StdBabylonContext* pContext = stdBabylon_GetContext();
-    if ( pContext && pContext->pWindow )
+    if ( pContext && pContext->pWindow && !pContext->pWindow->fullscreen() )
     {
-        // The resize answer is ignored: the Win32 callers do not check it either.
+        // Desktop fullscreen belongs to the display: the window is its size, so there is nothing to
+        // resize there (the Win32 style was a borderless popup, not the display mode). The resize
+        // answer is otherwise ignored, as the Win32 callers do not check it either.
         static_cast<void>(pContext->pWindow->resize(babylon::platform::Size{ width, height }));
     }
 
@@ -106,12 +108,24 @@ int J3DAPI wkernel_SetWindowSize(int width, int height)
 
 void wkernel_SetWindowedStyle(void)
 {
-    // TODO: fullscreen comes with the presentation work (M9); Babylon's Window has no fullscreen yet.
+    // The Win32 styles were WS_OVERLAPPEDWINDOW and WS_POPUP; Babylon's window has one display
+    // mode, so leaving fullscreen is the windowed style. A refusal changes nothing, like a failed
+    // SetWindowLong.
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    if ( pContext && pContext->pWindow )
+    {
+        static_cast<void>(pContext->pWindow->setFullscreen(false));
+    }
 }
 
 void wkernel_SetFullscreenStyle(void)
 {
-    // TODO: fullscreen comes with the presentation work (M9); Babylon's Window has no fullscreen yet.
+    // Desktop/borderless fullscreen on the window's display, the WS_POPUP style's answer here.
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    if ( pContext && pContext->pWindow )
+    {
+        static_cast<void>(pContext->pWindow->setFullscreen(true));
+    }
 }
 
 WKERNELACTIVATEPROC J3DAPI wkernel_SetActivateCallback(WKERNELACTIVATEPROC pfProc)

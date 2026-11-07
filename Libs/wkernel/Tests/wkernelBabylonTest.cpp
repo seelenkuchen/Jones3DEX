@@ -163,6 +163,32 @@ TEST(wkernelBabylon, ProcessEventsWakesOnTheFirstEvent)
     TEST_ASSERT_EQUAL_INT(1, wkernel_ProcessEvents());
 }
 
+TEST(wkernelBabylon, ProcessEventsDeliversFocusLossThenRegainInOrder)
+{
+    // The deactivated game blocks in wkernel_ProcessEvents; each focus event wakes it once, in the
+    // order the window system produced them, so JonesMain_OnAppActivate sees the loss and then the
+    // regain the way the Win32 WM_ACTIVATE handling delivered them.
+    pPlatform->pushEvent(babylon::platform::WindowFocusChanged{ pWindow->id(), false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_ProcessEvents());
+    TEST_ASSERT_EQUAL_INT(1, numActivateLog);
+    TEST_ASSERT_EQUAL_INT(0, aActivateLog[0]);
+
+    pPlatform->pushEvent(babylon::platform::WindowFocusChanged{ pWindow->id(), true });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_ProcessEvents());
+    TEST_ASSERT_EQUAL_INT(2, numActivateLog);
+    TEST_ASSERT_EQUAL_INT(1, aActivateLog[1]);
+
+    // The focus loss released every held key through the pump, so no input sticks while another
+    // window has focus.
+    pPlatform->pushEvent(babylon::platform::KeyChanged{ pWindow->id(), babylon::platform::Key::W,
+        true, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_TRUE(stdBabylonEvents_InputState().keyDown(babylon::platform::Key::W));
+    pPlatform->pushEvent(babylon::platform::WindowFocusChanged{ pWindow->id(), false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_FALSE(stdBabylonEvents_InputState().keyDown(babylon::platform::Key::W));
+}
+
 TEST(wkernelBabylon, SetActivateCallbackReturnsThePreviousOne)
 {
     // The same answer pattern as wkernel_SetProcessProc: the setter hands back what it replaced.
@@ -177,6 +203,25 @@ TEST(wkernelBabylon, SetWindowSizeResizesTheGameWindowAndAnswersSuccess)
     const babylon::platform::Size size = pWindow->size();
     TEST_ASSERT_EQUAL_INT(800, size.width);
     TEST_ASSERT_EQUAL_INT(600, size.height);
+}
+
+TEST(wkernelBabylon, WindowStylesDriveTheGameWindowFullscreenMode)
+{
+    // The Win32 styles set WS_OVERLAPPEDWINDOW and WS_POPUP; the Babylon answer is the window's
+    // windowed/fullscreen mode. The two calls are idempotent and leave the mode as asked.
+    TEST_ASSERT_FALSE(pWindow->fullscreen());
+
+    wkernel_SetFullscreenStyle();
+    TEST_ASSERT_TRUE(pWindow->fullscreen());
+
+    wkernel_SetFullscreenStyle();
+    TEST_ASSERT_TRUE(pWindow->fullscreen());
+
+    wkernel_SetWindowedStyle();
+    TEST_ASSERT_FALSE(pWindow->fullscreen());
+
+    wkernel_SetWindowedStyle();
+    TEST_ASSERT_FALSE(pWindow->fullscreen());
 }
 
 TEST(wkernelBabylon, IntroSkipCallbackTakesTheIntroWindowProcSkipKeys)
@@ -246,7 +291,9 @@ TEST_GROUP_RUNNER(wkernelBabylon)
     RUN_TEST_CASE(wkernelBabylon, GameWindowCloseAnswersQuitAndDeliversNoFocus);
     RUN_TEST_CASE(wkernelBabylon, OtherWindowCloseAndInputAnswerNoQuit);
     RUN_TEST_CASE(wkernelBabylon, ProcessEventsWakesOnTheFirstEvent);
+    RUN_TEST_CASE(wkernelBabylon, ProcessEventsDeliversFocusLossThenRegainInOrder);
     RUN_TEST_CASE(wkernelBabylon, SetActivateCallbackReturnsThePreviousOne);
     RUN_TEST_CASE(wkernelBabylon, SetWindowSizeResizesTheGameWindowAndAnswersSuccess);
+    RUN_TEST_CASE(wkernelBabylon, WindowStylesDriveTheGameWindowFullscreenMode);
     RUN_TEST_CASE(wkernelBabylon, IntroSkipCallbackTakesTheIntroWindowProcSkipKeys);
 }

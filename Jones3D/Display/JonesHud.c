@@ -2660,6 +2660,21 @@ void JonesHud_InitializeMenuSounds(void)
     }
 }
 
+// Added: play the HUD menu's own sound for a Babylon UI sound cue.
+void J3DAPI JonesHud_PlayMenuSoundCue(int cueIdx)
+{
+    if ( cueIdx < 0 || (size_t)cueIdx >= STD_ARRAYLEN(JonesHud_aSoundFxHandles) )
+    {
+        return;
+    }
+
+    const tSoundHandle hSnd = JonesHud_aSoundFxHandles[cueIdx];
+    if ( hSnd )
+    {
+        JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(hSnd, 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
+    }
+}
+
 JonesHudMenuItem* J3DAPI JonesHud_NewMenuItem(rdModel3* pItemIcon3)
 {
     JonesHudMenuItem* pMenuItem = (JonesHudMenuItem*)STDMALLOC(sizeof(JonesHudMenuItem));

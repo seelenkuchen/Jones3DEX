@@ -21,6 +21,7 @@
 #include <babylon/files/SdlFileSystem.h>
 #include <babylon/platform/Event.h>
 #include <babylon/platform/Keys.h>
+#include <babylon/platform/NullPlatform.h>
 #include <babylon/platform/Platform.h>
 #include <babylon/platform/Window.h>
 #include <babylon/time/NullClock.h>
@@ -33,6 +34,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiSoundSettings.h>
+#include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 
 #include <sound/Driver.h>
 #include <sound/DriverOutput.h>
@@ -48,6 +50,7 @@
 #include <sith/World/sithWeapon.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonEvents.h>
 #include <std/General/std.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdJSON.h>
@@ -94,6 +97,10 @@ namespace
         std_g_pHS  = &g_hostServices;
         sith_g_pHS = &g_hostServices;
     }
+
+    // Added: JonesWindowMode.cpp updates this struct through the real JonesMain; this executable
+    // does not link the game layer, so the case reads the same storage through the stub.
+    JonesDisplaySettings g_windowModeSettings;
 
     bool J3DAPI ConfigFallbackHasStarted(void)
     {
@@ -344,6 +351,12 @@ namespace
     }
 }
 
+// Added: the real getter lives in Jones3D/Main/JonesMain.c, which this executable does not link.
+extern "C" JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
+{
+    return &g_windowModeSettings;
+}
+
 TEST_CASE("the display resolution list is deduplicated by size")
 {
     StdDisplayEnvironment env;
@@ -494,6 +507,62 @@ TEST_CASE("the display screen back writes nothing")
     CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, false));
     CHECK(sithModel_IsHiPolyEnabled());
     CHECK(sithRender_g_fogDensity == doctest::Approx(100.0f));
+}
+
+TEST_CASE("Alt+Enter toggles fullscreen and writes graphics.window")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    g_windowModeSettings = JonesDisplaySettings{};
+    platform::NullPlatform nullPlatform;
+    std::unique_ptr<platform::Window> pWindow = nullPlatform.createWindow(
+        platform::WindowDesc{ "window mode", platform::Size{ 640, 480 }, false });
+    REQUIRE(pWindow != nullptr);
+
+    // Point the shared pump at a Null window for this case, so the focus/quit recording and the
+    // input state are the same as in the windowed run.
+    testContext.context.pPlatform = &nullPlatform;
+    testContext.context.pWindow   = pWindow.get();
+
+    // Clear the keys and the hotkey's Enter edge left by earlier cases.
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::Enter, false, false });
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::KeypadEnter, false, false });
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::LeftAlt, false, false });
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::RightAlt, false, false });
+    REQUIRE(stdBabylonEvents_Pump() == 4u);
+    CHECK_FALSE(JonesWindowMode_HandleHotkey());
+    REQUIRE_FALSE(pWindow->fullscreen());
+
+    // Alt then Enter goes fullscreen and the persisted key says not windowed.
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::LeftAlt, true, false });
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::Enter, true, false });
+    REQUIRE(stdBabylonEvents_Pump() == 2u);
+    CHECK(JonesWindowMode_HandleHotkey());
+    CHECK(pWindow->fullscreen());
+    CHECK(g_windowModeSettings.bWindowMode == 0);
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, true));
+
+    // A held Enter toggles once; releasing and pressing it again returns to windowed.
+    CHECK_FALSE(JonesWindowMode_HandleHotkey());
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::Enter, false, false });
+    REQUIRE(stdBabylonEvents_Pump() == 1u);
+    CHECK_FALSE(JonesWindowMode_HandleHotkey());
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::Enter, true, false });
+    REQUIRE(stdBabylonEvents_Pump() == 1u);
+    CHECK(JonesWindowMode_HandleHotkey());
+    CHECK_FALSE(pWindow->fullscreen());
+    CHECK(g_windowModeSettings.bWindowMode == 1);
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
+
+    // Release the chord, so a later case does not see Alt or Enter held.
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::Enter, false, false });
+    nullPlatform.pushEvent(platform::KeyChanged{ pWindow->id(), platform::Key::LeftAlt, false, false });
+    REQUIRE(stdBabylonEvents_Pump() == 2u);
+    CHECK_FALSE(JonesWindowMode_HandleHotkey());
+
+    testContext.context.pPlatform = &testContext.platform;
+    testContext.context.pWindow   = nullptr;
 }
 
 TEST_CASE("the sound device list starts with the system default")
