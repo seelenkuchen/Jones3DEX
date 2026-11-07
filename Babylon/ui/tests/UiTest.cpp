@@ -580,6 +580,129 @@ TEST_CASE("binding capture handles key, mouse, gamepad button and axis")
     }
 }
 
+TEST_CASE("binding capture accepts every gamepad axis")
+{
+    auto captureAxis = [](platform::GamepadAxis axis, float value)
+    {
+        NullPainter painter;
+        cvars::Registry registry;
+        Ui ui(painter, registry);
+        Screen screen;
+        screen.title = "Bind";
+        screen.widgets = { BindingCapture{ "Axis", true } };
+        REQUIRE(ui.push(screen) != kInvalidScreen);
+
+        tap(ui, platform::Key::Enter);
+        ui.handleEvent(platform::Event(padAxisEvent(axis, value)));
+        return drain(ui);
+    };
+
+    SUBCASE("right stick X reports both directions")
+    {
+        const std::vector<UiEvent> right = captureAxis(platform::GamepadAxis::RightX, 0.9f);
+        const BindingCaptured* captured = findEvent<BindingCaptured>(right);
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.kind == BindingKind::GamepadAxis);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightX);
+        CHECK(captured->binding.axisDirection == 1.0f);
+
+        const std::vector<UiEvent> left = captureAxis(platform::GamepadAxis::RightX, -0.9f);
+        captured = findEvent<BindingCaptured>(left);
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightX);
+        CHECK(captured->binding.axisDirection == -1.0f);
+    }
+
+    SUBCASE("right stick Y reports both directions")
+    {
+        const std::vector<UiEvent> up = captureAxis(platform::GamepadAxis::RightY, 0.9f);
+        const BindingCaptured* captured = findEvent<BindingCaptured>(up);
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightY);
+        CHECK(captured->binding.axisDirection == 1.0f);
+
+        const std::vector<UiEvent> down = captureAxis(platform::GamepadAxis::RightY, -0.9f);
+        captured = findEvent<BindingCaptured>(down);
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightY);
+        CHECK(captured->binding.axisDirection == -1.0f);
+    }
+
+    SUBCASE("the triggers report their positive direction")
+    {
+        std::vector<UiEvent> events = captureAxis(platform::GamepadAxis::LeftTrigger, 0.9f);
+        const BindingCaptured* captured = findEvent<BindingCaptured>(events);
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::LeftTrigger);
+        CHECK(captured->binding.axisDirection == 1.0f);
+
+        events = captureAxis(platform::GamepadAxis::RightTrigger, 0.9f);
+        captured = findEvent<BindingCaptured>(events);
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightTrigger);
+        CHECK(captured->binding.axisDirection == 1.0f);
+    }
+
+    SUBCASE("a trigger below the threshold without crossing does not report")
+    {
+        std::vector<UiEvent> events = captureAxis(platform::GamepadAxis::LeftTrigger, -0.9f);
+        CHECK(findEvent<BindingCaptured>(events) == nullptr);
+        events = captureAxis(platform::GamepadAxis::RightTrigger, 0.49f);
+        CHECK(findEvent<BindingCaptured>(events) == nullptr);
+    }
+
+    SUBCASE("an axis resting near the threshold does not report until it crosses")
+    {
+        NullPainter painter;
+        cvars::Registry registry;
+        Ui ui(painter, registry);
+        Screen screen;
+        screen.title = "Bind";
+        screen.widgets = { BindingCapture{ "Axis", true } };
+        REQUIRE(ui.push(screen) != kInvalidScreen);
+
+        tap(ui, platform::Key::Enter);
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.49f)));
+        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightY, -0.49f)));
+        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+
+        // The axis captures only once it crosses the threshold.
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightY, -0.9f)));
+        const BindingCaptured* captured = findEvent<BindingCaptured>(drain(ui));
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightY);
+        CHECK(captured->binding.axisDirection == -1.0f);
+    }
+
+    SUBCASE("an axis already held when capture starts is ignored until it returns")
+    {
+        NullPainter painter;
+        cvars::Registry registry;
+        Ui ui(painter, registry);
+        Screen screen;
+        screen.title = "Bind";
+        screen.widgets = { BindingCapture{ "Axis", true } };
+        REQUIRE(ui.push(screen) != kInvalidScreen);
+
+        // The right stick is already past the threshold when capture starts.
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.9f)));
+        tap(ui, platform::Key::Enter);
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.9f)));
+        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+
+        // It returns to rest and then crosses the other way.
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, 0.0f)));
+        CHECK(findEvent<BindingCaptured>(drain(ui)) == nullptr);
+        ui.handleEvent(platform::Event(padAxisEvent(platform::GamepadAxis::RightX, -0.9f)));
+        const BindingCaptured* captured = findEvent<BindingCaptured>(drain(ui));
+        REQUIRE(captured != nullptr);
+        CHECK(captured->binding.axis == platform::GamepadAxis::RightX);
+        CHECK(captured->binding.axisDirection == -1.0f);
+    }
+}
+
 TEST_CASE("keys held when capture starts are ignored")
 {
     NullPainter painter;

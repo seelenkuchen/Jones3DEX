@@ -38,6 +38,11 @@ namespace
 {
     constexpr float kCanvasHeight = 480.0f;
     constexpr float kColumnGap = 8.0f;
+
+    // The magnitude a gamepad axis must reach to be reported by a binding capture. It is a fixed
+    // rule, independent of NavigationMap::axisThreshold: capture accepts every gamepad axis, not
+    // only the two the navigation map uses.
+    constexpr float kCaptureAxisThreshold = 0.5f;
     constexpr std::size_t kListVisibleRows = 5;
     constexpr double kAxisInitialDelay = 0.35;
     constexpr double kAxisRepeatRate = 0.10;
@@ -274,6 +279,11 @@ struct Ui::State
 
     AxisState horizontalAxis;
     AxisState verticalAxis;
+
+    // The last capture direction of every gamepad axis, so an axis already past the capture
+    // threshold when capture starts is ignored until it returns to rest.
+    std::array<int, static_cast<std::size_t>(platform::GamepadAxis::RightTrigger) + 1>
+        gamepadAxisDirections = {};
 
     // The layout and hit helpers below only read the top screen and the
     // painter's measurements; they never change UI state.
@@ -1560,6 +1570,26 @@ struct Ui::State
         return 0;
     }
 
+    // The capture rule for every axis: sticks report either half, the triggers rest at 0 and only
+    // report their positive half. 0 is at rest or below the threshold.
+    static int captureAxisDirection(platform::GamepadAxis axis, float value)
+    {
+        if ( axis == platform::GamepadAxis::LeftTrigger
+            || axis == platform::GamepadAxis::RightTrigger )
+        {
+            return value >= kCaptureAxisThreshold ? 1 : 0;
+        }
+        if ( value >= kCaptureAxisThreshold )
+        {
+            return 1;
+        }
+        if ( value <= -kCaptureAxisThreshold )
+        {
+            return -1;
+        }
+        return 0;
+    }
+
     void fireAxis(bool horizontal, int direction)
     {
         ScreenState* state = top();
@@ -1579,6 +1609,45 @@ struct Ui::State
 
     void handleAxis(const platform::GamepadAxisMoved& axis)
     {
+        const std::size_t axisIndex = static_cast<std::size_t>(axis.axis);
+        if ( axisIndex >= gamepadAxisDirections.size() )
+        {
+            return;
+        }
+
+        ScreenState* screen = top();
+        const int captureDirection = captureAxisDirection(axis.axis, axis.value);
+        const int previousDirection = gamepadAxisDirections[axisIndex];
+        gamepadAxisDirections[axisIndex] = captureDirection;
+
+        if ( screen != nullptr && screen->capturing )
+        {
+            // Keep the navigation axes quiet once capture ends: a stick still held past the
+            // capture threshold must not then navigate the screen.
+            if ( axis.axis == navigation.horizontalAxis )
+            {
+                horizontalAxis.direction = captureDirection;
+                horizontalAxis.held = 0.0;
+                horizontalAxis.repeating = false;
+            }
+            else if ( axis.axis == navigation.verticalAxis )
+            {
+                verticalAxis.direction = captureDirection;
+                verticalAxis.held = 0.0;
+                verticalAxis.repeating = false;
+            }
+
+            if ( captureDirection != 0 && previousDirection == 0 )
+            {
+                setBinding(*screen, Binding{ BindingKind::GamepadAxis, platform::Key::Unknown,
+                    platform::MouseButton::Left, platform::GamepadButton::South, axis.axis,
+                    static_cast<float>(captureDirection) });
+            }
+
+            return;
+        }
+
+        // Outside capture only the navigation map's two axes move focus.
         if ( axis.axis != navigation.horizontalAxis
             && axis.axis != navigation.verticalAxis )
         {
@@ -1587,19 +1656,6 @@ struct Ui::State
         AxisState& state = axis.axis == navigation.horizontalAxis
             ? horizontalAxis : verticalAxis;
         const int direction = axisDirection(axis.axis, axis.value);
-
-        ScreenState* screen = top();
-        if ( screen != nullptr && screen->capturing && direction != 0
-            && state.direction == 0 )
-        {
-            state.direction = direction;
-            state.held = 0.0;
-            state.repeating = false;
-            setBinding(*screen, Binding{ BindingKind::GamepadAxis, platform::Key::Unknown,
-                platform::MouseButton::Left, platform::GamepadButton::South, axis.axis,
-                static_cast<float>(direction) });
-            return;
-        }
 
         if ( direction == state.direction )
         {
