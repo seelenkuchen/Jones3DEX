@@ -11,6 +11,7 @@ add_executable(Jones3DUiPainterTests
     JonesUiEndScreensTest.cpp
     JonesUiSettingsTest.cpp
     JonesUiPauseMenuTest.cpp
+    JonesUiStoreTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
@@ -23,6 +24,7 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPauseMenu.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiGameplaySettings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiStore.cpp"
     # Added: the two application-layer modules the Gameplay screen calls. The rest of the game
     # layer is not linked, so the test needs only what these two compile units use.
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../Display/JonesReticle.c"

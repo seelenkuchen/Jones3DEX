@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cstdarg>
+#include <deque>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +43,7 @@
 #include <babylon/ui/Ui.h>
 #include <babylon/ui/Widget.h>
 
+#include <Jones3D/Display/JonesHudConstants.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
@@ -51,6 +53,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
+#include <Jones3D/Platform/Babylon/JonesUiStore.h>
 
 #include <rdroid/Main/rdroid.h>
 #include <rdroid/Primitives/rdFont.h>
@@ -387,6 +390,66 @@ namespace
     private:
         int m_emptyPolls  = 1;
         bool m_sendClose  = true;
+    };
+
+    // A platform for the store sample: one empty frame first, then queued events one frame each
+    // (each event followed by an empty poll to end its frame). The store sample needs the store
+    // drawn, closed by back (which prompts), answered No, drawn again, and then closed by a quit.
+    class StoreSamplePlatform final : public platform::Platform
+    {
+    public:
+        std::unique_ptr<platform::Window> createWindow(const platform::WindowDesc&) override
+        {
+            return nullptr;
+        }
+
+        std::optional<platform::Event> pollEvent() override
+        {
+            if ( m_delivering )
+            {
+                m_delivering = false;
+                return std::nullopt;
+            }
+
+            if ( m_emptyPolls > 0 )
+            {
+                --m_emptyPolls;
+                return std::nullopt;
+            }
+
+            if ( m_events.empty() )
+            {
+                return std::nullopt;
+            }
+
+            m_delivering = true;
+            platform::Event event = m_events.front();
+            m_events.pop_front();
+            return event;
+        }
+
+        bool showMessageBox(std::string_view, std::string_view) override
+        {
+            return false;
+        }
+
+        void PushKey(platform::Key key)
+        {
+            m_events.push_back(platform::Event{
+                platform::KeyChanged{ 1, key, true, false } });
+            m_events.push_back(platform::Event{
+                platform::KeyChanged{ 1, key, false, false } });
+        }
+
+        void PushQuit()
+        {
+            m_events.push_back(platform::Event{ platform::QuitRequested{} });
+        }
+
+    private:
+        std::deque<platform::Event> m_events;
+        int m_emptyPolls = 1;
+        bool m_delivering = false;
     };
 }
 
@@ -991,6 +1054,125 @@ TEST_CASE("the Jones level completed screen draws its statistics")
     MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
 
     // The panel is drawn, and the title and row text are the bright skin colors over it.
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    const Rgb titleColor = { ToByte(skin.title.r), ToByte(skin.title.g), ToByte(skin.title.b) };
+    size_t panelPixels = 0;
+    size_t titlePixels = 0;
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            const Rgb pixel = PixelAt(pixels, width, x, y);
+            if ( Near(pixel.r, panelColor.r) && Near(pixel.g, panelColor.g)
+                && Near(pixel.b, panelColor.b) )
+            {
+                ++panelPixels;
+            }
+
+            if ( Near(pixel.r, titleColor.r, 6) && Near(pixel.g, titleColor.g, 6)
+                && Near(pixel.b, titleColor.b, 6) )
+            {
+                ++titlePixels;
+            }
+        }
+    }
+    CHECK(panelPixels > 1000u);
+    CHECK(titlePixels > 20u);
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the Jones store screen draws its item list")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the store image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    StoreSamplePlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    int aState[kJonesStoreItemCount] = {};
+    for ( std::size_t item = 0; item < kJonesStoreItemCount; ++item )
+    {
+        aState[item] = (int)(((std::uint32_t)JonesHud_aStoreItems[item].menuID << 16)
+            | ((std::uint32_t)item << 4) | 1u);
+    }
+
+    // Draw the store, close it with back (the original's WM_CLOSE prompts), answer No so it
+    // reopens, let the reopened store draw, then quit to close it without another prompt.
+    platform.PushKey(platform::Key::Escape);
+    platform.PushKey(platform::Key::Escape);
+    platform.PushQuit();
+
+    int balance = 1200;
+    const int result = JonesUiStore_RunStoreScreen(ui, &painter, &balance, aState, 11);
+    CHECK(result == 2);
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    REQUIRE(width == 640u);
+    REQUIRE(height == 480u);
+
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::string bmpPath = "ui-store-sample.bmp";
+    REQUIRE(WriteBmp(bmpPath, width, height, pixels.data()));
+    MESSAGE("wrote " << std::filesystem::absolute(bmpPath).string());
+
+    // The panel is drawn, and the title is the bright skin title color over it.
     const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
     const Rgb titleColor = { ToByte(skin.title.r), ToByte(skin.title.g), ToByte(skin.title.b) };
     size_t panelPixels = 0;
