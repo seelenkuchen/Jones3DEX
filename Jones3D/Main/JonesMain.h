@@ -54,6 +54,10 @@ void JonesMain_ShowEndCredits(void);
 StdDisplayEnvironment* JonesMain_GetDisplayEnvironment(void);
 JonesDisplaySettings* JonesMain_GetDisplaySettings(void);
 
+// Added: the level whose load-screen map the main menu shows behind its panel: the level of the
+// last save the config remembers, or the first level when there is none. Never null.
+const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void);
+
 int JonesMain_CloseWindow(void);
 
 void JonesMain_RefreshDisplayDevice(void);

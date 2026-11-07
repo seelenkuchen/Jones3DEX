@@ -302,6 +302,12 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // Handle start mode
     int bSuccess    = 0;
     bool bPlayIntro = true;
+    bool bShowMainMenu = false; // Added: the menu needs the display, so it runs after startup (ADR-0026)
+    // Altered: the in-game Load, Sound and Display screens cannot run before the display opens,
+    // unlike the Win32 dialogs, so the windowed Babylon build defers them until then.
+    bool bShowLoadDialog        = false;
+    bool bShowSoundSettings     = false;
+    bool bShowDisplaySettings   = false;
     switch ( JonesMain_state.startMode )
     {
         case JONES_STARTMODE_STARTGAME:
@@ -319,6 +325,14 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         case JONES_STARTMODE_LOADGAME:
         {
+            // Altered: the in-game Load screen needs the display, so the windowed Babylon build
+            // runs it after startup; the other columns keep the original early dialog.
+            if ( jonesConfig_DefersStartMode(JONES_STARTMODE_LOADGAME) )
+            {
+                bShowLoadDialog = true;
+                break;
+            }
+
             if ( jonesConfig_GetLoadGameFilePath(stdWin95_GetWindow(), JonesMain_aNdsFilename) != 1 )
             {
                 return 1;
@@ -331,15 +345,34 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         case JONES_STARTMODE_SOUNDSETTINGS:
         {
+            // Altered: the in-game Sound screen needs the display; defer it in the windowed column.
+            if ( jonesConfig_DefersStartMode(JONES_STARTMODE_SOUNDSETTINGS) )
+            {
+                bShowSoundSettings = true;
+                break;
+            }
+
             bSuccess = jonesConfig_ShowSoundSettingsDialog(stdWin95_GetWindow(), &JonesMain_state.soundSettings);
             return 1; // exit
         }
 
         case JONES_STARTMODE_DISPLAYSETTINGS:
         {
+            // Altered: the in-game Display screen needs the display; defer it in the windowed column.
+            if ( jonesConfig_DefersStartMode(JONES_STARTMODE_DISPLAYSETTINGS) )
+            {
+                bShowDisplaySettings = true;
+                break;
+            }
+
             bSuccess = jonesConfig_ShowDisplaySettingsDialog(stdWin95_GetWindow(), JonesMain_pDisplayEnv, &JonesMain_state.displaySettings);
             return 1; // exit
         }
+
+        case JONES_STARTMODE_MAINMENU: // Added: shown once the display and sound are up
+        {
+            bShowMainMenu = true;
+        } break;
 
         default: // Developer dialog
         {
@@ -559,6 +592,56 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         JonesMain_CloseWindow();
         return 1;
+    }
+
+    // Altered: the windowed Babylon build runs the Load and settings start modes here, once the
+    // display and sound are up, exactly where the main menu runs. Their return values and exits
+    // match the original dialogs. The headless and Null columns never take these flags.
+    if ( bShowLoadDialog )
+    {
+        if ( jonesConfig_GetLoadGameFilePath(stdWin95_GetWindow(), JonesMain_aNdsFilename) != 1 )
+        {
+            return 1; // cancel exits, as the original did
+        }
+
+        // Skip intro video
+        bPlayIntro = false;
+    }
+    else if ( bShowSoundSettings )
+    {
+        bSuccess = jonesConfig_ShowSoundSettingsDialog(stdWin95_GetWindow(), &JonesMain_state.soundSettings);
+        return 1; // exit
+    }
+    else if ( bShowDisplaySettings )
+    {
+        bSuccess = jonesConfig_ShowDisplaySettingsDialog(stdWin95_GetWindow(), JonesMain_pDisplayEnv, &JonesMain_state.displaySettings);
+        return 1; // exit
+    }
+
+    // Added: the main menu replaces the launcher (ADR-0026). New Game takes the start path of
+    // mode 0 with the first level and plays the intro; Load takes the load path of mode 1 and
+    // skips it; Quit exits like the developer dialog's cancel.
+    if ( bShowMainMenu )
+    {
+        const int menuResult = jonesConfig_ShowMainMenu(stdWin95_GetWindow(), &JonesMain_state,
+            JonesMain_aNdsFilename);
+        if ( menuResult == JONES_MAINMENU_NEWGAME )
+        {
+            JonesMain_state.startMode = JONES_STARTMODE_STARTGAME;
+            JonesMain_curLevelNum     = JONESLEVEL_FIRSTLEVELNUM;
+            STD_STRCPY(JonesMain_state.aCurLevelFilename,
+                JonesMain_aCndLevelLoadInfos[JonesMain_curLevelNum].pFilename);
+            bPlayIntro = true;
+        }
+        else if ( menuResult == JONES_MAINMENU_LOADGAME )
+        {
+            JonesMain_state.startMode = JONES_STARTMODE_LOADGAME;
+            bPlayIntro = false;
+        }
+        else
+        {
+            return 1; // quit
+        }
     }
 
     // Play intro video
@@ -1729,6 +1812,31 @@ JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
     return &JonesMain_state.displaySettings;
 }
 
+// Added: the level whose load-screen map the main menu shows behind its panel (ADR-0026).
+const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void)
+{
+    char aSavePath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+    stdConfig_GetString(SITHSAVEGAME_CFG_GAMEPLAY_LASTSAVEGAME, aSavePath,
+        STD_ARRAYLEN(aSavePath), "");
+    if ( aSavePath[0] )
+    {
+        char aLevelFilename[64] = { 0 };
+        if ( sithGamesave_LoadLevelFilename(aSavePath, aLevelFilename) == 0 )
+        {
+            for ( size_t cur = JONESLEVEL_FIRSTLEVELNUM; cur < JONESLEVEL_NUMLEVELS; ++cur )
+            {
+                const JonesLevelInfo* pLevel = &JonesMain_aCndLevelLoadInfos[cur];
+                if ( pLevel->pFilename && streqi(aLevelFilename, pLevel->pFilename) )
+                {
+                    return pLevel;
+                }
+            }
+        }
+    }
+
+    return &JonesMain_aCndLevelLoadInfos[JONESLEVEL_FIRSTLEVELNUM];
+}
+
 int JonesMain_CloseWindow(void)
 {
     return JonesMainSys_PostCloseMessage(); // Altered: PostMessage moved to JonesMainSys_PostCloseMessage
@@ -2422,8 +2530,12 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
     sithRender_g_fogDensity = pConfig->displaySettings.fogDensity * 100.0f;
 
     pConfig->bDevMode  = stdConfig_GetBool(JONESCONFIG_CFG_DEVMODE, false);
+    // Added: the windowed Babylon build has no launcher and no developer dialog, so a missing
+    // startMode or 2 opens the main menu; the other columns keep their values (ADR-0026).
+    const int bHasStartMode = stdConfig_Contains(JONESCONFIG_CFG_STARTMODE);
     pConfig->startMode = stdConfig_GetInt(JONESCONFIG_CFG_STARTMODE, JONES_STARTMODE_DEVELOPERDIALOG);
-    pConfig->startMode = STDMATH_CLAMP(pConfig->startMode, JONES_STARTMODE_STARTGAME, JONES_STARTMODE_DISPLAYSETTINGS);
+    pConfig->startMode = jonesConfig_ResolveStartMode(pConfig->startMode, bHasStartMode);
+    pConfig->startMode = STDMATH_CLAMP(pConfig->startMode, JONES_STARTMODE_STARTGAME, JONES_STARTMODE_MAINMENU);
 
     pConfig->outputMode = stdConfig_GetInt(JONESCONFIG_CFG_LOG_MODE, JONES_OUTPUTMODE_NONE);
     pConfig->logLevel   = stdConfig_GetInt(JONESCONFIG_CFG_LOG_LEVEL, JONES_LOGLEVEL_NORMAL);
