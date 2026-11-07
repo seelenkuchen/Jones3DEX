@@ -42,6 +42,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiContext.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSaveLoad.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSaveLoad.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiEndScreens.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiEndScreens.h"
 )
 
 # Added: the Null message/insert-CD stubs, split from JonesPlatformNull.c so the Babylon column
@@ -56,6 +58,12 @@ set(JONES3D_NULL_SAVELOAD_DIALOG_SOURCE
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullSaveLoad.c"
 )
 
+# Added: the Null statistics/level-completed/game-over stubs, split from JonesPlatformNull.c so
+# the Babylon column can provide its in-game screens for exactly those three.
+set(JONES3D_NULL_ENDSCREENS_DIALOG_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullEndScreens.c"
+)
+
 # Added: the Babylon column swaps the Null main() for the Platform/Babylon composition root.
 set(JONES3D_HEADLESS_SOURCES ${JONES3D_NULL_SOURCES})
 if (J3D_PLATFORM_BABYLON)
@@ -65,6 +73,7 @@ if (J3D_PLATFORM_BABYLON)
     # they answer the Null value without blocking, so the Null stub file must not be linked.
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_MESSAGE_DIALOG_SOURCE}")
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_SAVELOAD_DIALOG_SOURCE}")
+    list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_ENDSCREENS_DIALOG_SOURCE}")
     list(APPEND JONES3D_HEADLESS_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/main.cpp"
         ${JONES3D_BABYLON_UI_SOURCES}
@@ -125,7 +134,8 @@ if (J3D_PLATFORM_BABYLON)
     foreach(JONES3D_NULL_SOURCE ${JONES3D_NULL_SOURCES})
         if (NOT JONES3D_NULL_SOURCE MATCHES "/Platform/Null/(main|JonesHeadless)\\.c$"
             AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_MESSAGE_DIALOG_SOURCE}"
-            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_SAVELOAD_DIALOG_SOURCE}")
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_SAVELOAD_DIALOG_SOURCE}"
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_ENDSCREENS_DIALOG_SOURCE}")
             list(APPEND JONES3D_WINDOWED_SOURCES ${JONES3D_NULL_SOURCE})
         endif()
     endforeach()
