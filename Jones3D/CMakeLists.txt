@@ -35,6 +35,15 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModalMessage.cpp"
+)
+
+# Added: the Null message/insert-CD stubs, split from JonesPlatformNull.c so the Babylon column
+# can provide its in-game screens for exactly those two and keep the other Null stubs.
+set(JONES3D_NULL_MESSAGE_DIALOG_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/JonesPlatformNullMessageDialog.c"
 )
 
 # Added: the Babylon column swaps the Null main() for the Platform/Babylon composition root.
@@ -42,6 +51,9 @@ set(JONES3D_HEADLESS_SOURCES ${JONES3D_NULL_SOURCES})
 if (J3D_PLATFORM_BABYLON)
     enable_language(CXX)
     list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Null/main.c")
+    # Added: the Babylon headless runner uses the Babylon message screens too; with no window
+    # they answer the Null value without blocking, so the Null stub file must not be linked.
+    list(REMOVE_ITEM JONES3D_HEADLESS_SOURCES "${JONES3D_NULL_MESSAGE_DIALOG_SOURCE}")
     list(APPEND JONES3D_HEADLESS_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/main.cpp"
         ${JONES3D_BABYLON_UI_SOURCES}
@@ -100,7 +112,8 @@ if (J3D_PLATFORM_BABYLON)
         ${JONES3D_BABYLON_UI_SOURCES}
     )
     foreach(JONES3D_NULL_SOURCE ${JONES3D_NULL_SOURCES})
-        if (NOT JONES3D_NULL_SOURCE MATCHES "/Platform/Null/(main|JonesHeadless)\\.c$")
+        if (NOT JONES3D_NULL_SOURCE MATCHES "/Platform/Null/(main|JonesHeadless)\\.c$"
+            AND NOT JONES3D_NULL_SOURCE STREQUAL "${JONES3D_NULL_MESSAGE_DIALOG_SOURCE}")
             list(APPEND JONES3D_WINDOWED_SOURCES ${JONES3D_NULL_SOURCE})
         endif()
     endforeach()

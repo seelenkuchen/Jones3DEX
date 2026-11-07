@@ -241,6 +241,17 @@ TEST_CASE("The Null platform honors the Platform contract")
     checkPlatformContract(platform);
 }
 
+TEST_CASE("The Null platform logs a message box and answers false")
+{
+    NullPlatform platform;
+    CaptureSink sink;
+
+    CHECK_FALSE(platform.showMessageBox("Babylon test", "No display here"));
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == Level::Warning);
+    CHECK(sink.records()[0].message == "Babylon test: No display here");
+}
+
 TEST_CASE("The SDL platform honors the Platform contract")
 {
     // SDL's offscreen video driver on Linux, the dummy driver on macOS, set

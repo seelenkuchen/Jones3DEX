@@ -10,6 +10,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace babylon::platform
 {
@@ -32,6 +33,11 @@ namespace babylon::platform
         // Appends an event to the queue (FIFO). pushEvent() followed by
         // pollEvent() hands back a copy of the event.
         void pushEvent(const Event& event);
+
+        // There is no native window system here, so the title and text go to
+        // one babylon::log::warning line and nothing blocks.
+        [[nodiscard]] bool showMessageBox(std::string_view title,
+            std::string_view text) override;
 
     private:
         // The id the next created window gets. 0 is never handed out, as the

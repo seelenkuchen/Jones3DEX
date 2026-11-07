@@ -18,6 +18,7 @@
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_keyboard.h>
+#include <SDL3/SDL_messagebox.h>
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_video.h>
 
@@ -243,6 +244,23 @@ namespace
                 // changes, sensors, audio devices, unmapped buttons) is
                 // dropped here and the search continues.
             }
+        }
+
+        bool showMessageBox(std::string_view title, std::string_view text) override
+        {
+            // SDL wants NUL-terminated strings; the views are copied rather
+            // than read past their ends. No parent window, as the interface
+            // says, so the box is not tied to one game window.
+            const std::string aTitle(title);
+            const std::string aText(text);
+            if ( !SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, aTitle.c_str(),
+                    aText.c_str(), nullptr) )
+            {
+                log::warning("platform: could not show the message box '{}': {}",
+                    aTitle, SDL_GetError());
+                return false;
+            }
+            return true;
         }
 
     private:

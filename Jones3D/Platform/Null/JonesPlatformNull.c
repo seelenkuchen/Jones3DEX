@@ -25,11 +25,6 @@
 
 #include <wkernel/wkernel.h>
 
-// Altered: Answers IDCANCEL (2), the value Windows dialogs hand back when the user
-// cancels (WM_CLOSE/Cancel all call EndDialog(hwnd, 2) in jonesConfig.c). Callers treat
-// everything but their success codes as cancel, so the Null dialogs always cancel.
-#define JONESPLATFORM_NULL_IDCANCEL 2
-
 // JonesMainSys_*: the Win32 message services moved out of JonesMain.c.
 
 void JonesMainSys_StartQuickSaveTimer(tSysWindow hWnd)
@@ -230,15 +225,6 @@ int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     return JONESPLATFORM_NULL_IDCANCEL;
 }
 
-int J3DAPI jonesConfig_ShowDialogInsertCD(tSysWindow hWnd, intptr_t dwInitParam)
-{
-    J3D_UNUSED(hWnd);
-    J3D_UNUSED(dwInitParam);
-    // Altered: The Windows "insert CD" prompt cancels with EndDialog(hwnd, 2); callers
-    // treat the cancel answer as "do not retry, exit".
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
 int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd, StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pDSettings)
 {
     J3D_UNUSED(hWnd);
@@ -290,17 +276,6 @@ int J3DAPI jonesConfig_ShowLevelCompletedDialog(tSysWindow hWnd, int* pBalance, 
     J3D_UNUSED(totalTreasureValue);
     // Altered: The Windows store dialog answers 1 when the bonus map was bought; the
     // Null dialog cancels, so no store purchases and no bonus map happen.
-    return JONESPLATFORM_NULL_IDCANCEL;
-}
-
-int J3DAPI jonesConfig_ShowMessageDialog(tSysWindow hWnd, const char* pTitle, const char* pText, int iconID)
-{
-    J3D_UNUSED(hWnd);
-
-    // Added: The Windows message dialog shows an icon, title and text; the text is
-    // mirrored to stderr, and the cancel answer (EndDialog(hwnd, 2) of the WM_CLOSE
-    // handler in jonesConfig.c MessageDialogProc) is returned.
-    fprintf(stderr, "%s: %s\n", pTitle ? pTitle : "", pText ? pText : "");
     return JONESPLATFORM_NULL_IDCANCEL;
 }
 

@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <deque>
 #include <optional>
+#include <vector>
 
 #include "stdBabylon.h"
 
@@ -19,6 +20,9 @@ namespace
 {
     // The state every pumped event goes into; owned here, read through stdBabylonEvents_InputState().
     babylon::input::InputState inputState;
+
+    // The events the last pump took, for consumers that need the raw records (the modal ui loop).
+    std::vector<babylon::platform::Event> lastEvents;
 
     // True while a recorded quit or game-window close waits to be taken by the window adapter.
     bool quitRequested = false;
@@ -33,6 +37,7 @@ std::size_t stdBabylonEvents_Pump()
 
     const babylon::platform::WindowId windowId = rContext.pWindow ? rContext.pWindow->id() : 0;
 
+    lastEvents.clear();
     std::size_t numEvents = 0;
     for ( ;; )
     {
@@ -43,6 +48,7 @@ std::size_t stdBabylonEvents_Pump()
         }
 
         ++numEvents;
+        lastEvents.push_back(*pEvent);
 
         // Events that carry no input (window, quit) are ignored by InputState, except the focus
         // loss, which releases every held key and button.
@@ -83,6 +89,16 @@ babylon::input::InputState& stdBabylonEvents_InputState()
     return inputState;
 }
 
+const std::vector<babylon::platform::Event>& stdBabylonEvents_LastEvents()
+{
+    return lastEvents;
+}
+
+bool stdBabylonEvents_PeekQuitRequest()
+{
+    return quitRequested;
+}
+
 bool stdBabylonEvents_TakeQuitRequest()
 {
     const bool bQuit = quitRequested;
@@ -106,6 +122,7 @@ std::optional<bool> stdBabylonEvents_TakeFocusChange()
 void stdBabylonEvents_ResetForTest()
 {
     inputState = babylon::input::InputState();
+    lastEvents.clear();
     quitRequested = false;
     focusChanges.clear();
 }
