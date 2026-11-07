@@ -156,12 +156,16 @@ namespace babylon::ui
     };
 
     // A row that, when accepted, enters capture mode. The next key press,
-    // gamepad button press, gamepad axis that crosses the navigation
-    // threshold, or mouse button press is reported once as a
-    // BindingCaptured event and capture ends. The back key cancels capture
-    // without reporting; keys and buttons already down when capture starts
-    // are ignored. The row shows text until capture starts, then a prompt
-    // the module supplies. A disabled row is skipped by focus and does not
+    // gamepad button press, gamepad axis that crosses the capture threshold
+    // (half of full deflection), or mouse button press is reported once as a
+    // BindingCaptured event and capture ends. Every gamepad axis is captured,
+    // not only the two the navigation map uses: a stick reports the positive
+    // or negative half, and a trigger, which rests at 0, reports its positive
+    // half only. An axis already past the threshold when capture starts is
+    // ignored until it returns below it. The back key cancels capture without
+    // reporting; keys and buttons already down when capture starts are
+    // ignored. The row shows text until capture starts, then a prompt the
+    // module supplies. A disabled row is skipped by focus and does not
     // respond to pointer input.
     struct BindingCapture
     {
