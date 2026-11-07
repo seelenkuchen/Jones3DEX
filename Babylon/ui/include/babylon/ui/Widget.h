@@ -69,7 +69,8 @@ namespace babylon::ui
 
     // An on/off row. When cvar is non-empty it is bound to a bool cvar:
     // the row shows the cvar's value and writes the opposite value on
-    // accept. When cvar is empty the row keeps its value in the screen.
+    // accept. When cvar is empty the row keeps its value in the screen,
+    // starting from value.
     // Every user change reports ValueChanged with a bool; a disabled row is
     // skipped by focus and does not respond to pointer input.
     struct Toggle
@@ -77,6 +78,7 @@ namespace babylon::ui
         std::string text;      // UTF-8 label, drawn left of the value
         std::string cvar;      // cvar name, empty for an unbound toggle
         bool enabled = true;   // false draws and navigates as disabled
+        bool value = false;    // initial value, used when cvar is empty
     };
 
     // A numeric row adjusted with left/right, a click on either half, or
@@ -90,7 +92,8 @@ namespace babylon::ui
     // a value outside the cvar's range is never written. step is the
     // increment of one key or click; 0 means one hundredth of the effective
     // range (and at least 1 for an int cvar). A negative step or min > max
-    // makes Ui::push reject the screen.
+    // makes Ui::push reject the screen. When cvar is empty the row starts
+    // from value, clamped to min..max.
     //
     // Every user change reports ValueChanged with a double, even when the
     // bound cvar is an int. A disabled row is skipped by focus and does not
@@ -103,6 +106,7 @@ namespace babylon::ui
         double max = 1.0;      // inclusive upper bound, widget units
         double step = 0.0;     // increment per change, 0 = automatic
         bool enabled = true;   // false draws and navigates as disabled
+        double value = 0.0;    // initial value, clamped to min..max
     };
 
     // One of a fixed list of options, adjusted with left/right. When cvar
@@ -110,16 +114,17 @@ namespace babylon::ui
     // cvar (the option text); the row reads the cvar and writes the new
     // selection. An int cvar's range, when present, must contain every
     // option index; Ui::push rejects a screen whose cvar range does not.
-    // When cvar is empty the row keeps its index in the screen. Every user
-    // change reports ValueChanged with the new index as std::int64_t,
-    // whatever the cvar type. A disabled row is skipped by focus and does
-    // not respond to pointer input.
+    // When cvar is empty the row keeps its index in the screen, starting
+    // from selected. Every user change reports ValueChanged with the new
+    // index as std::int64_t, whatever the cvar type. A disabled row is
+    // skipped by focus and does not respond to pointer input.
     struct Choice
     {
         std::string text;                  // UTF-8 label
         std::string cvar;                  // cvar name, empty when unbound
         std::vector<std::string> options;  // at least one non-empty label
         bool enabled = true;               // false draws and navigates as disabled
+        std::size_t selected = 0;          // initial index, clamped to options
     };
 
     // One row of a List.

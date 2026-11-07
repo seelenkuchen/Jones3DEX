@@ -7,12 +7,15 @@ add_executable(Jones3DUiPainterTests
     JonesUiPainterTest.cpp
     JonesUiModalTest.cpp
     JonesUiSaveLoadTest.cpp
+    JonesUiSettingsTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModalMessage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiContext.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSaveLoad.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplaySettings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
 )
 
 target_include_directories(Jones3DUiPainterTests PRIVATE
