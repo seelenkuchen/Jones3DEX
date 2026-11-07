@@ -7,6 +7,8 @@ add_executable(Jones3DUiPainterTests
     JonesUiPainterTest.cpp
     JonesUiModalTest.cpp
     JonesUiSaveLoadTest.cpp
+    JonesUiMainMenuTest.cpp
+    JonesUiEndScreensTest.cpp
     JonesUiSettingsTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
@@ -14,6 +16,8 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModalMessage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiContext.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSaveLoad.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiMainMenu.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiEndScreens.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplaySettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiGameplaySettings.cpp"
@@ -21,7 +25,13 @@ add_executable(Jones3DUiPainterTests
     # layer is not linked, so the test needs only what these two compile units use.
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../Display/JonesReticle.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../Play/jonesInventory.c"
+    # Added: the sound layer compiled with J3D_TEST, so the Game Over case can install a synthetic
+    # sound bank without a game asset. The library's copy is not pulled because this object
+    # defines every Sound function.
+    "${JONES3D_UI_TEST_ROOT}/Libs/sound/Sound.c"
 )
+
+target_compile_definitions(Jones3DUiPainterTests PRIVATE J3D_TEST)
 
 target_include_directories(Jones3DUiPainterTests PRIVATE
     "${JONES3D_UI_TEST_ROOT}"
