@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <memory>
 
+#include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
 #include <babylon/files/FileSystem.h>
 #include <babylon/files/SdlFileSystem.h>
@@ -70,9 +71,12 @@ int main(int argc, char** argv)
     }
 
     cvars.finishStartup();
+    // Added: the headless run always plays on a Null audio device, so traces stay device-free.
+    std::unique_ptr<babylon::audio::NullDevice> pAudioDevice = babylon::audio::createNullDevice();
+
     // Added: the headless run has no game window; the windowed composition root sets pWindow.
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform, nullptr, &cvars,
-        pRenderDevice.get() };
+        pRenderDevice.get(), pAudioDevice.get() };
     stdBabylon_SetContext(&context);
     int exitCode = JonesHeadless_Run(argc, argv);
     stdBabylon_SetContext(nullptr);

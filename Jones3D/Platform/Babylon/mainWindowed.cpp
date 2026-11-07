@@ -7,6 +7,9 @@
 #include <cstdio>
 #include <memory>
 
+#include <babylon/audio/Device.h>
+#include <babylon/audio/MiniaudioDevice.h>
+#include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
 #include <babylon/files/FileSystem.h>
 #include <babylon/files/SdlFileSystem.h>
@@ -67,11 +70,21 @@ int main(int argc, char** argv)
         pRenderDevice   = babylon::render::createNullDevice(nullDesc);
     }
 
+    // Added: the game plays on miniaudio (ADR-0010). createMiniaudioDevice() always returns a device,
+    // so it is a trial open() that tells whether miniaudio can start; when it cannot, the run falls
+    // back to a Null device and plays silently. The sound driver opens the device itself later.
+    std::unique_ptr<babylon::audio::Device> pAudioDevice = babylon::audio::createMiniaudioDevice();
+    if ( !pAudioDevice || !pAudioDevice->open() )
+    {
+        fprintf(stderr, "WARNING: Jones3D: miniaudio could not start, sound is silent!\n");
+        pAudioDevice = babylon::audio::createNullDevice();
+    }
+
     // The command line behind argv[0] and the --load option belong to the run: JonesBabylon_Run
     // takes main's arguments directly, like the headless entry. The windowed run has no script
     // platform: every event comes from the SDL platform itself.
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), pPlatform.get(),
-        nullptr, pWindow.get(), &cvars, pRenderDevice.get() };
+        nullptr, pWindow.get(), &cvars, pRenderDevice.get(), pAudioDevice.get() };
     stdBabylon_SetContext(&context);
     int exitCode = JonesBabylon_Run(argc, argv);
     stdBabylon_SetContext(nullptr);
