@@ -28,3 +28,12 @@ same rule, so sounds no longer finish instantly.
 - Close to retail at normal speed; behavior that depended on the device's timing (slow devices, focus loss)
   isn't reproduced.
 - A device that falls behind or loses sync is a presentation problem only.
+
+## Amendment (2026-11-07)
+
+"Game time" means the sound layer's own clock: the platform clock (`SoundDriver_GetTimeMsec`, which reads
+`stdPlatform_GetTimeMsec`) minus the time the sound layer was paused. `sound` sits below `sith`, so it can't
+read `sithTime`. Headless runs and replays drive that clock (ADR-0018), so it is as deterministic as the
+simulation's own frame time, and it keeps running on load screens, where the simulation is stopped but music
+plays. Every backend, including the real device, must answer `SoundDriver_GetTimeMsec` from the platform
+clock, never from the device's play position.
