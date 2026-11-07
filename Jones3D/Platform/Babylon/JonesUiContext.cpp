@@ -53,6 +53,13 @@ namespace
 
 JonesUiContext::~JonesUiContext()
 {
+    // Release the frozen frame the modal loop captured for this ui session before the painter goes.
+    if ( modalFrozenImage != 0 && pModalFramePainter )
+    {
+        pModalFramePainter->unregisterImage(modalFrozenImage);
+        modalFrozenImage = 0;
+    }
+
     // The Ui does not use the painter when it is destroyed; the painter's destructor frees
     // images, not fonts, so the font can go first.
     pUi.reset();
@@ -68,6 +75,8 @@ JonesUiContext* JonesUiContext_Acquire()
     if ( g_pContext )
     {
         ++g_pContext->refCount;
+        STDLOG_DEBUG("JonesUiContext_Acquire: context=%p refCount=%d (shared)\n",
+            (void*)g_pContext, g_pContext->refCount);
         return g_pContext;
     }
 
@@ -113,8 +122,22 @@ JonesUiContext* JonesUiContext_Acquire()
 
     pState->refCount = 1;
     g_pContext = pState.release();
+    STDLOG_DEBUG("JonesUiContext_Acquire: context=%p refCount=1 (created)\n",
+        (void*)g_pContext);
     return g_pContext;
 }
+
+JonesUiContext* JonesUiContext_GetActive(void)
+{
+    return g_pContext;
+}
+
+#ifdef J3D_TEST
+void JonesUiContext_SetActiveForTest(JonesUiContext* pContext)
+{
+    g_pContext = pContext;
+}
+#endif
 
 void JonesUiContext_Release(JonesUiContext* pContext)
 {
@@ -127,6 +150,9 @@ void JonesUiContext_Release(JonesUiContext* pContext)
     {
         --pContext->refCount;
     }
+
+    STDLOG_DEBUG("JonesUiContext_Release: context=%p refCount=%d\n",
+        (void*)pContext, pContext->refCount);
 
     if ( pContext->refCount == 0 )
     {

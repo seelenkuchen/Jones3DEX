@@ -27,6 +27,7 @@
 #include <babylon/ui/Ui.h>
 
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 
 #include <sith/Dss/sithGamesave.h>
@@ -251,6 +252,9 @@ namespace
     }
 }
 
+// The string-table stub of JonesUiModalTest.cpp, shared by this executable.
+extern "C" void JonesUiTest_SetString(const char* pKey, const char* pValue);
+
 TEST_CASE("save names are usable on every desktop platform")
 {
     CHECK(JonesUiSave_SanitizeName("a/b\\c:d*e?f\"g<h>i|j") == "a_b_c_d_e_f_g_h_i_j");
@@ -291,6 +295,67 @@ TEST_CASE("the save list is newest first and carries level and date")
     CHECK(entries[1].fileName == "older.nds");
     CHECK(entries[1].levelName == "OLDER_LEVEL");
     CHECK(entries[0].modifiedSeconds > entries[1].modifiedSeconds);
+}
+
+TEST_CASE("a save level file name becomes the level display name")
+{
+    const JonesLevelInfo& level = JonesMain_aCndLevelLoadInfos[1];
+    REQUIRE(level.pFilename);
+
+    // The save loader maps the level table's position to the statistics dialog's name key. With
+    // no string-table entry the stub returns the key itself.
+    CHECK(JonesUiSave_LevelDisplayName("00_cyn.cnd") == "JONES_STR_CYN");
+    CHECK(JonesUiSave_LevelDisplayName("00_CYN.CND") == "JONES_STR_CYN");
+    // The leap level and the levels around it keep the statistics dialog's order.
+    CHECK(JonesUiSave_LevelDisplayName("16_JEP.cnd") == "JONES_STR_JEP");
+    CHECK(JonesUiSave_LevelDisplayName("08_TEO.cnd") == "JONES_STR_TEO");
+    CHECK(JonesUiSave_LevelDisplayName("17_PRU.cnd") == "JONES_STR_PRU");
+
+    JonesUiTest_SetString("JONES_STR_CYN", "Canyonlands");
+    CHECK(JonesUiSave_LevelDisplayName("00_cyn.cnd") == "Canyonlands");
+    JonesUiTest_SetString(nullptr, nullptr);
+
+    // A level not in the table and an empty name fall back unchanged.
+    CHECK(JonesUiSave_LevelDisplayName("99_XYZ.cnd") == "99_XYZ.cnd");
+    CHECK(JonesUiSave_LevelDisplayName("") == "");
+}
+
+TEST_CASE("the save list carries the level display name from the header")
+{
+    ScreenTestContext testContext;
+    SaveTestDir dir;
+    WriteSave(dir.File("regress.nds"), "00_CYN.cnd", 5, 1, 2, 3);
+
+    std::vector<JonesUiSaveEntry> entries;
+    REQUIRE(JonesUiSave_CollectEntries(*testContext.pFileSystem, dir.EngineDir().c_str(), entries));
+    REQUIRE(entries.size() == 1u);
+    CHECK(entries[0].levelName == "JONES_STR_CYN");
+}
+
+TEST_CASE("a save row shows name, level and date separated by dashes")
+{
+    JonesUiSaveEntry entry;
+    entry.displayName = "regress";
+    entry.levelName   = "Canyonlands";
+    entry.dateText    = "2026-11-07 19:49";
+    CHECK(JonesUiSave_RowText(entry) == "regress - Canyonlands - 2026-11-07 19:49");
+
+    entry.levelName.clear();
+    CHECK(JonesUiSave_RowText(entry) == "regress - 2026-11-07 19:49");
+
+    entry.dateText.clear();
+    CHECK(JonesUiSave_RowText(entry) == "regress");
+}
+
+TEST_CASE("a save without a thumbnail reserves no image row")
+{
+    const babylon::ui::Image hidden = JonesUiSave_ThumbnailImage(0);
+    CHECK(hidden.image == 0u);
+    CHECK(hidden.size == babylon::ui::Size{ 0.0f, 0.0f });
+
+    const babylon::ui::Image shown = JonesUiSave_ThumbnailImage(7);
+    CHECK(shown.image == 7u);
+    CHECK(shown.size == babylon::ui::Size{ 96.0f, 72.0f });
 }
 
 TEST_CASE("the save screen writes the default path without typing")

@@ -477,7 +477,10 @@ void JonesUiPainter::drawQuad(const babylon::ui::Rect& rect, const rdMaterial* p
         return;
     }
 
-    pPoly->flags        = (rdFaceFlags)(RD_FF_TEX_CLAMP_Y | RD_FF_TEX_CLAMP_X | RD_FF_TEX_TRANSLUCENT);
+    // The HUD's 2D sprites do not write depth, so neither do the menu quads; the panel must not
+    // leave nearer depth that a later background cannot overwrite.
+    pPoly->flags        = (rdFaceFlags)(RD_FF_TEX_CLAMP_Y | RD_FF_TEX_CLAMP_X | RD_FF_TEX_TRANSLUCENT
+        | RD_FF_ZWRITE_DISABLED);
     pPoly->lightingMode = RD_LIGHTING_DIFFUSE;
     pPoly->numVertices  = 4;
     pPoly->pMaterial    = const_cast<rdMaterial*>(pMaterial);

@@ -50,6 +50,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
+#include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
@@ -59,6 +60,7 @@
 
 #include <rdroid/Main/rdroid.h>
 #include <rdroid/Primitives/rdFont.h>
+#include <rdroid/Raster/rdCache.h>
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
@@ -270,6 +272,54 @@ namespace
             std3D_ClearSystemTexture(&texture);
         }
     };
+
+    // Draws a full-screen colored quad at the wallpaper's far depth (RD_FIXEDPOINT_RHW_SCALE_X5),
+    // the way rdWallpaper_Draw does. The painter's own quads sit at the near 2D depth.
+    void DrawFarBackground(const babylon::ui::Color& color)
+    {
+        rdCacheProcEntry* pPoly = rdCache_GetAlphaProcEntry();
+        if ( !pPoly )
+        {
+            return;
+        }
+
+        pPoly->flags        = RD_FF_TEX_TRANSLUCENT;
+        pPoly->lightingMode = RD_LIGHTING_DIFFUSE;
+        pPoly->numVertices  = 4;
+        pPoly->pMaterial    = nullptr;
+        pPoly->matCelNum    = 0;
+        pPoly->extraLight.red   = color.r;
+        pPoly->extraLight.green = color.g;
+        pPoly->extraLight.blue  = color.b;
+        pPoly->extraLight.alpha = color.a;
+        pPoly->aVertIntensities[0] = pPoly->extraLight;
+
+        const float z = RD_FIXEDPOINT_RHW_SCALE_X5;
+        StdVertexTL* pVertex = pPoly->aVertices;
+        pVertex->sx = 0.0f;
+        pVertex->sy = 0.0f;
+        pVertex->sz = z;
+        pVertex->rhw = z;
+        ++pVertex;
+        pVertex->sx = 640.0f;
+        pVertex->sy = 0.0f;
+        pVertex->sz = z;
+        pVertex->rhw = z;
+        ++pVertex;
+        pVertex->sx = 640.0f;
+        pVertex->sy = 480.0f;
+        pVertex->sz = z;
+        pVertex->rhw = z;
+        ++pVertex;
+        pVertex->sx = 0.0f;
+        pVertex->sy = 480.0f;
+        pVertex->sz = z;
+        pVertex->rhw = z;
+
+        rdCache_AddAlphaProcFace(4);
+        rdCache_FlushAlpha();
+        rdCache_Flush();
+    }
 
     struct PutU16
     {
@@ -516,6 +566,25 @@ namespace
         std::deque<platform::Event> m_events;
         int m_emptyPolls = 1;
         bool m_delivering = false;
+    };
+
+    // Installs a hand-built context as the active ui session for the modal loop and clears it
+    // before the context is destroyed, so every screen in the case shares one background.
+    class TestUiSession
+    {
+    public:
+        explicit TestUiSession(JonesUiContext& context)
+        {
+            JonesUiContext_SetActiveForTest(&context);
+        }
+
+        ~TestUiSession()
+        {
+            JonesUiContext_SetActiveForTest(nullptr);
+        }
+
+        TestUiSession(const TestUiSession&) = delete;
+        TestUiSession& operator=(const TestUiSession&) = delete;
     };
 }
 
@@ -777,6 +846,499 @@ TEST_CASE("the modal loop draws the message over the frozen frame")
         }
     }
     CHECK(panelPixels > 1000u);
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("a nested modal reuses the outermost frozen background")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the nested modal image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    StoreSamplePlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    // One held session behind both screens, as the main menu and pause menu hold their context.
+    JonesUiContext uiContext;
+    TestUiSession session(uiContext);
+
+    // A white frame for the session to capture before it draws its first screen.
+    const babylon::ui::Color white{ 1.0f, 1.0f, 1.0f, 1.0f };
+    REQUIRE(std3D_StartScene() == 0);
+    painter.fillRect(babylon::ui::Rect{ 0.0f, 0.0f, 640.0f, 480.0f }, white);
+
+    Screen outer;
+    outer.title   = "Outer";
+    outer.widgets = { Button{ "Inner", 1, true } };
+    outer.backResult = 2;
+
+    Screen inner;
+    inner.title   = "Inner";
+    inner.widgets = { Button{ "OK", 1, true } };
+    inner.backResult = 2;
+
+    const std::uint8_t dimmed = (std::uint8_t)(255.0f * (1.0f - skin.dim.a));
+    bool bInnerChecked = false;
+    Rgb innerCorner{};
+    std::uint32_t innerWidth  = 0;
+    std::uint32_t innerHeight = 0;
+
+    JonesUiModalEventHandler outerHandler = [&](Ui& uiRef, ScreenId screenId,
+        const UiEvent& event) -> bool
+    {
+        const ActionPressed* pAction = std::get_if<ActionPressed>(&event);
+        if ( !pAction || pAction->screen != screenId || pAction->action != 1 )
+        {
+            return false;
+        }
+
+        const int innerResult = JonesUiModal_Run(uiRef, &painter, inner,
+            [](babylon::ui::ResultCode code) { return (int)code; });
+        CHECK(innerResult == 2);
+
+        // Read the child's last frame before the outer loop draws again. Its corner must show the
+        // outer white frame dimmed once, not that frame captured and dimmed a second time.
+        std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+        std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+        std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+        REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+        innerCorner = PixelAt(pixels, width, 2u, 2u);
+        innerWidth  = width;
+        innerHeight = height;
+        bInnerChecked = true;
+        return true;
+    };
+
+    platform.PushKey(platform::Key::Enter);
+    platform.PushKey(platform::Key::Escape);
+    platform.PushKey(platform::Key::Escape);
+
+    const int result = JonesUiModal_RunHandled(ui, &painter, outer,
+        [](babylon::ui::ResultCode code) { return (int)code; }, outerHandler);
+    CHECK(result == 2);
+
+    REQUIRE(bInnerChecked);
+    CHECK(innerWidth == 640u);
+    CHECK(innerHeight == 480u);
+    CHECK(Near(innerCorner.r, dimmed, 6));
+    CHECK(Near(innerCorner.g, dimmed, 6));
+    CHECK(Near(innerCorner.b, dimmed, 6));
+
+    // After the child closed, the outer screen draws over the same original background.
+    std3D_EndScene();
+    REQUIRE(stdDisplay_Update() == 0);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const Rgb outerCorner = PixelAt(pixels, width, 2u, 2u);
+    CHECK(Near(outerCorner.r, dimmed, 6));
+    CHECK(Near(outerCorner.g, dimmed, 6));
+    CHECK(Near(outerCorner.b, dimmed, 6));
+
+    // Release the session frame while the device is still open.
+    painter.unregisterImage(uiContext.modalFrozenImage);
+    uiContext.modalFrozenImage = 0;
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("a nested modal reuses the outermost background callback")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the nested background callback");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    StoreSamplePlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    JonesUiContext uiContext;
+    TestUiSession session(uiContext);
+
+    const babylon::ui::Color green{ 0.0f, 1.0f, 0.0f, 1.0f };
+    int backgroundCalls = 0;
+    JonesUiModalBackground background;
+    background.draw = [&painter, &backgroundCalls, &green]()
+    {
+        ++backgroundCalls;
+        painter.fillRect(babylon::ui::Rect{ 0.0f, 0.0f, 640.0f, 480.0f }, green);
+    };
+
+    Screen outer;
+    outer.title   = "Outer";
+    outer.widgets = { Button{ "Inner", 1, true } };
+    outer.backResult = 2;
+
+    Screen inner;
+    inner.title   = "Inner";
+    inner.widgets = { Button{ "OK", 1, true } };
+    inner.backResult = 2;
+
+    bool bInnerChecked = false;
+    int callsDuringInner = 0;
+    Rgb innerCorner{};
+
+    JonesUiModalEventHandler outerHandler = [&](Ui& uiRef, ScreenId screenId,
+        const UiEvent& event) -> bool
+    {
+        const ActionPressed* pAction = std::get_if<ActionPressed>(&event);
+        if ( !pAction || pAction->screen != screenId || pAction->action != 1 )
+        {
+            return false;
+        }
+
+        const int before = backgroundCalls;
+        const int innerResult = JonesUiModal_Run(uiRef, &painter, inner,
+            [](babylon::ui::ResultCode code) { return (int)code; });
+        CHECK(innerResult == 2);
+        callsDuringInner = backgroundCalls - before;
+
+        std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+        std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+        std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+        REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+        innerCorner = PixelAt(pixels, width, 2u, 2u);
+        bInnerChecked = true;
+        return true;
+    };
+
+    platform.PushKey(platform::Key::Enter);
+    platform.PushKey(platform::Key::Escape);
+    platform.PushKey(platform::Key::Escape);
+
+    const int result = JonesUiModal_RunHandled(ui, &painter, outer,
+        [](babylon::ui::ResultCode code) { return (int)code; }, outerHandler, background);
+    CHECK(result == 2);
+
+    REQUIRE(bInnerChecked);
+    // The child drew through the parent's callback: full green, not a captured and dimmed copy.
+    CHECK(callsDuringInner >= 1);
+    CHECK(Near(innerCorner.r, 0, 6));
+    CHECK(Near(innerCorner.g, 255, 6));
+    CHECK(Near(innerCorner.b, 0, 6));
+
+    std3D_EndScene();
+    REQUIRE(stdDisplay_Update() == 0);
+
+    // Release the session frame while the device is still open.
+    painter.unregisterImage(uiContext.modalFrozenImage);
+    uiContext.modalFrozenImage = 0;
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("a screen after another closes draws over the session background")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the sequential modal image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    StoreSamplePlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    // The main menu or pause menu holds one context while it opens screen after screen.
+    JonesUiContext uiContext;
+    TestUiSession session(uiContext);
+
+    const babylon::ui::Color white{ 1.0f, 1.0f, 1.0f, 1.0f };
+    REQUIRE(std3D_StartScene() == 0);
+    painter.fillRect(babylon::ui::Rect{ 0.0f, 0.0f, 640.0f, 480.0f }, white);
+
+    Screen first;
+    first.title   = "First";
+    first.widgets = { Button{ "Close", 1, true } };
+    first.backResult = 2;
+
+    Screen second;
+    second.title   = "Second";
+    second.widgets = { Button{ "Close", 1, true } };
+    second.backResult = 2;
+
+    platform.PushKey(platform::Key::Escape);
+    platform.PushKey(platform::Key::Escape);
+
+    CHECK(JonesUiModal_Run(ui, &painter, first,
+        [](babylon::ui::ResultCode code) { return (int)code; }) == 2);
+    // The first screen has closed, but the second must still draw over the session's original
+    // white frame, not capture and dim the frame the first screen left behind.
+    CHECK(JonesUiModal_Run(ui, &painter, second,
+        [](babylon::ui::ResultCode code) { return (int)code; }) == 2);
+
+    std3D_EndScene();
+    REQUIRE(stdDisplay_Update() == 0);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const std::uint8_t dimmed = (std::uint8_t)(255.0f * (1.0f - skin.dim.a));
+    const Rgb corner = PixelAt(pixels, width, 2u, 2u);
+    CHECK(Near(corner.r, dimmed, 6));
+    CHECK(Near(corner.g, dimmed, 6));
+    CHECK(Near(corner.b, dimmed, 6));
+
+    // Release the session frame while the device is still open.
+    painter.unregisterImage(uiContext.modalFrozenImage);
+    uiContext.modalFrozenImage = 0;
+
+    std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("a modal frame clears the previous screen's panel from the background")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the stale panel image");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    StoreSamplePlatform platform;
+    cvars::Registry cvars;
+    if ( stdBabylonEvents_PeekQuitRequest() )
+    {
+        static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+    }
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        nullptr, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    SyntheticFont syntheticFont;
+    REQUIRE(syntheticFont.startup());
+
+    JonesUiPainter painter;
+    const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
+    REQUIRE(menuFont != 0);
+
+    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    JonesUiContext uiContext;
+    TestUiSession session(uiContext);
+
+    const babylon::ui::Color green{ 0.0f, 1.0f, 0.0f, 1.0f };
+    JonesUiModalBackground background;
+    background.draw = [&green]()
+    {
+        DrawFarBackground(green);
+    };
+
+    // A wide first panel. The second screen has no title or widgets, so it draws only a small
+    // centered panel and leaves this point for the background.
+    Screen first;
+    first.title   = "First";
+    first.widgets = { Label{ std::string(100, 'M'), "" } };
+    first.backResult = 2;
+
+    Screen empty;
+    empty.backResult = 2;
+
+    platform.PushKey(platform::Key::Escape);
+    platform.PushKey(platform::Key::Escape);
+
+    CHECK(JonesUiModal_Run(ui, &painter, first,
+        [](babylon::ui::ResultCode code) { return (int)code; }, background) == 2);
+
+    std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+    std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+    std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    // This point is inside the wide panel and outside the next screen's small one.
+    const Rgb panelCorner = PixelAt(pixels, width, 20u, 240u);
+    const Rgb panelColor = { ToByte(skin.panel.r), ToByte(skin.panel.g), ToByte(skin.panel.b) };
+    CHECK(Near(panelCorner.r, panelColor.r, 6));
+    CHECK(Near(panelCorner.g, panelColor.g, 6));
+    CHECK(Near(panelCorner.b, panelColor.b, 6));
+
+    CHECK(JonesUiModal_Run(ui, &painter, empty,
+        [](babylon::ui::ResultCode code) { return (int)code; }, background) == 2);
+
+    width  = stdRenderBabylon_GetBackBufferWidth();
+    height = stdRenderBabylon_GetBackBufferHeight();
+    pixels.assign((size_t)width * height * 4u, 0);
+    REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+    const Rgb backgroundCorner = PixelAt(pixels, width, 20u, 240u);
+    CHECK(Near(backgroundCorner.r, 0, 6));
+    CHECK(Near(backgroundCorner.g, 255, 6));
+    CHECK(Near(backgroundCorner.b, 0, 6));
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
     std3D_Shutdown();

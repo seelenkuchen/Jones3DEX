@@ -11,7 +11,10 @@
 // result, but leaves the request flagged so the game quits as it would after the dialog.
 //
 // Nested screens work because the caller passes the same Ui: an inner loop pushes and pops only its
-// own screen and the outer one stays below it, unchanged.
+// own screen and the outer one stays below it, unchanged. The background belongs to the ui session
+// held by JonesUiContext: the first loop in the session captures the frozen frame or adopts the
+// opener's background, and every later loop reuses it and dims it once, so a screen never captures
+// the screen before it.
 #ifndef JONES3D_PLATFORM_BABYLON_JONESUIMODAL_H
 #define JONES3D_PLATFORM_BABYLON_JONESUIMODAL_H
 #ifndef __cplusplus
@@ -29,7 +32,7 @@
 // cover-scaled to the canvas (it keeps its aspect and fills the whole canvas, cropping the
 // overhang), or a callback that draws a background of its own, such as a six-tile wallpaper. Both
 // are drawn at full brightness, not dimmed. image is registered with the same JonesUiPainter; the
-// caller keeps it alive and releases it. draw, when set, runs once each frame inside the scene,
+// caller keeps it alive while the context is held and releases it. draw, when set, runs once each frame inside the scene,
 // before the screen; it takes precedence over image. width and height are the image's pixel size.
 // With neither, the frozen-frame or clear behavior is kept.
 struct JonesUiModalBackground
@@ -51,10 +54,12 @@ using JonesUiModalEventHandler = std::function<bool(babylon::ui::Ui& ui,
 
 // Pushes a copy of screen on top of ui's screen stack and runs until that screen closes. pPainter
 // must be the painter ui draws through, or nullptr to run without drawing; when it is a
-// JonesUiPainter and the display is open, the current back buffer is captured once, drawn full
-// screen, dimmed with the skin's dim color, and the screen is drawn over it. When background
+// JonesUiPainter and the display is open, the first loop of a held JonesUiContext captures the
+// current back buffer once, draws it full screen, dims it with the skin's dim color, and draws the
+// screen over it; later loops in the same context reuse that frame and background. When background
 // names an image, that image is cover-scaled across the canvas instead of the frozen frame and is
-// not dimmed. Every resource the loop creates is freed before it returns. Returns mapResult(result); a screen Ui::push rejects
+// not dimmed. A loop outside a context frees everything it creates; the context frees the session's
+// frozen frame when it is released. Returns mapResult(result); a screen Ui::push rejects
 // returns mapResult(screen.backResult) without entering the loop. Requires the std Babylon adapter
 // context (the event pump and the platform clock), like every other Babylon-column loop.
 int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,

@@ -2,6 +2,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 
 #include <Jones3D/Display/JonesHud.h>
+#include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 
@@ -141,6 +142,11 @@ namespace
                 stdDisplay_BackBufferFill(0, NULL);
             }
 
+            // Start the modal frame with a fresh depth buffer, as the load screen and the game
+            // frame do. Without this, a panel drawn by the previous screen keeps its nearer depth
+            // and the background redrawn at full screen fails the depth test where the panel was.
+            std3D_ClearZBuffer();
+
             // The scene begin returns 0 on success, like the painter test's other frame calls.
             if ( std3D_StartScene() != 0 )
             {
@@ -185,6 +191,9 @@ namespace
         }
     };
 
+    // Added: the nesting depth of the modal loops, for the run log only.
+    int g_modalDepth = 0;
+
     // True when the event is a quit request or a close of the game window (pWindow may be null:
     // then only a QuitRequested counts, as in stdBabylonEvents_Pump).
     bool IsQuitEvent(const babylon::platform::Event& event, const babylon::platform::Window* pWindow)
@@ -210,6 +219,8 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
         return mapResult(screen.backResult);
     }
 
+    ++g_modalDepth;
+
     // Added: name this screen in the scripted tour's present log until it closes. A screen opened
     // from a handler pushes and pops over this one.
     stdBabylonTour_PushScreenTitle(screen.title.c_str());
@@ -227,13 +238,57 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     }
 
     // Only the game's own painter can hold a frozen frame image; a Null painter has no display
-    // path behind it.
+    // path behind it. The background belongs to the ui session, not to one loop: the first modal
+    // loop while a context is held captures the frozen frame or adopts the opener's background,
+    // and every later loop reuses it. A direct call without a context, such as a test, captures
+    // its own frame.
     JonesUiPainter* pFramePainter = dynamic_cast<JonesUiPainter*>(pPainter);
+    JonesUiContext* pUiContext    = JonesUiContext_GetActive();
     FrozenFrame frame;
-    if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 && !background.draw )
+    const JonesUiModalBackground* pBackground = &background;
+    JonesUiPainter* pDrawPainter = pFramePainter;
+    bool bCapturedNewFrame = false;
+    if ( pUiContext )
+    {
+        if ( !pUiContext->bModalBackgroundStarted )
+        {
+            pUiContext->bModalBackgroundStarted = true;
+            pUiContext->modalBackground         = background;
+            pUiContext->pModalFramePainter      = pFramePainter;
+            if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 && !background.draw )
+            {
+                frame.Capture(*pFramePainter);
+                pUiContext->modalFrozenImage = frame.image;
+                bCapturedNewFrame = true;
+            }
+        }
+
+        frame.image  = pUiContext->modalFrozenImage;
+        pBackground  = &pUiContext->modalBackground;
+        pDrawPainter = pUiContext->pModalFramePainter;
+    }
+    else if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 && !background.draw )
     {
         frame.Capture(*pFramePainter);
+        bCapturedNewFrame = true;
     }
+
+    const char* pBackgroundState = "none";
+    if ( pBackground->draw )
+    {
+        pBackgroundState = "callback";
+    }
+    else if ( pBackground->image != 0 )
+    {
+        pBackgroundState = "image";
+    }
+    else if ( frame.image != 0 )
+    {
+        pBackgroundState = "frozen";
+    }
+
+    STDLOG_DEBUG("JonesUiModal_Run: context=%p depth=%d background=%s capture=%d\n",
+        (void*)pUiContext, g_modalDepth, pBackgroundState, bCapturedNewFrame ? 1 : 0);
 
     int result = (int)screen.backResult;
     bool bClosed = false;
@@ -324,9 +379,9 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
             break;
         }
 
-        if ( pFramePainter && stdDisplay_IsOpen() )
+        if ( pDrawPainter && stdDisplay_IsOpen() )
         {
-            frame.Draw(ui, *pFramePainter, background);
+            frame.Draw(ui, *pDrawPainter, *pBackground);
         }
         else if ( numEvents == 0 )
         {
@@ -335,7 +390,8 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
         }
     }
 
-    if ( pFramePainter )
+    // A session's frozen frame lives until the context is released; a direct call frees its own.
+    if ( !pUiContext && pFramePainter )
     {
         frame.Release(*pFramePainter);
     }
@@ -348,6 +404,8 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     }
 
     stdBabylonTour_PopScreenTitle();
+
+    --g_modalDepth;
 
     return mapResult(result);
 }
