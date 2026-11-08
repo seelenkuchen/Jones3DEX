@@ -16,6 +16,33 @@
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
 
+### M7: Playable
+  - Sound plays in the windowed Babylon build through miniaudio, including cutscene sound, and the Sound
+    settings screen chooses the output device (stored in `engine.audio.outputDevice`). Headless runs use the
+    Null audio device and stay silent.
+  - The Babylon builds save and load. The Save, Load and Exit screens list the save folder with thumbnails,
+    start a new save with the level's display name and the date and time, and write the portable thumbnail
+    every column captures. Save rows show the level's display name, and a save without a thumbnail shows no
+    empty image. The main menu's background is the finished load-screen map with its title.
+  - Menus opened from another menu keep the session's background instead of stacking the previous screen behind
+    them, and the background is dimmed once. Each modal frame clears depth before redrawing, so a closed panel
+    cannot remain visible.
+  - Gamepads, mouse motion and the mouse wheel work in the Babylon column, and text input fills save names and
+    the other text fields. The windowed build loads the player's control scheme from `controls.configFile` and
+    binds it; headless runs keep the engine's default bindings.
+  - In-game menus replace the Win32 dialogs. A main menu at startup (New Game, Load, Settings, Quit) replaces
+    the launcher: `startMode` 5 opens it, the windowed build also opens it for a missing value or 2, and values
+    1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause
+    menu on Escape or gamepad Start offers Resume, Save, Load, Settings, Statistics and Exit; the HUD menu
+    opens on the active control scheme's interface key, with Tab and gamepad Back as a fallback while a scheme
+    binds none. `engine.ui.hud.systemIcons` can hide the HUD menu's system items.
+  - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
+    Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
+  - The main menu's Quit button and the in-game Exit now end the game, as closing the window does.
+  - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
+  - The Controls screen rebinds keys and gamepad buttons: a scheme picker, one rebind list for keys
+    and gamepad controls, and a reset to the defaults.
+
 ### M6: The Babylon renderer
   - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system
     provides: the 3D scene, the 2D layer, HUD and console text, and the intro movie and cutscenes (silent until
@@ -29,8 +56,9 @@
   - World surfaces and models reach the renderer with view-space normals (`engine.renderer.litFaces.enabled` in
     `Jones.cfg`, on by default), for the per-pixel passes to come; the picture is unchanged, and off restores
     the classic path exactly.
-  - Saving is not available in the Babylon builds yet: the savegame thumbnail surface is missing, so the save is
-    refused. It comes with the audio and dialogs in M7.
+  - Savegame thumbnails are portable now: every column captures the back buffer, scales it to 128 x 96 and writes
+    the same RGB bytes as before, and a save proceeds without a thumbnail when the back buffer cannot be locked.
+    The save and load screens still come with the audio and dialogs in M7.
 
 ## v0.4.0
 ### DirectX 9 Port, Redesigned HUD, Auto Aim Reticle, Enhanced Graphics & Gameplay QOL Improvements

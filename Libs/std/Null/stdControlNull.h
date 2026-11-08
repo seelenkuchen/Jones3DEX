@@ -24,5 +24,11 @@ void stdControl_ReadDevices(uint32_t readTime, bool bReadMouse);
 // the count to the clear.
 bool stdControl_QueueKeyEvent(int keyId, int bPressed);
 
+// Added: writes one axis's raw state, the way stdControlDX9.c's device reads wrote
+// stdControl_aAxisStates directly. The Babylon column's device adapter calls it after
+// stdControl_ReadControls cleared the states and before stdControl_ReadAxis reads them. Out-of-range
+// axis ids are ignored; the value is whatever the backend measured (the caller clamps).
+void stdControl_SetAxisState(size_t aid, int value);
+
 J3D_EXTERN_C_END
 #endif // STD_STDCONTROLNULL_H

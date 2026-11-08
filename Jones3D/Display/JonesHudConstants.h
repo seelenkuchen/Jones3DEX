@@ -191,7 +191,8 @@ static const tMenuItemOrientInfo JonesHud_aDfltMenuItemOrients[JONESHUD_MAX_MENU
     { 1.0f, { { 90.0f }, { 330.0f }, { 0.0f } } }
 };
 
-static char* JonesHud_apMenuIconModelNames[JONESHUD_MAX_MENU_ITEMS] = {
+// Altered: const char*, so C++ translation units can include this header (string literals).
+static const char* JonesHud_apMenuIconModelNames[JONESHUD_MAX_MENU_ITEMS] = {
 
     // Weapon menu item 3D models
     "weap_gloves_inv.3do",
@@ -339,7 +340,8 @@ static char* JonesHud_apMenuIconModelNames[JONESHUD_MAX_MENU_ITEMS] = {
      "gen_icon_exit.3do"
 };
 
-static char* JonesHud_apItemNames[JONESHUD_MAX_MENU_ITEMS] =
+// Altered: const char*, so C++ translation units can include this header (string literals).
+static const char* JonesHud_apItemNames[JONESHUD_MAX_MENU_ITEMS] =
 {
     // Weapons menu items
     "JONES_STR_INV_FISTS",

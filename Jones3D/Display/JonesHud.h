@@ -28,6 +28,10 @@ J3D_EXTERN_C_START
 #define JONESHUD_CFG_MENU_MUSICEVOLUME                  "ui.menu.music.file"
 #define JONESHUD_CFG_MENU_FADEDURATION                  "ui.menu.music.fade"
 
+// Added: presentation only (both profiles). False hides the HUD menu's system items; the pause
+// menu still opens every one of them.
+#define JONESHUD_CFG_HUD_SYSTEMICONS                    "engine.ui.hud.systemIcons"
+
 #define JONESHUD_CFG_ITEM_CHANGED_SHOW_DURATION         "ui.hud.itemChanged.showDuration"
 #define JONESHUD_CFG_ITEM_CHANGED_SLIDE_EASE_IN_RATE    "ui.hud.itemChanged.slideEaseInRate"
 #define JONESHUD_CFG_ITEM_CHANGED_SLIDE_SPEED_RATE      "ui.hud.itemChanged.slideSpeedRate"
@@ -68,7 +72,24 @@ void JonesHud_ToggleMenu(void);
 void J3DAPI JonesHud_EnableMenu(int bEnable);
 int JonesHud_IsMenuEnabled(void);
 
+// Added: the bodies of the HUD menu's system items, shared with the pause menu so both take the
+// same path and handle their results the same way. Each returns the original dialog's answer.
+int JonesHud_ShowStatistics(void);
+int JonesHud_ShowSaveGame(void);
+int JonesHud_ShowLoadGame(void);
+int JonesHud_ShowGamePlaySettings(void);
+int JonesHud_ShowControlSettings(void);
+int JonesHud_ShowDisplaySettings(void);
+int JonesHud_ShowSoundSettings(void);
+int JonesHud_ShowExitGame(void);
+
 void JonesHud_Process(void);
+
+// Added: play the HUD menu's own sound for a Babylon UI sound cue.
+// cueIdx is an index of JonesHud_aSoundFxIdxs (the ids in JonesUiSkin.h), and the call is the HUD
+// item menu's sithSoundMixer_PlaySound call. It does nothing when the HUD has not loaded the sounds
+// (before a world opens, such as the main menu at startup) or the index is out of range.
+void J3DAPI JonesHud_PlayMenuSoundCue(int cueIdx);
 
 void J3DAPI JonesHud_BindActivateControlKeys(const size_t* aKeyIds, size_t numKeys);
 void J3DAPI JonesHud_InventoryItemChanged(int typeId);

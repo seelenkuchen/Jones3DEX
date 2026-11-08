@@ -40,6 +40,7 @@ namespace babylon::input
     //     frame <n>: mouse move <dx> <dy>
     //     frame <n>: mouse button <MouseButtonName> down|up
     //     frame <n>: mouse wheel <dx> <dy>
+    //     frame <n>: text "<utf8>"
     //     frame <n>: gamepad <index> connect|disconnect
     //     frame <n>: gamepad <index> button <GamepadButtonName> down|up
     //     frame <n>: gamepad <index> axis <GamepadAxisName> <value>
@@ -52,6 +53,11 @@ namespace babylon::input
     // locale; |dx| and |dy| are at most 100000; axis values must fit -1..1
     // for sticks and 0..1 for triggers. A line is at most 256 bytes and
     // the whole text at most 4 MiB.
+    //
+    // The text of a text event is a non-empty double-quoted UTF-8 string.
+    // Inside it, \\, \", \n, \r, \t and \# stand for themselves; a
+    // '#' outside the quotes starts a comment. The text is never split
+    // across lines.
     //
     // Immutable once parsed. Not thread-safe to copy; sharing a const
     // instance between threads is fine.

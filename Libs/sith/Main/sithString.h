@@ -12,6 +12,7 @@ J3D_EXTERN_C_START
 
 int sithString_Startup(void);
 void sithString_Shutdown(void);
+bool sithString_HasStarted(void); // Added: lets callers skip the assert when no game data is present
 wchar_t* J3DAPI sithString_GetString(const char* pStr);
 
 void sithString_ResetGlobals(void);

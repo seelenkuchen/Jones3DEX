@@ -236,6 +236,8 @@ typedef enum eJonesStartMode
     JONES_STARTMODE_DEVELOPERDIALOG = 2,
     JONES_STARTMODE_SOUNDSETTINGS   = 3,
     JONES_STARTMODE_DISPLAYSETTINGS = 4,
+    // Added: the windowed Babylon build's main menu replaces the launcher (ADR-0026).
+    JONES_STARTMODE_MAINMENU        = 5,
 } JonesStartMode;
 
 typedef enum eJonesOuputMode
@@ -273,12 +275,14 @@ typedef struct sJonesFileHandle
 
 typedef struct sJonesLevelInfo
 {
-    char* pFilename;
-    char* pMatFilename;
+    // Altered: the three string fields are const char*, so the string-literal tables in
+    // Jones3D/Main/JonesLevel.h can also be compiled by C++ translation units.
+    const char* pFilename;
+    const char* pMatFilename;
     rdVector2 wallineStart;
     rdVector2 wallineEnd;
     int bPrimaryMusicTheme;
-    char* pName;
+    const char* pName;
 } JonesLevelInfo;
 
 typedef struct sJonesHudMenuItem

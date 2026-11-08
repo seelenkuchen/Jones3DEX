@@ -129,6 +129,9 @@ typedef struct sSoundChannel
     int guid;
     float minRadius;
     float maxRadius;
+    // Altered: ADR-0027 - the sound layer's own play clock, in milliseconds of sound time.
+    double msecPlayPos;
+    uint32_t msecLastUpdate; // sound-layer time at which msecPlayPos was last advanced
 } tSoundChannel;
 
 typedef struct sSoundFade

@@ -67,6 +67,11 @@ int JonesControl_Startup(void)
         sithControl_UnbindMouseAxes();
     }
 
+    // Added: apply the remembered active control scheme after the default bindings are
+    // registered, so the scheme replaces them. jonesConfig_Startup loaded and remembered it at
+    // HUD startup; this is a no-op in the Null column.
+    jonesConfig_BindActiveControlScheme();
+
     JonesControl_bStartup = true;
     return 0;
 }

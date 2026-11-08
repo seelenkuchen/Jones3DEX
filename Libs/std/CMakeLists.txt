@@ -35,6 +35,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonCvars.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonEvents.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonTour.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdPlatformTimeBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdBabylonPath.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdFileBabylon.cpp"
@@ -93,6 +94,10 @@ if (J3D_PLATFORM_BABYLON)
         babylon::render
         stdBabylonShaders
     )
+
+    # Added: lets the shared stdControlNull.c know that the Babylon device adapter supplies the
+    # joystick enumeration and needs its mouse axes registered at startup.
+    target_compile_definitions(${PROJECT_NAME} PRIVATE STDCONTROL_BABYLON_DEVICES=1)
 endif()
 
 # Added: the Null platform links no DirectX backend, but stdJSON.c still needs jansson.

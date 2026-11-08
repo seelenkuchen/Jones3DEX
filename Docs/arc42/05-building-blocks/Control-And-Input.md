@@ -89,7 +89,37 @@ The shared entries are in `Libs/std/Null/stdControlNull.c`:
 - `stdControl_EnableAxis()`
 - `stdControl_SetActivation()`
 
-The device side implements `stdControl_ReadDevices()`. Keys and mouse buttons are read today; mouse axes and gamepads are not read yet. The DirectInput backends of the removed DX6 and DX9 builds polled keyboards, joysticks and mice through the same seam.
+The device side implements `stdControl_ReadDevices()`. It reads keyboard, mouse buttons, mouse axes and gamepads from the same `InputState`. The DirectInput backends of the removed DX6 and DX9 builds polled keyboards, joysticks and mice through the same seam. Mouse motion and the wheel are reported as the movement accumulated since the previous read, in DirectInput's units (a wheel notch is `WHEEL_DELTA`, 120) and with DirectInput's signs (y positive down), clamped to the registered axis range.
+
+A connected gamepad becomes joystick slot 0, 1, ... in `InputState::gamepads()` order, up to `STDCONTROL_MAX_JOYSTICK_DEVICES`. Each pad registers six axes and one POV, with the ranges and signs the removed DX9 backend's `DIJOYSTATE` and XInput paths produced:
+
+| stdControl axis | gamepad axis | state range | notes |
+| --- | --- | --- | --- |
+| X | LeftX | -32768..32767 | left stick dead zone |
+| Y | LeftY | -32768..32767 | down positive |
+| Z | LeftTrigger | -255..255 | 0..255, 30 of 255 threshold |
+| RX | RightX | -32768..32767 | right stick dead zone |
+| RY | RightY | -32768..32767 | down positive |
+| RZ | RightTrigger | -255..255 | 0..255, 30 of 255 threshold |
+
+| button index | gamepad button |
+| --- | --- |
+| 0 | South |
+| 1 | East |
+| 2 | West |
+| 3 | North |
+| 4 | LeftShoulder |
+| 5 | RightShoulder |
+| 6 | Back |
+| 7 | Start |
+| 8 | LeftStick |
+| 9 | RightStick |
+| 10 | Guide |
+
+The d-pad drives POV 0 (left, up, right, down).
+
+Enumeration happens whenever `stdControl_GetNumJoysticks()` is called, which pumps the platform queue, so a pad connected before startup is seen. The game calls it only from `JonesControl_Startup()`. A pad connected or disconnected later is reflected by the device read (the joystick slots follow `InputState::gamepads()`), but the game does not re-enumerate or rebuild its gameplay bindings at runtime: connect a pad before startup, or restart the game. `sithControl_RebindJoystick()` rebuilds the bindings but does not enable axes for newly seen pads.
+
 
 ## Per-Frame Read Pass
 
@@ -207,3 +237,41 @@ That separation is one of the cleaner parts of the engine architecture. Even tho
 - hardware details do not leak into player movement code
 - gameplay code does not need to know which device produced an action
 - camera idling and control policies can sit above the raw device layer without contaminating it
+
+## Control Scheme Files
+
+The Babylon column restores the original `.kfg` control schemes in
+[`JonesControlSchemes.c`](../../../Jones3D/Platform/Babylon/JonesControlSchemes.c), the Win32
+`jonesConfig.c` scheme code without its dialogs. `Jones.cfg`'s `controls.configFile` names the
+active scheme; the windowed run loads it at startup and binds it from `JonesControl_Startup` after
+`sithControl` registers its functions. The headless run keeps the engine's default bindings.
+
+The files live in the key-sets directory the original built: `<installPath>\<keysets>` when
+`installPath` is set, else `..\<keysets>` relative to the working directory. A file starts with the
+localized heading, the enabled marker `1`, and the `Actions`/`Keys` column header, then one quoted
+action line for each of the 37 actions followed by its quoted keyboard, mouse or joystick bindings.
+Line endings are CRLF, and the columns are padded to the same widths the original used.
+
+The original format can name keyboard keys, joystick buttons, POV directions and the X, Y, Z and
+RZ axes. It cannot name mouse buttons or the right-stick RX/RY axes. Those bindings go in a
+trailing `EXTRAS` section after the 37 action lines, which the original reader skips because its
+action loop ends there. Each extras line is `"<action>" "<control>"`, where the control is
+`MOUSE1`..`MOUSE4`, `Z-`/`Z+` (the left trigger), or `RX-`/`RX+`/`RY-`/`RY+`.
+
+The original default scheme differs from the engine defaults in three ways: activate moves off the
+grave key, `I` opens the HUD menu, and joystick binds are dropped while `controls.controller` is false.
+
+## Menu And Pause Keys
+
+[`JonesMain_ProcessMenu()`](../../../Jones3D/Main/JonesMain.c) opens the pause menu on Escape or
+gamepad Start (button 7). It does so only when the player is alive and no cutscene, load, HUD menu,
+console or pause owns the frame (`JonesMain_CanOpenPauseMenu`), and it uses the same game-time and
+sound pause pair as the HUD menu. The pause menu's entries run the HUD menu's system-item functions
+([In-Game-Menus.md](In-Game-Menus.md)).
+
+Escape no longer opens the HUD item menu. The HUD menu opens on the active control scheme's
+interface action, which the default scheme binds to `I`. The original also bound it to a key and a
+gamepad button through the removed Win32 controls dialog, so a loaded scheme can have no interface
+binding today; Tab and gamepad Back (button 6) then stand in as a fallback while a scheme is active
+(`jonesConfig_HasActiveControlScheme`). The headless run and the Null column have no scheme and keep
+their old bindings. The Controls screen makes the menu binds editable again.

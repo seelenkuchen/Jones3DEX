@@ -49,11 +49,27 @@ set_tests_properties(Jones3D.Capture PROPERTIES
 file(GLOB JONES3D_MAIN_TEST_PLATFORM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../Platform/Null/*.c")
 list(FILTER JONES3D_MAIN_TEST_PLATFORM_SOURCES EXCLUDE REGEX "/Platform/Null/main\\.c$")
 
+if (J3D_PLATFORM_BABYLON)
+    # Added: the Babylon column's control scheme logic and its tests (M7.17a). The test supplies
+    # the windowed/headless test double, so the real Platform/Babylon/JonesBabylonWindow.cpp is
+    # not compiled here. The Babylon module replaces the split Null jonesConfig startup file.
+    list(FILTER JONES3D_MAIN_TEST_PLATFORM_SOURCES EXCLUDE REGEX "/Platform/Null/JonesPlatformNullConfig\\.c$")
+    list(APPEND JONES3D_MAIN_TEST_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../Platform/Babylon/JonesControlSchemes.c"
+        "JonesControlSchemesTest.cpp"
+    )
+endif()
+
 add_executable(jones3dTests
     jones3dTestRunner.c
     JonesMainTest.c
     ${JONES3D_MAIN_TEST_PLATFORM_SOURCES}
+    ${JONES3D_MAIN_TEST_SOURCES}
 )
+
+if (J3D_PLATFORM_BABYLON)
+    target_compile_definitions(jones3dTests PRIVATE JONES3D_CONTROL_SCHEMES_TEST)
+endif()
 
 target_include_directories(jones3dTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 

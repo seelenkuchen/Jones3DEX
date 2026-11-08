@@ -71,6 +71,15 @@ int J3DAPI stdControl_Startup(int bKeyboardForeground)
     memset(stdControl_aAxes, 0, sizeof(stdControl_aAxes));
     memset(stdControl_aAxisStates, 0, sizeof(stdControl_aAxisStates));
 
+#ifdef STDCONTROL_BABYLON_DEVICES
+    // Added: the Babylon column registers the mouse axes at startup, like stdControlDX9.c's
+    // InitMouse did, so a binding made before the first read finds them. The gamepad axes are
+    // registered by the device adapter when it enumerates the connected gamepads.
+    stdControl_RegisterAxis(STDCONTROL_AID_MOUSE_X, -250, 250, 0.0f);
+    stdControl_RegisterAxis(STDCONTROL_AID_MOUSE_Y, -200, 200, 0.0f);
+    stdControl_RegisterAxis(STDCONTROL_AID_MOUSE_Z, -20, 20, 0.0f);
+#endif
+
     stdControl_bMouseSensitivityEnabled = false;
     stdControl_Reset();
 
@@ -189,18 +198,16 @@ void J3DAPI stdControl_RegisterAxis(size_t aid, int min, int max, float deadzone
         return;
     }
 
-    // Added: Same registration math as stdControlDX9.c RegisterAxis; a Null axis never
-    // moves from its center, but the flag losses still track registration/enable state.
+    // Added: Same registration math as stdControlDX9.c RegisterAxis, so an axis the Babylon
+    // adapter registers normalizes and dead-zones exactly like the DirectInput backend did. The
+    // Null column never gives an axis a non-center state, so its reads stay 0.
     stdControl_aAxes[aid].flags     |= STDCONTROL_AXIS_REGISTERED;
     stdControl_aAxes[aid].min        = min;
     stdControl_aAxes[aid].max        = max;
-    stdControl_aAxes[aid].center     = (min + max) / 2;
-    stdControl_aAxes[aid].scale      = 2.0f / (float)(max - min);
-    stdControl_aAxes[aid].deadzoneThreshold = (int)((max - min) * deadzoneScale * 0.05f);
-    if ( stdControl_aAxes[aid].deadzoneThreshold )
-    {
-        stdControl_aAxes[aid].flags |= STDCONTROL_AXIS_HASDEADZONE;
-    }
+    stdControl_aAxes[aid].center     = (max - min + 1) / 2 + min;
+    stdControl_aAxes[aid].scale      = 1.0f / (float)(max - stdControl_aAxes[aid].center);
+    stdControl_aAxes[aid].deadzoneThreshold =
+        (int)lroundf((float)(max - stdControl_aAxes[aid].center) * deadzoneScale);
 }
 
 void J3DAPI stdControl_RegisterMouseAxesXY(float xrange, float yrange)
@@ -239,9 +246,37 @@ float J3DAPI stdControl_ReadAxis(size_t axis)
         return 0.0f;
     }
 
-    // Added: A Null axis state equals its center, so the value is always 0 and the idle
-    // flag flip of the DX9 reader can never trigger.
-    return 0.0f;
+    // Added: Same normalization as stdControlDX9.c ReadAxis. The Null column's own states stay at
+    // the center, so this still returns 0 there; the Babylon adapter writes real device states.
+    int curPos = stdControl_aAxisStates[aid] - stdControl_aAxes[aid].center;
+    if ( !curPos )
+    {
+        return 0.0f;
+    }
+
+    if ( (stdControl_aAxes[aid].flags & STDCONTROL_AXIS_HASDEADZONE) == 0 && stdControl_aAxes[aid].deadzoneThreshold )
+    {
+        int pos = curPos >= 0 ? stdControl_aAxisStates[aid] - stdControl_aAxes[aid].center : stdControl_aAxes[aid].center - stdControl_aAxisStates[aid];
+        if ( pos < stdControl_aAxes[aid].deadzoneThreshold )
+        {
+            return 0.0f;
+        }
+    }
+
+    float pos = (float)curPos * stdControl_aAxes[aid].scale;
+    pos = stdMath_ClipNearZero(pos);
+
+    if ( !stdControl_bControlsIdle )
+    {
+        return pos;
+    }
+
+    if ( pos != 0.0f )
+    {
+        stdControl_bControlsIdle = false;
+    }
+
+    return pos;
 }
 
 int J3DAPI stdControl_ReadAxisRaw(size_t axis)
@@ -262,7 +297,19 @@ int J3DAPI stdControl_ReadAxisRaw(size_t axis)
         return 0;
     }
 
-    return 0;
+    // Added: Same centered delta as stdControlDX9.c ReadAxisRaw.
+    int pos = stdControl_aAxisStates[aid] - stdControl_aAxes[aid].center;
+    if ( !pos )
+    {
+        return 0;
+    }
+
+    if ( stdControl_bControlsIdle )
+    {
+        stdControl_bControlsIdle = false;
+    }
+
+    return pos;
 }
 
 float J3DAPI stdControl_ReadKeyAsAxis(size_t keyId)
@@ -514,6 +561,9 @@ void J3DAPI stdControl_SetAxisFlags(size_t axis, StdControlAxisFlag flags)
     }
 }
 
+#ifndef STDCONTROL_BABYLON_DEVICES
+// Added: The Null column has no joystick devices. The Babylon column's device adapter defines these
+// three functions itself, because it enumerates the connected gamepads from the platform events.
 size_t stdControl_GetNumJoysticks(void)
 {
     return 0;
@@ -529,6 +579,16 @@ int J3DAPI stdControl_IsGamePad(int joyNum)
 {
     J3D_UNUSED(joyNum);
     return 0;
+}
+#endif
+
+// Added: writes one axis's raw state; stdControlDX9.c's device reads wrote the array directly.
+void stdControl_SetAxisState(size_t aid, int value)
+{
+    if ( aid < STDCONTROL_MAX_AXES )
+    {
+        stdControl_aAxisStates[aid] = value;
+    }
 }
 
 void stdControl_TestResetInputState(void)

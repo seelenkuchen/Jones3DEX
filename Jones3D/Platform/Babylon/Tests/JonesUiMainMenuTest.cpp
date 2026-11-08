@@ -1,0 +1,512 @@
+// Added: the logic tests of the Babylon column's main menu and start-mode mapping (ADR-0026).
+// They drive the runner with a Null painter and a scripted platform, so every menu action and the
+// nested Settings screen run without a window, display or game asset. The drawing sample lives in
+// JonesUiPainterTest.cpp.
+#include <doctest.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <memory>
+#include <optional>
+#include <string>
+
+#include <babylon/cvars/Registry.h>
+#include <babylon/platform/Event.h>
+#include <babylon/platform/Keys.h>
+#include <babylon/platform/NullPlatform.h>
+#include <babylon/platform/Platform.h>
+#include <babylon/platform/Window.h>
+#include <babylon/time/NullClock.h>
+#include <babylon/ui/NullPainter.h>
+#include <babylon/ui/Ui.h>
+
+#include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesMainSys.h>
+#include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
+#include <Jones3D/types.h>
+
+#include <rdroid/Primitives/rdWallpaper.h>
+
+#include <sith/Main/sithMain.h>
+
+#include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonEvents.h>
+#include <std/General/std.h>
+#include <std/General/stdUtil.h>
+
+#include <wkernel/wkernel.h>
+
+// The game-layer and platform symbols the main menu wrapper names. The cases call the runner with
+// hooks, so these stubs only satisfy the linker of jonesConfig_ShowMainMenu.
+extern "C" StdDisplayEnvironment* JonesMain_GetDisplayEnvironment(void)
+{
+    return NULL;
+}
+
+extern "C" const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void)
+{
+    return NULL;
+}
+
+extern "C" void JonesPlatformNull_SetLoadPath(const char* pPath);
+extern "C" void JonesPlatformNull_ClearLoadPath(void);
+
+namespace
+{
+    using namespace babylon;
+
+    int J3DAPI TestPrint(const char* pFormat, ...)
+    {
+        (void)pFormat;
+        return 0;
+    }
+
+    tHostServices g_hostServices;
+
+    // The modal loop logs its background state; a case that runs alone needs the print hooks.
+    void SetupHostServices()
+    {
+        std::memset(&g_hostServices, 0, sizeof(g_hostServices));
+        g_hostServices.pStatusPrint  = TestPrint;
+        g_hostServices.pMessagePrint = TestPrint;
+        g_hostServices.pWarningPrint = TestPrint;
+        g_hostServices.pErrorPrint   = TestPrint;
+        g_hostServices.pDebugPrint   = TestPrint;
+        g_hostServices.pMalloc       = malloc;
+        g_hostServices.pFree         = free;
+        g_hostServices.pRealloc      = realloc;
+
+        std_g_pHS  = &g_hostServices;
+        sith_g_pHS = &g_hostServices;
+    }
+
+    // Delivers one event per modal frame, like JonesUiSaveLoadTest's platform. If a screen never
+    // closes, a quit request ends it with its back result instead of hanging the suite.
+    class ScriptedPlatform final : public platform::Platform
+    {
+    public:
+        std::unique_ptr<platform::Window> createWindow(const platform::WindowDesc&) override
+        {
+            return nullptr;
+        }
+
+        std::optional<platform::Event> pollEvent() override
+        {
+            if ( m_delivering )
+            {
+                m_delivering = false;
+                return std::nullopt;
+            }
+
+            if ( m_events.empty() )
+            {
+                if ( ++m_emptyPolls > 200 )
+                {
+                    m_emptyPolls = 0;
+                    ++m_quitFallbacks;
+                    return platform::Event{ platform::QuitRequested{} };
+                }
+
+                return std::nullopt;
+            }
+
+            m_emptyPolls = 0;
+            m_delivering = true;
+            platform::Event event = m_events.front();
+            m_events.pop_front();
+            return event;
+        }
+
+        bool showMessageBox(std::string_view, std::string_view) override
+        {
+            return false;
+        }
+
+        void PushKey(platform::Key key)
+        {
+            m_events.push_back(platform::Event{
+                platform::KeyChanged{ 1, key, true, false } });
+            m_events.push_back(platform::Event{
+                platform::KeyChanged{ 1, key, false, false } });
+        }
+
+        int QuitFallbacks() const
+        {
+            return m_quitFallbacks;
+        }
+
+    private:
+        std::deque<platform::Event> m_events;
+        bool m_delivering = false;
+        int m_emptyPolls  = 0;
+        int m_quitFallbacks = 0;
+    };
+
+    struct MenuTestContext
+    {
+        ScriptedPlatform platform;
+        time::NullClock clock;
+        time::NullClock virtualClock;
+        cvars::Registry cvars;
+        StdBabylonContext context{};
+
+        MenuTestContext()
+        {
+            context.pClock          = &clock;
+            context.pVirtualClock   = &virtualClock;
+            context.pFileSystem     = nullptr;
+            context.pPlatform       = &platform;
+            context.pScriptPlatform = nullptr;
+            context.pWindow         = nullptr;
+            context.pCvars          = &cvars;
+            context.pRenderDevice   = nullptr;
+
+            stdBabylon_SetContext(&context);
+            if ( stdBabylonEvents_PeekQuitRequest() )
+            {
+                static_cast<void>(stdBabylonEvents_TakeQuitRequest());
+            }
+
+            SetupHostServices();
+        }
+
+        ~MenuTestContext()
+        {
+            stdBabylon_SetContext(nullptr);
+        }
+    };
+
+    struct StartModeTestContext
+    {
+        platform::NullPlatform platform;
+        time::NullClock clock;
+        time::NullClock virtualClock;
+        cvars::Registry cvars;
+        StdBabylonContext context{};
+
+        StartModeTestContext()
+        {
+            context.pClock          = &clock;
+            context.pVirtualClock   = &virtualClock;
+            context.pFileSystem     = nullptr;
+            context.pPlatform       = &platform;
+            context.pScriptPlatform = nullptr;
+            context.pWindow         = nullptr;
+            context.pCvars          = &cvars;
+            context.pRenderDevice   = nullptr;
+
+            stdBabylon_SetContext(&context);
+            SetupHostServices();
+        }
+
+        ~StartModeTestContext()
+        {
+            stdBabylon_SetContext(nullptr);
+        }
+    };
+}
+
+TEST_CASE("the windowed build opens the main menu for a missing or developer start mode")
+{
+    StartModeTestContext testContext;
+    std::unique_ptr<platform::Window> pWindow =
+        testContext.platform.createWindow({ "menu test", { 640, 480 }, false });
+    REQUIRE(pWindow);
+    testContext.context.pWindow = pWindow.get();
+
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_DEVELOPERDIALOG, 1)
+        == JONES_STARTMODE_MAINMENU);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_DEVELOPERDIALOG, 0)
+        == JONES_STARTMODE_MAINMENU);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_STARTGAME, 1)
+        == JONES_STARTMODE_STARTGAME);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_LOADGAME, 1)
+        == JONES_STARTMODE_LOADGAME);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_SOUNDSETTINGS, 1)
+        == JONES_STARTMODE_SOUNDSETTINGS);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_DISPLAYSETTINGS, 1)
+        == JONES_STARTMODE_DISPLAYSETTINGS);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_MAINMENU, 1)
+        == JONES_STARTMODE_MAINMENU);
+
+    // A --load path still loads that save directly.
+    JonesPlatformNull_SetLoadPath("save.nds");
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_STARTGAME, 0)
+        == JONES_STARTMODE_LOADGAME);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_DEVELOPERDIALOG, 1)
+        == JONES_STARTMODE_LOADGAME);
+    JonesPlatformNull_ClearLoadPath();
+}
+
+TEST_CASE("the windowed build defers the Load and settings start-mode screens")
+{
+    StartModeTestContext testContext;
+    std::unique_ptr<platform::Window> pWindow =
+        testContext.platform.createWindow({ "defer test", { 640, 480 }, false });
+    REQUIRE(pWindow);
+    testContext.context.pWindow = pWindow.get();
+
+    CHECK(jonesConfig_DefersStartMode(JONES_STARTMODE_LOADGAME));
+    CHECK(jonesConfig_DefersStartMode(JONES_STARTMODE_SOUNDSETTINGS));
+    CHECK(jonesConfig_DefersStartMode(JONES_STARTMODE_DISPLAYSETTINGS));
+    CHECK_FALSE(jonesConfig_DefersStartMode(JONES_STARTMODE_STARTGAME));
+    CHECK_FALSE(jonesConfig_DefersStartMode(JONES_STARTMODE_DEVELOPERDIALOG));
+    CHECK_FALSE(jonesConfig_DefersStartMode(JONES_STARTMODE_MAINMENU));
+}
+
+TEST_CASE("the headless column keeps the start-mode screens where they are")
+{
+    StartModeTestContext testContext;
+
+    for ( int startMode = JONES_STARTMODE_STARTGAME; startMode <= JONES_STARTMODE_MAINMENU;
+        ++startMode )
+    {
+        CHECK_FALSE(jonesConfig_DefersStartMode(startMode));
+    }
+}
+
+TEST_CASE("the headless start mode keeps its configured value")
+{
+    StartModeTestContext testContext;
+
+    // No window: the Babylon headless run behaves like the Null column.
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_DEVELOPERDIALOG, 0)
+        == JONES_STARTMODE_DEVELOPERDIALOG);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_DEVELOPERDIALOG, 1)
+        == JONES_STARTMODE_DEVELOPERDIALOG);
+    CHECK(jonesConfig_ResolveStartMode(JONES_STARTMODE_STARTGAME, 1)
+        == JONES_STARTMODE_STARTGAME);
+}
+
+TEST_CASE("the Babylon close message makes the next loop check report quit")
+{
+    StartModeTestContext testContext;
+    while ( stdBabylonEvents_TakeQuitRequest() )
+    {
+    }
+
+    // The Null stub returned 1 without ending the game; the Babylon version records the same
+    // quit request a window close does, which is the WM_QUIT the game loop ends on.
+    CHECK(JonesMainSys_PostCloseMessage() == 1);
+    CHECK(wkernel_PeekProcessEvents() == 1);
+    CHECK(wkernel_PeekProcessEvents() == 0);
+}
+
+TEST_CASE("the main menu uses the load screen's finished wallpaper state")
+{
+    // The load screen advances one cel step at each of its three completion stages; the main
+    // menu must build the same finished wallpaper state.
+    rdWallpaper loadScreenWallpaper;
+    rdWallpaper mainMenuWallpaper;
+    std::memset(&loadScreenWallpaper, 0, sizeof(loadScreenWallpaper));
+    std::memset(&mainMenuWallpaper, 0, sizeof(mainMenuWallpaper));
+
+    const size_t aCels[] = { 2u, 3u, 4u, 6u, 1u, 5u };
+    static_assert(STD_ARRAYLEN(aCels) == STD_ARRAYLEN(loadScreenWallpaper.aMaterials),
+        "one cel count for every wallpaper tile");
+
+    std::snprintf(loadScreenWallpaper.aName, sizeof(loadScreenWallpaper.aName), "mat\\synthetic");
+    std::snprintf(mainMenuWallpaper.aName, sizeof(mainMenuWallpaper.aName), "mat\\synthetic");
+    for ( size_t i = 0; i < STD_ARRAYLEN(aCels); ++i )
+    {
+        loadScreenWallpaper.aMaterials[i].numCels = aCels[i];
+        mainMenuWallpaper.aMaterials[i].numCels   = aCels[i];
+    }
+
+    for ( size_t step = 0; step < 3; ++step )
+    {
+        rdWallpaper_AdvanceCels(&loadScreenWallpaper);
+    }
+
+    JonesUiMainMenu_SetFinishedWallpaper(&mainMenuWallpaper);
+
+    CHECK(std::strcmp(loadScreenWallpaper.aName, mainMenuWallpaper.aName) == 0);
+    CHECK(loadScreenWallpaper.pCamera == mainMenuWallpaper.pCamera);
+    for ( size_t i = 0; i < STD_ARRAYLEN(aCels); ++i )
+    {
+        CHECK(mainMenuWallpaper.aMaterials[i].numCels == loadScreenWallpaper.aMaterials[i].numCels);
+        CHECK(mainMenuWallpaper.aMatCelNums[i] == loadScreenWallpaper.aMatCelNums[i]);
+
+        const int expected = aCels[i] > 3u ? 3 : (int)aCels[i] - 1;
+        CHECK(mainMenuWallpaper.aMatCelNums[i] == expected);
+    }
+}
+
+TEST_CASE("New Game closes the main menu with the new-game action")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    bool newGameCalled = false;
+    JonesUiMainMenuHooks hooks;
+    hooks.newGame = [&newGameCalled]() { newGameCalled = true; };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    testContext.platform.PushKey(platform::Key::Enter);
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::NewGame);
+    CHECK(newGameCalled);
+    CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("Back closes the main menu with the quit action")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiMainMenuHooks hooks;
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+    testContext.platform.PushKey(platform::Key::Escape);
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::Quit);
+    CHECK(ui.screenCount() == 0u);
+
+    // Back closes the screen at once; the platform's empty-poll quit fallback is never needed.
+    CHECK(testContext.platform.QuitFallbacks() == 0);
+}
+
+TEST_CASE("the Quit button closes the main menu with the quit action")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiMainMenuHooks hooks;
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    // Focus starts on New Game; three downs reach Quit and Enter accepts it.
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::Quit);
+    CHECK(ui.screenCount() == 0u);
+
+    // A zero action id would report nothing and only the empty-poll quit fallback would close
+    // the menu; a real action id closes it on the Enter itself.
+    CHECK(testContext.platform.QuitFallbacks() == 0);
+}
+
+TEST_CASE("a disabled Load row is skipped")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    bool loadCalled = false;
+    JonesUiMainMenuHooks hooks;
+    hooks.loadGame = [&loadCalled](char*) { loadCalled = true; return true; };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    // Down skips the disabled Load row and lands on Settings; Enter opens it, then Escape closes
+    // the settings screen and the menu.
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, false, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::Quit);
+    CHECK_FALSE(loadCalled);
+}
+
+TEST_CASE("Load returns the load-game action when a save is chosen")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    bool loadCalled = false;
+    JonesUiMainMenuHooks hooks;
+    hooks.loadGame = [&loadCalled](char* pOutPath)
+    {
+        loadCalled = true;
+        std::snprintf(pOutPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", "chosen.nds");
+        return true;
+    };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::LoadGame);
+    CHECK(loadCalled);
+    CHECK(std::string(aOutLoadPath) == "chosen.nds");
+    CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("a cancelled Load keeps the main menu open")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    bool loadCalled = false;
+    JonesUiMainMenuHooks hooks;
+    hooks.loadGame = [&loadCalled](char* pOutPath)
+    {
+        loadCalled = true;
+        std::snprintf(pOutPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", "cancelled.nds");
+        return false;
+    };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    // The cancelled Load leaves the menu open, so this Escape is what quits it.
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::Quit);
+    CHECK(loadCalled);
+    CHECK(aOutLoadPath[0] == '\0');
+    CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("the Settings screen calls every settings hook")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    int gameplay = 0;
+    int controls = 0;
+    int display  = 0;
+    int sound    = 0;
+    JonesUiMainMenuHooks hooks;
+    hooks.gameplay = [&gameplay]() { ++gameplay; };
+    hooks.controls = [&controls]() { ++controls; };
+    hooks.display  = [&display]() { ++display; };
+    hooks.sound    = [&sound]() { ++sound; };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    // Down twice to Settings, Enter opens it; then accept each row in turn and Back.
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
+        == JonesUiMainMenuAction::Quit);
+    CHECK(gameplay == 1);
+    CHECK(controls == 1);
+    CHECK(display == 1);
+    CHECK(sound == 1);
+    CHECK(ui.screenCount() == 0u);
+}

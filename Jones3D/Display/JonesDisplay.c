@@ -1,5 +1,6 @@
 #include "JonesDisplay.h"
 
+#include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 
 #include <rdroid/Engine/rdCanvas.h>
@@ -149,6 +150,9 @@ int J3DAPI JonesDisplay_Startup(JonesDisplaySettings* pSettings)
 
 void JonesDisplay_Shutdown(void)
 {
+    // Added: release the column's dialog/UI display resources while the device is still open.
+    jonesConfig_ReleaseDisplayResources();
+
     rdClose();
     std3D_Close();
     stdDisplay_ClearMode();
@@ -428,13 +432,7 @@ void J3DAPI JonesDisplay_UpdateLoadProgress(float progress)
         if ( progress == 100.0f && (!JonesDisplay_loadScreenState || JonesDisplay_loadScreenState > 0 && JonesDisplay_bUpdateLoadScreen) )
         {
             // Progress completed, increment background image mats cells to show load completed state
-            for ( size_t i = 0; i < 6; ++i )
-            {
-                if ( JonesDisplay_pWallpaper->aMatCelNums[i] < JonesDisplay_pWallpaper->aMaterials[i].numCels - 1 )
-                {
-                    ++JonesDisplay_pWallpaper->aMatCelNums[i];
-                }
-            }
+            rdWallpaper_AdvanceCels(JonesDisplay_pWallpaper);
         }
 
         rdWallpaper_Draw(JonesDisplay_pWallpaper);

@@ -41,7 +41,7 @@ The work is ordered so that something runs at every step. See the [roadmap](../R
 |---|---|
 | M5. Babylon foundation | `Babylon/` with tests, SDL3 window, input, timer and files, null backends, cvars, adapters. CI on Windows, Linux and macOS |
 | M6. Babylon renderer | SDL3 GPU renderer at parity with DirectX 9. The Win32 and DirectX path was removed in M6.3 (2026-11-05); Windows is now a 64-bit Babylon build, and the Babylon renderer draws the game since M6.6 |
-| M7. Playable | Sound through miniaudio, the original dialogs as in-game screens, playable on all three platforms |
+| M7. Playable | Sound through miniaudio, in-game menus in place of the original dialogs (ADR-0026), playable on all three platforms |
 | M8. Release | Packages, game data installation, macOS signing, first release |
 | M9. Presentation | Widescreen, high resolution, bloom and depth of field, high frame rates |
 | M10. Modern lighting | Per-pixel dynamic lighting and ambient occlusion on the existing CPU pipeline; vertex lighting stays as classic mode |

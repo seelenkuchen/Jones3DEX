@@ -19,6 +19,11 @@ namespace babylon::render
     class Device;
 }
 
+namespace babylon::audio
+{
+    class Device;
+}
+
 struct StdBabylonContext
 {
     babylon::time::Clock*     pClock;        // real clock; never null while installed
@@ -32,6 +37,10 @@ struct StdBabylonContext
     // stdDisplay_Startup and std3D_Startup then fail.
     // The composition root creates it after the window and destroys it before the window.
     babylon::render::Device* pRenderDevice;
+    // The sound output the Babylon sound driver (Libs/sound/Babylon/DriverBabylon.cpp) plays on, or
+    // nullptr: sound then runs silently, every driver call still honoring its contract like the Null
+    // driver. The composition root creates it after the render device and destroys it after the run.
+    babylon::audio::Device* pAudioDevice;
 };
 
 // Installs the context (nullptr uninstalls). The pointer must stay valid until it is uninstalled.

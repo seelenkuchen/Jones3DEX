@@ -30,6 +30,9 @@ void J3DAPI JonesMain_PauseGame();
 void J3DAPI JonesMain_ResumeGame();
 int J3DAPI JonesMain_IsGamePaused();
 
+// Added: true when Escape or Start may open the pause menu in the current state.
+int JonesMain_CanOpenPauseMenu(void);
+
 int JonesMain_Process(void);
 int JonesMain_ProcessGamesaveState(void);
 void JonesMain_UpdateLevelNum(void);
@@ -51,6 +54,10 @@ void JonesMain_ShowEndCredits(void);
 StdDisplayEnvironment* JonesMain_GetDisplayEnvironment(void);
 JonesDisplaySettings* JonesMain_GetDisplaySettings(void);
 
+// Added: the level whose load-screen map the main menu shows behind its panel: the level of the
+// last save the config remembers, or the first level when there is none. Never null.
+const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void);
+
 int JonesMain_CloseWindow(void);
 
 void JonesMain_RefreshDisplayDevice(void);
@@ -58,6 +65,10 @@ void JonesMain_RefreshDisplayDevice(void);
 int JonesMain_PlayIntroMovie(void);
 
 void J3DAPI JonesMain_BindToggleMenuControlKeys(const size_t* paKeyIds, size_t numKeys);
+void JonesMain_ProcessMenu(void); // Added: declared for the control scheme tests
+// Added: copies the current toggle-menu keys (the active scheme's JONESCONTROL_ACTION_INTERFACE
+// bindings, or none) and returns their count.
+size_t J3DAPI JonesMain_GetToggleMenuControlKeys(size_t* pOutKeys, size_t maxKeys);
 
 void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText);
 J3DNORETURN void JonesMain_FatalErrorUnknown(void); // Added

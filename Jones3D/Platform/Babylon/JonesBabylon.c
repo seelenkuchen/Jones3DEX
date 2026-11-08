@@ -14,6 +14,7 @@
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
 #include <wkernel/wkernel.h>
@@ -100,6 +101,10 @@ int JonesBabylon_Run(int argc, char** argv)
     while ( 1 )
     {
         int result = JonesMain_Process();
+
+        // Added: Alt+Enter toggles windowed/fullscreen while the game runs. The game loop has
+        // pumped and read the frame's input, so the held key state is current here.
+        (void)JonesWindowMode_HandleHotkey();
 
         if ( result == -1 )
         {

@@ -10,6 +10,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 namespace babylon::platform
 {
@@ -17,8 +18,8 @@ namespace babylon::platform
     // Platform that touches no operating system at all, for tests and
     // headless runs. Windows are records in memory: ids start at 1 and count
     // up, resize() always succeeds once the size passed the shared check, the
-    // title and size are exactly what was asked for, and relative mouse mode
-    // is recorded per window.
+    // title and size are exactly what was asked for, and relative mouse,
+    // text input and fullscreen modes are recorded per window.
     //
     // Nothing ever arrives in the event queue by itself: only pushEvent(),
     // from a test or from the headless runner, puts events in it. They come
@@ -32,6 +33,11 @@ namespace babylon::platform
         // Appends an event to the queue (FIFO). pushEvent() followed by
         // pollEvent() hands back a copy of the event.
         void pushEvent(const Event& event);
+
+        // There is no native window system here, so the title and text go to
+        // one babylon::log::warning line and nothing blocks.
+        [[nodiscard]] bool showMessageBox(std::string_view title,
+            std::string_view text) override;
 
     private:
         // The id the next created window gets. 0 is never handed out, as the

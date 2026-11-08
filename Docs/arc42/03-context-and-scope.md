@@ -60,4 +60,4 @@ Until the new renderer reached parity (milestone M6), the legacy Win32 and Direc
 reference for the new renderer, outside Babylon. It was removed in M6.3 once the reference screenshots and
 render captures were recorded ([ADR-0011](09-decisions/ADR-0011-retire-win32-directx.md)); Windows now builds
 the Babylon column as a 64-bit program. The Babylon renderer draws the game since M6.6 and the 2D layer since
-M6.7; sound and saving come in M7.
+M6.7; sound, saving and the in-game menus came in M7.

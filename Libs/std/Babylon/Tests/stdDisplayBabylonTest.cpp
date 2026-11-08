@@ -16,10 +16,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <memory>
 #include <span>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -38,6 +40,7 @@
 #include <std/General/stdRenderCapture.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonTour.h>
 #include <std/Babylon/stdRenderBabylon.h>
 
 #include "stdGeneralTest.h"
@@ -923,7 +926,85 @@ TEST(stdDisplayBabylonGpu, CpuPixelsWrittenThroughTheLockLieBetweenTheFramesDraw
     AssertGpuPixel(pixels, 64u, 50u, 8u, 0, 0, 0, 255);      // the clear, opaque after the upload
 }
 
+TEST(stdDisplayBabylonGpu, ScriptedTourWritesTheRequestedPresentAsBmp)
+{
+    stdDisplayBabylonTest_pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !stdDisplayBabylonTest_pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            TEST_FAIL_MESSAGE("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    Context().pRenderDevice = stdDisplayBabylonTest_pDevice.get();
+
+    OpenWindowed(4u, 2u);
+
+    // Configure after SetMode: the mode's own clear presented a frame before the tour existed.
+    const std::string screenshotDir = "stdBabylonTourTest_shots";
+    std::error_code removeError;
+    std::filesystem::remove_all(screenshotDir, removeError);
+
+    StdBabylonTourOptions options;
+    options.screenshotDir    = screenshotDir;
+    options.screenshotFrames = { 1u };
+    std::string error;
+    TEST_ASSERT_TRUE_MESSAGE(stdBabylonTour_Configure(options, 0, error), error.c_str());
+    TEST_ASSERT_EQUAL_UINT64(0u, stdBabylonTour_GetPresentCount());
+
+    // Two 4-pixel rows through the back-buffer lock, so the BMP's row and channel order is exact.
+    void* pSurface  = nullptr;
+    uint32_t width  = 0;
+    uint32_t height = 0;
+    int32_t pitch   = 0;
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_LockBackBuffer(&pSurface, &width, &height, &pitch));
+    TEST_ASSERT_EQUAL_UINT32(4u, width);
+    TEST_ASSERT_EQUAL_UINT32(2u, height);
+    uint32_t* pPixels = static_cast<uint32_t*>(pSurface);
+    for ( uint32_t x = 0; x < width; ++x )
+    {
+        pPixels[x]              = 0x00A0B0C0u; // top row
+        pPixels[width + x]      = 0x00102030u; // bottom row
+    }
+    stdDisplay_UnlockBackBuffer();
+
+    // The present at count 1 writes <dir>/frame-1.bmp after it.
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+    TEST_ASSERT_EQUAL_UINT64(1u, stdBabylonTour_GetPresentCount());
+
+    const std::filesystem::path bmpPath =
+        std::filesystem::path(screenshotDir) / "frame-1.bmp";
+    std::ifstream file(bmpPath, std::ios::binary);
+    const std::vector<uint8_t> bmp((std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>());
+
+    // 54 header bytes and two 4-pixel rows padded to 12 bytes: 24-bit, 4 x 2.
+    TEST_ASSERT_EQUAL_size_t(54u + 24u, bmp.size());
+    TEST_ASSERT_EQUAL_HEX8('B', bmp[0]);
+    TEST_ASSERT_EQUAL_HEX8('M', bmp[1]);
+    TEST_ASSERT_EQUAL_HEX8(4u, bmp[18]);
+    TEST_ASSERT_EQUAL_HEX8(2u, bmp[22]);
+    TEST_ASSERT_EQUAL_HEX8(24u, bmp[28]);
+
+    // Bottom row first, B G R; then the top row.
+    const uint8_t aExpectedRows[24] = {
+        0x30, 0x20, 0x10, 0x30, 0x20, 0x10, 0x30, 0x20, 0x10, 0x30, 0x20, 0x10,
+        0xC0, 0xB0, 0xA0, 0xC0, 0xB0, 0xA0, 0xC0, 0xB0, 0xA0, 0xC0, 0xB0, 0xA0,
+    };
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(aExpectedRows, bmp.data() + 54u, 24u);
+
+    // A present without a request writes no file.
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+    TEST_ASSERT_FALSE(std::filesystem::exists(
+        std::filesystem::path(screenshotDir) / "frame-2.bmp"));
+
+    stdBabylonTour_Shutdown();
+    std::filesystem::remove_all(screenshotDir, removeError);
+}
+
 TEST_GROUP_RUNNER(stdDisplayBabylonGpu)
 {
     RUN_TEST_CASE(stdDisplayBabylonGpu, CpuPixelsWrittenThroughTheLockLieBetweenTheFramesDraws);
+    RUN_TEST_CASE(stdDisplayBabylonGpu, ScriptedTourWritesTheRequestedPresentAsBmp);
 }

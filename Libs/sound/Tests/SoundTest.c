@@ -8,6 +8,8 @@
 
 #include <sound/AudioLib.h>
 #include <sound/Sound.h>
+#include <sound/DriverOutput.h>
+#include <std/General/std.h>
 #include <std/General/stdUtil.h>
 #include <std/types.h>
 
@@ -39,6 +41,7 @@ static size_t SoundTest_maxAllocationSize;
 static size_t SoundTest_numReallocCalls;
 static size_t SoundTest_numUncompressCalls;
 static unsigned int SoundTest_lastUncompressSize;
+static uint32_t SoundTest_timeMsec;
 
 TEST_GROUP(Sound);
 
@@ -188,6 +191,30 @@ static void SoundTest_ConfigureCompressedFixture(void)
     SoundTest_WriteU32LE(&SoundTest_aSoundCache[SOUND_TEST_DATA_OFFSET], SOUND_TEST_PCM_SIZE);
 }
 
+// Altered: ADR-0027 - start a channel whose completion is driven by the sound layer's clock.
+static void SoundTest_ConfigurePlayingChannel(tSoundChannelFlag flags, float pitch)
+{
+    STD_ZEROMEM(&SoundTest_channel, sizeof(SoundTest_channel));
+    SoundTest_channel.handle         = SOUND_TEST_CHANNEL_HANDLE;
+    SoundTest_channel.hSnd           = SOUND_TEST_SOUND_HANDLE;
+    SoundTest_channel.pDSoundBuffer  = NULL;
+    SoundTest_channel.volume         = 1.0f;
+    SoundTest_channel.pitch          = pitch;
+    SoundTest_channel.sampleRate     = (float)SoundTest_soundInfo.sampleRate;
+    SoundTest_channel.flags          = flags;
+    SoundTest_channel.msecLastUpdate = 0; // the virtual clock and the layer's clock both start at 0
+    Sound_TestSetChannels(&SoundTest_channel, 1);
+}
+
+static void SoundTest_AdvanceTime(uint32_t msec)
+{
+    // Added: advance the sound layer's own test clock, not the platform clock, so the suite is
+    // independent of the column stdPlatform_GetTimeMsec reads.
+    SoundTest_timeMsec += msec;
+    Sound_TestSetTimeMsec(SoundTest_timeMsec);
+    Sound_Update(NULL, NULL, NULL, NULL);
+}
+
 static void J3DAPI SoundTest_Uncompress(tAudioCompressorState* pCompressorState, uint8_t* pOutSndData, const uint8_t* pCompressedData, unsigned int size)
 {
     J3D_UNUSED(pCompressorState);
@@ -223,6 +250,9 @@ static void SoundTest_AssertLipSyncFailure(int msecLipSyncOffset)
 
 TEST_SETUP(Sound)
 {
+    // Altered: ADR-0027 - drive the sound layer's clock explicitly instead of reading wall time.
+    SoundTest_timeMsec = 0;
+
     STD_ZEROMEM(&SoundTest_hostServices, sizeof(SoundTest_hostServices));
     SoundTest_hostServices.pStatusPrint  = SoundTest_Print;
     SoundTest_hostServices.pMessagePrint = SoundTest_Print;
@@ -234,6 +264,9 @@ TEST_SETUP(Sound)
     SoundTest_hostServices.pFree         = SoundTest_Free;
     SoundTest_hostServices.pRealloc      = SoundTest_Realloc;
 
+    // Added: Sound_Play allocates the Null driver's buffers through the std memory layer.
+    stdStartup(&SoundTest_hostServices);
+
     SoundTest_numActiveAllocations = 0;
     SoundTest_ResetAllocationState();
     SoundTest_numReallocCalls    = 0;
@@ -241,7 +274,10 @@ TEST_SETUP(Sound)
     SoundTest_lastUncompressSize = 0;
 
     Sound_TestResetLipSyncState();
+    // Added: the override has to be set after the reset, which clears it.
+    Sound_TestSetTimeMsec(SoundTest_timeMsec);
     TEST_ASSERT_EQUAL_INT(0, Sound_Initialize(&SoundTest_hostServices));
+    Sound_TestSetOpenState();
     SoundTest_ConfigureDefaultFixture();
     Sound_TestSetUncompressFunc(SoundTest_Uncompress);
 }
@@ -261,6 +297,7 @@ TEST_TEAR_DOWN(Sound)
     }
 
     Sound_Uninitialize();
+    stdShutdown();
     Sound_TestResetLipSyncState();
     TEST_ASSERT_EQUAL_size_t(0u, SoundTest_numReallocCalls);
     TEST_ASSERT_EQUAL_size_t(0u, numLeakedAllocations);
@@ -474,6 +511,184 @@ TEST(Sound, TestMouthLevelMacro)
     }
 }
 
+TEST(Sound, TestNonLoopingFinishesAtLength)
+{
+    SoundTest_ConfigurePlayingChannel(SOUND_CHANNEL_PLAYING, 1.0f);
+
+    SoundTest_AdvanceTime(99);
+    TEST_ASSERT_NOT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+    TEST_ASSERT_EQUAL_UINT32(SOUND_CHANNEL_PLAYING, (uint32_t)(Sound_GetChannelFlags(SOUND_TEST_CHANNEL_HANDLE) & SOUND_CHANNEL_PLAYING));
+
+    SoundTest_AdvanceTime(1);
+    TEST_ASSERT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+}
+
+TEST(Sound, TestPitchScalesPlayPosition)
+{
+    float progress = 0.0f;
+
+    SoundTest_ConfigurePlayingChannel(SOUND_CHANNEL_PLAYING, 2.0f);
+
+    SoundTest_AdvanceTime(25);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, progress);
+
+    Sound_SetPitch(SOUND_TEST_CHANNEL_HANDLE, 1.0f);
+    SoundTest_AdvanceTime(49);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(99.0f, progress);
+
+    SoundTest_AdvanceTime(1);
+    TEST_ASSERT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+}
+
+TEST(Sound, TestLoopingSoundNeverFinishes)
+{
+    float progress = 0.0f;
+
+    SoundTest_ConfigurePlayingChannel((tSoundChannelFlag)(SOUND_CHANNEL_LOOP | SOUND_CHANNEL_PLAYING), 1.0f);
+
+    SoundTest_AdvanceTime(100);
+    TEST_ASSERT_NOT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+
+    SoundTest_AdvanceTime(5000);
+    TEST_ASSERT_NOT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, progress);
+
+    SoundTest_AdvanceTime(25);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(25.0f, progress);
+}
+
+TEST(Sound, TestLayerPauseStopsPlayClock)
+{
+    float progress = 0.0f;
+
+    SoundTest_ConfigurePlayingChannel(SOUND_CHANNEL_PLAYING, 1.0f);
+
+    SoundTest_AdvanceTime(10);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, progress);
+
+    Sound_Pause();
+    SoundTest_AdvanceTime(50);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, progress);
+
+    Sound_Resume();
+    SoundTest_AdvanceTime(0);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, progress);
+
+    SoundTest_AdvanceTime(10);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(20.0f, progress);
+
+    SoundTest_AdvanceTime(80);
+    TEST_ASSERT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+}
+
+TEST(Sound, TestChannelPauseStopsPlayClock)
+{
+    float progress = 0.0f;
+
+    SoundTest_ConfigurePlayingChannel((tSoundChannelFlag)(SOUND_CHANNEL_PLAYING | SOUND_CHANNEL_PAUSED), 1.0f);
+
+    SoundTest_AdvanceTime(30);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, progress);
+
+    SoundTest_channel.flags &= ~SOUND_CHANNEL_PAUSED;
+    SoundTest_AdvanceTime(10);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, progress);
+}
+
+TEST(Sound, TestSoundStartedWhilePausedPlays)
+{
+    float progress = 0.0f;
+
+    SoundTest_channel.pDSoundBuffer = NULL;
+    Sound_StopChannel(SOUND_TEST_CHANNEL_HANDLE);
+    Sound_Pause();
+
+    tSoundChannelHandle hChannel = Sound_Play(SOUND_TEST_SOUND_HANDLE, 1.0f, 0.0f, 0, SOUND_CHANNEL_PLAYING, 0);
+    TEST_ASSERT_TRUE(hChannel != SOUND_INVALIDHANDLE);
+    TEST_ASSERT_NOT_NULL(Sound_GetChannel(hChannel));
+
+    SoundTest_AdvanceTime(99);
+    TEST_ASSERT_NOT_NULL(Sound_GetChannel(hChannel));
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(hChannel, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(99.0f, progress);
+
+    SoundTest_AdvanceTime(1);
+    TEST_ASSERT_NULL(Sound_GetChannel(hChannel));
+
+    Sound_Resume();
+}
+
+TEST(Sound, TestPlayAcrossPauseResume)
+{
+    float progress = 0.0f;
+
+    SoundTest_ConfigurePlayingChannel(SOUND_CHANNEL_PLAYING, 1.0f);
+
+    SoundTest_AdvanceTime(40);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(40.0f, progress);
+
+    Sound_Pause();
+    SoundTest_AdvanceTime(60);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(40.0f, progress);
+
+    Sound_Resume();
+    SoundTest_AdvanceTime(59);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(99.0f, progress);
+
+    SoundTest_AdvanceTime(1);
+    TEST_ASSERT_NULL(Sound_GetChannel(SOUND_TEST_CHANNEL_HANDLE));
+}
+
+TEST(Sound, TestPlayProgressUsesComputedPosition)
+{
+    float progress = 0.0f;
+
+    SoundTest_ConfigurePlayingChannel(SOUND_CHANNEL_PLAYING, 1.0f);
+
+    SoundTest_AdvanceTime(25);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(25.0f, progress);
+
+    SoundTest_AdvanceTime(25);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(50.0f, progress);
+
+    SoundTest_AdvanceTime(49);
+    TEST_ASSERT_TRUE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+    TEST_ASSERT_EQUAL_FLOAT(99.0f, progress);
+
+    SoundTest_AdvanceTime(1);
+    TEST_ASSERT_FALSE(Sound_GetChannelPlayProgress(SOUND_TEST_CHANNEL_HANDLE, &progress));
+}
+
+TEST(Sound, OutputDeviceStubsReportNoDevicesAndRefuseSwitching)
+{
+    char aId[16]   = "keep";
+    char aName[16] = "keep";
+
+    TEST_ASSERT_EQUAL_size_t(0u, SoundDriver_GetNumOutputDevices());
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_GetOutputDevice(0, aId, sizeof(aId), aName, sizeof(aName)));
+    TEST_ASSERT_EQUAL_STRING("keep", aId);
+    TEST_ASSERT_EQUAL_STRING("keep", aName);
+
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_SetOutputDevice("null"));
+    TEST_ASSERT_EQUAL_INT(0, SoundDriver_SetOutputDevice(NULL));
+    TEST_ASSERT_EQUAL_STRING("", SoundDriver_GetCurrentOutputDevice());
+}
+
 TEST_GROUP_RUNNER(Sound)
 {
     RUN_TEST_CASE(Sound, TestFailures);
@@ -483,4 +698,13 @@ TEST_GROUP_RUNNER(Sound)
     RUN_TEST_CASE(Sound, TestAllocationFailures);
     RUN_TEST_CASE(Sound, TestLargeLipSyncBuffer);
     RUN_TEST_CASE(Sound, TestMouthLevelMacro);
+    RUN_TEST_CASE(Sound, TestNonLoopingFinishesAtLength);
+    RUN_TEST_CASE(Sound, TestPitchScalesPlayPosition);
+    RUN_TEST_CASE(Sound, TestLoopingSoundNeverFinishes);
+    RUN_TEST_CASE(Sound, TestLayerPauseStopsPlayClock);
+    RUN_TEST_CASE(Sound, TestChannelPauseStopsPlayClock);
+    RUN_TEST_CASE(Sound, TestSoundStartedWhilePausedPlays);
+    RUN_TEST_CASE(Sound, TestPlayAcrossPauseResume);
+    RUN_TEST_CASE(Sound, TestPlayProgressUsesComputedPosition);
+    RUN_TEST_CASE(Sound, OutputDeviceStubsReportNoDevicesAndRefuseSwitching);
 }

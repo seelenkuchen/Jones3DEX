@@ -79,6 +79,13 @@ TEST_CASE("Null windows get ids counting up from 1")
     CHECK(second->size() == Size{ 320, 200 });
     CHECK(second->resize(Size{ 1, kMaxWindowDimension }));
     CHECK(second->size() == Size{ 1, kMaxWindowDimension });
+
+    // Fullscreen is recorded per window and never refused.
+    CHECK_FALSE(second->fullscreen());
+    CHECK(second->setFullscreen(true));
+    CHECK(second->fullscreen());
+    CHECK(second->setFullscreen(false));
+    CHECK_FALSE(second->fullscreen());
     sink.clear();
     CHECK(platform.pollEvent() == std::nullopt);   // window creation queues nothing
     CHECK(sink.records().empty());
@@ -240,6 +247,42 @@ TEST_CASE("The Null window records relative mouse mode")
 
     CHECK(window->setRelativeMouse(false));
     CHECK_FALSE(window->relativeMouse());
+
+    // A mode that cannot fail never logs.
+    CHECK(sink.records().empty());
+}
+
+TEST_CASE("The Null window records text input mode and delivers injected text")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    const std::unique_ptr<Window> window =
+        platform.createWindow(WindowDesc{ "one", Size{ 64, 64 } });
+    REQUIRE(window != nullptr);
+    const std::unique_ptr<Window> other =
+        platform.createWindow(WindowDesc{ "two", Size{ 64, 64 } });
+    REQUIRE(other != nullptr);
+
+    // Off until started, and the Null backend never refuses.
+    CHECK_FALSE(window->textInput());
+    CHECK(window->setTextInput(true));
+    CHECK(window->textInput());
+
+    // The mode is recorded per window.
+    CHECK_FALSE(other->textInput());
+
+    CHECK(window->setTextInput(false));
+    CHECK_FALSE(window->textInput());
+
+    // The Null backend produces no text by itself; a test pushes it in.
+    platform.pushEvent(babylon::platform::TextInput{ window->id(), "Grüße" });
+    const std::optional<babylon::platform::Event> event = platform.pollEvent();
+    REQUIRE(event.has_value());
+    const auto* const input = std::get_if<babylon::platform::TextInput>(&*event);
+    REQUIRE(input != nullptr);
+    CHECK(input->window == window->id());
+    CHECK(input->text == "Grüße");
 
     // A mode that cannot fail never logs.
     CHECK(sink.records().empty());

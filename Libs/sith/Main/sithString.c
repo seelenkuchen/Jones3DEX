@@ -40,6 +40,11 @@ int sithString_Startup(void)
     return 0;
 }
 
+bool sithString_HasStarted(void) // Added
+{
+    return bStartup;
+}
+
 void sithString_Shutdown(void)
 {
     if ( bStartup )

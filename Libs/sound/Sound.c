@@ -10,6 +10,7 @@
 #include <std/General/stdUtil.h>
 
 #include <limits.h>
+#include <math.h>
 
 // General module constants
 #define SOUND_INIT_SOUNDINFO_BUFFERSIZE 16
@@ -143,6 +144,9 @@ static size_t Sound_memfilePos;
 static int Sound_test_bCurrentPositionSet;
 static size_t Sound_test_currentPosition;
 static SoundTestUncompressFunc Sound_test_pfUncompress;
+// Added: a test-only clock, so the suites do not depend on the platform's time source.
+static int Sound_test_bTimeSet;
+static uint32_t Sound_test_timeMsec;
 #endif
 
 tSoundHandle Sound_GenerateSoundHandle(void);
@@ -166,13 +170,29 @@ void J3DAPI Sound_MemFileFree(void);
 void Sound_StopAllNonStaticSounds(void);
 
 static tSoundHandle Sound_LoadToBank(const char* pFilepath, uint32_t* sndIdx, size_t bankNum);
-static size_t Sound_GetLipSyncCurrentPosition(tSysSoundBuffer* pSoundBuffer);
+static size_t Sound_GetLipSyncCurrentPosition(const tSoundChannel* pChannel, const SoundInfo* pSndInfo);
+static size_t Sound_GetChannelPlayPositionBytes(const tSoundChannel* pChannel, const SoundInfo* pSndInfo);
+static void Sound_AdvanceChannelPlayPos(tSoundChannel* pChannel, uint32_t nowMsec);
 static void Sound_ResetLipSyncCompressor(tAudioCompressorState* pCompressorState);
 static void Sound_UncompressLipSyncData(tAudioCompressorState* pCompressorState, uint8_t* pOutSndData, const uint8_t* pCompressedData, unsigned int size);
 
 int J3DAPI Sound_ExportBank(tFileHandle fh, size_t bankNum);
 int J3DAPI Sound_ImportBank(tFileHandle fh, size_t bankNum);
 int J3DAPI Sound_ReadFile(tFileHandle fh, void* pData, size_t size);
+
+// Added: every clock read of the sound layer goes through here, so the unit tests can drive it
+// without a driver. The lip-sync position override above follows the same pattern.
+static uint32_t Sound_GetTimeMsec(void)
+{
+#if defined(J3D_TEST)
+    if ( Sound_test_bTimeSet )
+    {
+        return Sound_test_timeMsec;
+    }
+#endif
+
+    return SoundDriver_GetTimeMsec();
+}
 
 static void Sound_Release(tSoundChannel* pChannel) // Added
 {
@@ -191,8 +211,21 @@ static void Sound_Release(tSoundChannel* pChannel) // Added
 void Sound_ResetGlobals(void)
 {}
 
+// Altered: ADR-0027 - convert the sound layer's own play position to a byte offset instead of
+// asking the driver, so lip sync is deterministic and works without an audio device.
+static size_t Sound_GetChannelPlayPositionBytes(const tSoundChannel* pChannel, const SoundInfo* pSndInfo)
+{
+    const uint64_t bytesPerSecond = (uint64_t)pSndInfo->sampleRate * (pSndInfo->sempleBitSize >> 3) * pSndInfo->numChannels;
+    if ( bytesPerSecond == 0 || pChannel->msecPlayPos <= 0.0 )
+    {
+        return 0;
+    }
+
+    return (size_t)(pChannel->msecPlayPos * (double)bytesPerSecond / (double)SOUND_MILLISECONDS_PER_SECOND);
+}
+
 // Added: Keep external audio-driver dependencies replaceable in deterministic unit tests.
-static size_t Sound_GetLipSyncCurrentPosition(tSysSoundBuffer* pSoundBuffer)
+static size_t Sound_GetLipSyncCurrentPosition(const tSoundChannel* pChannel, const SoundInfo* pSndInfo)
 {
 #if defined(J3D_TEST)
     if ( Sound_test_bCurrentPositionSet )
@@ -201,7 +234,43 @@ static size_t Sound_GetLipSyncCurrentPosition(tSysSoundBuffer* pSoundBuffer)
     }
 #endif
 
-    return SoundDriver_GetCurrentPosition(pSoundBuffer);
+    return Sound_GetChannelPlayPositionBytes(pChannel, pSndInfo);
+}
+
+// Altered: ADR-0027 - advance a channel by the elapsed raw platform time scaled by its pitch.
+// Timestamps use the raw clock so a non-looping sound started while the layer is paused (menu
+// sounds are allowed then) still advances and finishes. An existing channel is frozen by its
+// SOUND_CHANNEL_PAUSED flag, but its timestamp keeps moving so the paused interval is not counted
+// on resume. Far channels are not marked paused by Sound_Pause, so they freeze while the layer is.
+static void Sound_AdvanceChannelPlayPos(tSoundChannel* pChannel, uint32_t nowMsec)
+{
+    const uint32_t msecDelta = nowMsec - pChannel->msecLastUpdate;
+    pChannel->msecLastUpdate = nowMsec;
+
+    if ( (pChannel->flags & SOUND_CHANNEL_PAUSED) != 0 )
+    {
+        return;
+    }
+
+    if ( (pChannel->flags & SOUND_CHANNEL_FAR) != 0 && Sound_pausedRefCount )
+    {
+        return;
+    }
+
+    pChannel->msecPlayPos += (double)msecDelta * (double)pChannel->pitch;
+
+    if ( (pChannel->flags & SOUND_CHANNEL_LOOP) != 0 )
+    {
+        const size_t lengthMsec = Sound_GetLengthMsec(pChannel->handle);
+        if ( lengthMsec )
+        {
+            pChannel->msecPlayPos = fmod(pChannel->msecPlayPos, (double)lengthMsec);
+            if ( pChannel->msecPlayPos < 0.0 )
+            {
+                pChannel->msecPlayPos += (double)lengthMsec;
+            }
+        }
+    }
 }
 
 static void Sound_ResetLipSyncCompressor(tAudioCompressorState* pCompressorState)
@@ -242,6 +311,8 @@ void Sound_TestResetLipSyncState(void)
     Sound_test_bCurrentPositionSet = 0;
     Sound_test_currentPosition     = 0;
     Sound_test_pfUncompress        = NULL;
+    Sound_test_bTimeSet            = 0;
+    Sound_test_timeMsec            = 0;
 
     STD_ZEROMEM(soundbank_apSoundCache, sizeof(soundbank_apSoundCache));
     STD_ZEROMEM(soundbank_aCacheSizes, sizeof(soundbank_aCacheSizes));
@@ -249,6 +320,16 @@ void Sound_TestResetLipSyncState(void)
     STD_ZEROMEM(soundbank_apSoundInfos, sizeof(soundbank_apSoundInfos));
     STD_ZEROMEM(soundbank_aNumSounds, sizeof(soundbank_aNumSounds));
     STD_ZEROMEM(soundbank_aSizeSounds, sizeof(soundbank_aSizeSounds));
+}
+
+// Added: ADR-0027 - let the unit tests exercise pause/resume on the sound layer's clock without
+// opening a backend or running the bank reset that Sound_Open performs.
+void Sound_TestSetOpenState(void)
+{
+    Sound_state              = SOUNDSTATE_OPEN;
+    Sound_msecElapsed        = Sound_GetTimeMsec();
+    Sound_msecPauseStartTime = 0;
+    Sound_pausedRefCount     = 0;
 }
 
 void Sound_TestSetChannels(tSoundChannel* pChannels, size_t numChannels)
@@ -282,6 +363,20 @@ void Sound_TestSetCurrentPosition(size_t position)
 {
     Sound_test_bCurrentPositionSet = 1;
     Sound_test_currentPosition     = position;
+}
+
+// Added: drives the sound layer's clock from a test instead of the platform or driver clock.
+void Sound_TestSetTimeMsec(uint32_t msec)
+{
+    Sound_test_bTimeSet = 1;
+    Sound_test_timeMsec = msec;
+}
+
+// Added: returns the sound layer to the real clock after a test set it.
+void Sound_TestClearTime(void)
+{
+    Sound_test_bTimeSet = 0;
+    Sound_test_timeMsec = 0;
 }
 
 void Sound_TestSetUncompressFunc(SoundTestUncompressFunc pfUncompress)
@@ -376,7 +471,7 @@ int J3DAPI Sound_Open(SoundOpenFlags flags, size_t maxSoundChannels, SoundGetThi
         return 0;
     }
 
-    Sound_msecElapsed = SoundDriver_GetTimeMsec();
+    Sound_msecElapsed = Sound_GetTimeMsec();
     memset(Sound_aFades, 0, sizeof(Sound_aFades));
 
     Sound_pausedRefCount         = 0;
@@ -440,7 +535,7 @@ int J3DAPI Sound_Save(tFileHandle fh)
         return 0;
     }
 
-    const uint32_t curDetlatPauseTime = SoundDriver_GetTimeMsec() - Sound_msecPauseStartTime;
+    const uint32_t curDetlatPauseTime = Sound_GetTimeMsec() - Sound_msecPauseStartTime;
     if ( Sound_pHS->pFileWrite(fh, &curDetlatPauseTime, sizeof(curDetlatPauseTime)) != sizeof(curDetlatPauseTime) )
     {
         J3D_ASSERT_SIZE32(sizeof(curDetlatPauseTime) == 4, "sizeof(curDetlatPauseTime) == 4");
@@ -652,14 +747,14 @@ int J3DAPI Sound_Restore(tFileHandle fh)
         return 0;
     }
 
-    Sound_msecElapsed = SoundDriver_GetTimeMsec() - pauseDeltaTime;
+    Sound_msecElapsed = Sound_GetTimeMsec() - pauseDeltaTime;
 
     if ( Sound_pHS->pFileRead(fh, &Sound_msecPauseStartTime, sizeof(uint32_t)) != sizeof(uint32_t) )
     {
         return 0;
     }
 
-    Sound_msecPauseStartTime += SoundDriver_GetTimeMsec();
+    Sound_msecPauseStartTime += Sound_GetTimeMsec();
 
     // Read sound file name length
     uint32_t filenameLen;
@@ -880,7 +975,7 @@ void Sound_Pause(void)
     {
         // Pause all channels
 
-        Sound_msecPauseStartTime = SoundDriver_GetTimeMsec();
+        Sound_msecPauseStartTime = Sound_GetTimeMsec();
 
         for ( size_t i = Sound_numChannels; i > 0; i-- )
         {
@@ -916,7 +1011,7 @@ void Sound_Resume(void)
 
     if ( --Sound_pausedRefCount <= 0 )
     {
-        Sound_msecElapsed += SoundDriver_GetTimeMsec() - Sound_msecPauseStartTime;
+        Sound_msecElapsed += Sound_GetTimeMsec() - Sound_msecPauseStartTime;
 
         // Resume all paused channels
         for ( size_t i = Sound_numChannels; i > 0; i-- )
@@ -1661,6 +1756,9 @@ tSoundChannelHandle J3DAPI Sound_Play(tSoundHandle hSnd, float volume, float pan
     pChannel->minRadius  = 0.0f;
     pChannel->maxRadius  = 0.0f;
     pChannel->envflags   = 0;
+    // Altered: ADR-0027 - start the sound layer's own play clock at the current platform time.
+    pChannel->msecPlayPos    = 0.0;
+    pChannel->msecLastUpdate = Sound_GetTimeMsec();
 
     // If start far playing then don't play sound
     if ( (flags & SOUND_CHANNEL_STARTFAR) != 0 )
@@ -2291,7 +2389,7 @@ bool J3DAPI Sound_GetChannelPlayProgress(tSoundChannelHandle hChannel, float* pP
     SOUND_ASSERT(pProgress);
 
     tSoundChannel* pChannel = Sound_GetChannel(hChannel);
-    if ( !pChannel || !pChannel->pDSoundBuffer )
+    if ( !pChannel )
     {
         *pProgress = 0.0;
         return false;
@@ -2310,14 +2408,17 @@ bool J3DAPI Sound_GetChannelPlayProgress(tSoundChannelHandle hChannel, float* pP
         return false;
     }
 
-    size_t dataSize = pSndInfo->dataSize;
-    if ( pSndInfo->bCompressed )
+    // Altered: ADR-0027 - report progress from the sound layer's computed position, not the driver's.
+    const size_t lengthMsec = Sound_GetLengthMsec(pChannel->handle);
+    if ( !lengthMsec )
     {
-        dataSize = ((tAudioCompressedData*)&soundbank_apSoundCache[pSndInfo->bankNum][pSndInfo->dataOffset])->uncompressedSize;
+        *pProgress = 0.0;
+        return false;
     }
 
-    size_t curPos = SoundDriver_GetCurrentPosition(pChannel->pDSoundBuffer);
-    *pProgress = (float)curPos / (float)dataSize * 100.0f;
+    double progress = 100.0 * pChannel->msecPlayPos / (double)lengthMsec;
+    progress = STDMATH_CLAMP(progress, 0.0, 100.0);
+    *pProgress = (float)progress;
     return true;
 }
 
@@ -2490,6 +2591,9 @@ void J3DAPI Sound_Update(const rdVector3* pPos, const rdVector3* pVelocity, cons
                             if ( pChannel->handle == hChannel )
                             {
                                 pChannel->flags &= ~SOUND_CHANNEL_RESTART;
+                                // Altered: ADR-0027 - a restarted distant sound resumes its play clock.
+                                pChannel->msecPlayPos    = channel.msecPlayPos;
+                                pChannel->msecLastUpdate = channel.msecLastUpdate;
                                 pChannel->handle = channel.handle;
                                 break; // Should continue the while loop
                             }
@@ -2532,6 +2636,9 @@ void J3DAPI Sound_Update(const rdVector3* pPos, const rdVector3* pVelocity, cons
                             if ( pChannel->handle == hChannel )
                             {
                                 pChannel->flags &= ~SOUND_CHANNEL_RESTART;
+                                // Altered: ADR-0027 - a restarted distant sound resumes its play clock.
+                                pChannel->msecPlayPos    = channel.msecPlayPos;
+                                pChannel->msecLastUpdate = channel.msecLastUpdate;
                                 pChannel->handle = channel.handle;
                                 break; // Should continue the while loop
                             }
@@ -2544,16 +2651,23 @@ void J3DAPI Sound_Update(const rdVector3* pPos, const rdVector3* pVelocity, cons
 
     SoundDriver_ListenerCommitDeferred();
 
-    // Remove channels that have finished playing
+    // Altered: ADR-0027 - the sound layer decides completion from its own clock; the driver only renders.
+    // Per-channel timestamps use the raw platform clock; the paused flags decide what stops advancing.
     if ( Sound_apChannels )
     {
+        const uint32_t nowMsec = Sound_GetTimeMsec();
         for ( size_t i = 0; i < Sound_numChannels; ++i )
         {
             pCurChannel = &Sound_apChannels[i];
-            if ( pCurChannel->handle != SOUND_INVALIDHANDLE
-                && (SoundDriver_GetStatusAndCaps(pCurChannel->pDSoundBuffer) & SOUND_CHANNEL_PLAYING) == 0
-                && (pCurChannel->flags & SOUND_CHANNEL_PAUSED) == 0
-                && (pCurChannel->flags & SOUND_CHANNEL_FAR) == 0 )
+            if ( pCurChannel->handle == SOUND_INVALIDHANDLE )
+            {
+                continue;
+            }
+
+            Sound_AdvanceChannelPlayPos(pCurChannel, nowMsec);
+
+            if ( (pCurChannel->flags & (SOUND_CHANNEL_LOOP | SOUND_CHANNEL_PAUSED | SOUND_CHANNEL_FAR)) == 0
+                && pCurChannel->msecPlayPos >= (double)Sound_GetLengthMsec(pCurChannel->handle) )
             {
                 Sound_Release(pCurChannel);
             }
@@ -2718,7 +2832,8 @@ int J3DAPI Sound_GenerateLipSync(tSoundChannelHandle hChannel, uint8_t* pMouthPo
     // Fixed: Use wide intermediates for playback-window and millisecond calculations.
     uint64_t bytesPerSecond = (uint64_t)pSndInfo->sampleRate * (pSndInfo->sempleBitSize >> 3) * pSndInfo->numChannels;
     size_t ampSize          = (size_t)(bytesPerSecond * SOUND_LIPSYNC_END_MARGIN_MSEC / SOUND_MILLISECONDS_PER_SECOND);
-    size_t curPos           = Sound_GetLipSyncCurrentPosition(pChannel->pDSoundBuffer);
+    // Altered: ADR-0027 - lip sync reads the sound layer's computed position instead of the driver's.
+    size_t curPos           = Sound_GetLipSyncCurrentPosition(pChannel, pSndInfo);
 
     int msecLipSyncTime = -1;
     // Altered: Express the original end-of-data check without overflowing ampSize + curPos.
@@ -3034,7 +3149,7 @@ size_t J3DAPI Sound_WriteSoundFilepathToBank(size_t bankNum, const char* pFilepa
 
 uint32_t Sound_GetDeltaTime(void)
 {
-    return SoundDriver_GetTimeMsec() - Sound_msecElapsed;
+    return Sound_GetTimeMsec() - Sound_msecElapsed;
 }
 
 SoundInfo* J3DAPI Sound_GetSoundInfo(tSoundHandle hSnd)

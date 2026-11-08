@@ -9,6 +9,10 @@ J3D_EXTERN_C_START
 rdWallpaper* J3DAPI rdWallpaper_New(const char* pName);
 void J3DAPI rdWallpaper_Free(rdWallpaper* pWallpaper);
 
+// Advances every tile one cel, stopping at each material's last cel. The load screen calls this
+// once per completion stage to reach its finished image.
+void J3DAPI rdWallpaper_AdvanceCels(rdWallpaper* pWallpaper);
+
 void J3DAPI rdWallpaper_Draw(const rdWallpaper* pWallpaper);
 rdWallLine* J3DAPI rdWallpaper_NewWallLine(float startX, float startY, float endX, float endY, const rdVector4* pColor);
 void J3DAPI rdWallpaper_FreeWallLine(rdWallLine* pWallLine);

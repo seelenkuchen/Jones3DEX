@@ -14,4 +14,6 @@ files: log SDL3-static
 platform: log SDL3-static
 input: platform core
 cvars: log core
+audio: log miniaudio
 render: log platform SDL3-static
+ui: log cvars platform

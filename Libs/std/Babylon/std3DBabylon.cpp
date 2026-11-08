@@ -1447,6 +1447,11 @@ void std3D_EndScene(void)
     // The frame stays open: stdDisplay_Update submits and presents it, like stdDisplayDX9.c's Present.
 }
 
+bool std3D_IsInScene(void)
+{
+    return std3D_bInScene;
+}
+
 namespace
 {
     // std3D_DrawRenderList and std3D_DrawRenderListLit: aVerts holds numVerts StdVertexTL, or

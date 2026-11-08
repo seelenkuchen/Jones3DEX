@@ -154,6 +154,26 @@ namespace
             CHECK_FALSE(window->relativeMouse());
         }
 
+        // Text input: the same contract as relative mouse. It starts off,
+        // the backend records the mode while accepted, and a backend that
+        // refuses reports false with one warning and the state unchanged.
+        CHECK_FALSE(window->textInput());
+        if ( window->setTextInput(true) )
+        {
+            noWarning();
+            CHECK(window->textInput());
+            CHECK(window->setTextInput(false));
+            noWarning();
+            CHECK_FALSE(window->textInput());
+        }
+        else
+        {
+            MESSAGE("this backend refused setTextInput(true); checked only the "
+                "refusal contract: one warning, state unchanged");
+            oneWarning();
+            CHECK_FALSE(window->textInput());
+        }
+
         // Draining the queue terminates: the backend does not make events
         // faster than they are taken out. 10,000 calls is far past what
         // four windows and one resize can produce.
@@ -212,6 +232,26 @@ namespace
         INFO("pollEvent() calls until the queue was empty: " << polls);
         CHECK(drained);
         noWarning();
+
+        // Fullscreen starts off, and a backend that accepts it reports the mode until it is
+        // switched off again. A driver with no display may refuse (SDL's offscreen driver is
+        // allowed to): false, one warning and the mode unchanged.
+        CHECK_FALSE(window->fullscreen());
+        if ( window->setFullscreen(true) )
+        {
+            noWarning();
+            CHECK(window->fullscreen());
+            CHECK(window->setFullscreen(false));
+            noWarning();
+            CHECK_FALSE(window->fullscreen());
+        }
+        else
+        {
+            MESSAGE("this backend refused setFullscreen(true); checked only the "
+                "refusal contract: one warning, state unchanged");
+            oneWarning();
+            CHECK_FALSE(window->fullscreen());
+        }
     }
 }
 
@@ -219,6 +259,17 @@ TEST_CASE("The Null platform honors the Platform contract")
 {
     NullPlatform platform;
     checkPlatformContract(platform);
+}
+
+TEST_CASE("The Null platform logs a message box and answers false")
+{
+    NullPlatform platform;
+    CaptureSink sink;
+
+    CHECK_FALSE(platform.showMessageBox("Babylon test", "No display here"));
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == Level::Warning);
+    CHECK(sink.records()[0].message == "Babylon test: No display here");
 }
 
 TEST_CASE("The SDL platform honors the Platform contract")
@@ -288,4 +339,39 @@ TEST_CASE("The SDL platform puts a window resize it applied into the queue")
     }
     CHECK(sawAppliedSize);
     CHECK(sink.records().empty());
+}
+
+TEST_CASE("The SDL window toggles fullscreen when its driver has a display")
+{
+    // The offscreen driver may have no display to fill. Then the backend's refusal contract is
+    // checked and the case says why it did not test the toggle.
+    const std::unique_ptr<Platform> platform = babylon::platform::createSdlPlatform();
+    if ( platform == nullptr )
+    {
+        FAIL("createSdlPlatform() returned nullptr: run this test with "
+            "the offscreen or dummy video driver");
+    }
+    babylon::log::CaptureSink sink;
+
+    const std::unique_ptr<Window> window =
+        platform->createWindow(WindowDesc{ "Babylon test", Size{ 320, 240 } });
+    REQUIRE(window != nullptr);
+    CHECK_FALSE(window->fullscreen());
+
+    if ( !window->setFullscreen(true) )
+    {
+        MESSAGE("the SDL video driver did not allow fullscreen; checked the refusal: "
+            "one warning and the mode unchanged");
+        REQUIRE(sink.records().size() == 1);
+        CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+        CHECK_FALSE(window->fullscreen());
+    }
+    else
+    {
+        CHECK(window->fullscreen());
+        CHECK(sink.records().empty());
+        CHECK(window->setFullscreen(false));
+        CHECK_FALSE(window->fullscreen());
+        CHECK(sink.records().empty());
+    }
 }

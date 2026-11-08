@@ -39,6 +39,8 @@ if (BABYLON_BUILD_TESTS)
     add_subdirectory(third_party/doctest)
 endif()
 
+add_subdirectory(third_party/miniaudio)
+
 add_subdirectory(core)
 add_subdirectory(log)
 add_subdirectory(time)
@@ -46,7 +48,9 @@ add_subdirectory(files)
 add_subdirectory(platform)
 add_subdirectory(input)
 add_subdirectory(cvars)
+add_subdirectory(audio)
 add_subdirectory(render)
+add_subdirectory(ui)
 
 # Machine checks for the Babylon boundary and the module graph (ADR-0006,
 # ADR-0008, ADR-0015). They inspect the source tree, so they carry the label

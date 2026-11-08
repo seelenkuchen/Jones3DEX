@@ -3,6 +3,7 @@
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Display/JonesConsole.h>
+
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Main/JonesFile.h>
@@ -25,6 +26,8 @@
 #include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/Gameplay/sithOverlayMap.h>
+#include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Main/sithString.h>
 #include <sith/World/sithModel.h>
@@ -34,6 +37,7 @@
 #include <sound/AudioLib.h>
 #include <sound/Sound.h>
 #include <sound/Driver.h>
+#include <sound/DriverOutput.h>
 
 #include <smush/SmushPlay.h>
 
@@ -114,6 +118,7 @@ static int JonesMain_curGamesaveState = 0; // Added: Init to 0
 static char JonesMain_aNdsFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE];
 
 static bool JonesMain_bMenuToggled = false; // Added: Init to false
+static bool JonesMain_bPauseMenuToggled = false; // Added: Init to false
 static size_t JonesMain_aToggleMenuKeyIds[JONESCONTROL_ACTION_MAXBINDS] = { 0 }; // Added: Init to 0
 
 static bool JonesMain_bEndCredits = false; // Added: Init to false
@@ -184,6 +189,8 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
     memset(&JonesMain_circBuf, 0, sizeof(JonesMain_circBuf));
     memset(JonesMain_aToggleMenuKeyIds, 0, sizeof(JonesMain_aToggleMenuKeyIds)); // Fixed: Fixed the size
+    JonesMain_bMenuToggled      = false; // Added
+    JonesMain_bPauseMenuToggled = false; // Added
 
     // Setup process routines
     JonesMain_pfProcess = JonesMain_ProcessGame;
@@ -296,6 +303,12 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // Handle start mode
     int bSuccess    = 0;
     bool bPlayIntro = true;
+    bool bShowMainMenu = false; // Added: the menu needs the display, so it runs after startup (ADR-0026)
+    // Altered: the in-game Load, Sound and Display screens cannot run before the display opens,
+    // unlike the Win32 dialogs, so the windowed Babylon build defers them until then.
+    bool bShowLoadDialog        = false;
+    bool bShowSoundSettings     = false;
+    bool bShowDisplaySettings   = false;
     switch ( JonesMain_state.startMode )
     {
         case JONES_STARTMODE_STARTGAME:
@@ -313,6 +326,14 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         case JONES_STARTMODE_LOADGAME:
         {
+            // Altered: the in-game Load screen needs the display, so the windowed Babylon build
+            // runs it after startup; the other columns keep the original early dialog.
+            if ( jonesConfig_DefersStartMode(JONES_STARTMODE_LOADGAME) )
+            {
+                bShowLoadDialog = true;
+                break;
+            }
+
             if ( jonesConfig_GetLoadGameFilePath(stdWin95_GetWindow(), JonesMain_aNdsFilename) != 1 )
             {
                 return 1;
@@ -325,15 +346,34 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         case JONES_STARTMODE_SOUNDSETTINGS:
         {
+            // Altered: the in-game Sound screen needs the display; defer it in the windowed column.
+            if ( jonesConfig_DefersStartMode(JONES_STARTMODE_SOUNDSETTINGS) )
+            {
+                bShowSoundSettings = true;
+                break;
+            }
+
             bSuccess = jonesConfig_ShowSoundSettingsDialog(stdWin95_GetWindow(), &JonesMain_state.soundSettings);
             return 1; // exit
         }
 
         case JONES_STARTMODE_DISPLAYSETTINGS:
         {
+            // Altered: the in-game Display screen needs the display; defer it in the windowed column.
+            if ( jonesConfig_DefersStartMode(JONES_STARTMODE_DISPLAYSETTINGS) )
+            {
+                bShowDisplaySettings = true;
+                break;
+            }
+
             bSuccess = jonesConfig_ShowDisplaySettingsDialog(stdWin95_GetWindow(), JonesMain_pDisplayEnv, &JonesMain_state.displaySettings);
             return 1; // exit
         }
+
+        case JONES_STARTMODE_MAINMENU: // Added: shown once the display and sound are up
+        {
+            bShowMainMenu = true;
+        } break;
 
         default: // Developer dialog
         {
@@ -553,6 +593,56 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         JonesMain_CloseWindow();
         return 1;
+    }
+
+    // Altered: the windowed Babylon build runs the Load and settings start modes here, once the
+    // display and sound are up, exactly where the main menu runs. Their return values and exits
+    // match the original dialogs. The headless and Null columns never take these flags.
+    if ( bShowLoadDialog )
+    {
+        if ( jonesConfig_GetLoadGameFilePath(stdWin95_GetWindow(), JonesMain_aNdsFilename) != 1 )
+        {
+            return 1; // cancel exits, as the original did
+        }
+
+        // Skip intro video
+        bPlayIntro = false;
+    }
+    else if ( bShowSoundSettings )
+    {
+        bSuccess = jonesConfig_ShowSoundSettingsDialog(stdWin95_GetWindow(), &JonesMain_state.soundSettings);
+        return 1; // exit
+    }
+    else if ( bShowDisplaySettings )
+    {
+        bSuccess = jonesConfig_ShowDisplaySettingsDialog(stdWin95_GetWindow(), JonesMain_pDisplayEnv, &JonesMain_state.displaySettings);
+        return 1; // exit
+    }
+
+    // Added: the main menu replaces the launcher (ADR-0026). New Game takes the start path of
+    // mode 0 with the first level and plays the intro; Load takes the load path of mode 1 and
+    // skips it; Quit exits like the developer dialog's cancel.
+    if ( bShowMainMenu )
+    {
+        const int menuResult = jonesConfig_ShowMainMenu(stdWin95_GetWindow(), &JonesMain_state,
+            JonesMain_aNdsFilename);
+        if ( menuResult == JONES_MAINMENU_NEWGAME )
+        {
+            JonesMain_state.startMode = JONES_STARTMODE_STARTGAME;
+            JonesMain_curLevelNum     = JONESLEVEL_FIRSTLEVELNUM;
+            STD_STRCPY(JonesMain_state.aCurLevelFilename,
+                JonesMain_aCndLevelLoadInfos[JonesMain_curLevelNum].pFilename);
+            bPlayIntro = true;
+        }
+        else if ( menuResult == JONES_MAINMENU_LOADGAME )
+        {
+            JonesMain_state.startMode = JONES_STARTMODE_LOADGAME;
+            bPlayIntro = false;
+        }
+        else
+        {
+            return 1; // quit
+        }
     }
 
     // Play intro video
@@ -1081,9 +1171,53 @@ int JonesMain_ProcessGame(void)
     return wkernel_PeekProcessEvents();
 }
 
+// Added: the states in which Escape or Start may open the pause menu. The game is not paused
+// elsewhere, the player is alive, and no cutscene, load screen or HUD menu owns the frame.
+int JonesMain_CanOpenPauseMenu(void)
+{
+    if ( !sithPlayer_g_pLocalPlayerThing )
+    {
+        return 0;
+    }
+
+    const unsigned int flags = sithPlayer_g_pLocalPlayerThing->flags;
+    if ( (flags & SITH_TF_DYING) != 0 || (flags & SITH_TF_DESTROYED) != 0 )
+    {
+        return 0;
+    }
+
+    if ( sithPlayerControls_g_bCutsceneMode || sithWorld_g_bLoading || jonesCog_g_bMenuVisible )
+    {
+        return 0;
+    }
+
+    if ( JonesConsole_g_bVisible || !JonesHud_IsMenuEnabled() || JonesMain_bGamePaused )
+    {
+        return 0;
+    }
+
+    return 1;
+}
+// Added: reads one gamepad button on any connected slot. The fixed mapping puts Back at 6 and
+// Start at 7 (Docs/arc42/05-building-blocks/Control-And-Input.md).
+static int JonesMain_ReadGamepadButton(unsigned int buttonIndex)
+{
+    for ( size_t joyNum = 0; joyNum < STDCONTROL_MAX_JOYSTICK_DEVICES; ++joyNum )
+    {
+        int numPressed;
+        if ( stdControl_ReadKey(STDCONTROL_JOYSTICK_GETBUTTON(joyNum, buttonIndex), &numPressed) )
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 void JonesMain_ProcessMenu(void)
 {
     int bMenuKeyPressed = 0;
+    int bSchemeToggleBound = JonesMain_aToggleMenuKeyIds[0] != 0;
     for ( size_t i = 0; i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds) && JonesMain_aToggleMenuKeyIds[i]; ++i ) // Fixed: Added bounds check for i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds)
     {
         int numPressed;
@@ -1095,7 +1229,39 @@ void JonesMain_ProcessMenu(void)
     }
 
     int numPressed;
-    bMenuKeyPressed |= stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);
+    // The fallback belongs to the windowed run with a loaded scheme, which can omit the
+    // toggle-menu action; the headless run and the Null column have no scheme and keep their old
+    // bindings.
+    if ( !bSchemeToggleBound && jonesConfig_HasActiveControlScheme() )
+    {
+        // Altered: the active control scheme binds no toggle-menu action, so keep Tab and the
+        // gamepad Back button as a fallback (M7.13's stopgap).
+        bMenuKeyPressed |= stdControl_ReadKey(STDKEY_TAB, &numPressed);
+        bMenuKeyPressed |= JonesMain_ReadGamepadButton(6); // Back
+    }
+
+    int bPauseKeyPressed = stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);
+    bPauseKeyPressed |= JonesMain_ReadGamepadButton(7); // Start
+
+    if ( bPauseKeyPressed && !JonesMain_bPauseMenuToggled )
+    {
+        if ( JonesConsole_g_bVisible )
+        {
+            JonesConsole_HideConsole();
+        }
+        else if ( JonesMain_CanOpenPauseMenu() )
+        {
+            JonesMain_PauseGame();
+            jonesConfig_ShowPauseMenu(stdWin95_GetWindow());
+            JonesMain_ResumeGame();
+        }
+
+        JonesMain_bPauseMenuToggled = true;
+    }
+    else if ( !bPauseKeyPressed )
+    {
+        JonesMain_bPauseMenuToggled = false;
+    }
     if ( bMenuKeyPressed && !JonesMain_bMenuToggled && !stdControl_ReadKey(STDKEY_RCONTROL, &numPressed) && !stdControl_ReadKey(STDKEY_LCONTROL, &numPressed) )
     {
         if ( JonesConsole_g_bVisible )
@@ -1653,6 +1819,31 @@ JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
     return &JonesMain_state.displaySettings;
 }
 
+// Added: the level whose load-screen map the main menu shows behind its panel (ADR-0026).
+const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void)
+{
+    char aSavePath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+    stdConfig_GetString(SITHSAVEGAME_CFG_GAMEPLAY_LASTSAVEGAME, aSavePath,
+        STD_ARRAYLEN(aSavePath), "");
+    if ( aSavePath[0] )
+    {
+        char aLevelFilename[64] = { 0 };
+        if ( sithGamesave_LoadLevelFilename(aSavePath, aLevelFilename) == 0 )
+        {
+            for ( size_t cur = JONESLEVEL_FIRSTLEVELNUM; cur < JONESLEVEL_NUMLEVELS; ++cur )
+            {
+                const JonesLevelInfo* pLevel = &JonesMain_aCndLevelLoadInfos[cur];
+                if ( pLevel->pFilename && streqi(aLevelFilename, pLevel->pFilename) )
+                {
+                    return pLevel;
+                }
+            }
+        }
+    }
+
+    return &JonesMain_aCndLevelLoadInfos[JONESLEVEL_FIRSTLEVELNUM];
+}
+
 int JonesMain_CloseWindow(void)
 {
     return JonesMainSys_PostCloseMessage(); // Altered: PostMessage moved to JonesMainSys_PostCloseMessage
@@ -2189,6 +2380,26 @@ J3DNORETURN void J3DAPI JonesMain_Assert(const char* pErrorText, const char* pSr
     exit(1);
 }
 
+size_t J3DAPI JonesMain_GetToggleMenuControlKeys(size_t* pOutKeys, size_t maxKeys)
+{
+    // Added: the active scheme's toggle-menu keys, for the Controls screen and the menu fallback.
+    if ( !pOutKeys || !maxKeys )
+    {
+        return 0;
+    }
+
+    size_t count = 0;
+    while ( count < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds)
+        && count < maxKeys
+        && JonesMain_aToggleMenuKeyIds[count] )
+    {
+        pOutKeys[count] = JonesMain_aToggleMenuKeyIds[count];
+        ++count;
+    }
+
+    return count;
+}
+
 void J3DAPI JonesMain_BindToggleMenuControlKeys(const size_t* paKeyIds, size_t numKeys)
 {
     // Added
@@ -2346,8 +2557,12 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
     sithRender_g_fogDensity = pConfig->displaySettings.fogDensity * 100.0f;
 
     pConfig->bDevMode  = stdConfig_GetBool(JONESCONFIG_CFG_DEVMODE, false);
+    // Added: the windowed Babylon build has no launcher and no developer dialog, so a missing
+    // startMode or 2 opens the main menu; the other columns keep their values (ADR-0026).
+    const int bHasStartMode = stdConfig_Contains(JONESCONFIG_CFG_STARTMODE);
     pConfig->startMode = stdConfig_GetInt(JONESCONFIG_CFG_STARTMODE, JONES_STARTMODE_DEVELOPERDIALOG);
-    pConfig->startMode = STDMATH_CLAMP(pConfig->startMode, JONES_STARTMODE_STARTGAME, JONES_STARTMODE_DISPLAYSETTINGS);
+    pConfig->startMode = jonesConfig_ResolveStartMode(pConfig->startMode, bHasStartMode);
+    pConfig->startMode = STDMATH_CLAMP(pConfig->startMode, JONES_STARTMODE_STARTGAME, JONES_STARTMODE_MAINMENU);
 
     pConfig->outputMode = stdConfig_GetInt(JONESCONFIG_CFG_LOG_MODE, JONES_OUTPUTMODE_NONE);
     pConfig->logLevel   = stdConfig_GetInt(JONESCONFIG_CFG_LOG_LEVEL, JONES_LOGLEVEL_NORMAL);
@@ -2422,6 +2637,17 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
 
     pConfig->soundSettings.b3DHWSupport  = stdConfig_GetBool(JONESCONFIG_CFG_SOUND_HW, false);
     pConfig->soundSettings.bReverseSound = stdConfig_GetBool(JONESCONFIG_CFG_SOUND_REVERSE, false);
+
+    // Added: the output device is presentation only, in both profiles. Read with the other sound
+    // settings; the driver keeps the id and opens it when sound opens.
+    char aOutputDevice[SOUNDDRIVER_OUTPUTDEVICE_ID_MAX + 1] = { 0 };
+    stdConfig_GetString(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE, aOutputDevice, STD_ARRAYLEN(aOutputDevice), "");
+    if ( !stdConfig_Contains(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE) )
+    {
+        stdConfig_SetString(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE, aOutputDevice);
+    }
+
+    SoundDriver_SetConfiguredOutputDevice(aOutputDevice);
 }
 
 // Added: Startup display environment read by the dev dialog in the platform layer

@@ -216,7 +216,7 @@ A backend that does nothing, but honors the interface's contract: draws are disc
 
 ### Moving code as a block
 
-Not a separation pattern, but the choice for dialogs. `jonesConfig.c` and `JonesDialog.c` were Win32 UI with a small external surface, so they moved below the line as they were. Their 15 functions became the interface. Splitting their logic from their UI waits until M7 needs it; the Win32 dialog files went with the rest of the Win32 layer in M6.3, and M7 brings the in-game screens.
+Not a separation pattern, but the choice for dialogs. `jonesConfig.c` and `JonesDialog.c` were Win32 UI with a small external surface, so they moved below the line as they were. Their 15 functions became the interface. Their logic was split from the UI for the M7 in-game screens; the Win32 dialog files went with the rest of the Win32 layer in M6.3, and the screens live in `Jones3D/Platform/Babylon/` ([In-Game-Menus.md](In-Game-Menus.md)).
 
 ## How the separation is enforced
 
@@ -291,15 +291,16 @@ real Microsoft CRT instead of the `j3dcrt` shim.
 ## Movies (SMUSH)
 
 The Null column skips movies: `DsndNull.c` publishes no `SNDDRIVER`, the sound module fails to start and
-`SmushPlay_SysStartup` never succeeds. The Babylon column (M6.8) plays them silently until M7:
+`SmushPlay_SysStartup` never succeeds. The Babylon column (M6.8) plays them; since M7.4 the sound driver pushes
+their audio into a Babylon stream ([Sound-System.md](Sound-System.md)):
 
-- **Sound driver:** `DsndSilent.c` publishes `SNDDRIVER=insane_dsnd` with Dsnd.c's interface, services and block
-  schedule; the play position of the missing DirectSound buffer is derived from the timer clock at the 22050 Hz
-  stereo 16-bit stream format, and each due block is mixed into a scratch buffer and dropped.
+- **Sound driver:** `DsndBabylon.cpp` publishes `SNDDRIVER=insane_dsnd` with Dsnd.c's interface, services and block
+  schedule; the play position comes from the timer clock at the 22050 Hz stereo 16-bit stream format, and each due
+  block is mixed and pushed into a Babylon stream voice.
 - **Pacing:** frames advance on the timer: the player's one-shot tick timer fires after `interval2` (79545 PC-timer
   ticks at 15 fps, corrected by the lead), and its pace timer counts the lead. The sound engine syncs the pace timer to
-  the audio it consumed (`sound_Advance`, `timer_Sync`). With the silent driver both clocks are the timer clock, so the
-  pace is the timer's.
+  the audio it consumed (`sound_Advance`, `timer_Sync`). The stream's play position also comes from the timer clock, so
+  both clocks are the timer clock and the pace is the timer's.
 - **Timer:** `TimerPolled.c` runs the original 60 Hz tick schedule (1000/60 ms with the remainder carried) on
   `stdPlatform_GetTimeMsec`, without a thread: `animplay_Pace` and `timer_Wait` call `timer_Update`, which delivers the
   due ticks on the caller's thread and sleeps 1 ms when none was due (so the headless virtual clock moves too). A
@@ -369,10 +370,10 @@ The M3 plan per subsystem, as built then. The Win32 and DirectX sides it names w
 | Registry and config | `wuRegistry_*` | `stdConfig.c` falls back to the registry. It gets a callback set by `Jones3D`, which removes the `std -> w32util` break and keeps the read order |
 | Input | `stdControl_*`, with `STDKEY_*` | See below |
 | Sound | `SoundDriver_*`, already a boundary | `tSysSoundBuffer` becomes opaque. `Sound.c`'s one test goes |
-| Cutscene sound | `SNDDRIVER`, which `Engine.c` already uses | `Dsnd.c` is a backend as a whole, and another platform replaces the file: `DsndSilent.c` on the Babylon column until M7 |
+| Cutscene sound | `SNDDRIVER`, which `Engine.c` already uses | `Dsnd.c` is a backend as a whole, and another platform replaces the file: `DsndBabylon.cpp` on the Babylon column since M7.4, `DsndNull.c` on the Null column |
 | Window and lifecycle | `wkernel_*` | See below |
 | Dialogs | `jonesConfig_*`, `JonesDialog_*` | See below |
-| Thumbnails | `stdBmp_Load`, `sithGamesave_*Thumbnail` | The code moves to Win32 files and `HBITMAP` becomes `tSysBitmap`. A pixel buffer waits for the in-game UI that needs it |
+| Thumbnails | `stdBmp_Load`, `sithGamesave_*Thumbnail` | Done: the portable `sithGamesaveThumbnail.c` reads the back buffer through `stdDisplay`'s lock and keeps the 128 x 96 RGB image in memory for every column |
 | Renderer | `std3D_*`, `stdDisplay_*` | See below |
 | Networking | `stdComm_*` | Types only. A null backend in M4 reports no game |
 
@@ -380,7 +381,7 @@ The M3 plan per subsystem, as built then. The Win32 and DirectX sides it names w
 
 **Window.** `JonesMain.c` handles about a dozen `WM_` messages in its window procedure. The Win32 part moves to `Jones3D/Platform/Win32/` and calls platform-neutral `JonesMain_On*` functions for activate, close and similar events, in the same order. `wkernel_Run`'s `WinMain` parameters move to the Win32 entry point.
 
-**Dialogs.** Outside its own file, the code uses only these from `jonesConfig`: `Startup`, `Shutdown`, `UpdateCurrentLevelNum`, `GetLoadGameFilePath`, `GetSaveGameFilePath`, and `ShowControlOptions`, `ShowDialogInsertCD`, `ShowDisplaySettingsDialog`, `ShowExitGameDialog`, `ShowGameOverDialog`, `ShowGamePlayOptions`, `ShowLevelCompletedDialog`, `ShowMessageDialog`, `ShowSoundSettingsDialog`, `ShowStatisticsDialog`. From `JonesDialog`, 3 names are used. So `jonesConfig.c` and `JonesDialog.c` move as they are to `Jones3D/Platform/Win32/`. The header keeps these functions with engine types. Null versions return each dialog's documented default. Logic that an in-game UI needs later gets extracted at M7.
+**Dialogs.** Outside its own file, the code uses only these from `jonesConfig`: `Startup`, `Shutdown`, `UpdateCurrentLevelNum`, `GetLoadGameFilePath`, `GetSaveGameFilePath`, and `ShowControlOptions`, `ShowDialogInsertCD`, `ShowDisplaySettingsDialog`, `ShowExitGameDialog`, `ShowGameOverDialog`, `ShowGamePlayOptions`, `ShowLevelCompletedDialog`, `ShowMessageDialog`, `ShowSoundSettingsDialog`, `ShowStatisticsDialog`. From `JonesDialog`, 3 names are used. So `jonesConfig.c` and `JonesDialog.c` move as they are to `Jones3D/Platform/Win32/`. The header keeps these functions with engine types. Null versions return each dialog's documented default. The logic the in-game UI needs was extracted for the M7 screens ([In-Game-Menus.md](In-Game-Menus.md)).
 
 **Renderer.** See the example below. Debug and device accessors such as `std3D_GetD3DDevice`, `stdDisplay_GetDirect3D`, `stdDisplay_GetSystemDevice` and `std3D_D3DGetStatus` move to a private DX header. `std3D_SetProjection` and `stdDisplay_RemoveBufferClipper` return a plain `int`, with 0 for success. Their only known caller ignores the projection result.
 

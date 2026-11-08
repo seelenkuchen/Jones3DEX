@@ -133,6 +133,7 @@ namespace
             [](const platform::QuitRequested&) {},
             [](const platform::WindowCloseRequested&) {},
             [](const platform::WindowResized&) {},
+            [](const platform::TextInput&) {},
         }, event);
     }
 

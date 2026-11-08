@@ -16,7 +16,13 @@ Primary source files:
 - [`Libs/sith/World/sithVoice.c`](../../../Libs/sith/World/sithVoice.c)
 - [`Libs/sound/Sound.c`](../../../Libs/sound/Sound.c)
 - [`Libs/sound/AudioLib.c`](../../../Libs/sound/AudioLib.c)
-- `Libs/sound/DriverNull.c`
+- [`Libs/sound/Babylon/DriverBabylon.cpp`](../../../Libs/sound/Babylon/DriverBabylon.cpp) (Babylon column)
+- [`Libs/sound/DriverNull.c`](../../../Libs/sound/DriverNull.c) (Null column, and the headless Babylon fallback)
+- [`Libs/smush/insane/Sound/DsndBabylon.cpp`](../../../Libs/smush/insane/Sound/DsndBabylon.cpp) (cutscene sound)
+
+Whether a channel is still playing follows game time, not the device
+([ADR-0027](../09-decisions/ADR-0027-sound-completion-on-game-time.md)); see
+[Playback Position And Completion](#playback-position-and-completion-adr-0027).
 
 ## Startup And Ownership Layers
 
@@ -188,6 +194,57 @@ If a far looping sound becomes audible again, [`Sound_Update()`](../../../Libs/s
 and then restores the original logical handle.
 
 That design avoids keeping backend buffers alive for sounds that are currently too far away to matter while preserving the higher-level idea that the loop is still active.
+
+### Playback Position And Completion (ADR-0027)
+
+The sound layer, not the audio device, decides when a channel finishes. Each channel keeps its own play
+position in milliseconds of sound time. [`Sound_Update()`](../../../Libs/sound/Sound.c#L2357) advances it by
+the elapsed clock time times the channel's pitch, and a non-looping channel is released when the position
+reaches the sound's length. Play progress and lip sync read that computed position instead of the driver's
+play cursor.
+
+The clock is the sound layer's own: the platform clock minus the time the sound layer was paused
+(`Sound_GetTimeMsec`). Paused channels keep their position; sounds started while the layer is paused (menu
+sounds) still advance; far channels freeze while the layer is paused and carry their position across a far
+restart. The device only renders what the layer says is playing, so windowed play, headless runs and replays
+agree with and without an audio device. Under `J3D_TEST` the clock can be driven directly
+(`Sound_TestSetTimeMsec`), so the tests do not depend on the platform clock
+([Testing.md](../../Testing.md#m7-ui-screen-and-audio-tests)).
+
+## Babylon Backends (M7)
+
+The Babylon column replaces [`DriverNull.c`](../../../Libs/sound/DriverNull.c) with
+[`DriverBabylon.cpp`](../../../Libs/sound/Babylon/DriverBabylon.cpp), which implements all of `Driver.h` on
+`babylon::audio::Device`. A buffer is a Babylon sound plus a voice; duplicates share the sound by reference
+count and start at position 0, 0 dB, center pan and the sound's rate. Stop pauses and keeps the cursor, and
+Play resumes, as DirectSound did. Volume and pan go through the removed `DriverDX9.c`'s dB and pan tables and
+then through `gain = 10^(dB/2000)` and `pan = (index - 128) / 128`; the table's duplicate center entry is kept,
+so `SetPan(0)` reads back `0.015625`. A frequency in Hz becomes `pitch = Hz / rate`, clamped to Babylon's
+range. There is no hardware 3D, so the software listener mix described below stays in use. Device events are
+polled once per `Sound_Update` in `SoundDriver_ListenerCommitDeferred`; after a loss the default output is
+reopened, retrying once per second. Unlike DX9, a device that cannot open leaves the driver running silently
+and `Open` returns success, so the game loads its sounds and behaves the same with or without a device. The
+headless runner always uses a `NullDevice`; the windowed build uses miniaudio and falls back to a `NullDevice`
+with one warning.
+
+The output-device choice is an API of its own in [`DriverOutput.h`](../../../Libs/sound/DriverOutput.h), on
+both driver columns: list the devices, read an id and display name, switch with
+`SoundDriver_SetOutputDevice`, and read the device in use. Voices and their positions survive a switch; an
+unknown or failing device restores the previous output, or the default when it is gone. The Babylon driver
+opens the configured device at `SoundDriver_Open`, falls back to the default with one log line when it is
+missing while keeping the configured id, and prefers it again after a device loss once it is back. The Null
+driver lists nothing and refuses switching. `engine.audio.outputDevice` stores the choice
+([Jones.cfg.md](../../Jones.cfg.md)).
+
+Cutscene sound uses the same audio path through a stream. [`DsndBabylon.cpp`](../../../Libs/smush/insane/Sound/DsndBabylon.cpp)
+replaces the silent `DsndSilent.c` in the Babylon column and keeps its module, interface, services, block
+schedule and pacing: the play position still comes from the timer clock, so the SMUSH engine's audio clock
+and timer sync behave as before. Each due block is pushed into a stereo 16-bit stream voice at the driver's
+rate, created on start and destroyed on stop; `dsnd_SetVolume`'s 0..127 goes through `Dsnd.c`'s DirectSound
+attenuation table and `gain = 10^(dB/2000)`. The queue is kept between 2 and 6 blocks: a low queue underruns
+into silence, and a push that would exceed 6 blocks is skipped (one block, about 70 ms at 22050 Hz), so slow
+drift between the timer and the device clock costs one block at a time and memory stays bounded with a Null
+or closed output. The voice is recreated only when its handle was lost.
 
 ## Gameplay-Aware Mixer
 
@@ -383,6 +440,6 @@ OpenJones3D extends that architecture in a few important places without replacin
 - larger simultaneous channel budget via `SITHSOUND_MAXCHANNELS`
 - configurable software falloff with exponential and logarithmic models
 - bug fixes in fade, restart, and subtitle handling
-- improved backend behavior in the DirectX 6 and DirectX 9 drivers, which were removed in M6.3; `DriverNull.c` is the only driver until the Babylon audio module lands in M7
+- improved backend behavior in the DirectX 6 and DirectX 9 drivers, which were removed in M6.3; the Null column keeps `DriverNull.c`, and the Babylon column plays through `DriverBabylon.cpp` and miniaudio since M7
 
 So the sound system is a good example of the project's general strategy: keep the original layers, but make the modernized behavior live inside those layers rather than inventing a brand-new audio architecture.

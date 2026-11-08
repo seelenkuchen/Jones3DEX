@@ -8,10 +8,12 @@ add_executable(stdBabylonTests
     stdFileBabylonTest.cpp
     stdControlBabylonTest.cpp
     stdBabylonEventsTest.cpp
+    stdBabylonTourTest.cpp
     stdCvarBabylonTest.cpp
     "${STDBABYLON_SOURCE_DIR}/stdBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonCvars.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonEvents.cpp"
+    "${STDBABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdPlatformTimeBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonPath.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdFileBabylon.cpp"
@@ -25,6 +27,8 @@ add_executable(stdBabylonTests
 
 target_compile_definitions(stdBabylonTests PRIVATE
     J3D_TEST
+    # The stdControlNull.c this suite compiles has to agree with the game's Babylon column.
+    STDCONTROL_BABYLON_DEVICES=1
 )
 
 # The test and the adapter files include <std/...> (via Libs) and <babylon/...> (via the links).
@@ -51,6 +55,7 @@ source_group("Tested Sources" FILES
     "${STDBABYLON_SOURCE_DIR}/stdBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonCvars.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonEvents.cpp"
+    "${STDBABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdPlatformTimeBabylon.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdBabylonPath.cpp"
     "${STDBABYLON_SOURCE_DIR}/stdFileBabylon.cpp"

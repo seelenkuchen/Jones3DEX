@@ -45,6 +45,19 @@ namespace
             return m_size;
         }
 
+        // There is no display behind a Null window, so nothing can refuse:
+        // the mode is only the state the interface promises to report back.
+        bool setFullscreen(bool enabled) override
+        {
+            m_fullscreen = enabled;
+            return true;
+        }
+
+        bool fullscreen() const override
+        {
+            return m_fullscreen;
+        }
+
         WindowId id() const override
         {
             return m_id;
@@ -63,6 +76,21 @@ namespace
             return m_relativeMouse;
         }
 
+        // There is no keyboard or input method behind a Null window, so
+        // nothing can refuse: the mode is only the state the interface
+        // promises to report back. Text arrives only when a test pushes a
+        // TextInput event for this window.
+        bool setTextInput(bool enabled) override
+        {
+            m_textInput = enabled;
+            return true;
+        }
+
+        bool textInput() const override
+        {
+            return m_textInput;
+        }
+
     private:
         // Called only with a size that passed the shared check in resize(). Returns
         // false and logs one warning if the backend refused it.
@@ -75,7 +103,9 @@ namespace
         std::string m_title;
         Size m_size;
         WindowId m_id;
+        bool m_fullscreen = false;
         bool m_relativeMouse = false;
+        bool m_textInput = false;
     };
 
 }
@@ -92,6 +122,12 @@ namespace
             return nullptr;
         }
         return std::make_unique<NullWindow>(desc.title, desc.size, m_nextId++);
+    }
+
+    bool NullPlatform::showMessageBox(std::string_view title, std::string_view text)
+    {
+        log::warning("{}: {}", title, text);
+        return false;
     }
 
     std::optional<Event> NullPlatform::pollEvent()

@@ -15,7 +15,7 @@ include(smush_vec.cmake)     # C modules: Mixer, D_bloc16, Decode, LecShare, Fra
 # Altered: the Sound area ran only in the Windows DirectX builds while it also mocked IDirectSound for Dsnd.c; without
 # Dsnd.c (ADR-0011) its engine and mixer cases run everywhere.
 include(smush_sound.cmake)   # Sound: Engine, Mixer, DsndNull
-include(smush_movie.cmake)   # Added: Movie (Babylon column): DsndSilent, TimerPolled, SmushPlay on a synthetic stream
+include(smush_movie.cmake)   # Added: Movie (Babylon column): DsndBabylon, TimerPolled, SmushPlay on a synthetic stream
 
 add_executable(smushTests
     ${SMUSH_TEST_SOURCES}

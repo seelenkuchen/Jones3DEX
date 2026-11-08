@@ -35,6 +35,15 @@ recorded events so headless runs see exactly what a device would (ADR-0018).
 callbacks (ADR-0013, ADR-0020); a `Registry` is an ordinary object owned by the
 composition root, never a global.
 
+`ui` is the game-agnostic menu toolkit (ADR-0026): a screen stack, declarative
+widgets (labels, images, buttons, toggles, sliders, choices, lists, binding
+capture and text entry), automatic layout on a canvas 480 units high and
+480 * aspect units wide, keyboard/mouse/gamepad focus, cvar-bound values and
+one polled event queue. It draws through the `Painter` interface, so the
+module never depends on `render`; `NullPainter` records draw calls for tests,
+and the game's render-backed painter lives in `Jones3D/Platform/Babylon/`
+(M7.9).
+
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`
 (passes, bindings, draws, copies) and submitted once, and `Device::submit`
@@ -45,6 +54,20 @@ backend (`createSdlGpuDevice`) runs on Vulkan, Direct3D 12 or Metal, headless
 or on a window of the SDL platform, whose `SDL_Window` it gets through
 `platform::sdlWindowOf`; the contract tests run against it too, on Mesa's
 lavapipe where there is no GPU, and report it as skipped without a driver.
+
+`audio` hides the sound output (ADR-0010): a `Device` lists and opens output
+devices, owns immutable sounds and typed voices behind handles, applies gain,
+pan, pitch, per-voice 3D position, distance attenuation and a listener, and
+feeds streaming PCM blocks from the caller. Device loss is a polled event, and
+sounds, voices and their settings survive closing, reopening and switching
+outputs. The Null backend keeps the whole state without a device and advances
+playback only through a test helper. The miniaudio backend
+(`createMiniaudioDevice`, M7.2) mixes the voices itself on a low-level
+`ma_device`; an option runs it on miniaudio's own null output, so the contract
+tests run every case on both backends without a sound card. The null backend
+has no controllable clock, so the cases that step a voice forward report a
+skip there; `backends/miniaudio/tests/` covers play-to-end and stream
+underrun on the host clock instead.
 
 ## Declaring a module
 

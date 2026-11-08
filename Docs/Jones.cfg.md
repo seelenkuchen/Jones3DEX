@@ -76,6 +76,12 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
 | `2` | Developer dialog |
 | `3` | Sound settings |
 | `4` | Display settings |
+| `5` | Main menu (windowed Babylon build) |
+
+In the windowed Babylon build, a missing `startMode` and the value `2` (the developer dialog, which
+has no screen any more) both open the main menu. `0`, `1`, `3` and `4` keep their meaning, and a
+`--load` path still loads that save directly. The headless runs and the Null column keep the values
+above unchanged.
 
 ### `log.mode`
 
@@ -147,7 +153,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `installPath` | string | empty | Installation path. Usually engine-managed. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
-| `startMode` | int | `2` | Uses the `startMode` enum above. |
+| `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |
 | `log.mode` | int | `0` | Uses the `log.mode` enum above. |
 | `log.level` | int | `1` | Uses the `log.level` enum above. |
 
@@ -172,7 +178,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `graphics.allDevices` | bool | `false` | Show all display devices, including less-preferred ones. |
-| `graphics.window` | bool | `false` | Windowed mode toggle. |
+| `graphics.window` | bool | `false` | Windowed mode toggle. The windowed build also switches it at runtime with Alt+Enter. |
 | `graphics.dualMonitor` | bool | `false` | Dual-monitor window mode toggle. |
 | `graphics.buffering` | bool | `false` | Buffered display mode toggle. |
 | `graphics.mipmapFilter` | int | `2` | Uses the `graphics.mipmapFilter` enum above. |
@@ -221,6 +227,7 @@ For these CND `*.loadExternal` options, `external` means loose files on disk tha
 | `sound.reverse` | bool | `false` | Reverses left/right sound channels. |
 | `sound.volume` | float | `1.0` | Master sound volume. |
 | `sound.swmixer.falloff` | int | `2` | Default build uses logarithmic falloff. Legacy/QOL-off builds use `0`. |
+| `engine.audio.outputDevice` | string | empty | Presentation only, in every build and both profiles. The opaque id of the sound output device, as listed by the device selection. Empty selects the system default. Read with the other sound settings when sound opens; a device that is missing at startup falls back to the default and is used again when it returns. The settings screen writes this key when the choice changes. |
 
 ## Reticle options
 
@@ -267,6 +274,7 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 | `ui.menu.music.music` | string | `mus_gen_maploadloop.wav` | Menu music filename. Exact key name is legacy. |
 | `ui.menu.music.file` | float | `0.55` | Menu music volume. Exact key name is legacy. |
 | `ui.menu.music.fade` | float | `0.75` | Menu music fade duration in seconds. |
+| `engine.ui.hud.systemIcons` | bool | `true` | Presentation only, both profiles. False hides the HUD menu's Statistics, Save, Load, Settings and Exit items; the pause menu still offers all of them. |
 | `ui.hud.itemChanged.showDuration` | int | `2000` | Item-change popup duration in milliseconds. |
 | `ui.hud.itemChanged.slideEaseInRate` | float | `4000.0` | Slide ease-in rate. |
 | `ui.hud.itemChanged.slideSpeedRate` | int | `3` | Slide speed multiplier. |

@@ -1,14 +1,17 @@
 // Added: Null version of Libs/sound/DriverDX9.c (the DirectSound driver). There is no sound
 // device: SoundDriver_Open succeeds, CreateAndPlay hands out a small malloc'd handle that
 // Release frees, playback never starts (Stop/Play are no-ops) and GetCurrentPosition stays
-// 0, so every sound "finishes" immediately. The settable state (volume, pan, frequency) is
-// kept per handle like the DirectSound buffer state, and the listener mix path mirrors
-// DriverDX9.c's software path because there is never 3D hardware here.
+// 0. Sound completion is not this backend's job: per ADR-0027 the sound layer computes each
+// channel's play position from its own clock, so a Null sound still plays for its full length.
+// The settable state (volume, pan, frequency) is kept per handle like the DirectSound buffer
+// state, and the listener mix path mirrors DriverDX9.c's software path because there is never
+// 3D hardware here.
 #include <j3dcore/j3d.h>
 
 #include <math.h>
 
 #include <sound/Driver.h>
+#include <sound/DriverOutput.h>
 #include <sound/AudioLib.h>
 
 #include <rdroid/Math/rdVector.h>
@@ -155,8 +158,8 @@ tSysSoundBuffer* J3DAPI SoundDriver_CreateAndPlay(size_t samplesPerSec, size_t n
     pBuf->pan       = 0.0f;
     pBuf->frequency = SOUNDDRIVER_DEFAULT_FREQUENCY;
 
-    // Added: The buffer is always software-mixed here and never starts playing;
-    // GetStatusAndCaps reports it stopped, so the engine ends the channel at once.
+    // Added: The buffer is always software-mixed here and never starts playing; the sound layer
+    // tracks the play position itself (ADR-0027), so GetStatusAndCaps is not consulted for it.
     *pFlags |= SOUND_CHANNEL_SWMIXING;
     return pBuf;
 }
@@ -358,4 +361,37 @@ void J3DAPI SoundDriver_Sleep(unsigned int dwMilliseconds)
 {
     // Added: DriverDX9.c sleeps on the Windows Sleep; the Null platform layer owns the wait.
     stdPlatform_Sleep(dwMilliseconds);
+}
+
+size_t SoundDriver_GetNumOutputDevices(void)
+{
+    // Added: there is no output device behind this driver, so the list is always empty.
+    return 0;
+}
+
+int SoundDriver_GetOutputDevice(size_t index, char* pId, size_t idSize, char* pName, size_t nameSize)
+{
+    J3D_UNUSED(index);
+    J3D_UNUSED(pId);
+    J3D_UNUSED(idSize);
+    J3D_UNUSED(pName);
+    J3D_UNUSED(nameSize);
+    return 0;
+}
+
+int SoundDriver_SetOutputDevice(const char* pId)
+{
+    // Added: this driver has no output to switch, so every switch is refused.
+    J3D_UNUSED(pId);
+    return 0;
+}
+
+const char* SoundDriver_GetCurrentOutputDevice(void)
+{
+    return "";
+}
+
+void SoundDriver_SetConfiguredOutputDevice(const char* pId)
+{
+    J3D_UNUSED(pId);
 }
