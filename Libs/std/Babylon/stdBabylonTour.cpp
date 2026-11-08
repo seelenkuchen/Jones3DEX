@@ -337,7 +337,7 @@ bool stdBabylonTour_Configure(const StdBabylonTourOptions& rOptions,
     if ( !rOptions.presentLogPath.empty() )
     {
         newState.presentLog.open(std::filesystem::path(rOptions.presentLogPath),
-            std::ios::out | std::ios::trunc);
+            std::ios::out | std::ios::trunc | std::ios::binary);
         if ( !newState.presentLog )
         {
             rError = "cannot open present log '" + rOptions.presentLogPath + "'";
