@@ -3,6 +3,10 @@
 Status: built in the Babylon column on 2026-11-07 ([ADR-0026](../09-decisions/ADR-0026-in-game-menus.md)),
 including the Controls screen. The Null column keeps all of its default-returning stubs.
 
+Planned (M7.6, [ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)): a modern
+style with a new main menu, one tabbed Options screen in place of the separate settings screens, a restyled
+pause menu, the Bolton menu font and button prompts. The tables below describe the M7 state.
+
 ## Layers
 
 | Part | Where | Responsibility |

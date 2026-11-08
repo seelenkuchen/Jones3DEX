@@ -2,6 +2,11 @@
 
 This page documents how raw keyboard, mouse, and joystick state becomes gameplay intent inside Jones3D.
 
+Planned: the gamepad becomes always on and `controls.controller` goes away
+([ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)); a Modern control style
+adds camera-relative movement, a free camera, quick-step, target lock and quick-select as an Enhanced option
+([ADR-0029](../09-decisions/ADR-0029-modern-controls.md)).
+
 The input architecture is intentionally layered:
 
 1. a platform/device layer (`stdControl`)
