@@ -22,6 +22,11 @@ Decided in the owner's design session on 2026-11-08.
 - **Options:** one screen with tabs (Gameplay, Controls, Display, Sound) replaces the separate settings
   screens. Tabs switch with Q/E or LB/RB. Settings are rows with `◀ value ▶`; a help column on the right
   describes the selected row (English first). The background is the menu image, darkened.
+- **No Performance option** (owner 2026-11-08): the Display tab drops the original Performance choice
+  (Average, Fast, Very fast for `graphics.performanceLevel` 0, 2, 4). It described the PC's speed; lower values
+  only delete level objects with a higher `perflevel`, mute one hit sound and halve the intro movie, and they
+  change the simulation. New configs stay at the retail default 4; an existing config value and the level stored
+  in savegames keep working as before, so retail behavior is unchanged.
 - **Pause menu:** RESUME, SAVE GAME, LOAD GAME, OPTIONS, STATISTICS, EXIT GAME, in the main menu's style over
   the dimmed game frame. Statistics gets the new style and its label fixes.
 - **Controls tab:** a bind list with the button or key icon for each action, and one gamepad setting:
