@@ -26,12 +26,10 @@ Decided in the owner's design session on 2026-11-08.
   the dimmed game frame. Statistics gets the new style and its label fixes.
 - **Controls tab:** a bind list with the button or key icon for each action, and one gamepad setting:
   Rumble (on by default). No controller diagram for now.
-- **Font:** menus only; the in-game HUD keeps the original font. The repository ships Cinzel for headings and
-  items and Jost for rows and help text (both SIL Open Font License), committed with their licenses. The
-  owner's preferred font, Bolton (Paul Lloyd), has no license that allows redistribution (only "Copyright PJ
-  Lloyd 1995" in the files and dafont's "100% Free" label), so it isn't committed: when the player puts the
-  Bolton TTF files in the game folder, the menus use Bolton Titling and Bolton instead. Written permission from
-  the author would let it ship.
+- **Font:** menus only; the in-game HUD keeps the original font. Cinzel for headings and items, Jost for rows
+  and help text, both under the SIL Open Font License and committed with their licenses. Bolton was considered
+  and dropped: nothing in its distribution allows redistribution, and the owner prefers Cinzel and Jost
+  (2026-11-08).
 - **Button prompts:** a prompt bar at the bottom left of every menu, using Xelu's Free Controller and Key
   Prompts (CC0), committed with their license. Sets: Xbox Series, PS5, Switch, Steam Deck and keyboard; the
   set follows the device used last, by the pad type SDL reports, with Xbox for unknown pads.
