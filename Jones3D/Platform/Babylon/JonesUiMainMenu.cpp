@@ -39,20 +39,34 @@ namespace
 {
     using namespace babylon::ui;
 
-    constexpr ActionId kNewGameAction  = JONES_MAINMENU_NEWGAME;
-    constexpr ActionId kLoadAction     = JONES_MAINMENU_LOADGAME;
+    // Every action id is non-zero: 0 is babylon::ui::kNoAction, which reports no action at all.
+    // The JONES_MAINMENU_* result values are mapped separately in MapMainMenuResult below.
+    constexpr ActionId kNewGameAction  = 1;
+    constexpr ActionId kLoadAction     = 2;
     constexpr ActionId kSettingsAction = 3;
-    constexpr ActionId kQuitAction     = JONES_MAINMENU_QUIT;
+    constexpr ActionId kQuitAction     = 4;
 
     constexpr ActionId kGameplayAction = 10;
     constexpr ActionId kControlsAction = 11;
     constexpr ActionId kDisplayAction  = 12;
     constexpr ActionId kSoundAction    = 13;
-    constexpr ActionId kBackAction     = JONES_MAINMENU_QUIT;
+    constexpr ActionId kBackAction     = 5;
 
-    int Identity(ResultCode code)
+    // The modal loop reports the action id that closed the menu; the game's callers get the
+    // JONES_MAINMENU_* value instead.
+    int MapMainMenuResult(ResultCode code)
     {
-        return (int)code;
+        switch ( (ActionId)code )
+        {
+            case kNewGameAction:
+                return JONES_MAINMENU_NEWGAME;
+
+            case kLoadAction:
+                return JONES_MAINMENU_LOADGAME;
+
+            default:
+                return JONES_MAINMENU_QUIT;
+        }
     }
 
     // Resolves a JONES_STR_ key through the game's string table. When the table has no such key
@@ -61,6 +75,24 @@ namespace
     {
         const std::string text = JonesUiContext_ResolveString(pKey);
         return text == pKey ? std::string(pFallback) : text;
+    }
+
+    Screen BuildMainMenuScreen(bool bCanLoad)
+    {
+        Screen menu;
+        // No game key holds the game's full title or a plain "New Game".
+        menu.title = "Indiana Jones and the Infernal Machine"; // TODO: [COMPAT]
+        menu.widgets.emplace_back(Button{
+            "New Game", kNewGameAction, true }); // TODO: [COMPAT]
+        menu.widgets.emplace_back(Button{
+            MenuLabel("JONES_STR_LOADGM", "Load Game"), kLoadAction, bCanLoad });
+        menu.widgets.emplace_back(Button{
+            "Settings", kSettingsAction, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
+        menu.widgets.emplace_back(Button{
+            MenuLabel("JONES_STR_QUIT", "Quit"), kQuitAction, true });
+        menu.backResult   = kQuitAction;
+        menu.initialFocus = 0;
+        return menu;
     }
 
     Screen BuildSettingsScreen(void)
@@ -97,19 +129,7 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
     const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks,
     char* pOutLoadPath)
 {
-    Screen menu;
-    // No game key holds the game's full title or a plain "New Game".
-    menu.title = "Indiana Jones and the Infernal Machine"; // TODO: [COMPAT]
-    menu.widgets.emplace_back(Button{
-        "New Game", kNewGameAction, true }); // TODO: [COMPAT]
-    menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_LOADGM", "Load Game"), kLoadAction, bCanLoad });
-    menu.widgets.emplace_back(Button{
-        "Settings", kSettingsAction, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
-    menu.widgets.emplace_back(Button{
-        MenuLabel("JONES_STR_QUIT", "Quit"), kQuitAction, true });
-    menu.backResult   = kQuitAction;
-    menu.initialFocus = 0;
+    const Screen menu = BuildMainMenuScreen(bCanLoad);
 
     // Runs the nested Settings screen and calls the matching hook for every settings button. Back
     // and Escape close it with kBackAction; the action's return value is ignored deliberately, so
@@ -204,21 +224,29 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
         return false; // Quit uses the loop's default pop with its action id
     };
 
-    const int result = JonesUiModal_RunHandled(ui, pPainter, menu,
-        [](ResultCode code) { return (int)code; }, menuHandler, background);
+    const int result = JonesUiModal_RunHandled(ui, pPainter, menu, MapMainMenuResult,
+        menuHandler, background);
 
-    if ( result == kNewGameAction )
+    if ( result == JONES_MAINMENU_NEWGAME )
     {
         return JonesUiMainMenuAction::NewGame;
     }
 
-    if ( result == kLoadAction )
+    if ( result == JONES_MAINMENU_LOADGAME )
     {
         return JonesUiMainMenuAction::LoadGame;
     }
 
     return JonesUiMainMenuAction::Quit;
 }
+
+#ifdef J3D_TEST
+void JonesUiMainMenu_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    screens.push_back(BuildMainMenuScreen(true));
+    screens.push_back(BuildSettingsScreen());
+}
+#endif
 
 extern "C" int J3DAPI jonesConfig_ResolveStartMode(int startMode, int bHasStartMode)
 {

@@ -43,6 +43,11 @@ bool stdBabylonEvents_PeekQuitRequest();
 // True once for each recorded quit or close request (the WM_QUIT the window adapter reports).
 bool stdBabylonEvents_TakeQuitRequest();
 
+// Records a quit request exactly as a platform QuitRequested does, so the next
+// wkernel_PeekProcessEvents or wkernel_ProcessEvents answers 1 (the WM_QUIT). The game's own
+// close path uses this to end the loop when it asks the window to close.
+void stdBabylonEvents_RequestQuit();
+
 // The oldest recorded focus change of the game window (true = gained), or nullopt.
 std::optional<bool> stdBabylonEvents_TakeFocusChange();
 

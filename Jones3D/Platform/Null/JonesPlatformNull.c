@@ -39,12 +39,8 @@ void JonesMainSys_ShowWindow(tSysWindow hWnd)
     J3D_UNUSED(hWnd);
 }
 
-int JonesMainSys_PostCloseMessage(void)
-{
-    // Returns the PostMessage success value; with no window the close request is
-    // "delivered" so callers observe the Windows success path.
-    return 1;
-}
+// Altered: JonesMainSys_PostCloseMessage moved to JonesPlatformNullMainSys.c so the Babylon
+// column can record a real quit request instead of this stub.
 
 void JonesMainSys_UseGameWindowProc(void)
 {

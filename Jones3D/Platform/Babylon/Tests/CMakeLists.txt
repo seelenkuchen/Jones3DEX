@@ -13,6 +13,7 @@ add_executable(Jones3DUiPainterTests
     JonesUiPauseMenuTest.cpp
     JonesUiStoreTest.cpp
     JonesUiControlsTest.cpp
+    JonesUiActionIdsTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
@@ -28,6 +29,7 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiGameplaySettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiStore.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiControls.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesBabylonMainSys.cpp"
     # Added: the control-scheme module the Controls screen reads and writes (M7.17a). It is part of
     # the Babylon column, not of Jones3DGame, so the test compiles it itself.
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesControlSchemes.c"

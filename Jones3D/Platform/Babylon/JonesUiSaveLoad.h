@@ -87,4 +87,9 @@ int JonesUiExit_RunExitScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainte
     JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
     const char* pLevelName, const std::tm& now, char* pSavePath);
 
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiSaveLoad_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISAVELOAD_H

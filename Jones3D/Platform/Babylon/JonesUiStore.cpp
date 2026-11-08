@@ -197,8 +197,7 @@ namespace
         }
     }
 
-    int JonesUiStore_AskPurchase(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-        const JonesUiStoreCart& cart)
+    babylon::ui::Screen JonesUiStore_BuildPurchaseScreen(const JonesUiStoreCart& cart)
     {
         babylon::ui::Screen screen;
         screen.title = JonesUiContext_ResolveString("JONES_STR_STORE");
@@ -211,7 +210,13 @@ namespace
 
         screen.backResult   = kJonesDialogCancel;
         screen.initialFocus = screen.widgets.size() - 2;
-        return JonesUiModal_Run(ui, pPainter, screen,
+        return screen;
+    }
+
+    int JonesUiStore_AskPurchase(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+        const JonesUiStoreCart& cart)
+    {
+        return JonesUiModal_Run(ui, pPainter, JonesUiStore_BuildPurchaseScreen(cart),
             [](babylon::ui::ResultCode code) { return (int)code; });
     }
 
@@ -537,3 +542,15 @@ int JonesUiStore_RunStoreScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPain
         // No: the original stays in the store. Reopen it with the cart unchanged.
     }
 }
+
+#ifdef J3D_TEST
+void JonesUiStore_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    JonesUiStoreCart cart;
+    JonesUiStoreCart_Init(cart, 1000, nullptr);
+
+    JonesUiStoreLayout layout;
+    screens.push_back(JonesUiStore_BuildScreen(cart, layout));
+    screens.push_back(JonesUiStore_BuildPurchaseScreen(cart));
+}
+#endif

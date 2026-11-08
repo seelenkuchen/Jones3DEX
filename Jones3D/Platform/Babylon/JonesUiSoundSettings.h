@@ -38,4 +38,9 @@ void JonesUiSound_CollectOutputDevices(std::vector<JonesUiSoundOutputDevice>& de
 int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     JonesSoundSettings* pData);
 
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiSound_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISOUNDSETTINGS_H

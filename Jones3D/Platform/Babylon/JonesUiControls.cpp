@@ -527,8 +527,8 @@ namespace
 
     // The original Reassign Key prompt (dialog 120): the control, the action it is bound to and the
     // action it would move to. Yes returns true.
-    bool AskReassign(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-        JonesControlActions owner, JonesControlActions target, std::size_t controlId)
+    babylon::ui::Screen BuildReassignScreen(JonesControlActions owner,
+        JonesControlActions target, std::size_t controlId)
     {
         babylon::ui::Screen screen;
         screen.title = ResolveLabel("JONES_STR_CTRL_OPTS", kJonesControlsFallbackTitle);
@@ -552,7 +552,14 @@ namespace
 
         screen.backResult   = kJonesDialogCancel;
         screen.initialFocus = 3;
-        return JonesUiModal_Run(ui, pPainter, screen, Identity) == kJonesDialogOk;
+        return screen;
+    }
+
+    bool AskReassign(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+        JonesControlActions owner, JonesControlActions target, std::size_t controlId)
+    {
+        return JonesUiModal_Run(ui, pPainter, BuildReassignScreen(owner, target, controlId),
+            Identity) == kJonesDialogOk;
     }
 
     // The assignment screen opened by accepting an action row: the capture row adds a binding, the
@@ -735,10 +742,7 @@ namespace
             kJonesControlsNameText, std::string(), std::string(), true }));
     }
 
-    // The original New Scheme dialog (line 5713-5808): a single-line name field, checked in place so
-    // the dialog stays open on an error.
-    bool RunNameScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-        const JonesControlsConfig& config, std::string& name)
+    babylon::ui::Screen BuildNameScreen(void)
     {
         babylon::ui::Screen screen;
         screen.title = ResolveLabel("JONES_STR_CTRL_OPTS", kJonesControlsFallbackTitle);
@@ -750,6 +754,15 @@ namespace
             ResolveLabel("JONES_STR_CANCEL", "Cancel"), kJonesDialogCancel, true });
         screen.backResult   = kJonesDialogCancel;
         screen.initialFocus = 0;
+        return screen;
+    }
+
+    // The original New Scheme dialog (line 5713-5808): a single-line name field, checked in place so
+    // the dialog stays open on an error.
+    bool RunNameScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+        const JonesControlsConfig& config, std::string& name)
+    {
+        const babylon::ui::Screen screen = BuildNameScreen();
 
         bool bAccepted = false;
 
@@ -1217,3 +1230,18 @@ extern "C" int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     jonesConfig_FreeControlConfigEntry(&config);
     return result;
 }
+
+#ifdef J3D_TEST
+void JonesUiControls_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    JonesControlsConfig config{};
+    JonesControlsScheme scheme{};
+    const JonesControlActions action = (JonesControlActions)0;
+
+    screens.push_back(BuildMainScreen(config, 0, false, false));
+    screens.push_back(BuildEditScreen(scheme, true));
+    screens.push_back(BuildAssignScreen(scheme, action, true));
+    screens.push_back(BuildNameScreen());
+    screens.push_back(BuildReassignScreen(action, action, 0));
+}
+#endif

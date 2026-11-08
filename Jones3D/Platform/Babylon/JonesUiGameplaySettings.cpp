@@ -417,3 +417,12 @@ extern "C" int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd)
     JonesUiContext_Release(pUiContext);
     return result;
 }
+
+#ifdef J3D_TEST
+void JonesUiGameplay_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    const JonesUiGameplayValues values;
+    JonesUiGameplayLayout layout;
+    screens.push_back(JonesUiGameplay_BuildScreen(true, values, layout));
+}
+#endif

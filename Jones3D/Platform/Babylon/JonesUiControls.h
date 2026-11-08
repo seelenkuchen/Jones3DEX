@@ -20,6 +20,7 @@
 #include <babylon/ui/Ui.h>
 
 #include <cstddef>
+#include <vector>
 
 // The original new-scheme name check, in the order it ran: empty, a character the Windows file
 // system rejects, then a name already in the list.
@@ -55,5 +56,10 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
 // returns 2 and leaves scheme untouched. Also used by the drawing sample, which runs it directly.
 int JonesUiControls_RunEditScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     JonesControlsScheme& scheme, std::size_t schemeIndex);
+
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiControls_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUICONTROLS_H

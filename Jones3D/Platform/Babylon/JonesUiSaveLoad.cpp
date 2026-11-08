@@ -382,7 +382,46 @@ namespace
         static_cast<void>(ui.setWidget(screenId, index,
             JonesUiSave_ThumbnailImage(thumbnails.Image(row))));
     }
+
+    babylon::ui::Screen JonesUiSave_BuildExitScreen(void)
+    {
+        babylon::ui::Screen screen;
+        screen.title = JonesUiContext_ResolveString("JONES_STR_EXIT");
+
+        // Dialog 211's buttons, top to bottom and with its default on the cancel answer:
+        // JONES_STR_EXIT3 (2), JONES_STR_EXIT2 (1187), JONES_STR_EXIT1 (1).
+        screen.widgets.emplace_back(babylon::ui::Button{
+            JonesUiContext_ResolveString("JONES_STR_EXIT3"), kJonesDialogCancel, true });
+        screen.widgets.emplace_back(babylon::ui::Button{
+            JonesUiContext_ResolveString("JONES_STR_EXIT2"), kJonesDialogSaveAndExit, true });
+        screen.widgets.emplace_back(babylon::ui::Button{
+            JonesUiContext_ResolveString("JONES_STR_EXIT1"), kJonesDialogSave, true });
+        screen.backResult   = kJonesDialogCancel;
+        screen.initialFocus = 0;
+        return screen;
+    }
 }
+
+#ifdef J3D_TEST
+void JonesUiSaveLoad_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    JonesUiSaveEntry entry;
+    entry.fileName    = "save.nds";
+    entry.displayName = "save";
+    entry.levelName   = "Level";
+    entry.dateText    = "2020-01-01";
+    entry.path        = "saves/save.nds";
+
+    const std::vector<JonesUiSaveEntry> entries{ entry };
+    JonesUiSave_Thumbnails thumbnails(nullptr);
+
+    screens.push_back(JonesUiSave_BuildYesNo("Title", "Text", "Yes", "No"));
+    screens.push_back(JonesUiSave_BuildSaveScreen("Save", "Default", entries, thumbnails,
+        "Cancel"));
+    screens.push_back(JonesUiSave_BuildLoadScreen("Load", entries, thumbnails, "Cancel"));
+    screens.push_back(JonesUiSave_BuildExitScreen());
+}
+#endif
 
 std::string JonesUiSave_LevelDisplayName(const std::string& levelFileName)
 {
@@ -726,19 +765,7 @@ int JonesUiExit_RunExitScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainte
     JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
     const char* pLevelName, const std::tm& now, char* pSavePath)
 {
-    babylon::ui::Screen screen;
-    screen.title = JonesUiContext_ResolveString("JONES_STR_EXIT");
-
-    // Dialog 211's buttons, top to bottom and with its default on the cancel answer:
-    // JONES_STR_EXIT3 (2), JONES_STR_EXIT2 (1187), JONES_STR_EXIT1 (1).
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_EXIT3"), kJonesDialogCancel, true });
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_EXIT2"), kJonesDialogSaveAndExit, true });
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_EXIT1"), kJonesDialogSave, true });
-    screen.backResult   = kJonesDialogCancel;
-    screen.initialFocus = 0;
+    const babylon::ui::Screen screen = JonesUiSave_BuildExitScreen();
 
     JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef, babylon::ui::ScreenId screenId,
         const babylon::ui::UiEvent& event) -> bool

@@ -49,4 +49,9 @@ bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int dis
 int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pSettings);
 
+#ifdef J3D_TEST
+// Test support: appends every screen this module builds, for the action-id audit.
+void JonesUiDisplay_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens);
+#endif
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIDISPLAYSETTINGS_H

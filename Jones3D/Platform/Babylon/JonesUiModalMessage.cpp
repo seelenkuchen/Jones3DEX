@@ -33,6 +33,11 @@
 #include <string>
 #include <vector>
 
+#ifdef J3D_TEST
+#include <babylon/cvars/Registry.h>
+#include <babylon/ui/NullPainter.h>
+#endif
+
 namespace
 {
     constexpr int kJonesDialogOk     = 1; // IDOK
@@ -120,14 +125,15 @@ namespace
         return lines;
     }
 
-    babylon::ui::Screen BuildMessageScreen(JonesUiContext& context, const std::string& title,
+    babylon::ui::Screen BuildMessageScreen(const babylon::ui::Ui& ui,
+        babylon::ui::Painter& painter, babylon::ui::FontId font, const std::string& title,
         const std::string& text, const std::string& okText)
     {
         babylon::ui::Screen screen;
         screen.title = title;
 
-        const float maxWidth = MessageTextWidth(*context.pUi);
-        for ( const std::string& line : WrapMessageText(context.painter, context.font, maxWidth, text) )
+        const float maxWidth = MessageTextWidth(ui);
+        for ( const std::string& line : WrapMessageText(painter, font, maxWidth, text) )
         {
             screen.widgets.emplace_back(babylon::ui::Label{ line, std::string() });
         }
@@ -149,7 +155,8 @@ namespace
             return false;
         }
 
-        babylon::ui::Screen screen = BuildMessageScreen(*pContext, title, text, okText);
+        babylon::ui::Screen screen = BuildMessageScreen(*pContext->pUi, pContext->painter,
+            pContext->font, title, text, okText);
         result = JonesUiModal_Run(*pContext->pUi, &pContext->painter, screen,
             [](babylon::ui::ResultCode code) { return (int)code; });
         JonesUiContext_Release(pContext);
@@ -157,6 +164,16 @@ namespace
         return true;
     }
 }
+
+#ifdef J3D_TEST
+void JonesUiModalMessage_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
+{
+    babylon::ui::NullPainter painter;
+    babylon::cvars::Registry cvars;
+    babylon::ui::Ui ui(painter, cvars);
+    screens.push_back(BuildMessageScreen(ui, painter, 0, "Test", "Message", "OK"));
+}
+#endif
 
 extern "C" int J3DAPI jonesConfig_ShowMessageDialog(tSysWindow hWnd, const char* pTitle,
     const char* pText, int iconID)
