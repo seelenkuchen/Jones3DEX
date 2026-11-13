@@ -9,7 +9,7 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdio>
+#include <fstream>
 #include <optional>
 #include <vector>
 
@@ -22,19 +22,17 @@ namespace
 
     std::vector<std::byte> readPng()
     {
-        std::FILE* pFile = std::fopen(BABYLON_IMAGE_TEST_PNG, "rb");
-        REQUIRE(pFile);
-        REQUIRE(std::fseek(pFile, 0, SEEK_END) == 0);
-        const long size = std::ftell(pFile);
+        std::ifstream file(BABYLON_IMAGE_TEST_PNG, std::ios::binary | std::ios::ate);
+        REQUIRE(file);
+        const std::streamsize size = file.tellg();
         REQUIRE(size >= 0);
-        REQUIRE(std::fseek(pFile, 0, SEEK_SET) == 0);
+        file.seekg(0, std::ios::beg);
 
         std::vector<std::byte> data((std::size_t)size);
         if ( !data.empty() )
         {
-            REQUIRE(std::fread(data.data(), 1, data.size(), pFile) == data.size());
+            REQUIRE(file.read(reinterpret_cast<char*>(data.data()), size));
         }
-        std::fclose(pFile);
         return data;
     }
 
