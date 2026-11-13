@@ -210,6 +210,8 @@ namespace
         std::size_t widget = kNoWidget;
         Rect rect;
         float height = 0.0f;
+        float textInset = 0.0f;
+        float markerWidth = 0.0f;
     };
 
     struct Layout
@@ -221,6 +223,8 @@ namespace
         std::vector<LayoutRow> rows;
         float contentHeight = 0.0f;
         float maxScroll = 0.0f;
+        float markerWidth = 0.0f;
+        float textInset = 0.0f;
     };
 
     struct Hit
@@ -351,6 +355,21 @@ struct Ui::State
         return painter.measureText(skin.titleFont, text).width;
     }
 
+    // Rows draw their text twice when a shadow is set: the shadow offsets down
+    // and right, then the real text sits on top.
+    void drawRowText(FontId font, std::string_view text, const Rect& rect,
+        TextAlign align, const Color& color)
+    {
+        if ( skin.textShadow.a > 0.0f )
+        {
+            Rect shadow = rect;
+            shadow.x += skin.textShadowOffset;
+            shadow.y += skin.textShadowOffset;
+            painter.drawText(font, text, shadow, align, skin.textShadow);
+        }
+        painter.drawText(font, text, rect, align, color);
+    }
+
     std::string sliderText(const Slider& slider, double value) const
     {
         if ( !slider.cvar.empty() && cvars.getInt(slider.cvar).has_value() )
@@ -459,15 +478,37 @@ struct Ui::State
             }
         }
 
-        const float availableWidth = std::max(0.0f, canvas - 2.0f * skin.canvasMargin);
-        const float availableHeight = std::max(0.0f, kCanvasHeight - 2.0f * skin.canvasMargin);
-        float panelWidth = std::max(skin.minPanelWidth, widest + 2.0f * skin.panelPadding);
-        panelWidth = std::min(panelWidth, availableWidth);
-        float panelHeight = contentHeight + 2.0f * skin.panelPadding;
-        panelHeight = std::min(panelHeight, availableHeight);
+        // The focus marker occupies a fixed column on the left of every row,
+        // so text keeps its place while focus moves.
+        if ( !skin.focusMarker.empty() )
+        {
+            layout.markerWidth = painter.measureText(skin.textFont, skin.focusMarker).width;
+            layout.textInset   = layout.markerWidth + skin.markerSpacing;
+        }
 
-        layout.panel = Rect{ (canvas - panelWidth) * 0.5f,
-            (kCanvasHeight - panelHeight) * 0.5f, panelWidth, panelHeight };
+        float panelWidth = std::max(skin.minPanelWidth,
+            widest + layout.textInset + 2.0f * skin.panelPadding);
+        float panelHeight = contentHeight + 2.0f * skin.panelPadding;
+        if ( skin.placement == PanelPlacement::BottomLeft )
+        {
+            const float left   = skin.canvasMargin * 4.0f;
+            const float bottom = skin.canvasMargin * 4.0f;
+            const float availableWidth = std::max(0.0f, canvas - left - skin.canvasMargin);
+            const float availableHeight = std::max(0.0f, kCanvasHeight - bottom);
+            panelWidth = std::min(panelWidth, availableWidth);
+            panelHeight = std::min(panelHeight, availableHeight);
+            layout.panel = Rect{ left, kCanvasHeight - bottom - panelHeight,
+                panelWidth, panelHeight };
+        }
+        else
+        {
+            const float availableWidth = std::max(0.0f, canvas - 2.0f * skin.canvasMargin);
+            const float availableHeight = std::max(0.0f, kCanvasHeight - 2.0f * skin.canvasMargin);
+            panelWidth = std::min(panelWidth, availableWidth);
+            panelHeight = std::min(panelHeight, availableHeight);
+            layout.panel = Rect{ (canvas - panelWidth) * 0.5f,
+                (kCanvasHeight - panelHeight) * 0.5f, panelWidth, panelHeight };
+        }
         layout.inner = Rect{ layout.panel.x + skin.panelPadding,
             layout.panel.y + skin.panelPadding,
             std::max(0.0f, layout.panel.width - 2.0f * skin.panelPadding),
@@ -488,7 +529,8 @@ struct Ui::State
             }
             y += skin.rowSpacing;
             layout.rows.push_back(LayoutRow{ i,
-                Rect{ layout.inner.x, y, layout.inner.width, heights[i] }, heights[i] });
+                Rect{ layout.inner.x, y, layout.inner.width, heights[i] }, heights[i],
+                layout.textInset, layout.markerWidth });
             y += heights[i];
         }
         layout.contentHeight = contentHeight;
@@ -1901,6 +1943,12 @@ struct Ui::State
         const bool disabled = isWidgetDisabled(state, index);
         const bool focused = state.focus == index;
 
+        // The marker sits in the reserved column and the row's own text starts
+        // after it, so the text does not move when focus moves.
+        Rect textRect = rect;
+        textRect.x += row.textInset;
+        textRect.width = std::max(0.0f, textRect.width - row.textInset);
+
         if ( const Image* image = get<Image>(widget) )
         {
             if ( image->image != 0 && image->size.width > 0.0f && image->size.height > 0.0f )
@@ -1926,7 +1974,14 @@ struct Ui::State
             return;
         }
 
-        if ( focused && focusableKind(widget) )
+        if ( focused && focusableKind(widget) && !skin.focusMarker.empty() )
+        {
+            drawRowText(skin.textFont, skin.focusMarker,
+                Rect{ rect.x, rect.y, row.markerWidth, rect.height },
+                TextAlign::Left, skin.textFocused);
+        }
+
+        if ( focused && focusableKind(widget) && skin.highlight.a > 0.0f )
         {
             painter.fillRect(rect, skin.highlight);
         }
@@ -1935,57 +1990,57 @@ struct Ui::State
 
         if ( const Label* label = get<Label>(widget) )
         {
-            painter.drawText(skin.textFont, label->text, rect, TextAlign::Left, color);
+            drawRowText(skin.textFont, label->text, textRect, skin.rowAlign, color);
             if ( !label->value.empty() )
             {
-                painter.drawText(skin.textFont, label->value, rect, TextAlign::Right, color);
+                drawRowText(skin.textFont, label->value, textRect, TextAlign::Right, color);
             }
             return;
         }
         if ( const Button* button = get<Button>(widget) )
         {
-            painter.drawText(skin.textFont, button->text, rect, TextAlign::Left, color);
+            drawRowText(skin.textFont, button->text, textRect, skin.rowAlign, color);
             return;
         }
         if ( const Toggle* toggle = get<Toggle>(widget) )
         {
-            painter.drawText(skin.textFont, toggle->text, rect, TextAlign::Left, color);
-            painter.drawText(skin.textFont, currentToggle(state, index) ? "On" : "Off",
-                rect, TextAlign::Right, color);
+            drawRowText(skin.textFont, toggle->text, textRect, skin.rowAlign, color);
+            drawRowText(skin.textFont, currentToggle(state, index) ? "On" : "Off",
+                textRect, TextAlign::Right, color);
             return;
         }
         if ( const Slider* slider = get<Slider>(widget) )
         {
-            painter.drawText(skin.textFont, slider->text, rect, TextAlign::Left, color);
-            painter.drawText(skin.textFont, sliderText(*slider, currentSlider(state, index)),
-                rect, TextAlign::Right, color);
+            drawRowText(skin.textFont, slider->text, textRect, skin.rowAlign, color);
+            drawRowText(skin.textFont, sliderText(*slider, currentSlider(state, index)),
+                textRect, TextAlign::Right, color);
             return;
         }
         if ( const Choice* choice = get<Choice>(widget) )
         {
-            painter.drawText(skin.textFont, choice->text, rect, TextAlign::Left, color);
+            drawRowText(skin.textFont, choice->text, textRect, skin.rowAlign, color);
             const std::size_t selected = currentChoiceIndex(*choice, state, index);
             if ( selected < choice->options.size() )
             {
-                painter.drawText(skin.textFont, choice->options[selected], rect,
+                drawRowText(skin.textFont, choice->options[selected], textRect,
                     TextAlign::Right, color);
             }
             return;
         }
         if ( const BindingCapture* capture = get<BindingCapture>(widget) )
         {
-            painter.drawText(skin.textFont, capture->text, rect, TextAlign::Left, color);
+            drawRowText(skin.textFont, capture->text, textRect, skin.rowAlign, color);
             if ( state.capturing && state.captureWidget == index )
             {
-                painter.drawText(skin.textFont, "Press input", rect, TextAlign::Right,
+                drawRowText(skin.textFont, "Press input", textRect, TextAlign::Right,
                     color);
             }
             return;
         }
         if ( const TextEntry* entry = get<TextEntry>(widget) )
         {
-            painter.drawText(skin.textFont, entry->text, rect, TextAlign::Left, color);
-            painter.drawText(skin.textFont, displayText(state, index), rect,
+            drawRowText(skin.textFont, entry->text, textRect, skin.rowAlign, color);
+            drawRowText(skin.textFont, displayText(state, index), textRect,
                 TextAlign::Right, color);
         }
     }
@@ -1997,13 +2052,23 @@ struct Ui::State
         const List& list, std::size_t index, bool disabled, bool focused)
     {
         const Rect rect{ row.rect.x, row.rect.y - scroll, row.rect.width, row.rect.height };
+        Rect textRect = rect;
+        textRect.x += row.textInset;
+        textRect.width = std::max(0.0f, textRect.width - row.textInset);
         const Color color = disabled ? skin.textDisabled
             : (focused ? skin.textFocused : skin.text);
+        if ( focused && !skin.focusMarker.empty() )
+        {
+            drawRowText(skin.textFont, skin.focusMarker,
+                Rect{ rect.x, rect.y, row.markerWidth, skin.rowHeight },
+                TextAlign::Left, skin.textFocused);
+        }
         float y = rect.y;
         if ( !list.text.empty() )
         {
-            painter.drawText(skin.textFont, list.text,
-                Rect{ rect.x, y, rect.width, skin.rowHeight }, TextAlign::Left, color);
+            drawRowText(skin.textFont, list.text,
+                Rect{ textRect.x, y, textRect.width, skin.rowHeight },
+                skin.rowAlign, color);
             y += skin.rowHeight;
         }
         const std::size_t offset = std::min(state.listOffsets[index], list.items.size());
@@ -2017,13 +2082,13 @@ struct Ui::State
             const ListItem& item = list.items[itemIndex];
             const Rect itemRect{ rect.x, y + static_cast<float>(i) * skin.rowHeight,
                 rect.width, skin.rowHeight };
-            if ( itemIndex == list.selected )
+            const Color& selection = focused ? skin.highlight : skin.highlightUnfocused;
+            if ( itemIndex == list.selected && selection.a > 0.0f )
             {
-                painter.fillRect(itemRect, focused ? skin.highlight
-                    : skin.highlightUnfocused);
+                painter.fillRect(itemRect, selection);
             }
-            float textX = itemRect.x;
-            float textWidth = itemRect.width;
+            float textX = textRect.x;
+            float textWidth = textRect.width;
             if ( images )
             {
                 if ( item.image != 0 )
@@ -2034,7 +2099,7 @@ struct Ui::State
                 textX += skin.rowHeight + kColumnGap;
                 textWidth -= skin.rowHeight + kColumnGap;
             }
-            painter.drawText(skin.textFont, item.text,
+            drawRowText(skin.textFont, item.text,
                 Rect{ textX, itemRect.y, std::max(0.0f, textWidth), itemRect.height },
                 TextAlign::Left,
                 itemIndex == list.selected ? skin.textFocused : color);
@@ -2061,12 +2126,15 @@ struct Ui::State
         const float scroll = effectiveScroll(*state, layout);
 
         painter.pushClip(Rect{ 0.0f, 0.0f, canvas, kCanvasHeight });
-        painter.fillRect(layout.panel, skin.panel);
+        if ( skin.panel.a > 0.0f )
+        {
+            painter.fillRect(layout.panel, skin.panel);
+        }
         if ( skin.panelImage != 0 )
         {
             painter.drawImage(skin.panelImage, layout.panel);
         }
-        if ( skin.borderWidth > 0.0f )
+        if ( skin.borderWidth > 0.0f && skin.panelBorder.a > 0.0f )
         {
             const float width = std::min(skin.borderWidth,
                 std::min(layout.panel.width, layout.panel.height) * 0.5f);
@@ -2111,7 +2179,7 @@ bool Ui::setSkin(const Skin& skin)
     if ( !(skin.rowHeight > 0.0f) || skin.titleHeight < 0.0f
         || skin.rowSpacing < 0.0f || skin.panelPadding < 0.0f
         || skin.minPanelWidth < 0.0f || skin.canvasMargin < 0.0f
-        || skin.borderWidth < 0.0f )
+        || skin.borderWidth < 0.0f || skin.markerSpacing < 0.0f )
     {
         babylon::log::warning("ui: rejected an invalid skin");
         return false;

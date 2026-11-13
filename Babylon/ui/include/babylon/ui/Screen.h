@@ -31,11 +31,11 @@ namespace babylon::ui
     // Ui lays it out automatically and owns a copy from push until close,
     // so the caller may destroy its Screen immediately after pushing.
     //
-    // The panel is centered on the canvas, as wide as the widest row plus
-    // padding (clamped to the canvas minus the skin's margins) and as tall
-    // as the title plus every row. When the panel is taller than the
-    // canvas, rows scroll with focus and the list stays clipped to the
-    // canvas.
+    // The panel is as wide as the widest row plus padding (clamped to the
+    // canvas minus the skin's margins) and as tall as the title plus every
+    // row. The skin's placement centers it or puts it in the lower left
+    // corner. When the panel is taller than the canvas, rows scroll with
+    // focus and the list stays clipped to the canvas.
     //
     // An empty widget list is valid: the title and an empty panel still
     // draw, and back closes the screen.
