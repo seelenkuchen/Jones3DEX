@@ -16,6 +16,7 @@ J3D_EXTERN_C_START
 #define SITHMODERNCAMERA_DEADZONE         0.2f  // radial deadzone, rescaled
 #define SITHMODERNCAMERA_MOUSESENSITIVITY 5.0f // degrees per mouse axis unit
 #define SITHMODERNCAMERA_SNAPSECONDS      0.25f
+#define SITHMODERNCAMERA_LOCKTRACKSPEED   240.0f // degrees per second toward a locked target
 
 void sithModernCamera_ResetGlobals(void);
 
@@ -36,6 +37,9 @@ void J3DAPI sithModernCamera_Advance(float stickX, float stickY, float mouseX, f
 
 // Added: smoothly turn the orbit behind the given facing over SITHMODERNCAMERA_SNAPSECONDS.
 void J3DAPI sithModernCamera_SnapTo(float targetYaw);
+
+// Added: ease the orbit toward a locked target at a steady rate.
+void J3DAPI sithModernCamera_TrackYaw(float targetYaw, float secDeltaTime);
 
 // Added: while the original camera runs (non-free state), keep the orbit yaw on the yaw the
 // original camera would have, so returning to a free state does not snap.

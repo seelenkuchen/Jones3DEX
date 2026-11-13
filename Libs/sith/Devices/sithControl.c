@@ -109,6 +109,7 @@ const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
     "RUNFWD",
     "HEALTH",
     "CHALK",
+    "TARGETLOCK",
     "MAXFUNCTIONS"
 };
 
@@ -837,6 +838,7 @@ void sithControl_RegisterControlFunctions(void)
     sithControl_RegisterKeyFunction(SITHCONTROL_ACT3);
     sithControl_RegisterKeyFunction(SITHCONTROL_HEALTH);
     sithControl_RegisterKeyFunction(SITHCONTROL_CHALK);
+    sithControl_RegisterKeyFunction(SITHCONTROL_TARGETLOCK); // Added: Modern target lock (ADR-0029)
     sithControl_RegisterKeyFunction(SITHCONTROL_DEBUG);
     sithControl_RegisterKeyFunction(SITHCONTROL_GAMMA);
     sithControl_RegisterKeyFunction(SITHCONTROL_SCREENSHOT);
@@ -908,6 +910,9 @@ void sithControl_RegisterKeyboardBindings(void)
         sithControl_BindControl(SITHCONTROL_SCREENSHOT, STDKEY_F12, (SithControlBindFlag)0);
         sithControl_BindControl(SITHCONTROL_HEALTH, STDKEY_H, (SithControlBindFlag)0);
         sithControl_BindControl(SITHCONTROL_CHALK, STDKEY_K, (SithControlBindFlag)0);
+        // Added: the Modern target lock's keyboard default (ADR-0029). Tab stays the menu
+        // fallback, so the otherwise free F is used here.
+        sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDKEY_F, (SithControlBindFlag)0);
 
         // Note this if scope is removed in release version but we'll keep it
         if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_INEDITOR) != 0 )
@@ -988,7 +993,15 @@ void sithControl_RegisterMouseBindings(void)
             sithControl_BindAxis(SITHCONTROL_RUNFWD, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_NEGATIVE_AXIS | STDCONTROL_AID_POSITIVE_AXIS | STDCONTROL_AID_LOW_SENSITIVITY, (SithControlBindFlag)0);
             sithControl_BindAxis(SITHCONTROL_BACK, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_POSITIVE_AXIS, (SithControlBindFlag)0);
             sithControl_BindControl(SITHCONTROL_ACT2, STDCONTROL_KID_MOUSE_LBUTTON, (SithControlBindFlag)0);
-            sithControl_BindControl(SITHCONTROL_JUMP, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+            // Added: Modern uses the right mouse button for target lock; Classic keeps jump.
+            if ( sithControl_IsModernControlStyle() )
+            {
+                sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+            }
+            else
+            {
+                sithControl_BindControl(SITHCONTROL_JUMP, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+            }
         }
 
         stdControl_EnableMouse(1);

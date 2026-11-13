@@ -24,6 +24,9 @@ typedef struct sSithModernInput
     float playerYaw; // Degrees, in the same convention as cameraYaw.
     SithModernControlMode mode;
     bool bRunKey; // The real RUN binding, which keeps its Classic meaning.
+    bool bLocked; // Added: target lock is held.
+    bool bHasLockTarget; // Added: the lock has a live target.
+    float lockTargetYaw; // Added: direction from Indy to the locked target, same convention.
 } SithModernInput;
 
 typedef struct sSithModernKey
@@ -39,6 +42,8 @@ typedef struct sSithModernOutput
     SithModernKey turnLeft;
     SithModernKey turnRight;
     SithModernKey run;
+    SithModernKey strafeLeft; // Added: locked-sideways input, played as thrust by sithPlayerControls.
+    SithModernKey strafeRight; // Added
 } SithModernOutput;
 
 // Added: the one classifier shared by movement and the free camera. Relative is the original
@@ -53,6 +58,18 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
 // Added: reads the move input and the player state, then sets this frame's virtual key
 // overrides. Called at the start of sithPlayerControls_Process.
 void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime);
+
+// Added: the target lock state (ADR-0029). GetLockedTarget stays valid for a held lock even in
+// states that ignore movement; IsLockActive is false outside the camera-relative states.
+SithThing* J3DAPI sithModernControls_GetLockedTarget(void);
+bool J3DAPI sithModernControls_IsLockActive(void);
+void J3DAPI sithModernControls_ResetLock(void);
+
+// Added: -1..1 sideways input the locked move produces, consumed by sithPlayerControls.
+float J3DAPI sithModernControls_GetStrafeInput(void);
+
+// Added: if the free camera should ease toward a locked target this frame, write its yaw.
+bool J3DAPI sithModernControls_GetLockCameraYaw(float* pYaw);
 
 J3D_EXTERN_C_END
 #endif // SITH_SITHMODERNCONTROLS_H

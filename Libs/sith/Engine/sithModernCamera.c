@@ -205,6 +205,30 @@ void J3DAPI sithModernCamera_SnapTo(float targetYaw)
     }
 }
 
+void J3DAPI sithModernCamera_TrackYaw(float targetYaw, float secDeltaTime)
+{
+    if ( secDeltaTime < 0.0f )
+    {
+        secDeltaTime = 0.0f;
+    }
+
+    float delta = stdMath_NormalizeAngleAcute(stdMath_NormalizeAngle(targetYaw) - sithModernCamera_worldYaw);
+    float step  = SITHMODERNCAMERA_LOCKTRACKSPEED * secDeltaTime;
+
+    if ( fabsf(delta) <= step )
+    {
+        sithModernCamera_worldYaw = stdMath_NormalizeAngle(targetYaw);
+    }
+    else
+    {
+        sithModernCamera_worldYaw = stdMath_NormalizeAngle(sithModernCamera_worldYaw + (delta > 0.0f ? step : -step));
+    }
+
+    sithModernCamera_bInitialized = true;
+    sithModernCamera_bSnapping    = false;
+    sithModernCamera_snapTime     = 0.0f;
+}
+
 void J3DAPI sithModernCamera_SyncYawFromOrient(const rdMatrix34* pOrient)
 {
     if ( !pOrient )
@@ -239,6 +263,14 @@ bool J3DAPI sithModernCamera_Update(const SithCamera* pCamera, const SithThing* 
     }
 
     sithModernCamera_EnableStickAxes(numJoysticks);
+
+    // Added: a held target lock owns the camera yaw and eases it toward Indy -> target.
+    float lockYaw;
+    if ( sithModernControls_GetLockCameraYaw(&lockYaw) )
+    {
+        sithModernCamera_TrackYaw(lockYaw, secDeltaTime);
+        return true;
+    }
 
     float stickX = sithModernCamera_ReadStickAxis(numJoysticks, STDCONTROL_JOYSTICK_AXIS_RX);
     float stickY = sithModernCamera_ReadStickAxis(numJoysticks, STDCONTROL_JOYSTICK_AXIS_RY);

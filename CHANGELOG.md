@@ -50,6 +50,9 @@
     (`engine.input.rumble`) to turn it off.
   - The Gameplay tab has a Control style option (`engine.input.controlStyle`); Modern arrives in
     the next updates.
+  - Modern target lock holds the nearest visible hostile in front of Indy, turns him toward it and
+    makes the left stick strafe and backpedal. With no target it centers the camera forward. LT on a
+    gamepad, `F` and the right mouse button on keyboard and mouse, all as Enhanced options.
   - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
     Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
     help column for the focused row, and the Display tab drops the Performance row while the stored

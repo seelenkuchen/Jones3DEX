@@ -1270,7 +1270,8 @@ typedef enum eSithControlFunction
     SITHCONTROL_GAMMA         = 54,
     SITHCONTROL_RUNFWD        = 55,
     SITHCONTROL_HEALTH        = 56,
-    SITHCONTROL_CHALK         = 57
+    SITHCONTROL_CHALK         = 57,
+    SITHCONTROL_TARGETLOCK    = 58
 } SithControlFunction;
 
 typedef enum eSithCameraState

@@ -24,6 +24,15 @@
 #define SITHMODERNCONTROL_TURN_FULL_ANGLE     60.0f
 #define SITHMODERNCONTROL_TURN_MIN_AMOUNT     0.25f
 #define SITHMODERNCONTROL_ZERO_EPSILON        0.0001f
+#define SITHMODERNCONTROL_LOCK_DEAD_BAND      3.0f
+#define SITHMODERNCONTROL_LOCK_LOST_SECONDS   0.5f
+
+static SithThing* sithModernControls_pLockedTarget;
+static bool sithModernControls_bLockHeld;
+static bool sithModernControls_bLockActive;
+static bool sithModernControls_bLockWasHeld;
+static float sithModernControls_secLockLost;
+static float sithModernControls_lockStrafe;
 
 // Added: a floor-plane yaw in the engine's convention: 0 faces +Y and positive turns left.
 static float sithModernControls_GetYaw(const rdMatrix34* pOrient)
@@ -35,6 +44,117 @@ static float sithModernControls_GetYaw(const rdMatrix34* pOrient)
     }
 
     return STDMATH_TODEGREESF(atan2f(-pOrient->lvec.x, pOrient->lvec.y));
+}
+
+// Added: the yaw from one floor position to another in the engine's convention.
+static float sithModernControls_GetDirectionYaw(const rdVector3* pFrom, const rdVector3* pTo)
+{
+    return STDMATH_TODEGREESF(atan2f(-(pTo->x - pFrom->x), pTo->y - pFrom->y));
+}
+
+void J3DAPI sithModernControls_ResetLock(void)
+{
+    sithModernControls_pLockedTarget = NULL;
+    sithModernControls_bLockHeld     = false;
+    sithModernControls_bLockActive   = false;
+    sithModernControls_bLockWasHeld  = false;
+    sithModernControls_secLockLost   = 0.0f;
+    sithModernControls_lockStrafe    = 0.0f;
+}
+
+SithThing* J3DAPI sithModernControls_GetLockedTarget(void)
+{
+    return sithModernControls_pLockedTarget;
+}
+
+bool J3DAPI sithModernControls_IsLockActive(void)
+{
+    return sithModernControls_bLockHeld && sithModernControls_bLockActive;
+}
+
+float J3DAPI sithModernControls_GetStrafeInput(void)
+{
+    if ( !sithModernControls_IsLockActive() )
+    {
+        return 0.0f;
+    }
+
+    return sithModernControls_lockStrafe;
+}
+
+bool J3DAPI sithModernControls_GetLockCameraYaw(float* pYaw)
+{
+    if ( !pYaw || !sithModernControls_IsLockActive() || !sithModernControls_pLockedTarget )
+    {
+        return false;
+    }
+
+    SithThing* pPlayer = sithPlayer_g_pLocalPlayerThing;
+    if ( !pPlayer )
+    {
+        return false;
+    }
+
+    *pYaw = sithModernControls_GetDirectionYaw(&pPlayer->pos, &sithModernControls_pLockedTarget->pos);
+    return true;
+}
+
+// Added: acquire on the press edge, then keep or drop the target. Other move states keep the
+// lock but do not apply it; returning to a camera-relative state resumes the lock.
+static void sithModernControls_UpdateLock(SithThing* pPlayer, SithModernControlMode mode, float secDeltaTime)
+{
+    if ( secDeltaTime < 0.0f )
+    {
+        secDeltaTime = 0.0f;
+    }
+
+    int pressed = 0;
+    bool bHeld  = sithControl_GetKey(SITHCONTROL_TARGETLOCK, &pressed) != 0;
+
+    if ( !bHeld )
+    {
+        sithModernControls_ResetLock();
+        return;
+    }
+
+    if ( !sithModernControls_bLockWasHeld )
+    {
+        sithModernControls_pLockedTarget = sithPlayerControls_FindLockTarget(pPlayer);
+        sithModernControls_secLockLost   = 0.0f;
+
+        // Added: with no target, center the free camera forward for this press.
+        if ( mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE && !sithModernControls_pLockedTarget )
+        {
+            sithModernCamera_SnapTo(sithModernControls_GetYaw(&pPlayer->orient));
+        }
+    }
+
+    sithModernControls_bLockHeld    = true;
+    sithModernControls_bLockWasHeld = true;
+
+    if ( sithModernControls_pLockedTarget )
+    {
+        if ( !sithPlayerControls_IsLockTargetAlive(sithModernControls_pLockedTarget) )
+        {
+            sithModernControls_pLockedTarget = NULL;
+            sithModernControls_secLockLost   = 0.0f;
+        }
+        else if ( !sithPlayerControls_IsLockTargetVisible(pPlayer, sithModernControls_pLockedTarget) )
+        {
+            sithModernControls_secLockLost += secDeltaTime;
+            if ( sithModernControls_secLockLost > SITHMODERNCONTROL_LOCK_LOST_SECONDS )
+            {
+                sithModernControls_pLockedTarget = NULL;
+                sithModernControls_secLockLost   = 0.0f;
+            }
+        }
+        else
+        {
+            sithModernControls_secLockLost = 0.0f;
+        }
+    }
+
+    sithModernControls_bLockActive = (mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE);
 }
 
 static bool sithModernControls_IsSwimming(const SithThing* pPlayer)
@@ -262,6 +382,81 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
         return;
     }
 
+    if ( pIn->bLocked )
+    {
+        // Added: Indy faces the locked target, with a dead band so the turn does not jitter.
+        if ( pIn->bHasLockTarget )
+        {
+            float delta = stdMath_NormalizeAngleAcute(pIn->lockTargetYaw - pIn->playerYaw);
+            if ( fabsf(delta) > SITHMODERNCONTROL_LOCK_DEAD_BAND )
+            {
+                float amount = STDMATH_CLAMP(fabsf(delta) / SITHMODERNCONTROL_TURN_FULL_ANGLE,
+                    SITHMODERNCONTROL_TURN_MIN_AMOUNT, 1.0f);
+
+                if ( delta > 0.0f )
+                {
+                    pOut->turnLeft.bPressed = true;
+                    pOut->turnLeft.amount   = amount;
+                }
+                else
+                {
+                    pOut->turnRight.bPressed = true;
+                    pOut->turnRight.amount   = amount;
+                }
+            }
+        }
+
+        if ( magnitude < SITHMODERNCONTROL_ZERO_EPSILON )
+        {
+            return;
+        }
+
+        // Added: with a target the stick is camera-relative; without one the centered camera
+        // means Indy's own facing. Either way the move is decomposed in Indy's frame.
+        float referenceYaw = pIn->bHasLockTarget ? pIn->cameraYaw : pIn->playerYaw;
+
+        float sinReferenceYaw, cosReferenceYaw;
+        stdMath_SinCos(referenceYaw, &sinReferenceYaw, &cosReferenceYaw);
+
+        float targetX = cosReferenceYaw * pIn->x - sinReferenceYaw * pIn->y;
+        float targetY = sinReferenceYaw * pIn->x + cosReferenceYaw * pIn->y;
+
+        float sinPlayerYaw, cosPlayerYaw;
+        stdMath_SinCos(pIn->playerYaw, &sinPlayerYaw, &cosPlayerYaw);
+
+        float forwardX = -sinPlayerYaw;
+        float forwardY = cosPlayerYaw;
+        float rightX   = cosPlayerYaw;
+        float rightY   = sinPlayerYaw;
+
+        float forwardAmount = forwardX * targetX + forwardY * targetY;
+        float strafeAmount  = rightX * targetX + rightY * targetY;
+
+        if ( forwardAmount > SITHMODERNCONTROL_ZERO_EPSILON )
+        {
+            pOut->forward.bPressed = true;
+            pOut->forward.amount   = forwardAmount;
+        }
+        else if ( forwardAmount < -SITHMODERNCONTROL_ZERO_EPSILON )
+        {
+            pOut->back.bPressed = true;
+            pOut->back.amount   = -forwardAmount;
+        }
+
+        if ( strafeAmount > SITHMODERNCONTROL_ZERO_EPSILON )
+        {
+            pOut->strafeRight.bPressed = true;
+            pOut->strafeRight.amount   = strafeAmount;
+        }
+        else if ( strafeAmount < -SITHMODERNCONTROL_ZERO_EPSILON )
+        {
+            pOut->strafeLeft.bPressed = true;
+            pOut->strafeLeft.amount   = -strafeAmount;
+        }
+
+        return;
+    }
+
     if ( magnitude < SITHMODERNCONTROL_ZERO_EPSILON )
     {
         return;
@@ -310,8 +505,6 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
 
 void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 {
-    (void)secDeltaTime;
-
     sithControl_ClearKeyOverrides();
 
     if ( !sithControl_IsModernControlStyle()
@@ -319,10 +512,15 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         || pPlayer != sithPlayer_g_pLocalPlayerThing
         || pPlayer->moveType != SITH_MT_PHYSICS )
     {
+        sithModernControls_ResetLock();
         return;
     }
 
     SithModernControlMode mode = sithModernControls_GetMode(pPlayer);
+
+    // Added: the target lock is read in every move state; only camera-relative states apply it.
+    sithModernControls_UpdateLock(pPlayer, mode, secDeltaTime);
+
     if ( mode == SITHMODERNCONTROL_MODE_NONE )
     {
         return;
@@ -388,13 +586,23 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         in.y = keyYOut;
     }
 
-    in.cameraYaw = cameraYaw;
-    in.playerYaw = playerYaw;
-    in.mode      = mode;
-    in.bRunKey   = bRunKey;
+    in.cameraYaw      = cameraYaw;
+    in.playerYaw      = playerYaw;
+    in.mode           = mode;
+    in.bRunKey        = bRunKey;
+    in.bLocked        = sithModernControls_IsLockActive();
+    in.bHasLockTarget = sithModernControls_pLockedTarget != NULL;
+    if ( in.bHasLockTarget )
+    {
+        in.lockTargetYaw = sithModernControls_GetDirectionYaw(&pPlayer->pos, &sithModernControls_pLockedTarget->pos);
+    }
 
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
+
+    sithModernControls_lockStrafe = out.strafeRight.bPressed
+        ? out.strafeRight.amount
+        : -out.strafeLeft.amount;
 
     sithModernControls_ApplyMovementKey(SITHCONTROL_FORWARD, &out.forward);
     sithModernControls_ApplyMovementKey(SITHCONTROL_BACK, &out.back);

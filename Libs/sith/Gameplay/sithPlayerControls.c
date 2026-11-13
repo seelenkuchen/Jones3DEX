@@ -67,6 +67,7 @@ static SithThing* sithPlayerControls_pMovableThing          = NULL; // Fixed: In
 
 static float sithPlayerControls_moveFactorNormal  = 0.89999998f;
 static float sithPlayerControls_moveFactorSlow    = 0.5f;
+static bool sithPlayerControls_bLockStrafeActive  = false; // Added: Modern target-lock strafe state
 
 // Climb controls vars
 static int sithPlayerControls_climbPupTrackNum;
@@ -105,6 +106,9 @@ static float sithPlayerControls_mirrorAimMaxVerticalAngleAcquire   = 14.0f;
 static float sithPlayerControls_mirrorAimMaxVerticalAngleTrack     = 16.0f;
 static float sithPlayerControls_mirrorAimMaxHorizontalAngleNear    = 5.0f;
 
+#define SITHPLAYERCONTROLS_LOCKRANGE_DEFAULT 10.0f // Added: target lock still works when the weapon has no aim range
+#define SITHPLAYERCONTROLS_LOCKCANDIDATES    64u   // Added: fixed local cap for one acquisition search
+
 // Devmode vars
 static rdVector3 sithPlayerControls_curOrbCamDir  = { 0.0f , -1.0f , 0.0f };
 static float sithPlayerControls_curOrbCamDist     = 0.2f;
@@ -127,6 +131,7 @@ static int J3DAPI sithPlayerControls_CheckAimRange(SithThing* pThing, const rdVe
 static int J3DAPI sithPlayerControls_GetPushPullMoveNorm(rdVector3* moveNorm, const rdVector3* pLVect, float angle);
 
 // Helper function signatures for ProcessGeneralMove (new functions)
+static void J3DAPI sithPlayerControls_ProcessLockedStrafe(SithThing* pThing, float moveFactor, bool* pbMoving); // Added
 static void J3DAPI sithPlayerControls_ProcessStillMove(SithThing* pThing, float secDeltaTime, float moveFactor, bool bRun);
 static void J3DAPI sithPlayerControls_ProcessWalkMove(SithThing* pThing, float secDeltaTime, float moveFactor, bool bRun);
 static void J3DAPI sithPlayerControls_ProcessRunMove(SithThing* pThing, float secDeltaTime, float moveFactor, bool bRun);
@@ -175,6 +180,8 @@ void sithPlayerControls_Reset(void)
 
     sithPlayerControls_pBoardedVehicleThing   = NULL;
     sithPlayerControls_pTargetThing           = NULL;
+    sithPlayerControls_bLockStrafeActive      = false; // Added
+    sithModernControls_ResetLock(); // Added
 
     sithPlayerControls_curOrbCamDir           = (rdVector3){ 0.0f, -1.0f, 0.0f };
     sithPlayerControls_curOrbCamDist          = 0.2f;
@@ -700,6 +707,17 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
             }
             break;
 
+        case SITHPLAYERMOVE_STRAFING_LEFT:
+        case SITHPLAYERMOVE_STRAFING_RIGHT:
+            // Added: the Modern target lock owns a continuous strafe. The original sidestep is a
+            // forced move with bForceMovePlay and keeps its existing handling below. A lock that
+            // was just released also comes through here so the strafe state is cleared.
+            if ( !pPlayerThing->thingInfo.actorInfo.bForceMovePlay )
+            {
+                sithPlayerControls_ProcessGeneralMove(pPlayerThing, secDeltaTime);
+            }
+            break;
+
         case SITHPLAYERMOVE_HANGING:
             sithPlayerControls_ProcessHangMove(pPlayerThing, secDeltaTime);
             break;
@@ -961,6 +979,32 @@ void J3DAPI sithPlayerControls_ProcessGeneralMove(SithThing* pThing, float secDe
 
         case SITHPLAYERMOVE_SLIDEDOWNFORWARD:
             sithPlayerControls_ProcessSlideDownMove(pThing, secDeltaTime);
+            return;
+
+        case SITHPLAYERMOVE_STRAFING_LEFT:
+        case SITHPLAYERMOVE_STRAFING_RIGHT:
+            // Added: the Modern target lock keeps strafing across frames; the original sidestep
+            // is a forced move and never reaches this switch.
+            if ( pThing->thingInfo.actorInfo.bForceMovePlay )
+            {
+                return;
+            }
+
+            if ( sithModernControls_IsLockActive() )
+            {
+                sithPlayerControls_ProcessWalkMove(pThing, secDeltaTime, moveFactor, bRun);
+                return;
+            }
+
+            pThing->moveStatus = SITHPLAYERMOVE_STILL;
+            pThing->moveInfo.physics.thrust.x = 0.0f;
+            if ( pThing->pPuppetState )
+            {
+                sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT);
+                sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT);
+            }
+
+            sithPlayerControls_bLockStrafeActive = false;
             return;
 
         default:
@@ -2438,6 +2482,7 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
 
     SithInventoryType* pWeaponType = NULL;
     SithThing* pTargetThing        = NULL;
+    SithThing* pLockedTarget       = sithModernControls_GetLockedTarget(); // Added
     if ( pThing->type == SITH_THING_ACTOR && pThing->controlInfo.aiControl.pLocal )
     {
         pWeaponType  = sithInventory_GetType(weaponId);
@@ -2472,6 +2517,13 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
             sithWeapon_SendMessageAim(pThing, /*bAim=*/0);
             return;
         }
+    }
+
+    // Added: while the Modern target lock is held, prefer its target to the auto-aim pick.
+    if ( pThing->type == SITH_THING_PLAYER && pLockedTarget && sithModernControls_IsLockActive() )
+    {
+        sithPlayerControls_pTargetThing = pLockedTarget;
+        pTargetThing                    = pLockedTarget;
     }
 
     //
@@ -2651,12 +2703,8 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
         while ( (pCollision = sithCollision_PopStack()) != NULL )
         {
             if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided->type == SITH_THING_ACTOR
-                && (pCollision->pThingCollided->flags & (SITH_TF_WHIPSWING | SITH_TF_WHIPCLIMB)) == 0
+                && sithPlayerControls_IsLockTargetAlive(pCollision->pThingCollided)
                 && sithInventory_GetCurrentWeapon(pThing) != SITHWEAPON_WHIP
-                && pCollision->pThingCollided->type != SITH_THING_FREE // ???
-                && (pCollision->pThingCollided->flags & (SITH_TF_DYING | SITH_TF_DESTROYED)) == 0
-                && (pCollision->pThingCollided->thingInfo.actorInfo.flags & SITH_AF_NOTARGET) == 0
                 && sithPlayerControls_CheckAimRange(pThing, &aimStartPos, &pCollision->pThingCollided->pos, cosAimHorAcquire, cosAimHorNear, cosAimVertAcquire, weaponMaxAimDist)
                 && sithCollision_CheckLOS(pStartSector, &aimStartPos, &pCollision->pThingCollided->pos, 0.0f)
                 && (weaponId != SITHWEAPON_MIRROR || !stdUtil_StrCmp(pCollision->pThingCollided->aName, "marduk")) )
@@ -2741,6 +2789,179 @@ int J3DAPI sithPlayerControls_CheckAimRange(SithThing* pThing, const rdVector3* 
     }
 
     return rdVector_Dot3(&aimDir, &aimDirXY) >= minCosVertical;
+}
+
+// Added: the target lock's shared liveness/filter test, matching the auto-aim search.
+bool J3DAPI sithPlayerControls_IsLockTargetAlive(const SithThing* pTarget)
+{
+    if ( !pTarget || pTarget->type != SITH_THING_ACTOR )
+    {
+        return false;
+    }
+
+    return (pTarget->flags & (SITH_TF_DYING | SITH_TF_DESTROYED | SITH_TF_WHIPSWING | SITH_TF_WHIPCLIMB)) == 0
+        && (pTarget->thingInfo.actorInfo.flags & SITH_AF_NOTARGET) == 0;
+}
+
+// Added: target lock range. The auto-aim distance applies while a weapon has one; the lock still
+// works when Indy is unarmed, using the close default.
+static float sithPlayerControls_GetLockRange(SithThing* pThing)
+{
+    float range = sithWeapon_GetWeaponMaxAimDistance((SithWeaponId)sithInventory_GetCurrentWeapon(pThing));
+    if ( range <= 0.0f )
+    {
+        return SITHPLAYERCONTROLS_LOCKRANGE_DEFAULT;
+    }
+
+    return range + 0.1f;
+}
+
+// Added: choose the nearest live actor in the acquisition cone. The candidate list keeps this
+// testable without a collision world; FindLockTarget fills it from the same search auto-aim uses.
+SithThing* J3DAPI sithPlayerControls_SelectLockTarget(SithThing* pThing, SithThing* const* apCandidates, size_t numCandidates)
+{
+    if ( !pThing || !apCandidates || numCandidates == 0 )
+    {
+        return NULL;
+    }
+
+    SithWeaponId weaponId = (SithWeaponId)sithInventory_GetCurrentWeapon(pThing);
+    float maxDist         = sithPlayerControls_GetLockRange(pThing);
+
+    float sin;
+    float cosAimHorAcquire;
+    float cosAimHorNear;
+    float cosAimVertAcquire;
+    if ( weaponId == SITHWEAPON_MIRROR )
+    {
+        stdMath_SinCos(sithPlayerControls_mirrorAimMaxHorizontalAngleAcquire, &sin, &cosAimHorAcquire);
+        stdMath_SinCos(sithPlayerControls_mirrorAimMaxVerticalAngleAcquire, &sin, &cosAimVertAcquire);
+        stdMath_SinCos(sithPlayerControls_mirrorAimMaxHorizontalAngleNear, &sin, &cosAimHorNear);
+    }
+    else
+    {
+        stdMath_SinCos(sithPlayerControls_aimMaxHorizontalAngleAcquire, &sin, &cosAimHorAcquire);
+        stdMath_SinCos(sithPlayerControls_aimMaxVerticalAngleAcquire, &sin, &cosAimVertAcquire);
+        stdMath_SinCos(sithPlayerControls_aimMaxHorizontalAngleNear, &sin, &cosAimHorNear);
+    }
+
+    rdVector3 aimStartPos = pThing->pos;
+    aimStartPos.z += 0.050000001f;
+
+    SithSector* pStartSector = NULL;
+    if ( pThing->pInSector )
+    {
+        pStartSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &aimStartPos, 0.0f);
+        if ( !pStartSector )
+        {
+            return NULL;
+        }
+    }
+
+    SithThing* pBest     = NULL;
+    float bestDist       = maxDist;
+
+    for ( size_t i = 0; i < numCandidates; ++i )
+    {
+        SithThing* pCandidate = apCandidates[i];
+        if ( pCandidate == pThing || !sithPlayerControls_IsLockTargetAlive(pCandidate) )
+        {
+            continue;
+        }
+
+        if ( !sithPlayerControls_CheckAimRange(pThing, &aimStartPos, &pCandidate->pos,
+            cosAimHorAcquire, cosAimHorNear, cosAimVertAcquire, maxDist) )
+        {
+            continue;
+        }
+
+        float dx = pCandidate->pos.x - pThing->pos.x;
+        float dy = pCandidate->pos.y - pThing->pos.y;
+        float dz = pCandidate->pos.z - pThing->pos.z;
+        float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+        if ( dist >= bestDist )
+        {
+            continue;
+        }
+
+        if ( pStartSector && !sithCollision_CheckLOS(pStartSector, &aimStartPos, &pCandidate->pos, 0.0f) )
+        {
+            continue;
+        }
+
+        pBest    = pCandidate;
+        bestDist = dist;
+    }
+
+    return pBest;
+}
+
+// Added: acquire a lock target from the same collision search the auto-aim code runs.
+SithThing* J3DAPI sithPlayerControls_FindLockTarget(SithThing* pThing)
+{
+    if ( !pThing || !pThing->pInSector )
+    {
+        return NULL;
+    }
+
+    rdVector3 aimStartPos = pThing->pos;
+    aimStartPos.z += 0.050000001f;
+
+    SithSector* pStartSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &aimStartPos, 0.0f);
+    if ( !pStartSector )
+    {
+        return NULL;
+    }
+
+    float maxDist = sithPlayerControls_GetLockRange(pThing);
+
+    SithThing* aCandidates[SITHPLAYERCONTROLS_LOCKCANDIDATES];
+    size_t numCandidates = 0;
+
+    sithCollision_SearchForCollisions(pThing->pInSector, NULL, &pThing->pos, &pThing->orient.lvec, maxDist, 1.0f, 0x284);
+
+    SithCollision* pCollision;
+    while ( (pCollision = sithCollision_PopStack()) != NULL && numCandidates < STD_ARRAYLEN(aCandidates) )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0 )
+        {
+            aCandidates[numCandidates++] = pCollision->pThingCollided;
+        }
+    }
+
+    sithCollision_DecreaseStackLevel();
+
+    return sithPlayerControls_SelectLockTarget(pThing, aCandidates, numCandidates);
+}
+
+// Added: a held lock keeps its target only while that target is alive, in range and visible.
+bool J3DAPI sithPlayerControls_IsLockTargetVisible(SithThing* pThing, SithThing* pTarget)
+{
+    if ( !pThing || !pTarget || !pThing->pInSector || !sithPlayerControls_IsLockTargetAlive(pTarget) )
+    {
+        return false;
+    }
+
+    float maxDist = sithPlayerControls_GetLockRange(pThing);
+
+    rdVector3 aimStartPos = pThing->pos;
+    aimStartPos.z += 0.050000001f;
+
+    SithSector* pStartSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &aimStartPos, 0.0f);
+    if ( !pStartSector )
+    {
+        return false;
+    }
+
+    float dx = pTarget->pos.x - pThing->pos.x;
+    float dy = pTarget->pos.y - pThing->pos.y;
+    float dz = pTarget->pos.z - pThing->pos.z;
+    if ( dx * dx + dy * dy + dz * dz >= maxDist * maxDist )
+    {
+        return false;
+    }
+
+    return sithCollision_CheckLOS(pStartSector, &aimStartPos, &pTarget->pos, 0.0f) != 0;
 }
 
 int J3DAPI sithPlayerControls_GetPushPullMoveNorm(rdVector3* moveNorm, const rdVector3* pLVect, float angle)
@@ -3967,6 +4188,72 @@ bool J3DAPI sithPlayerControls_CanStrafeMove(SithThing* pThing, int bMoveRight)
     return bCanMove;
 }
 
+// Added: continuous target-lock strafe. It uses the original walk thrust and keeps the original
+// ledge/collision check. The move status and puppet submodes are the strafing ones the AI uses.
+static void J3DAPI sithPlayerControls_ProcessLockedStrafe(SithThing* pThing, float moveFactor, bool* pbMoving)
+{
+    J3D_UNUSED(moveFactor);
+
+    SithPhysicsInfo* pPhysics = &pThing->moveInfo.physics;
+
+    float strafe = sithModernControls_GetStrafeInput();
+
+    bool bNeedsClear = sithPlayerControls_bLockStrafeActive;
+    if ( !sithModernControls_IsLockActive() || fabsf(strafe) <= STDMATH_ZERO_EPSILON )
+    {
+        if ( bNeedsClear )
+        {
+            pPhysics->thrust.x = 0.0f;
+            if ( pThing->pPuppetState )
+            {
+                sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT);
+                sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT);
+            }
+        }
+
+        sithPlayerControls_bLockStrafeActive = false;
+        return;
+    }
+
+    int bRight = strafe > 0.0f;
+    if ( pThing->thingInfo.actorInfo.bForceMovePlay || !sithPlayerControls_CanStrafeMove(pThing, bRight) )
+    {
+        pPhysics->thrust.x = 0.0f;
+        if ( bNeedsClear && pThing->pPuppetState )
+        {
+            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT);
+            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT);
+        }
+
+        sithPlayerControls_bLockStrafeActive = false;
+        return;
+    }
+
+    pPhysics->thrust.x = sithPlayerControls_CalculateStrafeThrust(&pThing->thingInfo.actorInfo, strafe,
+        sithPlayerControls_moveFactorSlow);
+
+    SithPuppetSubMode strafeMode = bRight ? SITHPUPPETSUBMODE_STRAFERIGHT : SITHPUPPETSUBMODE_STRAFELEFT;
+    SithPuppetSubMode otherMode  = bRight ? SITHPUPPETSUBMODE_STRAFELEFT : SITHPUPPETSUBMODE_STRAFERIGHT;
+
+    pThing->moveStatus = bRight ? SITHPLAYERMOVE_STRAFING_RIGHT : SITHPLAYERMOVE_STRAFING_LEFT;
+
+    if ( pThing->pPuppetState )
+    {
+        sithPuppet_ClearMode(pThing, otherMode);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALK);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALKBACK);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_RUN);
+        sithPuppet_PlayMode(pThing, strafeMode, NULL);
+    }
+
+    sithPlayerControls_bLockStrafeActive = true;
+
+    if ( pbMoving )
+    {
+        *pbMoving = true;
+    }
+}
+
 bool sithPlayerControls_CanClimbOn1m(SithThing* pThing)
 {
 #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
@@ -4451,6 +4738,9 @@ void J3DAPI sithPlayerControls_ProcessStillMove(SithThing* pThing, float secDelt
         );
     }
 
+    // Added: apply the Modern target lock's sideways movement.
+    sithPlayerControls_ProcessLockedStrafe(pThing, moveFactor, &bMoving);
+
     //
     // Handle activation key
     //
@@ -4799,6 +5089,9 @@ void J3DAPI sithPlayerControls_ProcessWalkMove(SithThing* pThing, float secDelta
         );
     }
 
+    // Added: apply the Modern target lock's sideways movement.
+    sithPlayerControls_ProcessLockedStrafe(pThing, moveFactor, &bMoving);
+
     //
     // Transition to standing if not moving anymore
     //
@@ -4982,6 +5275,9 @@ void J3DAPI sithPlayerControls_ProcessRunMove(SithThing* pThing, float secDeltaT
             moveFactor
         );
     }
+
+    // Added: apply the Modern target lock's sideways movement.
+    sithPlayerControls_ProcessLockedStrafe(pThing, moveFactor, &bMoving);
 
     //
     // Transition to standing if not running anymore

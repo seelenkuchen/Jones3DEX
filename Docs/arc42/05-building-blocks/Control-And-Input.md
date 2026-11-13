@@ -185,6 +185,13 @@ This lets the engine map many hardware forms onto the same movement and camera m
 
 The Modern control style adds a per-frame override layer on top of the bindings. `sithControl_SetKeyOverride()` makes a movement function read as pressed with an axis amount (0..1) and a one-press edge, `sithControl_SuppressKey()` makes a function without an override read as released, and `sithControl_ClearKeyOverrides()` drops both at the next frame. Overrides take precedence over suppressions, so Modern can suppress a real movement binding and drive the same function virtually. `engine.input.controlStyle` selects Modern or Classic; QOL builds default to Modern, non-QOL builds always use Classic.
 
+Target lock is the `TARGETLOCK` key function, active only in Modern. It acquires the nearest
+live actor in the auto-aim acquisition cone with line of sight, then keeps it while visible and in
+range. Its defaults are `F` and the right mouse button on keyboard and mouse, and the left trigger
+(`Z+`) on a gamepad. In Modern the scheme binder redirects a scheme's LT-as-Run binding to target
+lock; Run comes from the left-stick magnitude instead. Classic keeps LT as Run. The lock does not
+add an action to the `.kfg` format, so files written before it still load.
+
 ## Callback Dispatch And Camera Side Effects
 
 [`sithControl_Update()`](../../../Libs/sith/Devices/sithControl.c#L334) is the high-level runtime entry point called from the frame loop.
@@ -294,7 +301,7 @@ because the pause menu reads it directly. The triggers use the original Z and RZ
 | B (East) | Roll |
 | Y (North) | Toggle weapon |
 | LB / RB | Step left / step right |
-| LT (hold) | Run |
+| LT (hold) | Run in Classic; target lock in Modern |
 | L3 | Crawl |
 | R3 | Look |
 | D-pad up / down | Toggle light / Health |

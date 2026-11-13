@@ -2300,20 +2300,32 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                 for ( size_t i = 1; i <= JONESCONTROL_ACTION_GETNUMBINDS(pConfig->aActions[actionId]); ++i )
                 {
                     size_t controlId = pConfig->aActions[actionId][i];
+
+                    // Added: in Modern the left trigger locks a target; Run comes from the stick
+                    // magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind time.
+                    // Classic keeps the same scheme data and LT stays Run.
+                    SithControlFunction bindFunctionId = functionId;
+                    if ( sithControl_IsModernControlStyle()
+                        && functionId == SITHCONTROL_ACT1
+                        && controlId == JONESCONFIG_JOYAXISKID_GROUND )
+                    {
+                        bindFunctionId = SITHCONTROL_TARGETLOCK;
+                    }
+
                     if ( JonesControlSchemes_IsKeyboardControl(controlId) )
                     {
-                        sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
+                        sithControl_BindControl(bindFunctionId, controlId, (SithControlBindFlag)0);
                     }
                     else if ( JonesControlSchemes_IsMouseButton(controlId) )
                     {
                         if ( bMouse )
                         {
-                            sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
+                            sithControl_BindControl(bindFunctionId, controlId, (SithControlBindFlag)0);
                         }
                     }
                     else
                     {
-                        jonesConfig_BindJoystickControl(functionId, controlId);
+                        jonesConfig_BindJoystickControl(bindFunctionId, controlId);
                     }
                 }
             }

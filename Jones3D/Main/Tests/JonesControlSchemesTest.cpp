@@ -640,6 +640,33 @@ TEST(JonesControlSchemes, TestStartupDropsControllerKey)
     stdControl_GetNumJoysticks();
 }
 
+#ifdef J3D_QOL_IMPROVEMENTS
+TEST(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // The scheme still stores LT as Run, but Modern binds that trigger to target lock.
+    g_platform.pushEvent(babylon::platform::GamepadAxisMoved{ 1,
+        babylon::platform::GamepadAxis::LeftTrigger, 1.0f });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_TARGETLOCK));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_ACT1));
+
+    g_platform.pushEvent(babylon::platform::GamepadAxisMoved{ 1,
+        babylon::platform::GamepadAxis::LeftTrigger, 0.0f });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+#endif
+
 TEST(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle)
 {
     TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
@@ -903,6 +930,9 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksDefaultAfterControlStartup);
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedActiveSchemeIsKept);
     RUN_TEST_CASE(JonesControlSchemes, TestBinderKeepsJoystickBindingsWithControllerFalse);
+#ifdef J3D_QOL_IMPROVEMENTS
+    RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock);
+#endif
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupReadsClassicControlStyle);
