@@ -13,5 +13,7 @@ babylon_add_module_tests(image
 
 # The test reads the committed Xelu prompt from the source tree, not from the
 # build or an installed game.
-target_compile_definitions(babylon_image_tests PRIVATE
-    "BABYLON_IMAGE_TEST_PNG=\"${CMAKE_CURRENT_SOURCE_DIR}/../../Data/ui/prompts/xbox/XboxSeriesX_A.png\"")
+if (TARGET babylon_image_tests)
+    target_compile_definitions(babylon_image_tests PRIVATE
+        "BABYLON_IMAGE_TEST_PNG=\"${CMAKE_CURRENT_SOURCE_DIR}/../../Data/ui/prompts/xbox/XboxSeriesX_A.png\"")
+endif()

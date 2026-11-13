@@ -13,5 +13,7 @@ babylon_add_module_tests(font
 
 # The test reads the committed Jost font from the source tree, not from the
 # build or an installed game.
-target_compile_definitions(babylon_font_tests PRIVATE
-    "BABYLON_FONT_TEST_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../../Data/ui/fonts/Jost[wght].ttf\"")
+if (TARGET babylon_font_tests)
+    target_compile_definitions(babylon_font_tests PRIVATE
+        "BABYLON_FONT_TEST_FONT=\"${CMAKE_CURRENT_SOURCE_DIR}/../../Data/ui/fonts/Jost[wght].ttf\"")
+endif()
