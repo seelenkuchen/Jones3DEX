@@ -17,8 +17,8 @@ extern int sithFX_g_lastChalkMarkNum;
 extern SithThing* sithFX_g_aChalkMarks[10];
 // extern SithThing *sithFX_g_aChalkMarks[10];
 
-extern size_t sithFX_g_numChalkMarks;
-// extern size_t sithFX_g_numChalkMarks;
+extern int sithFX_g_numChalkMarks;
+// extern int sithFX_g_numChalkMarks;
 
 void sithFX_Reset(void);
 void sithFX_ClearChalkMarks(void);

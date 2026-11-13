@@ -10,6 +10,7 @@
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithThing.h>
 
+#include <std/General/stdUtil.h>
 #include <std/General/stdComm.h>
 
 #include <errno.h>
@@ -139,8 +140,9 @@ int J3DAPI sithItem_ParseArg(const StdConffileArg* pArg, SithThing* pThing, int 
 
         case SITHTHING_ARG_RESPAWN:
         {
-            float spawnInterval = strtof(pArg->argValue, NULL); // Changed: Use strtof instead atof
-            if ( errno == ERANGE ) { // Added
+            float spawnInterval = STD_STRTOF(pArg->argValue); // Changed: Use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( STD_STRCONV_RANGE_ERROR() && fabsf(spawnInterval) > 1.0f ) { // Added
                 return 0; // error
             }
 

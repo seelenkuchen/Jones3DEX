@@ -54,6 +54,7 @@ int sithAI_Startup(void)
     if ( bStartup )
     {
         SITHLOG_ERROR("Warning: System already initialized!\n");
+        return 0;
     }
 
     if ( sithAI_CreateInstinctRegistry(SITHAI_MAXREGISTEREDINSTINCTS) )
@@ -73,6 +74,7 @@ void sithAI_Shutdown(void)
     if ( !bStartup )
     {
         SITHLOG_ERROR("Warning: System already shutdown!\n");
+        return;
     }
 
     SITH_ASSERTREL(aRegisteredInstincts && pRegisteredInstinctHashtbl);
@@ -101,6 +103,7 @@ void sithAI_Close(void)
     if ( !sithAI_g_bOpen )
     {
         SITHLOG_ERROR("Warning: System already closed!\n");
+        return;
     }
 
     sithAI_ResetAllAIs();
@@ -635,7 +638,7 @@ int J3DAPI sithAI_ProcessUnhandledEvent(SithAIControlBlock* pLocal, SithAIEventT
                     minDist = pLocal->pOwner->collide.movesize;
                 }
 
-                const float moveDist = (float)(SITH_RAND() * 0.2 + minDist);
+                const float moveDist = (float)(SITH_RAND() * 0.2f + minDist);
 
                 rdVector3 newPos;
                 if ( sithAIUtil_MakePathPos(pLocal, &pLocal->pOwner->pos, minDist, moveDist, 60.0f, pathFlags, &heading, &newPos) )

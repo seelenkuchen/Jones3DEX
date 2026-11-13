@@ -220,11 +220,13 @@ void J3DAPI sithCogFunctionSurface_SlideWall(SithCog* pCog)
     if ( !pSurf || !pSurf->face.pMaterial )
     {
         SITHLOG_ERROR("Cog %s: Illegal surface index in SlideWall call.\n", pCog->aName);
+        sithCogExec_PushInt(pCog, -1);
         return;
     }
     else if ( !bVec )
     {
         SITHLOG_ERROR("Cog %s: Illegal vector in SlideWall call.\n", pCog->aName);
+        sithCogExec_PushInt(pCog, -1);
         return;
     }
 
@@ -264,6 +266,7 @@ void J3DAPI sithCogFunctionSurface_SetWallCel(SithCog* pCog)
     if ( !pSurf || pSurf->face.pMaterial == NULL )
     {
         SITHLOG_ERROR("Cog %s: Illegal surface index in SetWallCel call.\n", pCog->aName);
+        sithCogExec_PushInt(pCog, -1);
         return;
     }
 

@@ -57,7 +57,7 @@ typedef struct
     int bPlayerInvisible;
     int bCutsceneMode;
     int bPlayerLeapForward;
-    size_t numChalkMarks;
+    int numChalkMarks;
     int lastChalkMarkNum;
     SithThing* aChalkMarks[10];
     SithCog* pMasterCog;
@@ -107,6 +107,9 @@ extern SithDSSTestGlobals sithDSSTest_g;
 #undef sithFX_g_lastChalkMarkNum_ADDR
 #undef sithFX_g_aChalkMarks_ADDR
 #undef sithCog_g_pMasterCog_ADDR
+#undef sithPlayer_g_numPlayers_ADDR
+#undef std_g_genBuffer_ADDR
+#undef sithMulti_msecSyncTime_ADDR
 
 #define sithMulti_g_message_ADDR ((uintptr_t)&sithDSSTest_g.message)
 #define sithMulti_g_serverId_ADDR ((uintptr_t)&sithDSSTest_g.serverId)

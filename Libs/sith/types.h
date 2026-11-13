@@ -1,5 +1,6 @@
 #ifndef SITH_TYPES_H
 #define SITH_TYPES_H
+#include <stddef.h>
 #include <stdint.h>
 #include <wchar.h>
 #include <j3dcore/j3d.h>
@@ -1623,7 +1624,7 @@ J3D_ASSERT_SIZE32(sizeof(SithEventParams) == 16, "sizeof(SithEventParams) == 16"
 
 typedef struct sSithAIRegisteredInstinct
 {
-    char aName[63];
+    char aName[64];
     SithAIInstinctFunc pfInstinct;
     SithAIMode updateModes;
     SithAIMode updateBlockModes;
@@ -2221,7 +2222,7 @@ typedef struct sSithActorInfo
     SithActorVoiceInfo voiceInfo;
     SithActorStateChange stateChange;
 } SithActorInfo;
-J3D_ASSERT_SIZE32(sizeof(SithActorInfo) == 300, "sizeof(SithActorInfo) == 292");
+J3D_ASSERT_SIZE32(sizeof(SithActorInfo) == 300, "sizeof(SithActorInfo) == 300");
 
 typedef struct sSithSpriteInfo
 {
@@ -2277,7 +2278,7 @@ typedef struct sSithSpriteInfo
 
 typedef struct sSithBackpackItem
 {
-    int typeId;
+    int16_t typeId;
     union
     {
         SithInventoryItem* pItem; // Note: The original stores the item amount in this field (float amount), see sithDSSThing_ProcessStateUpdate
@@ -2295,6 +2296,9 @@ typedef struct sSithItemInfo
     size_t numItems; // Note, DSS serializes only 16 bits of the value
     SithBackpackItem aBackpackItems[32];
 } SithItemInfo;
+J3D_ASSERT_SIZE32(sizeof(SithBackpackItem) == 8, "sizeof(SithBackpackItem) == 8");
+J3D_ASSERT_SIZE32(offsetof(SithBackpackItem, amount) == 4, "offsetof(SithBackpackItem, amount) == 4");
+J3D_ASSERT_SIZE32(offsetof(SithItemInfo, aBackpackItems) == 32, "offsetof(SithItemInfo, aBackpackItems) == 32");
 J3D_ASSERT_SIZE32(sizeof(SithItemInfo) == 288, "sizeof(SithItemInfo) == 288");
 
 typedef union sSithThingInfo
@@ -2464,10 +2468,10 @@ typedef struct sSithPathMoveInfo
     rdVector3 goalPYR;
     rdVector3 rotateToPYR;
     float rotDelta;
-    size_t numBlockedMoves; // serialized as uint16_t
+    size_t numBlockedMoves; // serialized as int16_t
     int currentFrame; // can be -1, serialized as int16_t
-    size_t nextFrame; // serialized as uint16_t
-    size_t goalFrame; // serialized as uint16_t
+    size_t nextFrame; // serialized as int16_t
+    size_t goalFrame; // serialized as int16_t
 } SithPathMoveInfo;
 J3D_ASSERT_SIZE32(sizeof(SithPathMoveInfo) == 144, "sizeof(SithPathMoveInfo) == 144");
 
