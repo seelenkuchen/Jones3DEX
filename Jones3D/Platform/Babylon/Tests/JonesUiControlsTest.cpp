@@ -155,6 +155,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
         void PushKey(platform::Key key)
         {
             m_events.push_back(platform::Event{ platform::KeyChanged{ 1, key, true, false } });
@@ -635,7 +640,7 @@ TEST_CASE("editing an action writes the exact file and rebinds on OK")
     ui::Ui ui(painter, testContext.cvars);
 
     // Main: scheme choice -> Edit.
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
     testContext.platform.PushKey(platform::Key::Enter);
     // Edit: pick the Jump row.
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
@@ -691,7 +696,7 @@ TEST_CASE("capturing the right stick and a trigger writes the EXTRAS controls")
     ui::Ui ui(painter, testContext.cvars);
 
     // Main -> Edit -> the Jump row.
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -773,7 +778,7 @@ TEST_CASE("Cancel keeps the scheme file and the active bindings")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -811,7 +816,7 @@ TEST_CASE("a control bound to another action is moved on Yes")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -864,7 +869,7 @@ TEST_CASE("answering No to the reassign prompt leaves the scheme unchanged")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -918,7 +923,7 @@ TEST_CASE("the New flow creates a custom scheme and its name rules hold")
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Tab);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 6);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -951,7 +956,7 @@ TEST_CASE("deleting a custom scheme removes its file only on OK")
     // selection a built-in default, Reset is disabled too, so two Down presses reach OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 2);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 2);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -1003,10 +1008,10 @@ TEST_CASE("the mouse toggle writes its Jones.cfg key and the controller key is u
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Choice -> Mouse, turn it on, then Mouse -> Edit -> Reset -> OK.
+    // Choice -> Mouse, turn it on, then Mouse -> Rumble -> Edit -> Reset -> OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -1014,6 +1019,43 @@ TEST_CASE("the mouse toggle writes its Jones.cfg key and the controller key is u
 
     CHECK(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false));
     CHECK(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false));
+}
+
+TEST_CASE("the rumble row switches the setting and the adapter at once")
+{
+    ControlsTestContext testContext;
+    testContext.WriteSchemeFile("ui-seed", HandWrittenScheme());
+
+    JonesControlsConfig config;
+    REQUIRE(LoadConfig(config));
+    const std::size_t seedIndex = FindScheme(config, "ui-seed");
+    REQUIRE(seedIndex < config.numSchemes);
+    config.selectedShemeIdx = (int)seedIndex;
+    testContext.StartControls();
+
+    // Rumble is on by default.
+    stdControl_EnableRumble(true);
+    REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true));
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Choice -> Rumble, turn it off. The row applies and stores it immediately.
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    // Rumble -> Edit -> Reset -> OK confirms the screen.
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
+    jonesConfig_FreeControlConfigEntry(&config);
+
+    CHECK_FALSE(stdConfig_GetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true));
+    CHECK_FALSE(stdControl_IsRumbleEnabled());
+
+    // Leave the shared flag at its default for any case that runs next.
+    stdControl_EnableRumble(true);
 }
 
 TEST_CASE("the headless wrapper answers cancel without blocking")

@@ -17,6 +17,7 @@
 #include <j3dcore/Tests/j3dTest.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonEvents.h>
 #include <std/Babylon/stdControlDevicesBabylon.h>
 #include <std/General/std.h>
 #include <std/Null/stdControlNull.h>
@@ -106,6 +107,7 @@ TEST_TEAR_DOWN(stdControlBabylon)
     stdControl_Close();
     stdControl_Shutdown();
     stdControl_Reset();
+    stdControl_EnableRumble(true);
     stdControlDevicesBabylon_ResetForTest();
 
     RemoveContext();
@@ -363,6 +365,37 @@ TEST(stdControlBabylon, GamepadSlotsFollowConnectionOrder)
         STDCONTROL_GET_JOYSTICK_AXIS_X(1)));
 }
 
+TEST(stdControlBabylon, RumbleReachesEveryConnectedGamepad)
+{
+    // Two pads, in connection order.
+    pPlatform->pushEvent(babylon::platform::GamepadConnected{ 11 });
+    pPlatform->pushEvent(babylon::platform::GamepadConnected{ 12 });
+    stdBabylonEvents_Pump();
+
+    stdControl_EnableRumble(true);
+    stdControl_Rumble(0.5f, 0.25f, 120);
+
+    // The Null platform records only the last call, so check it is one of the pads and that the
+    // values arrived unchanged.
+    const std::optional<babylon::platform::NullPlatform::RumbleCall> last =
+        pPlatform->lastRumble();
+    TEST_ASSERT_TRUE(last.has_value());
+    TEST_ASSERT_TRUE(last->gamepad == 11 || last->gamepad == 12);
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, last->lowFrequency);
+    TEST_ASSERT_EQUAL_FLOAT(0.25f, last->highFrequency);
+    TEST_ASSERT_EQUAL_UINT32(120u, last->durationMs);
+
+    // Disabled: the adapter forwards nothing, so the previous record stays as it was.
+    stdControl_EnableRumble(false);
+    stdControl_Rumble(0.9f, 0.9f, 400);
+    const std::optional<babylon::platform::NullPlatform::RumbleCall> after =
+        pPlatform->lastRumble();
+    TEST_ASSERT_TRUE(after.has_value());
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, after->lowFrequency);
+    TEST_ASSERT_EQUAL_FLOAT(0.25f, after->highFrequency);
+    TEST_ASSERT_EQUAL_UINT32(120u, after->durationMs);
+}
+
 TEST_GROUP_RUNNER(stdControlBabylon)
 {
     RUN_TEST_CASE(stdControlBabylon, EveryKeyMappingEntryRoundTrips);
@@ -374,4 +407,5 @@ TEST_GROUP_RUNNER(stdControlBabylon)
     RUN_TEST_CASE(stdControlBabylon, MouseMotionAndWheelReadAsAccumulatedAxes);
     RUN_TEST_CASE(stdControlBabylon, ConnectedGamepadBecomesJoystickZero);
     RUN_TEST_CASE(stdControlBabylon, GamepadSlotsFollowConnectionOrder);
+    RUN_TEST_CASE(stdControlBabylon, RumbleReachesEveryConnectedGamepad);
 }

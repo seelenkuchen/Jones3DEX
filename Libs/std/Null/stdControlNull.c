@@ -20,6 +20,8 @@ static bool stdControl_bControlsActive = false;
 static bool stdControl_bControlsIdle   = false;
 static bool stdControl_bReadMouse      = false;
 static bool stdControl_bMouseSensitivityEnabled = false;
+// Added: rumble output is on by default; the game applies engine.input.rumble after reading it.
+static bool stdControl_bRumbleEnabled  = true;
 
 static StdControlAxis stdControl_aAxes[STDCONTROL_MAX_AXES] = { 0 };
 static int stdControl_aAxisStates[STDCONTROL_MAX_AXES]      = { 0 };
@@ -500,6 +502,28 @@ bool stdControl_IsMouseEnabled(void)
 void J3DAPI stdControl_EnableMouseSensitivity(int bEnable)
 {
     stdControl_bMouseSensitivityEnabled = bEnable != 0;
+}
+
+// Added: gamepad rumble (presentation only, ADR-0028). The enabled flag is kept in the shared
+// column so both backends agree; only the device side differs.
+void stdControl_EnableRumble(bool bEnable)
+{
+    stdControl_bRumbleEnabled = bEnable;
+}
+
+bool stdControl_IsRumbleEnabled(void)
+{
+    return stdControl_bRumbleEnabled;
+}
+
+void J3DAPI stdControl_Rumble(float lowFrequency, float highFrequency, uint32_t durationMs)
+{
+    if ( !stdControl_bRumbleEnabled )
+    {
+        return;
+    }
+
+    stdControl_RumbleDevices(lowFrequency, highFrequency, durationMs);
 }
 
 void J3DAPI stdControl_SetMouseSensitivity(float xSensitivity, float ySensitivity)

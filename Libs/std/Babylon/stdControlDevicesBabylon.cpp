@@ -548,6 +548,22 @@ void stdControl_ReadDevices(uint32_t readTime, bool bReadMouse)
     rInputState.beginFrame();
 }
 
+void stdControl_RumbleDevices(float lowFrequency, float highFrequency, uint32_t durationMs)
+{
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    if ( !pContext || !pContext->pPlatform )
+    {
+        return;
+    }
+
+    // The read has already pumped this frame's events, so the gamepad list is the connected set.
+    for ( const babylon::platform::GamepadId gamepad : stdBabylonEvents_InputState().gamepads() )
+    {
+        static_cast<void>(pContext->pPlatform->rumbleGamepad(gamepad, lowFrequency,
+            highFrequency, durationMs));
+    }
+}
+
 bool stdControl_QueueKeyEvent(int keyId, int bPressed)
 {
     StdBabylonContext& rContext = stdBabylon_RequireContext("stdControl_QueueKeyEvent");

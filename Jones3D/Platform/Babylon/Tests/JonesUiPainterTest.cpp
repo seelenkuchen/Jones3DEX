@@ -503,6 +503,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
     private:
         int m_emptyPolls  = 1;
         bool m_sendClose  = true;
@@ -545,6 +550,11 @@ namespace
         }
 
         bool showMessageBox(std::string_view, std::string_view) override
+        {
+            return false;
+        }
+
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
         {
             return false;
         }

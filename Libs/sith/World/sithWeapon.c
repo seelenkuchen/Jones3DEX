@@ -35,6 +35,7 @@
 #include <sith/World/sithWorld.h>
 
 #include <std/General/stdConfig.h>
+#include <std/General/stdControl.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
 #include <std/General/stdComm.h>
@@ -550,6 +551,13 @@ syntax_error:
 SithThing* J3DAPI sithWeapon_WeaponFire(SithThing* pShooter, const SithThing* pProjectileTemplate, const rdVector3* pFireDir, rdVector3* pFirePos, tSoundHandle hFireSnd, SithPuppetSubMode submode, float extra, SithFireProjectileFlags projectileFlags, float secDeltaTime)
 {
     SITH_ASSERTREL(pShooter);
+
+    // Added: every shot the local player fires gives a short gamepad kick (presentation only,
+    // ADR-0028).
+    if ( pShooter == sithPlayer_g_pLocalPlayerThing )
+    {
+        stdControl_Rumble(0.15f, 0.45f, 90);
+    }
 
     if ( hFireSnd )
     {

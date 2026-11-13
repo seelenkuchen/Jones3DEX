@@ -101,3 +101,36 @@ set_tests_properties(sith PROPERTIES
     LABELS "unit;sith"
     TIMEOUT 60
 )
+
+# Added: the game-side rumble triggers (ADR-0028). The Null column only: it links the three game
+# functions from the sith library against the Null stdControl device side, so the adapter's test
+# seam records exactly what each trigger forwarded. The Babylon column keeps its own platform and
+# menu rumble coverage.
+if (NOT J3D_PLATFORM_BABYLON)
+    add_executable(sithRumbleTests
+        ../World/Tests/sithRumbleTestRunner.c
+        ../World/Tests/sithRumbleTest.c
+        ../../std/Null/stdControlNull.c
+        ../../std/Null/stdControlDevicesNull.c
+    )
+    target_compile_definitions(sithRumbleTests PRIVATE J3D_TEST)
+    target_link_libraries(sithRumbleTests PRIVATE
+        sith
+        sound
+        unity
+        w32util
+    )
+    if (UNIX)
+        target_link_libraries(sithRumbleTests PRIVATE m)
+    endif()
+
+    set_target_properties(sithRumbleTests PROPERTIES
+        FOLDER "Tests/Libs/sith"
+    )
+
+    add_test(NAME sith.Rumble COMMAND sithRumbleTests)
+    set_tests_properties(sith.Rumble PROPERTIES
+        LABELS "unit;sith"
+        TIMEOUT 60
+    )
+endif()
