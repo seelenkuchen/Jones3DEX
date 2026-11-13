@@ -9,16 +9,21 @@
 #include <sith/Devices/sithControl.h>
 #include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithModernCamera.h>
+#include <sith/Engine/sithPuppet.h>
 #include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerActions.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Main/sithMain.h>
 
 #include <std/General/stdControl.h>
 #include <std/General/stdKeys.h>
 #include <std/General/stdMath.h>
+#include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
 #include <std/Null/stdControlNull.h>
+
+#include <rdroid/Math/rdVector.h>
 
 TEST_GROUP(sithModernControls);
 
@@ -28,6 +33,24 @@ static size_t sithModernControlsTest_assertCount;
 static SithThing sithModernControlsTest_player;
 static SithCamera sithModernControlsTest_camera;
 static SithSector sithModernControlsTest_sector;
+static SithPuppetState sithModernControlsTest_puppetState;
+
+// Added: a sight test that models a wall which the camera can see past but Indy cannot: only an
+// eye behind Indy (negative Y) has line of sight.
+static bool J3DAPI sithModernControlsTest_SightFromBehindOnly(SithSector* pEyeSector, const rdVector3* pEyePos, const rdVector3* pTargetPos)
+{
+    (void)pEyeSector;
+    (void)pTargetPos;
+    return pEyePos->y < 0.0f;
+}
+
+static bool J3DAPI sithModernControlsTest_SightBlocked(SithSector* pEyeSector, const rdVector3* pEyePos, const rdVector3* pTargetPos)
+{
+    (void)pEyeSector;
+    (void)pEyePos;
+    (void)pTargetPos;
+    return false;
+}
 
 static int J3DAPI sithModernControlsTest_Print(const char* pFormat, ...)
 {
@@ -346,6 +369,116 @@ TEST(sithModernControls, ComputeNoneSetsNothing)
     TEST_ASSERT_FALSE(out.run.bPressed);
 }
 
+TEST(sithModernControls, LockedSidestepDropsFinishedStepForChaining)
+{
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    memset(&sithModernControlsTest_puppetState, 0, sizeof(sithModernControlsTest_puppetState));
+
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+
+    SithPuppetTrack* pTrack = (SithPuppetTrack*)STDMALLOC(sizeof(*pTrack));
+    TEST_ASSERT_NOT_NULL(pTrack);
+    memset(pTrack, 0, sizeof(*pTrack));
+    pTrack->trackNum = 3;
+    pTrack->submode  = SITHPUPPETSUBMODE_STRAFELEFT;
+
+    sithModernControlsTest_puppetState.pFirstTrack = pTrack;
+    thing.pPuppetState        = &sithModernControlsTest_puppetState;
+    thing.renderData.pPuppet  = &puppet;
+
+    // The rdPuppet track is still playing, so the step must not be dropped.
+    puppet.aTracks[3].pKFTrack = (rdKeyframe*)pTrack;
+    puppet.aTracks[3].status   = RDPUPPET_TRACK_PLAYING;
+    sithPuppet_DropFinishedMode(&thing, SITHPUPPETSUBMODE_STRAFELEFT);
+    TEST_ASSERT_EQUAL_PTR(pTrack, sithModernControlsTest_puppetState.pFirstTrack);
+
+    // Once the rdPuppet track finished, dropping it lets the held key start the next step at
+    // once instead of waiting for the next puppet update.
+    puppet.aTracks[3].pKFTrack = NULL;
+    puppet.aTracks[3].status   = 0;
+    sithPuppet_DropFinishedMode(&thing, SITHPUPPETSUBMODE_STRAFELEFT);
+    TEST_ASSERT_NULL(sithModernControlsTest_puppetState.pFirstTrack);
+}
+
+TEST(sithModernControls, SelectLockTargetUsesTheCameraEyeForSight)
+{
+    SithThing selector;
+    memset(&selector, 0, sizeof(selector));
+    selector.type = SITH_THING_ACTOR;
+
+    SithThing candidate;
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.type  = SITH_THING_ACTOR;
+    candidate.pos.y = 2.0f;
+
+    SithThing* aCandidates[] = { &candidate };
+    SithSector eyeSector;
+    memset(&eyeSector, 0, sizeof(eyeSector));
+
+    // Indy is at the origin. The fake sight only sees targets from an eye behind him, so this is
+    // the "hidden from Indy, visible from the camera" case.
+    rdVector3 cameraEye = { 0.0f, -2.0f, 0.0f };
+    rdVector3 indyEye   = { 0.0f, 0.0f, 0.0f };
+
+    TEST_ASSERT_EQUAL_PTR(&candidate, sithPlayerControls_SelectLockTargetEx(&selector, 0.0f,
+        &eyeSector, &cameraEye, sithModernControlsTest_SightFromBehindOnly,
+        aCandidates, STD_ARRAYLEN(aCandidates)));
+
+    TEST_ASSERT_NULL(sithPlayerControls_SelectLockTargetEx(&selector, 0.0f,
+        &eyeSector, &indyEye, sithModernControlsTest_SightFromBehindOnly,
+        aCandidates, STD_ARRAYLEN(aCandidates)));
+}
+
+TEST(sithModernControls, SelectLockTargetRejectsHiddenFromCamera)
+{
+    SithThing selector;
+    memset(&selector, 0, sizeof(selector));
+    selector.type = SITH_THING_ACTOR;
+
+    SithThing candidate;
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.type  = SITH_THING_ACTOR;
+    candidate.pos.y = 2.0f;
+
+    SithThing* aCandidates[] = { &candidate };
+    SithSector eyeSector;
+    memset(&eyeSector, 0, sizeof(eyeSector));
+    rdVector3 cameraEye = { 0.0f, -2.0f, 0.0f };
+
+    TEST_ASSERT_NULL(sithPlayerControls_SelectLockTargetEx(&selector, 0.0f,
+        &eyeSector, &cameraEye, sithModernControlsTest_SightBlocked,
+        aCandidates, STD_ARRAYLEN(aCandidates)));
+}
+
+TEST(sithModernControls, SelectLockTargetKeepsRangeFromIndy)
+{
+    SithThing selector;
+    memset(&selector, 0, sizeof(selector));
+    selector.type = SITH_THING_ACTOR;
+
+    SithThing candidate;
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.type  = SITH_THING_ACTOR;
+    candidate.pos.y = 9.0f;
+
+    SithThing* aCandidates[] = { &candidate };
+    SithSector eyeSector;
+    memset(&eyeSector, 0, sizeof(eyeSector));
+
+    // The camera is far behind; the range is still measured from Indy, so 9 m is in range.
+    rdVector3 cameraEye = { 0.0f, -100.0f, 0.0f };
+    TEST_ASSERT_EQUAL_PTR(&candidate, sithPlayerControls_SelectLockTargetEx(&selector, 0.0f,
+        &eyeSector, &cameraEye, sithModernControlsTest_SightFromBehindOnly,
+        aCandidates, STD_ARRAYLEN(aCandidates)));
+
+    candidate.pos.y = 11.0f;
+    TEST_ASSERT_NULL(sithPlayerControls_SelectLockTargetEx(&selector, 0.0f,
+        &eyeSector, &cameraEye, sithModernControlsTest_SightFromBehindOnly,
+        aCandidates, STD_ARRAYLEN(aCandidates)));
+}
+
 #ifdef J3D_QOL_IMPROVEMENTS
 TEST(sithModernControls, UpdateAppliesOverridesWhenModern)
 {
@@ -378,14 +511,14 @@ TEST(sithModernControls, UpdateAppliesOverridesWhenModern)
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
 }
 
-TEST(sithModernControls, UpdateBackRunsAtOnceAndTurnsDirectly)
+TEST(sithModernControls, UpdateStartSnapsFacingAtOnce)
 {
     int pressed = -1;
 
     sithControl_SetModernControlStyle(true);
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
 
-    sithModernControls_Update(&sithModernControlsTest_player, 0.1f);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
 
     TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, &pressed));
     TEST_ASSERT_TRUE(pressed != 0);
@@ -393,24 +526,36 @@ TEST(sithModernControls, UpdateBackRunsAtOnceAndTurnsDirectly)
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL));
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
 
-    // 0.1 s at 720 deg/s is 72 degrees of the 180-degree turn.
-    TEST_ASSERT_FLOAT_WITHIN(0.1f, 72.0f, sithModernControlsTest_PlayerYaw());
-
-    // Repeated updates settle on the target heading without overshooting it.
-    for ( int i = 0; i < 600; ++i )
-    {
-        sithModernControls_Update(&sithModernControlsTest_player, 0.016f);
-        float delta = stdMath_NormalizeAngleAcute(180.0f - sithModernControlsTest_PlayerYaw());
-        TEST_ASSERT_TRUE(delta >= -0.1f);
-        if ( fabsf(delta) <= 0.1f )
-        {
-            break;
-        }
-    }
-
+    // From standing the 180-degree change snaps in this one update.
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 180.0f, fabsf(sithModernControlsTest_PlayerYaw()));
 
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
+}
+
+TEST(sithModernControls, UpdateRotatesSmallChangesAt1080)
+{
+    size_t axisX = STDCONTROL_GET_JOYSTICK_AXIS_X(0);
+    size_t axisY = STDCONTROL_GET_JOYSTICK_AXIS_Y(0);
+
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_RUNNING;
+
+    stdControl_RegisterAxis(axisX, -32768, 32767, 0.0f);
+    stdControl_RegisterAxis(axisY, -32768, 32767, 0.0f);
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(axisX));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(axisY));
+
+    // A full stick 60 degrees to the left. Y is down positive, so forward is -Y.
+    stdControl_SetAxisState(axisX, (int)(-0.8660254f * 32767.0f));
+    stdControl_SetAxisState(axisY, (int)(-0.5f * 32767.0f));
+
+    sithModernControls_Update(&sithModernControlsTest_player, 0.05f);
+
+    // 0.05 s at 1080 deg/s covers 54 of the 60 degrees; standing alone snaps.
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 54.0f, sithModernControlsTest_PlayerYaw());
+
+    stdControl_SetAxisState(axisX, 0);
+    stdControl_SetAxisState(axisY, 0);
 }
 
 TEST(sithModernControls, UpdateLeavesRealKeysWhenClassic)
@@ -578,6 +723,113 @@ TEST(sithModernControls, UpdateQuickStepRuleIsOffWhileLocked)
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
 
     sithModernControlsTest_ReadKey(STDKEY_Q, 0);
+}
+
+TEST(sithModernControls, ModernMoveTransitionSkipOnlyForCameraRelativeStates)
+{
+    sithControl_SetModernControlStyle(true);
+
+    sithModernControlsTest_player.moveStatus  = SITHPLAYERMOVE_STILL;
+    sithModernControlsTest_player.attach.flags = SITH_ATTACH_SURFACE;
+    TEST_ASSERT_TRUE(sithModernControls_IsCameraRelative(&sithModernControlsTest_player));
+
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_WALKING;
+    TEST_ASSERT_TRUE(sithModernControls_IsCameraRelative(&sithModernControlsTest_player));
+
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_RUNNING;
+    TEST_ASSERT_TRUE(sithModernControls_IsCameraRelative(&sithModernControlsTest_player));
+
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_JUMPFWD;
+    TEST_ASSERT_FALSE(sithModernControls_IsCameraRelative(&sithModernControlsTest_player));
+
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_PUSHING;
+    TEST_ASSERT_FALSE(sithModernControls_IsCameraRelative(&sithModernControlsTest_player));
+
+    // Classic always goes through the original transitions.
+    sithControl_SetModernControlStyle(false);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_STILL;
+    TEST_ASSERT_FALSE(sithModernControls_IsCameraRelative(&sithModernControlsTest_player));
+}
+
+TEST(sithModernControls, StartModernMoveSkipsTransitionStatus)
+{
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    memset(&sithModernControlsTest_puppetState, 0, sizeof(sithModernControlsTest_puppetState));
+
+    thing.type         = SITH_THING_PLAYER;
+    thing.moveType     = SITH_MT_PHYSICS;
+    thing.moveStatus   = SITHPLAYERMOVE_STILL;
+    thing.pPuppetState = &sithModernControlsTest_puppetState;
+    thing.thingInfo.actorInfo.maxThrust = 1.0f;
+
+    TEST_ASSERT_TRUE(sithPlayerControls_StartModernMove(&thing, true, 2.5f));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_RUNNING, thing.moveStatus);
+    TEST_ASSERT_EQUAL_INT(0, thing.thingInfo.actorInfo.bControlsDisabled);
+    TEST_ASSERT_EQUAL_INT(0, thing.thingInfo.actorInfo.bForceMovePlay);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 2.25f, thing.moveInfo.physics.thrust.y);
+
+    TEST_ASSERT_TRUE(sithPlayerControls_StartModernMove(&thing, false, 1.0f));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_WALKING, thing.moveStatus);
+    TEST_ASSERT_EQUAL_INT(0, thing.thingInfo.actorInfo.bControlsDisabled);
+    TEST_ASSERT_EQUAL_INT(0, thing.thingInfo.actorInfo.bForceMovePlay);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.9f, thing.moveInfo.physics.thrust.y);
+}
+
+TEST(sithModernControls, StopModernMoveSkipsTransitionStatus)
+{
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    memset(&sithModernControlsTest_puppetState, 0, sizeof(sithModernControlsTest_puppetState));
+
+    thing.type         = SITH_THING_PLAYER;
+    thing.moveType     = SITH_MT_PHYSICS;
+    thing.moveStatus   = SITHPLAYERMOVE_RUNNING;
+    thing.pPuppetState = &sithModernControlsTest_puppetState;
+    thing.thingInfo.actorInfo.bControlsDisabled = 1;
+    thing.moveInfo.physics.velocity = (rdVector3){ 1.0f, 2.0f, 3.0f };
+
+    sithPlayerControls_StopModernMove(&thing);
+
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, thing.moveStatus);
+    TEST_ASSERT_EQUAL_INT(0, thing.thingInfo.actorInfo.bControlsDisabled);
+    TEST_ASSERT_EQUAL_INT(0, thing.thingInfo.actorInfo.bForceMovePlay);
+    TEST_ASSERT_TRUE(rdVector_IsZero3(&thing.moveInfo.physics.velocity));
+}
+
+TEST(sithModernControls, LockedSidestepPlaysAtDoubleSpeed)
+{
+    sithControl_SetModernControlStyle(true);
+    sithModernControls_ResetLock();
+
+    // Unlocked quick-step and any non-local thing keep the original rate.
+    TEST_ASSERT_EQUAL_FLOAT(1.0f,
+        sithPlayerActions_GetSidestepPlaybackSpeed(&sithModernControlsTest_player));
+
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
+    TEST_ASSERT_EQUAL_FLOAT(2.0f,
+        sithPlayerActions_GetSidestepPlaybackSpeed(&sithModernControlsTest_player));
+
+    SithThing other = sithModernControlsTest_player;
+    other.type = SITH_THING_ACTOR;
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, sithPlayerActions_GetSidestepPlaybackSpeed(&other));
+
+    // Releasing the lock restores the original step speed.
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_FALSE(sithModernControls_IsLockActive());
+    TEST_ASSERT_EQUAL_FLOAT(1.0f,
+        sithPlayerActions_GetSidestepPlaybackSpeed(&sithModernControlsTest_player));
+
+    // Classic never speeds the step up.
+    sithControl_SetModernControlStyle(false);
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f,
+        sithPlayerActions_GetSidestepPlaybackSpeed(&sithModernControlsTest_player));
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
 }
 #endif
 
@@ -960,15 +1212,24 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys);
     RUN_TEST_CASE(sithModernControls, ComputeLockHoldsSidestepKeys);
     RUN_TEST_CASE(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing);
+    RUN_TEST_CASE(sithModernControls, SelectLockTargetUsesTheCameraEyeForSight);
+    RUN_TEST_CASE(sithModernControls, SelectLockTargetRejectsHiddenFromCamera);
+    RUN_TEST_CASE(sithModernControls, SelectLockTargetKeepsRangeFromIndy);
+    RUN_TEST_CASE(sithModernControls, LockedSidestepDropsFinishedStepForChaining);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
-    RUN_TEST_CASE(sithModernControls, UpdateBackRunsAtOnceAndTurnsDirectly);
+    RUN_TEST_CASE(sithModernControls, UpdateStartSnapsFacingAtOnce);
+    RUN_TEST_CASE(sithModernControls, UpdateRotatesSmallChangesAt1080);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesRealKeysWhenClassic);
     RUN_TEST_CASE(sithModernControls, UpdateQuickStepCountsOnlyThePressEdge);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesQuickStepHoldInClassic);
     RUN_TEST_CASE(sithModernControls, UpdateAppliesStickDeadzone);
     RUN_TEST_CASE(sithModernControls, UpdateLockedSidewaysHoldsSidestepKey);
     RUN_TEST_CASE(sithModernControls, UpdateQuickStepRuleIsOffWhileLocked);
+    RUN_TEST_CASE(sithModernControls, ModernMoveTransitionSkipOnlyForCameraRelativeStates);
+    RUN_TEST_CASE(sithModernControls, StartModernMoveSkipsTransitionStatus);
+    RUN_TEST_CASE(sithModernControls, StopModernMoveSkipsTransitionStatus);
+    RUN_TEST_CASE(sithModernControls, LockedSidestepPlaysAtDoubleSpeed);
     RUN_TEST_CASE(sithModernControls, UpdateSnapsCameraOnceWhenLockHasNoTarget);
     RUN_TEST_CASE(sithModernControls, UpdateIgnoresTargetLockWhenClassic);
 #endif

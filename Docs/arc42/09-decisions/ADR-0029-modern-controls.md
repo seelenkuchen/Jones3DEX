@@ -59,10 +59,13 @@ runs once per frame before `sithPlayerControls_Process` reads its functions and 
 overrides: `FORWARD` and `BACK` carry the translated direction and amount, `TURNLEFT` and `TURNRIGHT`
 keep their meaning only in the relative states, `RUNFWD` carries walk/run, and quick-step suppresses a
 held `STPLEFT`/`STPRIGHT` so only the press edge reaches the original sidestep force move. In the
-camera-relative states the layer instead turns `orient` directly toward the move heading, about the world
-up axis at up to 720 degrees per second with the last few degrees eased, so a direction change starts a
-run at once and the original turn keys stay off. `sithControl_ClearKeyOverrides` drops the overrides
-before every player frame, so a cutscene or a transition cannot inherit them.
+camera-relative states the layer instead turns `orient` directly toward the move heading, about
+the world up axis at up to 1080 degrees per second with the last few degrees eased. From standing,
+or for a change over 100 degrees (including reversing), the facing snaps in one update. The
+stand-to-walk/run and walk/run-to-stand transitions are skipped, reaching their walk or run move
+mode and animation in the same update, so a push from standing moves Indy at once. The original
+turn keys stay off. `sithControl_ClearKeyOverrides` drops the overrides before every player frame,
+so a cutscene or a transition cannot inherit them.
 
 One move-status classifier (`sithModernControls_GetMode`) is shared by movement and the free camera. It
 returns the original tank-style states (climbing, pushing, vehicles, slides) as relative, leaves jump and
@@ -71,15 +74,21 @@ free camera is world-anchored: its yaw and pitch live in the camera module rathe
 orientation, right-stick and mouse input orbit it, and the original camera collision is kept. A camera set
 by a COG script or a cutscene overrides it for the duration.
 
-Target lock is acquired on the press edge of `TARGETLOCK` from living hostiles with line of sight, within
-35 degrees of the free camera's forward direction and inside the track range; the smallest angle to the
-camera direction wins, with distance as the tie-break. While held, Indy turns toward the target with the
-same direct rotation at 720 degrees per second. A sideways stick holds the original sidestep keys, so the
-original animation and distance repeat and quick-step's press-edge rule stays off; forward and back walk
-and backpedal. Without a target the camera is centered forward for the press and the stick uses Indy's
-facing. The gamepad binder redirects a scheme's left-trigger Run binding to target lock in Modern, while
-Classic keeps it as Run.
+Target lock is acquired on the press edge of `TARGETLOCK` from living hostiles, within
+35 degrees of the free camera's forward direction and inside the track range, that are visible
+from the camera's eye position rather than from Indy; the smallest angle to the camera direction
+wins, with distance as the tie-break. The held lock's visibility check uses the same camera eye,
+while the range stays measured from Indy. While held, Indy turns toward the target with the
+same direct rotation. A sideways stick holds the original sidestep keys, so the original animation
+and distance repeat and quick-step's press-edge rule stays off; forward and back walk and
+backpedal. The locked step's force move plays at twice its animation rate, which also halves its
+duration and doubles its velocity, keeping the distance per step; the held key starts the next
+step as soon as the previous one ends. Without a target the camera is centered forward for the
+press and the stick uses Indy's facing. The gamepad binder redirects a scheme's left-trigger Run
+binding to target lock in Modern, while Classic keeps it as Run.
 
 The first owner play-test replaced the slow turn-in-place with the direct facing rotation and the
-continuous strafe thrust with the original repeated sidesteps. Deferred: favourite weapons for D-pad
-left/right (they remain previous and next owned weapon, with a TODO at the scheme).
+continuous strafe thrust with the original repeated sidesteps. The second replaced the remaining
+turn-and-pause when starting or reversing with the snap and transition skip above, doubled the
+locked sidestep rate, and moved the lock's line of sight to the camera. Deferred: favourite weapons
+for D-pad left/right (they remain previous and next owned weapon, with a TODO at the scheme).

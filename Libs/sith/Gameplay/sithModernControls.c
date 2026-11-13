@@ -22,8 +22,9 @@
 #define SITHMODERNCONTROL_KEY_RUN_MAGNITUDE   1.0f
 #define SITHMODERNCONTROL_RUN_THRESHOLD       0.75f
 #define SITHMODERNCONTROL_ZERO_EPSILON        0.0001f
-#define SITHMODERNCONTROL_TURN_SPEED          720.0f // degrees per second toward the target facing
-#define SITHMODERNCONTROL_TURN_EASE_ANGLE     10.0f  // scale the step down below this angle
+#define SITHMODERNCONTROL_TURN_SPEED          1080.0f // degrees per second toward the target facing
+#define SITHMODERNCONTROL_TURN_EASE_ANGLE     10.0f   // scale the step down below this angle
+#define SITHMODERNCONTROL_TURN_SNAP_ANGLE     100.0f  // snapped in one update instead of rotating
 #define SITHMODERNCONTROL_LOCK_SIDEWAYS       0.5f
 #define SITHMODERNCONTROL_LOCK_LOST_SECONDS   0.5f
 
@@ -52,8 +53,9 @@ static float sithModernControls_GetDirectionYaw(const rdVector3* pFrom, const rd
 }
 
 // Added: rotate Indy's facing toward a target heading the way the original turn does, about the
-// world up axis. Short angles ease down so the facing settles without overshoot or jitter.
-static void sithModernControls_TurnToYaw(SithThing* pPlayer, float targetYaw, float secDeltaTime)
+// world up axis. A large change or a move from standing snaps the facing in one update; short
+// angles ease down so the facing settles without overshoot or jitter.
+static void sithModernControls_TurnToYaw(SithThing* pPlayer, float targetYaw, float secDeltaTime, bool bSnap)
 {
     if ( !pPlayer || secDeltaTime <= 0.0f )
     {
@@ -69,13 +71,13 @@ static void sithModernControls_TurnToYaw(SithThing* pPlayer, float targetYaw, fl
     }
 
     float step = SITHMODERNCONTROL_TURN_SPEED * secDeltaTime;
-    if ( step > angle )
+    if ( bSnap || step > angle )
     {
         step = angle;
     }
 
     // Added: ease the last few degrees so a changing target does not make the facing snap.
-    if ( angle < SITHMODERNCONTROL_TURN_EASE_ANGLE )
+    if ( !bSnap && angle < SITHMODERNCONTROL_TURN_EASE_ANGLE )
     {
         step *= angle / SITHMODERNCONTROL_TURN_EASE_ANGLE;
     }
@@ -322,6 +324,13 @@ SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer
     }
 
     return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
+}
+
+// Added: the transition skip applies only when the Modern style actually owns the state.
+bool J3DAPI sithModernControls_IsCameraRelative(const SithThing* pPlayer)
+{
+    return sithControl_IsModernControlStyle()
+        && sithModernControls_GetMode(pPlayer) == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
 }
 
 static void sithModernControls_ApplyMovementKey(SithControlFunction functionId, const SithModernKey* pKey)
@@ -607,9 +616,13 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     }
 
     // Added: the facing turns directly toward the stick or lock heading before the original
-    // movement code runs, so a direction change starts a run at once.
+    // movement code runs, so a direction change starts a run at once. From standing or for a
+    // large change the facing snaps; smaller changes rotate at the Modern turn speed.
     if ( out.bTurnTowardTarget )
     {
-        sithModernControls_TurnToYaw(pPlayer, out.targetYaw, secDeltaTime);
+        float delta = fabsf(stdMath_NormalizeAngleAcute(out.targetYaw - sithModernControls_GetYaw(&pPlayer->orient)));
+        bool bSnap  = pPlayer->moveStatus == SITHPLAYERMOVE_STILL
+            || delta > SITHMODERNCONTROL_TURN_SNAP_ANGLE;
+        sithModernControls_TurnToYaw(pPlayer, out.targetYaw, secDeltaTime, bSnap);
     }
 }

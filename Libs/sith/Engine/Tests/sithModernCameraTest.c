@@ -197,6 +197,8 @@ TEST(sithModernCamera, TestActiveRequiresModernPlayerExternalAndFreeState)
 #endif
 }
 
+// The Modern style exists only in QOL builds; non-QOL builds force Classic.
+#ifdef J3D_QOL_IMPROVEMENTS
 TEST(sithModernCamera, TestActiveAnchorsTransitionsAndNoneStates)
 {
     static const SithThingMoveStatus aTransition[] =
@@ -264,6 +266,7 @@ TEST(sithModernCamera, TestActiveAnchorsTransitionsAndNoneStates)
     TEST_ASSERT_TRUE(sithModernCamera_IsActive(&sithModernCameraTest_camera, &sithModernCameraTest_player));
     sithModernCameraTest_player.thingInfo.actorInfo.bForceMovePlay = 0;
 }
+#endif
 
 TEST(sithModernCamera, TestNonFreeStateSyncsYaw)
 {
@@ -289,6 +292,8 @@ TEST_GROUP_RUNNER(sithModernCamera)
     RUN_TEST_CASE(sithModernCamera, TestSnapTakesShortestYawPath);
     RUN_TEST_CASE(sithModernCamera, TestExternalOffsetOrbitsWithYawAndPitch);
     RUN_TEST_CASE(sithModernCamera, TestActiveRequiresModernPlayerExternalAndFreeState);
+#ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernCamera, TestActiveAnchorsTransitionsAndNoneStates);
+#endif
     RUN_TEST_CASE(sithModernCamera, TestNonFreeStateSyncsYaw);
 }

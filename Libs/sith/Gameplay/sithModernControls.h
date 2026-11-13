@@ -53,6 +53,10 @@ typedef struct sSithModernOutput
 // other state on a floor or in water is camera-relative.
 SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer);
 
+// Added: true when the Modern style owns this state, so the original stand/walk/run transition
+// animations can be skipped and the move starts or stops at once.
+bool J3DAPI sithModernControls_IsCameraRelative(const SithThing* pPlayer);
+
 // Added: the pure decision. It computes the original movement keys from a move vector, the
 // camera and player yaws and a mode, without touching the control system or a world.
 void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOutput* pOut);

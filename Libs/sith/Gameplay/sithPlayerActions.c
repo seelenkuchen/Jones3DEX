@@ -6,6 +6,7 @@
 
 #include <sith/Cog/sithCog.h>
 #include <sith/Devices/sithComm.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Dss/sithDSSThing.h>
 #include <sith/Engine/sithAnimate.h>
 #include <sith/Engine/sithCamera.h>
@@ -14,6 +15,7 @@
 #include <sith/Engine/sithPuppet.h>
 #include <sith/Gameplay/sithFX.h>
 #include <sith/Gameplay/sithInventory.h>
+#include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Gameplay/sithPlayerControls.h>
@@ -40,6 +42,23 @@ SithSector* sithPlayerActions_g_pChalkWriteSector;
 
 uint32_t sithPlayerActions_msecCurActivateTime = 0; // Altered: Init to 0
 static const float sithPlayerActions_raftActivateSearchRadius = 0.07f;
+
+// Added: locked Modern sidesteps play at twice the original rate. Speeding up the animation also
+// halves the force move's duration and doubles its velocity, so the distance per step stays the
+// original one. Quick-step without a lock and Classic keep the original rate.
+#define SITHPLAYERACTIONS_LOCKED_SIDESTEP_SPEED 2.0f
+
+float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing)
+{
+    if ( pThing == sithPlayer_g_pLocalPlayerThing
+        && sithControl_IsModernControlStyle()
+        && sithModernControls_IsLockActive() )
+    {
+        return SITHPLAYERACTIONS_LOCKED_SIDESTEP_SPEED;
+    }
+
+    return 1.0f;
+}
 
 float J3DAPI sithPlayerActions_GetLedgeSurfaceGrabPosZ(const SithSurface* pLedgeSurf); // Added
 float J3DAPI sithPlayerActions_GetLedgeThingGrabPosZ(const SithThing* pThing, const rdFace* pFace, const rdModel3Mesh* pMesh);
@@ -1373,7 +1392,21 @@ void J3DAPI sithPlayerActions_StrafeLeft(SithThing* pThing)
             pThing->thingInfo.actorInfo.bForceMovePlay = 1;
             pThing->moveStatus        = SITHPLAYERMOVE_STRAFING_LEFT;
             pThing->forceMoveStartPos = pThing->pos;
+
+            // Added: a held Modern lock drops the finished step's track so the next step starts
+            // without an idle frame, then speeds the force move up without changing its distance.
+            float playbackSpeed = sithPlayerActions_GetSidestepPlaybackSpeed(pThing);
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_DropFinishedMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT);
+            }
+
             sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT, NULL);
+
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_SetModeSpeed(pThing, SITHPUPPETSUBMODE_STRAFELEFT, playbackSpeed);
+            }
         }
     }
 }
@@ -1391,7 +1424,21 @@ void J3DAPI sithPlayerActions_StrafeRight(SithThing* pThing)
             pThing->thingInfo.actorInfo.bForceMovePlay = 1;
             pThing->moveStatus        = SITHPLAYERMOVE_STRAFING_RIGHT;
             pThing->forceMoveStartPos = pThing->pos;
+
+            // Added: a held Modern lock drops the finished step's track so the next step starts
+            // without an idle frame, then speeds the force move up without changing its distance.
+            float playbackSpeed = sithPlayerActions_GetSidestepPlaybackSpeed(pThing);
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_DropFinishedMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT);
+            }
+
             sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT, NULL);
+
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_SetModeSpeed(pThing, SITHPUPPETSUBMODE_STRAFERIGHT, playbackSpeed);
+            }
         }
     }
 }

@@ -36,10 +36,22 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
 
 SithThing* sithPlayerControls_GetTargetThing(void);
 
+// Added: Modern camera-relative movement skips the original stand-to-walk/run and
+// walk/run-to-stand transition animations. Start reaches the walk or run move status, forward
+// thrust and puppet mode at once; Stop reaches the stand status and puppet mode at once.
+bool J3DAPI sithPlayerControls_StartModernMove(SithThing* pThing, bool bRun, float moveFactor);
+void J3DAPI sithPlayerControls_StopModernMove(SithThing* pThing);
+
 // Added: target lock for the Modern control style (ADR-0029). These reuse the auto-aim
 // filters and acquisition cone. The pure selector takes candidate things and the free camera's
 // world yaw so tests need no collision world; FindLockTarget gathers the same candidates the
 // auto-aim search does.
+// Added: the sight test receives the camera eye, not Indy, because the lock only needs the
+// camera to see the target. The selector and keep-alive still measure the track range from Indy.
+typedef bool (J3DAPI *SithLockSightTest)(SithSector* pEyeSector, const rdVector3* pEyePos, const rdVector3* pTargetPos);
+SithThing* J3DAPI sithPlayerControls_SelectLockTargetEx(SithThing* pThing, float cameraYaw,
+    SithSector* pEyeSector, const rdVector3* pEyePos, SithLockSightTest pfSight,
+    SithThing* const* apCandidates, size_t numCandidates); // Added
 SithThing* J3DAPI sithPlayerControls_SelectLockTarget(SithThing* pThing, float cameraYaw, SithThing* const* apCandidates, size_t numCandidates); // Added
 SithThing* J3DAPI sithPlayerControls_FindLockTarget(SithThing* pThing, float cameraYaw); // Added
 bool J3DAPI sithPlayerControls_IsLockTargetAlive(const SithThing* pTarget); // Added

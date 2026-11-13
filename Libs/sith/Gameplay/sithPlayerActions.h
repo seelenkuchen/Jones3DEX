@@ -81,6 +81,10 @@ void J3DAPI sithPlayerActions_JumpRollBack(SithThing* pThing);
 void J3DAPI sithPlayerActions_JumpRollForward(SithThing* pThing);
 void J3DAPI sithPlayerActions_StrafeLeft(SithThing* pThing);
 void J3DAPI sithPlayerActions_StrafeRight(SithThing* pThing);
+
+// Added: playback rate for the sidestep force move. 2.0 while the local player holds the Modern
+// target lock (the step covers its original distance in half the time); 1.0 otherwise.
+float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing);
 void J3DAPI sithPlayerActions_HopBack(SithThing* pThing);
 void J3DAPI sithPlayerActions_JumpStart(SithThing* pThing);
 
