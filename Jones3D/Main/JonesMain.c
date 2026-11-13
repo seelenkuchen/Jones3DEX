@@ -641,7 +641,11 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
         }
         else
         {
-            return 1; // quit
+            // Altered: a main-menu Quit is a user quit, not a startup failure. Request the same
+            // close a window close does, and return a result the windowed entry can tell apart
+            // from a real failure (JonesMain_CloseWindow also requests a close on every failure).
+            JonesMainSys_PostCloseMessage();
+            return JONESMAIN_STARTUP_USERQUIT;
         }
     }
 
@@ -1075,6 +1079,13 @@ int JonesMain_ProcessGame(void)
     {
         JonesMain_ProcessMenu();
         sithUpdate();
+
+        // Added: hide the quicksave text once one second of game time has passed since it started.
+        // This replaces the Windows SetTimer message on the platforms without a window timer.
+        if ( JonesMainSys_TakeQuickSaveTimerExpired() )
+        {
+            JonesMain_OnQuickSaveTextTimer();
+        }
 
         if ( JonesMain_ProcessGamesaveState() )
         {

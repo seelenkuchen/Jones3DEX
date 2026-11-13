@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <babylon/cvars/Registry.h>
 #include <babylon/platform/Event.h>
@@ -23,7 +24,9 @@
 #include <babylon/ui/Ui.h>
 
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
+#include <Jones3D/Platform/Babylon/JonesBabylon.h>
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
 #include <Jones3D/types.h>
 
@@ -119,9 +122,26 @@ namespace
             return event;
         }
 
-        bool showMessageBox(std::string_view, std::string_view) override
+        bool showMessageBox(std::string_view title, std::string_view text) override
         {
-            return false;
+            m_messageBoxTitles.emplace_back(title);
+            m_messageBoxTexts.emplace_back(text);
+            return true;
+        }
+
+        size_t MessageBoxCount() const
+        {
+            return m_messageBoxTitles.size();
+        }
+
+        const std::string& LastMessageBoxTitle() const
+        {
+            return m_messageBoxTitles.back();
+        }
+
+        const std::string& LastMessageBoxText() const
+        {
+            return m_messageBoxTexts.back();
         }
 
         void PushKey(platform::Key key)
@@ -139,6 +159,8 @@ namespace
 
     private:
         std::deque<platform::Event> m_events;
+        std::vector<std::string> m_messageBoxTitles;
+        std::vector<std::string> m_messageBoxTexts;
         bool m_delivering = false;
         int m_emptyPolls  = 0;
         int m_quitFallbacks = 0;
@@ -292,6 +314,45 @@ TEST_CASE("the Babylon close message makes the next loop check report quit")
     CHECK(JonesMainSys_PostCloseMessage() == 1);
     CHECK(wkernel_PeekProcessEvents() == 1);
     CHECK(wkernel_PeekProcessEvents() == 0);
+}
+
+TEST_CASE("a main-menu quit during startup exits cleanly")
+{
+    StartModeTestContext testContext;
+
+    // The main menu reports its own result, so the windowed entry exits 0 without an error.
+    CHECK(JONESMAIN_STARTUP_USERQUIT != 0);
+    CHECK(JONESMAIN_STARTUP_USERQUIT != 1);
+    CHECK(JonesBabylon_StartupExitCode(JONESMAIN_STARTUP_USERQUIT) == 0);
+
+    // A real startup failure keeps the recovered nonzero result and stays an error.
+    CHECK(JonesBabylon_StartupExitCode(1) == 1);
+
+    // A successful startup is 0.
+    CHECK(JonesBabylon_StartupExitCode(0) == 0);
+}
+
+TEST_CASE("a fatal message shows the windowed platform message box")
+{
+    MenuTestContext testContext;
+    platform::NullPlatform windowPlatform;
+    std::unique_ptr<platform::Window> pWindow =
+        windowPlatform.createWindow({ "fatal test", { 640, 480 }, false });
+    REQUIRE(pWindow);
+    testContext.context.pWindow = pWindow.get();
+
+    CHECK(JonesMainSys_ShowFatalMessage("Out of memory", "Jones3D", true) == 1);
+    CHECK(testContext.platform.MessageBoxCount() == 1u);
+    CHECK(testContext.platform.LastMessageBoxTitle() == "Jones3D");
+    CHECK(testContext.platform.LastMessageBoxText() == "Out of memory");
+}
+
+TEST_CASE("a fatal message keeps stderr only without a game window")
+{
+    MenuTestContext testContext;
+
+    CHECK(JonesMainSys_ShowFatalMessage("Out of memory", "Jones3D", true) == 1);
+    CHECK(testContext.platform.MessageBoxCount() == 0u);
 }
 
 TEST_CASE("the main menu uses the load screen's finished wallpaper state")

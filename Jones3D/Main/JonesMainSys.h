@@ -13,7 +13,11 @@ StdDisplayEnvironment* JonesMain_GetStartupDisplayEnv(void); // Implemented in J
 StdVideoMode* JonesMain_GetCurVideoMode(void); // Implemented in Jones3D/Main/JonesMain.c
 
 // Starts the timer that hides the quicksave text.
-void JonesMainSys_StartQuickSaveTimer(tSysWindow hWnd); // Implemented in Jones3D/Platform/Win32/JonesMainWin32.c
+void JonesMainSys_StartQuickSaveTimer(tSysWindow hWnd); // Implemented in Jones3D/Platform/Null/JonesPlatformNull.c (both columns)
+
+// True once the quicksave text timer has run for 1000 ms of game time, and disarmed so it reports
+// exactly once. Called once per game frame by JonesMain_ProcessGame.
+bool JonesMainSys_TakeQuickSaveTimerExpired(void); // Implemented in Jones3D/Platform/Null/JonesPlatformNull.c
 
 // Shows the game window after activation or resume.
 void JonesMainSys_ShowWindow(tSysWindow hWnd); // Implemented in Jones3D/Platform/Win32/JonesMainWin32.c
@@ -39,7 +43,7 @@ bool JonesMainSys_CloseHandle(tSysHandle handle); // Implemented in Jones3D/Plat
 
 // Shows a modal message box with no owner window, always with MB_TASKMODAL and with MB_ICONSTOP
 // when bIconStop is set. Returns the MessageBox result (the button the user chose).
-int JonesMainSys_ShowFatalMessage(const char* pText, const char* pTitle, bool bIconStop); // Implemented in Jones3D/Platform/Win32/JonesMainWin32.c
+int JonesMainSys_ShowFatalMessage(const char* pText, const char* pTitle, bool bIconStop); // Implemented in Platform/Null/JonesPlatformNullMainSys.c and Platform/Babylon/JonesBabylonMainSys.cpp
 
 // Quick save (F5): saves the game into the player's quicksave slot.
 void JonesMain_OnQuickSaveKey(tSysWindow hWnd); // Implemented in Jones3D/Main/JonesMain.c

@@ -19,6 +19,12 @@ extern tSysHandle JonesMain_g_mainMutex;
 // JonesMain_Startup returns.
 void JonesMain_SetCapture(const char* pPath, const char* pColumn);
 
+// Added: the result JonesMain_Startup returns when the user quits from the main menu before the
+// game starts. It is distinct from the recovered 0 (success) and 1 (failure) results, which the
+// original paths keep; callers that report a failure for every nonzero result must map it to a
+// clean exit first.
+#define JONESMAIN_STARTUP_USERQUIT 2
+
 int J3DAPI JonesMain_Startup(const char* lpCmdLine);
 void JonesMain_Shutdown(void);
 
