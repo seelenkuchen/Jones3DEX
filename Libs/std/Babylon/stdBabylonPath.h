@@ -4,7 +4,8 @@
 // Unlike a lexical OS resolution, ".." is applied to the segment list before any directory is
 // opened: the result differs from the operating system only across symbolic links to directories.
 // The result's root is '/' for a '/' path and, on Windows, the drive ("C:/") for a drive path
-// ("C:\..." or "C:/..."); relative input takes the root of fs.currentPath() ("/" on POSIX hosts,
+// ("C:\..." or "C:/..."); off Windows a Wine "Z:\" or "z:/" path is the Unix root, so it resolves
+// from '/'. Relative input takes the root of fs.currentPath() ("/" on POSIX hosts,
 // "C:/" on Windows). ".." never climbs above the root. Relative input is prefixed with
 // fs.currentPath(), whose segments are trusted real directory names: the resolver never probes
 // them, and each ".." that pops into them untrusts one.

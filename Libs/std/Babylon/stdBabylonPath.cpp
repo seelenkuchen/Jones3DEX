@@ -76,7 +76,9 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
     // A path that starts with '/' is absolute. A path that starts with '\' is relative (j3dcrt:
     // there is no drive to root it against); everything else is relative too. The decision comes
     // before the copy, which turns every '\' into '/'. On Windows a drive path ("C:\..." or
-    // "C:/...") is absolute as well, with its drive as the root.
+    // "C:/...") is absolute as well, with its drive as the root. Elsewhere a Wine "Z:\" or "z:/"
+    // path is the Unix root, so it is absolute from '/'; "Z:" alone and "Z:x" stay relative, and
+    // other drive letters stay relative too.
     //
     // aRoot is what the result starts with: "/" for a '/' path, the drive ("C:/") for a drive
     // path, and the root of fs.currentPath() for relative input ("/" on POSIX hosts, "C:/" on
@@ -92,6 +94,14 @@ bool stdBabylonPath_Resolve(babylon::files::FileSystem& fs, const char* pPath, s
         aRoot.assign(pPath, 2);
         aRoot += '/';
         pRest = pPath + 3;
+    }
+#else
+    if ( !bAbsolute && ( pPath[0] == 'Z' || pPath[0] == 'z' ) && pPath[1] == ':'
+        && ( pPath[2] == '\\' || pPath[2] == '/' ) )
+    {
+        bAbsolute = true;
+        aRoot     = "/";
+        pRest     = pPath + 3;
     }
 #endif
 

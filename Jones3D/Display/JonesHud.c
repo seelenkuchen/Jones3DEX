@@ -90,7 +90,7 @@ static int JonesHud_bShowMenu;
 static int JonesHud_bMenuEnabled;
 static int JonesHud_bMapOpen;
 static bool JonesHud_bMenuMusicEnabled       = true; // Added
-static bool JonesHud_bSystemIconsEnabled     = true; // Added: engine.ui.hud.systemIcons
+static bool JonesHud_bSystemIconsEnabled     = false; // Altered: engine.ui.hud.systemIcons, default off since the pause menu
 static char JonesHud_aMenuMusicFilename[64]  = "mus_gen_maploadloop.wav"; // Added
 static float JonesHud_menuMusicVolume        = 0.55f; // Added
 static float JonesHud_menuMusicFadeDuratuion = 0.75f; // Added
@@ -434,6 +434,24 @@ void JonesHud_Shutdown(void)
     JonesHud_bStartup          = false;
 }
 
+bool JonesHud_LoadSystemIconsConfig(void)
+{
+    // Added: presentation only (both profiles). Default false: the pause menu on Escape/Start
+    // replaces the system items; true brings them back into the HUD menu.
+    JonesHud_bSystemIconsEnabled = stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, false);
+    if ( !stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS) )
+    {
+        stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
+    }
+
+    return JonesHud_bSystemIconsEnabled;
+}
+
+int JonesHud_SystemMenuItemID(int selectedMenuItemID)
+{
+    return JonesHud_bSystemIconsEnabled ? selectedMenuItemID : -1;
+}
+
 int JonesHud_Open(void)
 {
     if ( JonesHud_bOpen )
@@ -507,12 +525,7 @@ int JonesHud_Open(void)
         stdConfig_SetFloat(JONESHUD_CFG_MENU_FADEDURATION, JonesHud_menuMusicFadeDuratuion);
     }
 
-    // Added: presentation only (both profiles). Default true keeps the HUD menu as it is.
-    JonesHud_bSystemIconsEnabled = stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
-    if ( !stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS) )
-    {
-        stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
-    }
+    JonesHud_LoadSystemIconsConfig(); // Added: engine.ui.hud.systemIcons
 
     // Menu item config
     JonesHud_menuItemScale = stdConfig_GetFloat(JONESHUD_CFG_MENU_ITEM_SCALE, JonesHud_menuItemScale);
@@ -3624,10 +3637,7 @@ void JonesHud_ResetMenuItems(void)
 
     // Added: engine.ui.hud.systemIcons false hides the system column. The items stay allocated
     // (their models are loaded with the rest) but leave the menu ring and its navigation.
-    if ( !JonesHud_bSystemIconsEnabled )
-    {
-        JonesHud_selectedSystemMenuItemID = -1;
-    }
+    JonesHud_selectedSystemMenuItemID = JonesHud_SystemMenuItemID(JonesHud_selectedSystemMenuItemID);
 
     JonesHudMenuItem* pFirstSelectedItem = NULL;
     JonesHudMenuItem* pLastSelectedItem  = NULL;

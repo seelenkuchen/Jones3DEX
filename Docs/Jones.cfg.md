@@ -150,7 +150,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `version` | string | `1.0.0` | Written automatically when a new config file is created. |
-| `installPath` | string | empty | Installation path. Usually engine-managed. |
+| `installPath` | string | empty | Installation path. Usually engine-managed. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
 | `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |
@@ -278,7 +278,7 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 | `ui.menu.music.music` | string | `mus_gen_maploadloop.wav` | Menu music filename. Exact key name is legacy. |
 | `ui.menu.music.file` | float | `0.55` | Menu music volume. Exact key name is legacy. |
 | `ui.menu.music.fade` | float | `0.75` | Menu music fade duration in seconds. |
-| `engine.ui.hud.systemIcons` | bool | `true` | Presentation only, both profiles. False hides the HUD menu's Statistics, Save, Load, Settings and Exit items; the pause menu still offers all of them. |
+| `engine.ui.hud.systemIcons` | bool | `false` | Presentation only, both profiles. False (the default) hides the HUD menu's Statistics, Save, Load, Settings and Exit items: the pause menu on Escape or gamepad Start replaces them and still offers all of them. True brings the system items back into the HUD menu. |
 | `ui.hud.itemChanged.showDuration` | int | `2000` | Item-change popup duration in milliseconds. |
 | `ui.hud.itemChanged.slideEaseInRate` | float | `4000.0` | Slide ease-in rate. |
 | `ui.hud.itemChanged.slideSpeedRate` | int | `3` | Slide speed multiplier. |

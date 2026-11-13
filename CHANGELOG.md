@@ -57,7 +57,9 @@
     1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause
     menu on Escape or gamepad Start offers Resume, Save, Load, Options, Statistics and Exit; the HUD menu
     opens on the active control scheme's interface key, with Tab and gamepad Back as a fallback while a scheme
-    binds none. `engine.ui.hud.systemIcons` can hide the HUD menu's system items.
+    binds none. The HUD menu's system items (Statistics, Save, Load, Settings and Exit) are off by default
+    because the pause menu on Escape or gamepad Start replaces them; `engine.ui.hud.systemIcons` true brings
+    them back.
   - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
     Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
   - The main menu's Quit button and the in-game Exit now end the game, as closing the window does.
