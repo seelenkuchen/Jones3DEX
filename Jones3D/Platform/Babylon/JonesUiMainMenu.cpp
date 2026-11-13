@@ -423,30 +423,8 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
             rdCache_FlushAlpha();
 
             // With no panel box, a soft quadratic shade in the lower-left corner keeps the text
-            // readable. Many small cells make the ramp look continuous; the alpha falls to 0 at
-            // the right and top ends, so no rectangle edge shows.
-            const babylon::ui::Size canvas = pUi->canvasSize();
-            constexpr int kColumns = 32;
-            constexpr int kRows    = 24;
-            const float width  = canvas.width * 0.45f;
-            const float height = canvas.height * 0.55f;
-            const float cellWidth  = width / (float)kColumns;
-            const float cellHeight = height / (float)kRows;
-            for ( int column = 0; column < kColumns; ++column )
-            {
-                const float u = (float)column / (float)(kColumns - 1);
-                const float horizontal = (1.0f - u) * (1.0f - u);
-                for ( int row = 0; row < kRows; ++row )
-                {
-                    const float v = (float)row / (float)(kRows - 1);
-                    const float vertical = (1.0f - v) * (1.0f - v);
-                    const babylon::ui::Color shade = {
-                        0.0f, 0.0f, 0.0f, 0.55f * horizontal * vertical };
-                    painter.fillRect(babylon::ui::Rect{ cellWidth * (float)column,
-                        canvas.height - cellHeight * (float)(row + 1),
-                        cellWidth, cellHeight }, shade);
-                }
-            }
+            // readable.
+            JonesUiSkin_DrawBottomLeftShade(painter, pUi->canvasSize());
         };
     }
 

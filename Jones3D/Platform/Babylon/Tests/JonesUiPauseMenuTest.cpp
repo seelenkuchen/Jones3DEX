@@ -281,15 +281,22 @@ TEST_CASE("the pause menu has the original six entries and back closes it")
     CHECK(std::get<ui::Button>(screen.widgets[4]).action == 5);
     CHECK(std::get<ui::Button>(screen.widgets[5]).action == 6);
 
-    // Without a string table the stub returns each key unchanged; the Settings entry has no game
-    // key and is the English literal.
+    CHECK(screen.title.empty());
+
+    // The main menu style's uppercase list, in the ADR-0028 order. Without a string table the
+    // fallbacks are used.
     const char* const aExpectedText[] = {
-        "JONES_STR_EXIT3", "JONES_STR_INV_SAVE", "JONES_STR_INV_LOAD", "Settings",
-        "JONES_STR_INV_STATS", "JONES_STR_INV_EXIT",
+        "RESUME", "SAVE GAME", "LOAD GAME", "OPTIONS", "STATISTICS", "EXIT GAME",
     };
     for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
     {
-        CHECK(std::get<ui::Button>(screen.widgets[i]).text == aExpectedText[i]);
+        const std::string& text = std::get<ui::Button>(screen.widgets[i]).text;
+        CHECK(text == aExpectedText[i]);
+        for ( char chr : text )
+        {
+            const bool lower = chr >= 'a' && chr <= 'z';
+            CHECK_FALSE(lower);
+        }
     }
 
     {

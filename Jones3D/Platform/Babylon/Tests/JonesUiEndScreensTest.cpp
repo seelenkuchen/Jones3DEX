@@ -31,6 +31,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
+#include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
 #include <sith/Devices/sithSoundMixer.h>
 #include <sith/types.h>
@@ -333,6 +334,25 @@ namespace
     }
 }
 
+TEST_CASE("the end screens share a centered table skin with a Cinzel title and Jost rows")
+{
+    ui::NullPainter painter;
+    const ui::Skin skin = JonesUiSkin_CreateEndScreen(3, 4, &painter);
+
+    CHECK(skin.placement == ui::PanelPlacement::Center);
+    CHECK(skin.titleFont == 3);
+    CHECK(skin.textFont == 4);
+    CHECK(skin.panel.a > 0.0f);
+    CHECK(skin.panel.a < 1.0f);
+    CHECK(skin.borderWidth == 0.0f);
+    CHECK(skin.panelBorder.a == 0.0f);
+    CHECK(skin.highlight.a == 0.0f);
+    CHECK(skin.textShadow.a > 0.0f);
+    CHECK(skin.textShadowOffset > 0.0f);
+    CHECK(skin.rowHeight > 0.0f);
+    CHECK(skin.titleHeight > 0.0f);
+}
+
 TEST_CASE("statistics time keeps the original hours and minutes format")
 {
     CHECK(JonesUiEndScreens_FormatTime(0x0205u) == "2 : 05 ");
@@ -389,10 +409,16 @@ TEST_CASE("the statistics screen offers every level and closes with the original
     const SithGameStatistics statistics = SyntheticStatistics();
     const ui::Screen screen = JonesUiStatistics_BuildScreen(statistics, 123);
     REQUIRE(screen.widgets.size() == 9u);
+    CHECK(screen.title == "JONES_STR_IQ");
     const ui::Choice& choice = std::get<ui::Choice>(screen.widgets[0]);
+    CHECK(choice.text == "Chapter");
     REQUIRE(choice.options.size() == 5u);
     CHECK(choice.options[0] == "JONES_STR_SUMMARY");
     CHECK(choice.options[4] == "JONES_STR_CYN");
+
+    // The IQ row uses its own key; JONES_STR_IQ is the title.
+    CHECK(std::get<ui::Label>(screen.widgets[7]).text == "JONES_STR_LEVELIQ");
+    CHECK(std::get<ui::Label>(screen.widgets[7]).value == "123 ");
 
     {
         testContext.platform.PushKey(platform::Key::Down);
@@ -430,6 +456,7 @@ TEST_CASE("the level completed screen returns its answers and opens the store wh
     CHECK(std::get<ui::Label>(screen.widgets[1]).value == "4 ");
     CHECK(std::get<ui::Label>(screen.widgets[2]).value == "100 ");
     CHECK(std::get<ui::Label>(screen.widgets[3]).value == "200 ");
+    CHECK(std::get<ui::Label>(screen.widgets[4]).text == "JONES_STR_LEVELIQ");
     CHECK(std::get<ui::Label>(screen.widgets[4]).value == "41 ");
 
     JonesUiEndScreens_ResetStoreCallCount();

@@ -175,6 +175,11 @@ namespace
                 painter.fillRect(full, ui.skin().dim);
             }
 
+            if ( background.overlay )
+            {
+                background.overlay();
+            }
+
             ui.draw();
 
             std3D_EndScene();

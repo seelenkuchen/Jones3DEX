@@ -35,4 +35,18 @@ babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
 babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
     const babylon::ui::Painter* pPainter);
 
+// Added: the shared skin of the Statistics, Level Completed and Game Over screens (ADR-0028): a
+// centered, boxless table with a soft dark backdrop, a Cinzel title and Jost rows. titleFont and
+// rowFont are the registered TrueType ids when they loaded and the shared rdFont id otherwise; the
+// caller chooses. The title and row metrics follow each font's line height, like the other skins.
+babylon::ui::Skin JonesUiSkin_CreateEndScreen(babylon::ui::FontId titleFont,
+    babylon::ui::FontId rowFont, const babylon::ui::Painter* pPainter);
+
+// Added: the soft quadratic shade that runs from the lower-left corner over a background. Many
+// small cells make the ramp look continuous; the alpha falls to 0 at the right and top ends, so no
+// rectangle edge shows. The main menu draws it over its wallpaper and the pause menu over the
+// dimmed game frame.
+void JonesUiSkin_DrawBottomLeftShade(babylon::ui::Painter& painter,
+    const babylon::ui::Size& canvas);
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISKIN_H
