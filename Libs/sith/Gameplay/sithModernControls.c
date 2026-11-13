@@ -2,7 +2,9 @@
 
 #include <sith/Devices/sithControl.h>
 #include <sith/Engine/sithCamera.h>
+#include <sith/Engine/sithModernCamera.h>
 #include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerControls.h>
 
 #include <std/General/stdControl.h>
 #include <std/General/stdMath.h>
@@ -51,7 +53,7 @@ static bool sithModernControls_IsSwimming(const SithThing* pPlayer)
         && (pPlayer->pInSector->flags & (SITH_SECTOR_UNDERWATER | SITH_SECTOR_AETHERIUM)) != 0;
 }
 
-static bool sithModernControls_IsJumpOrSlideStatus(SithThingMoveStatus moveStatus)
+static bool sithModernControls_IsNoneStatus(SithThingMoveStatus moveStatus)
 {
     switch ( moveStatus )
     {
@@ -66,9 +68,7 @@ static bool sithModernControls_IsJumpOrSlideStatus(SithThingMoveStatus moveStatu
         case SITHPLAYERMOVE_LEAPFWD:
         case SITHPLAYERMOVE_FALLING:
         case SITHPLAYERMOVE_LAND:
-        case SITHPLAYERMOVE_SLIDING:
-        case SITHPLAYERMOVE_SLIDEDOWNFORWARD:
-        case SITHPLAYERMOVE_SLIDEDOWNBACK:
+        case SITHPLAYERMOVE_KNOCKEDOUT:
             return true;
 
         default:
@@ -76,31 +76,11 @@ static bool sithModernControls_IsJumpOrSlideStatus(SithThingMoveStatus moveStatu
     }
 }
 
-static bool sithModernControls_IsCameraRelativeStatus(SithThingMoveStatus moveStatus)
-{
-    switch ( moveStatus )
-    {
-        case SITHPLAYERMOVE_STILL:
-        case SITHPLAYERMOVE_WALKING:
-        case SITHPLAYERMOVE_RUNNING:
-        case SITHPLAYERMOVE_CRAWLIDLE:
-        case SITHPLAYERMOVE_SWIMIDLE:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
-static bool sithModernControls_IsRelativeStatus(SithThingMoveStatus moveStatus)
+static bool sithModernControls_IsOriginalCameraStatus(SithThingMoveStatus moveStatus)
 {
     switch ( moveStatus )
     {
         case SITHPLAYERMOVE_HANGING:
-
-        case SITHPLAYERMOVE_PUSHING:
-        case SITHPLAYERMOVE_PULLING:
-        case SITHPLAYERMOVE_PUSHPULL_READY:
 
         case SITHPLAYERMOVE_CLIMBIDLE:
         case SITHPLAYERMOVE_MOUNTING_WALL:
@@ -113,6 +93,10 @@ static bool sithModernControls_IsRelativeStatus(SithThingMoveStatus moveStatus)
         case SITHPLAYERMOVE_CLIMB_DOWN_TO_MOUNT:
         case SITHPLAYERMOVE_CLIMB_TO_HANG:
 
+        case SITHPLAYERMOVE_PUSHING:
+        case SITHPLAYERMOVE_PULLING:
+        case SITHPLAYERMOVE_PUSHPULL_READY:
+
         case SITHPLAYERMOVE_WHIPSWINGING:
         case SITHPLAYERMOVE_WHIPCLIMBIDLE:
         case SITHPLAYERMOVE_WHIPCLIMB_START:
@@ -122,9 +106,39 @@ static bool sithModernControls_IsRelativeStatus(SithThingMoveStatus moveStatus)
         case SITHPLAYERMOVE_JEWELFLYING_UNKN1:
         case SITHPLAYERMOVE_JEWELFLYING_UNKN2:
 
+        case SITHPLAYERMOVE_SLIDING:
+        case SITHPLAYERMOVE_SLIDEDOWNFORWARD:
+        case SITHPLAYERMOVE_SLIDEDOWNBACK:
+
+        case SITHPLAYERMOVE_JEEP_IMPACT:
         case SITHPLAYERMOVE_MINECAR_IDLE:
         case SITHPLAYERMOVE_JEEP_IDLE:
         case SITHPLAYERMOVE_RAFT_IDLE:
+        case SITHPLAYERMOVE_RAFT_PADDLE_FORWARD_LEFT:
+        case SITHPLAYERMOVE_RAFT_PADDLE_FORWARD_RIGHT:
+        case SITHPLAYERMOVE_RAFT_TURN_LEFT:
+        case SITHPLAYERMOVE_RAFT_TURN_RIGHT:
+        case SITHPLAYERMOVE_RAFT_PADDLE_BACK_LEFT:
+        case SITHPLAYERMOVE_RAFT_PADDLE_BACK_RIGHT:
+        case SITHPLAYERMOVE_RAFT_STARTPADDLE_LEFT:
+        case SITHPLAYERMOVE_RAFT_ENDPADDLE_LEFT:
+        case SITHPLAYERMOVE_RAFT_ENDPADDLE_RIGHT:
+        case SITHPLAYERMOVE_RAFT_STARTPADDLE_RIGHT:
+        case SITHPLAYERMOVE_RAFT_PADDLERIGHT_STARTPADDLE_LEFT:
+        case SITHPLAYERMOVE_RAFT_PADDLELEFT_STARTPADDLE_RIGHT:
+        case SITHPLAYERMOVE_RAFT_DOCKING:
+        case SITHPLAYERMOVE_MINECAR_BOARDING:
+        case SITHPLAYERMOVE_MINECAR_UNBOARDING_LEFT:
+        case SITHPLAYERMOVE_MINECAR_UNBOARDING_RIGHT:
+        case SITHPLAYERMOVE_MINECAR_DUCKING:
+        case SITHPLAYERMOVE_MINECAR_DUCKED:
+        case SITHPLAYERMOVE_MINECAR_GETTING_UP:
+        case SITHPLAYERMOVE_JEEP_BOARDING:
+        case SITHPLAYERMOVE_RAFT_BOARDING:
+        case SITHPLAYERMOVE_RAFT_UNBOARDING_LEFT:
+        case SITHPLAYERMOVE_RAFT_UNBOARDING_RIGHT:
+        case SITHPLAYERMOVE_RAFT_UNBOARD_START:
+        case SITHPLAYERMOVE_JEEP_UNBOARDING:
             return true;
 
         default:
@@ -132,24 +146,23 @@ static bool sithModernControls_IsRelativeStatus(SithThingMoveStatus moveStatus)
     }
 }
 
-static SithModernControlMode sithModernControls_GetMode(const SithThing* pPlayer)
+SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer)
 {
-    if ( pPlayer->thingInfo.actorInfo.bForceMovePlay )
+    if ( !pPlayer )
     {
         return SITHMODERNCONTROL_MODE_NONE;
     }
 
-    if ( sithModernControls_IsJumpOrSlideStatus(pPlayer->moveStatus) )
+    if ( pPlayer->thingInfo.actorInfo.bForceMovePlay
+        || sithModernControls_IsNoneStatus(pPlayer->moveStatus) )
     {
         return SITHMODERNCONTROL_MODE_NONE;
     }
 
-    if ( sithModernControls_IsCameraRelativeStatus(pPlayer->moveStatus) )
-    {
-        return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
-    }
-
-    if ( sithModernControls_IsRelativeStatus(pPlayer->moveStatus) )
+    // Added: the original tank-style states, plus any status while a vehicle is boarded, keep
+    // the original camera and stick-relative movement.
+    if ( sithModernControls_IsOriginalCameraStatus(pPlayer->moveStatus)
+        || sithPlayerControls_GetVehicleBoardedThing() != NULL )
     {
         return SITHMODERNCONTROL_MODE_RELATIVE;
     }
@@ -159,13 +172,14 @@ static SithModernControlMode sithModernControls_GetMode(const SithThing* pPlayer
         return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
     }
 
-    // Added: an unrecognized state with no floor under the player keeps the real keys.
+    // Added: everything else on a floor is camera-relative. An unrecognized airborne state
+    // keeps the real keys; the free camera stays anchored for it too.
     if ( pPlayer->attach.flags == 0 )
     {
         return SITHMODERNCONTROL_MODE_NONE;
     }
 
-    return SITHMODERNCONTROL_MODE_RELATIVE;
+    return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
 }
 
 static void sithModernControls_ApplyMovementKey(SithControlFunction functionId, const SithModernKey* pKey)
@@ -316,7 +330,15 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 
     float playerYaw = sithModernControls_GetYaw(&pPlayer->orient);
     float cameraYaw = playerYaw;
-    if ( sithCamera_g_pCurCamera )
+
+    // Added: the free camera's orbit yaw is authoritative while it is active; the camera
+    // orientation lags behind by the interpolation. Fall back to the orientation only when the
+    // original camera owns the view.
+    if ( sithModernCamera_IsActive(sithCamera_g_pCurCamera, pPlayer) )
+    {
+        cameraYaw = sithModernCamera_GetYaw();
+    }
+    else if ( sithCamera_g_pCurCamera )
     {
         cameraYaw = sithModernControls_GetYaw(&sithCamera_g_pCurCamera->orient);
     }

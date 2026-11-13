@@ -10,10 +10,12 @@
 #include <sith/Engine/sithCamera.h>
 #include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Main/sithMain.h>
 
 #include <std/General/stdControl.h>
 #include <std/General/stdKeys.h>
+#include <std/General/stdUtil.h>
 #include <std/Null/stdControlNull.h>
 
 TEST_GROUP(sithModernControls);
@@ -23,6 +25,7 @@ static size_t sithModernControlsTest_assertCount;
 
 static SithThing sithModernControlsTest_player;
 static SithCamera sithModernControlsTest_camera;
+static SithSector sithModernControlsTest_sector;
 
 static int J3DAPI sithModernControlsTest_Print(const char* pFormat, ...)
 {
@@ -56,6 +59,8 @@ static void sithModernControlsTest_ReadKey(int keyId, int keyDown)
 
 static void sithModernControlsTest_ResetWorld(void)
 {
+    memset(&sithModernControlsTest_sector, 0, sizeof(sithModernControlsTest_sector));
+
     memset(&sithModernControlsTest_player, 0, sizeof(sithModernControlsTest_player));
     sithModernControlsTest_player.type       = SITH_THING_PLAYER;
     sithModernControlsTest_player.moveType   = SITH_MT_PHYSICS;
@@ -68,6 +73,7 @@ static void sithModernControlsTest_ResetWorld(void)
 
     sithPlayer_g_pLocalPlayerThing = &sithModernControlsTest_player;
     sithCamera_g_pCurCamera        = &sithModernControlsTest_camera;
+    sithPlayerControls_SetVehicleBoardedThing(NULL);
 }
 
 static SithModernOutput sithModernControlsTest_Compute(float x, float y, float cameraYaw,
@@ -84,6 +90,13 @@ static SithModernOutput sithModernControlsTest_Compute(float x, float y, float c
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
     return out;
+}
+
+static SithModernControlMode sithModernControlsTest_ModeForStatus(SithThingMoveStatus moveStatus)
+{
+    sithModernControlsTest_player.moveStatus  = moveStatus;
+    sithModernControlsTest_player.attach.flags = SITH_ATTACH_SURFACE;
+    return sithModernControls_GetMode(&sithModernControlsTest_player);
 }
 
 TEST_SETUP(sithModernControls)
@@ -147,6 +160,7 @@ TEST_TEAR_DOWN(sithModernControls)
 
     sithPlayer_g_pLocalPlayerThing = NULL;
     sithCamera_g_pCurCamera        = NULL;
+    sithPlayerControls_SetVehicleBoardedThing(NULL);
 
     sith_g_pHS = NULL;
     std_g_pHS  = NULL;
@@ -364,6 +378,225 @@ TEST(sithModernControls, UpdateAppliesStickDeadzone)
 }
 #endif
 
+TEST(sithModernControls, ClassifierKeepsOriginalCameraStatesRelative)
+{
+    static const SithThingMoveStatus aRelative[] =
+    {
+        SITHPLAYERMOVE_HANGING,
+
+        SITHPLAYERMOVE_CLIMBIDLE,
+        SITHPLAYERMOVE_MOUNTING_WALL,
+        SITHPLAYERMOVE_CLIMBING_UP,
+        SITHPLAYERMOVE_CLIMBING_DOWN,
+        SITHPLAYERMOVE_CLIMBING_LEFT,
+        SITHPLAYERMOVE_CLIMBING_RIGHT,
+        SITHPLAYERMOVE_PULLINGUP,
+        SITHPLAYERMOVE_PULLINGUP_1M,
+        SITHPLAYERMOVE_CLIMB_DOWN_TO_MOUNT,
+        SITHPLAYERMOVE_CLIMB_TO_HANG,
+
+        SITHPLAYERMOVE_PUSHING,
+        SITHPLAYERMOVE_PULLING,
+        SITHPLAYERMOVE_PUSHPULL_READY,
+
+        SITHPLAYERMOVE_WHIPSWINGING,
+        SITHPLAYERMOVE_WHIPCLIMBIDLE,
+        SITHPLAYERMOVE_WHIPCLIMB_START,
+        SITHPLAYERMOVE_WHIP_UNK2,
+
+        SITHPLAYERMOVE_JEWELFLYING,
+        SITHPLAYERMOVE_JEWELFLYING_UNKN1,
+        SITHPLAYERMOVE_JEWELFLYING_UNKN2,
+
+        SITHPLAYERMOVE_JEEP_IMPACT,
+        SITHPLAYERMOVE_MINECAR_IDLE,
+        SITHPLAYERMOVE_MINECAR_BOARDING,
+        SITHPLAYERMOVE_MINECAR_UNBOARDING_LEFT,
+        SITHPLAYERMOVE_MINECAR_UNBOARDING_RIGHT,
+        SITHPLAYERMOVE_MINECAR_DUCKING,
+        SITHPLAYERMOVE_MINECAR_DUCKED,
+        SITHPLAYERMOVE_MINECAR_GETTING_UP,
+        SITHPLAYERMOVE_JEEP_IDLE,
+        SITHPLAYERMOVE_JEEP_BOARDING,
+        SITHPLAYERMOVE_JEEP_UNBOARDING,
+        SITHPLAYERMOVE_RAFT_IDLE,
+        SITHPLAYERMOVE_RAFT_PADDLE_FORWARD_LEFT,
+        SITHPLAYERMOVE_RAFT_PADDLE_FORWARD_RIGHT,
+        SITHPLAYERMOVE_RAFT_TURN_LEFT,
+        SITHPLAYERMOVE_RAFT_TURN_RIGHT,
+        SITHPLAYERMOVE_RAFT_PADDLE_BACK_LEFT,
+        SITHPLAYERMOVE_RAFT_PADDLE_BACK_RIGHT,
+        SITHPLAYERMOVE_RAFT_STARTPADDLE_LEFT,
+        SITHPLAYERMOVE_RAFT_ENDPADDLE_LEFT,
+        SITHPLAYERMOVE_RAFT_ENDPADDLE_RIGHT,
+        SITHPLAYERMOVE_RAFT_STARTPADDLE_RIGHT,
+        SITHPLAYERMOVE_RAFT_PADDLERIGHT_STARTPADDLE_LEFT,
+        SITHPLAYERMOVE_RAFT_PADDLELEFT_STARTPADDLE_RIGHT,
+        SITHPLAYERMOVE_RAFT_DOCKING,
+        SITHPLAYERMOVE_RAFT_BOARDING,
+        SITHPLAYERMOVE_RAFT_UNBOARDING_LEFT,
+        SITHPLAYERMOVE_RAFT_UNBOARDING_RIGHT,
+        SITHPLAYERMOVE_RAFT_UNBOARD_START,
+
+        SITHPLAYERMOVE_SLIDING,
+        SITHPLAYERMOVE_SLIDEDOWNFORWARD,
+        SITHPLAYERMOVE_SLIDEDOWNBACK,
+    };
+
+    for ( size_t i = 0; i < STD_ARRAYLEN(aRelative); ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_RELATIVE,
+            sithModernControlsTest_ModeForStatus(aRelative[i]));
+    }
+
+    // A boarded vehicle keeps the original camera and stick-relative movement in every status.
+    sithModernControlsTest_player.moveStatus  = SITHPLAYERMOVE_STILL;
+    sithModernControlsTest_player.attach.flags = SITH_ATTACH_SURFACE;
+    sithPlayerControls_SetVehicleBoardedThing(&sithModernControlsTest_player);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_RELATIVE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+    sithPlayerControls_SetVehicleBoardedThing(NULL);
+}
+
+TEST(sithModernControls, ClassifierLeavesJumpAndForcedStatesToRealKeys)
+{
+    static const SithThingMoveStatus aNone[] =
+    {
+        SITHPLAYERMOVE_JUMPFWD,
+        SITHPLAYERMOVE_JUMPUP,
+        SITHPLAYERMOVE_JUMP_READY,
+        SITHPLAYERMOVE_JUMPROLLFWD,
+        SITHPLAYERMOVE_JUMPROLLBACK,
+        SITHPLAYERMOVE_JUMPLEFT,
+        SITHPLAYERMOVE_JUMPRIGHT,
+        SITHPLAYERMOVE_JUMPBACK,
+        SITHPLAYERMOVE_LEAPFWD,
+        SITHPLAYERMOVE_FALLING,
+        SITHPLAYERMOVE_LAND,
+        SITHPLAYERMOVE_KNOCKEDOUT,
+    };
+
+    for ( size_t i = 0; i < STD_ARRAYLEN(aNone); ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_NONE,
+            sithModernControlsTest_ModeForStatus(aNone[i]));
+    }
+
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_STILL;
+    sithModernControlsTest_player.attach.flags = SITH_ATTACH_SURFACE;
+    sithModernControlsTest_player.thingInfo.actorInfo.bForceMovePlay = 1;
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_NONE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+    sithModernControlsTest_player.thingInfo.actorInfo.bForceMovePlay = 0;
+}
+
+TEST(sithModernControls, ClassifierMakesTransitionsAndUnknownsCameraRelative)
+{
+    static const SithThingMoveStatus aCameraRelative[] =
+    {
+        SITHPLAYERMOVE_STILL,
+        SITHPLAYERMOVE_WALKING,
+        SITHPLAYERMOVE_RUNNING,
+        SITHPLAYERMOVE_CRAWLIDLE,
+        SITHPLAYERMOVE_SWIMIDLE,
+
+        SITHPLAYERMOVE_UNKNOWN_4,
+        SITHPLAYERMOVE_UNKNOWN_5,
+        SITHPLAYERMOVE_UNKNOWN_21,
+        SITHPLAYERMOVE_UNKNOWN_46,
+        SITHPLAYERMOVE_UNKNOWN_60,
+        SITHPLAYERMOVE_UNKNOWN_63,
+        SITHPLAYERMOVE_UNKNOWN_78,
+        SITHPLAYERMOVE_UNKNOWN_80,
+        SITHPLAYERMOVE_UNKNOWN_81,
+        SITHPLAYERMOVE_UNKNOWN_82,
+        SITHPLAYERMOVE_UNKNOWN_83,
+        SITHPLAYERMOVE_UNKNOWN_84,
+        SITHPLAYERMOVE_UNKNOWN_86,
+
+        SITHPLAYERMOVE_ROLLING_LEFT,
+        SITHPLAYERMOVE_ROLLING_RIGHT,
+        SITHPLAYERMOVE_STRAFING_LEFT,
+        SITHPLAYERMOVE_STRAFING_RIGHT,
+        SITHPLAYERMOVE_ACTIVATING,
+        SITHPLAYERMOVE_STAND_TO_CRAWL,
+        SITHPLAYERMOVE_CRAWL_TO_STAND,
+
+        SITHPLAYERMOVE_TURNING_LEFT,
+        SITHPLAYERMOVE_TURNING_RIGHT,
+        SITHPLAYERMOVE_WALK2STAND,
+        SITHPLAYERMOVE_STAND2WALK,
+        SITHPLAYERMOVE_STAND2RUN,
+
+        SITHPLAYERMOVE_TURNING_LEFT_45_DEGREES,
+        SITHPLAYERMOVE_TURNING_RIGHT_45_DEGREES,
+        SITHPLAYERMOVE_TURNING_LEFT_90_DEGREES,
+        SITHPLAYERMOVE_TURNING_RIGHT_90_DEGREES,
+        SITHPLAYERMOVE_TURNING_LEFT_135_DEGREES,
+        SITHPLAYERMOVE_TURNING_RIGHT_135_DEGREES,
+        SITHPLAYERMOVE_TURNING_180_DEGREES,
+        SITHPLAYERMOVE_RUNOVER,
+    };
+
+    for ( size_t i = 0; i < STD_ARRAYLEN(aCameraRelative); ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE,
+            sithModernControlsTest_ModeForStatus(aCameraRelative[i]));
+    }
+}
+
+TEST(sithModernControls, ClassifierUsesWaterAndFloorFallback)
+{
+    sithModernControlsTest_player.moveStatus  = SITHPLAYERMOVE_UNKNOWN_46;
+    sithModernControlsTest_player.attach.flags = 0;
+    sithModernControlsTest_player.pInSector    = &sithModernControlsTest_sector;
+
+    sithModernControlsTest_sector.flags = SITH_SECTOR_UNDERWATER;
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+
+    sithModernControlsTest_sector.flags = SITH_SECTOR_AETHERIUM;
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+
+    // Airborne and not swimming keeps the real keys.
+    sithModernControlsTest_sector.flags = 0;
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_NONE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+}
+
+TEST(sithModernControls, ComputeStickLeftConvergesWithAnchoredCamera)
+{
+    const float cameraYaw = 30.0f;
+    const float step      = 10.0f;
+    float playerYaw       = cameraYaw;
+    bool bForward         = false;
+    int steps             = 0;
+
+    for ( ; steps < 60; ++steps )
+    {
+        SithModernOutput out = sithModernControlsTest_Compute(-1.0f, 0.0f, cameraYaw,
+            playerYaw, SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
+
+        if ( out.forward.bPressed )
+        {
+            bForward = true;
+        }
+
+        if ( !out.turnLeft.bPressed && !out.turnRight.bPressed )
+        {
+            break;
+        }
+
+        TEST_ASSERT_TRUE(out.turnLeft.bPressed || out.turnRight.bPressed);
+        playerYaw += out.turnLeft.bPressed ? step : -step;
+    }
+
+    TEST_ASSERT_TRUE(bForward);
+    TEST_ASSERT_TRUE(steps < 60);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, cameraYaw + 90.0f, playerYaw);
+}
+
 TEST_GROUP_RUNNER(sithModernControls)
 {
     RUN_TEST_CASE(sithModernControls, ComputeCameraBehindPressingUpMovesForward);
@@ -374,6 +607,11 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, ComputeWalkAndRunFromMagnitude);
     RUN_TEST_CASE(sithModernControls, ComputeRelativeModeMapsAxesLikeClassic);
     RUN_TEST_CASE(sithModernControls, ComputeNoneSetsNothing);
+    RUN_TEST_CASE(sithModernControls, ClassifierKeepsOriginalCameraStatesRelative);
+    RUN_TEST_CASE(sithModernControls, ClassifierLeavesJumpAndForcedStatesToRealKeys);
+    RUN_TEST_CASE(sithModernControls, ClassifierMakesTransitionsAndUnknownsCameraRelative);
+    RUN_TEST_CASE(sithModernControls, ClassifierUsesWaterAndFloorFallback);
+    RUN_TEST_CASE(sithModernControls, ComputeStickLeftConvergesWithAnchoredCamera);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesRealKeysWhenClassic);

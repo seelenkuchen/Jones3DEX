@@ -197,20 +197,72 @@ TEST(sithModernCamera, TestActiveRequiresModernPlayerExternalAndFreeState)
 #endif
 }
 
-TEST(sithModernCamera, TestMoveStatusClassifiesCameraRelativeStates)
+TEST(sithModernCamera, TestActiveAnchorsTransitionsAndNoneStates)
 {
-    TEST_ASSERT_TRUE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_STILL));
-    TEST_ASSERT_TRUE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_WALKING));
-    TEST_ASSERT_TRUE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_RUNNING));
-    TEST_ASSERT_TRUE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_CRAWLIDLE));
-    TEST_ASSERT_TRUE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_SWIMIDLE));
+    static const SithThingMoveStatus aTransition[] =
+    {
+        SITHPLAYERMOVE_STAND2WALK,
+        SITHPLAYERMOVE_TURNING_LEFT,
+        SITHPLAYERMOVE_TURNING_RIGHT,
+        SITHPLAYERMOVE_WALK2STAND,
+        SITHPLAYERMOVE_STAND2RUN,
+        SITHPLAYERMOVE_UNKNOWN_78,
+        SITHPLAYERMOVE_UNKNOWN_80,
+        SITHPLAYERMOVE_UNKNOWN_81,
+        SITHPLAYERMOVE_UNKNOWN_82,
+        SITHPLAYERMOVE_UNKNOWN_83,
+        SITHPLAYERMOVE_UNKNOWN_84,
+        SITHPLAYERMOVE_ACTIVATING,
+        SITHPLAYERMOVE_STAND_TO_CRAWL,
+        SITHPLAYERMOVE_CRAWL_TO_STAND,
+        SITHPLAYERMOVE_ROLLING_LEFT,
+        SITHPLAYERMOVE_ROLLING_RIGHT,
+        SITHPLAYERMOVE_STRAFING_LEFT,
+        SITHPLAYERMOVE_STRAFING_RIGHT,
+    };
 
-    TEST_ASSERT_FALSE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_HANGING));
-    TEST_ASSERT_FALSE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_PUSHING));
-    TEST_ASSERT_FALSE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_CLIMBING_UP));
-    TEST_ASSERT_FALSE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_SLIDEDOWNFORWARD));
-    TEST_ASSERT_FALSE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_JUMPFWD));
-    TEST_ASSERT_FALSE(sithModernCamera_IsCameraRelativeMoveStatus(SITHPLAYERMOVE_JEEP_IDLE));
+    static const SithThingMoveStatus aNone[] =
+    {
+        SITHPLAYERMOVE_JUMPFWD,
+        SITHPLAYERMOVE_FALLING,
+        SITHPLAYERMOVE_LAND,
+        SITHPLAYERMOVE_KNOCKEDOUT,
+    };
+
+    static const SithThingMoveStatus aRelative[] =
+    {
+        SITHPLAYERMOVE_HANGING,
+        SITHPLAYERMOVE_CLIMBING_UP,
+        SITHPLAYERMOVE_SLIDEDOWNFORWARD,
+        SITHPLAYERMOVE_JEEP_IDLE,
+    };
+
+    sithModernCameraTest_player.attach.flags = SITH_ATTACH_SURFACE;
+
+    for ( size_t i = 0; i < STD_ARRAYLEN(aTransition); ++i )
+    {
+        sithModernCameraTest_player.moveStatus = aTransition[i];
+        TEST_ASSERT_TRUE(sithModernCamera_IsActive(&sithModernCameraTest_camera, &sithModernCameraTest_player));
+    }
+
+    // None states keep the free camera anchored too; only the explicit original-camera set
+    // releases it back to the original camera.
+    for ( size_t i = 0; i < STD_ARRAYLEN(aNone); ++i )
+    {
+        sithModernCameraTest_player.moveStatus = aNone[i];
+        TEST_ASSERT_TRUE(sithModernCamera_IsActive(&sithModernCameraTest_camera, &sithModernCameraTest_player));
+    }
+
+    for ( size_t i = 0; i < STD_ARRAYLEN(aRelative); ++i )
+    {
+        sithModernCameraTest_player.moveStatus = aRelative[i];
+        TEST_ASSERT_FALSE(sithModernCamera_IsActive(&sithModernCameraTest_camera, &sithModernCameraTest_player));
+    }
+
+    sithModernCameraTest_player.moveStatus = SITHPLAYERMOVE_STILL;
+    sithModernCameraTest_player.thingInfo.actorInfo.bForceMovePlay = 1;
+    TEST_ASSERT_TRUE(sithModernCamera_IsActive(&sithModernCameraTest_camera, &sithModernCameraTest_player));
+    sithModernCameraTest_player.thingInfo.actorInfo.bForceMovePlay = 0;
 }
 
 TEST(sithModernCamera, TestNonFreeStateSyncsYaw)
@@ -237,6 +289,6 @@ TEST_GROUP_RUNNER(sithModernCamera)
     RUN_TEST_CASE(sithModernCamera, TestSnapTakesShortestYawPath);
     RUN_TEST_CASE(sithModernCamera, TestExternalOffsetOrbitsWithYawAndPitch);
     RUN_TEST_CASE(sithModernCamera, TestActiveRequiresModernPlayerExternalAndFreeState);
-    RUN_TEST_CASE(sithModernCamera, TestMoveStatusClassifiesCameraRelativeStates);
+    RUN_TEST_CASE(sithModernCamera, TestActiveAnchorsTransitionsAndNoneStates);
     RUN_TEST_CASE(sithModernCamera, TestNonFreeStateSyncsYaw);
 }

@@ -5,6 +5,7 @@
 
 #include <sith/Devices/sithControl.h>
 #include <sith/Engine/sithCamera.h>
+#include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 
@@ -111,22 +112,6 @@ void J3DAPI sithModernCamera_SetYawPitch(float yaw, float pitch)
     sithModernCamera_snapTime     = 0.0f;
 }
 
-bool J3DAPI sithModernCamera_IsCameraRelativeMoveStatus(SithThingMoveStatus moveStatus)
-{
-    switch ( moveStatus )
-    {
-        case SITHPLAYERMOVE_STILL:
-        case SITHPLAYERMOVE_WALKING:
-        case SITHPLAYERMOVE_RUNNING:
-        case SITHPLAYERMOVE_CRAWLIDLE:
-        case SITHPLAYERMOVE_SWIMIDLE:
-            return true;
-
-        default:
-            return false;
-    }
-}
-
 bool J3DAPI sithModernCamera_IsPlayerExternalCamera(const SithCamera* pCamera, const SithThing* pFocus)
 {
     if ( !pCamera || !pFocus )
@@ -164,7 +149,9 @@ bool J3DAPI sithModernCamera_IsActive(const SithCamera* pCamera, const SithThing
         return false;
     }
 
-    return sithModernCamera_IsCameraRelativeMoveStatus(pFocus->moveStatus);
+    // Added: the free camera stays anchored in camera-relative and None states. Only the
+    // original-camera set lets the original camera follow Indy.
+    return sithModernControls_GetMode(pFocus) != SITHMODERNCONTROL_MODE_RELATIVE;
 }
 
 void J3DAPI sithModernCamera_Advance(float stickX, float stickY, float mouseX, float mouseY, float secDeltaTime)

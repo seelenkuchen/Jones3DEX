@@ -41,6 +41,11 @@ typedef struct sSithModernOutput
     SithModernKey run;
 } SithModernOutput;
 
+// Added: the one classifier shared by movement and the free camera. Relative is the original
+// tank-style set (climbing, pushing, vehicles, slides); None leaves the real keys alone; every
+// other state on a floor or in water is camera-relative.
+SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer);
+
 // Added: the pure decision. It computes the original movement keys from a move vector, the
 // camera and player yaws and a mode, without touching the control system or a world.
 void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOutput* pOut);

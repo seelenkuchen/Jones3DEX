@@ -24,10 +24,10 @@ float J3DAPI sithModernCamera_GetPitch(void);
 void J3DAPI sithModernCamera_SetYawPitch(float yaw, float pitch);
 
 // Added: true while the camera is the current player external camera and no cutscene or COG
-// camera owns it. IsActive additionally requires a camera-relative move status.
+// camera owns it. IsActive also requires a move state that is not part of the original-camera
+// set, so the free camera anchors through camera-relative transitions and None states.
 bool J3DAPI sithModernCamera_IsPlayerExternalCamera(const SithCamera* pCamera, const SithThing* pFocus);
 bool J3DAPI sithModernCamera_IsActive(const SithCamera* pCamera, const SithThing* pFocus);
-bool J3DAPI sithModernCamera_IsCameraRelativeMoveStatus(SithThingMoveStatus moveStatus);
 
 // Added: integrate one frame of orbit input. Stick values are -1..1 with Y positive down; mouse
 // values are the existing SITHCONTROL_MOUSETURN/SITHCONTROL_PITCH axes. The snap, when running,
