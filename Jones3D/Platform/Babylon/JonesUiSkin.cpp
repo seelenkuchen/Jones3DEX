@@ -1,7 +1,7 @@
-// Added: the first Jones3D skin for babylon::ui (ADR-0026); see JonesUiSkin.h. The colors are the
-// HUD's menu palette: a dark panel, a gold border, a warm yellow title and the red selection bar of
-// the item menu. The row and title heights follow the registered font's line height so every label
-// fits its row.
+// Added: the Jones3D skins for babylon::ui (ADR-0026, ADR-0028); see JonesUiSkin.h. Every screen
+// that does not set its own skin gets the centered, boxless table of the end screens: a Cinzel
+// title, Jost rows and a translucent dark backdrop. The row and title heights follow the registered
+// fonts' line heights so every label fits its row.
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
 namespace
@@ -12,59 +12,13 @@ namespace
     constexpr float kTitlePadding       = 14.0f;
 }
 
-babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
-    const babylon::ui::Painter* pPainter, babylon::ui::FontId promptFont)
+babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId titleFont,
+    babylon::ui::FontId rowFont, const babylon::ui::Painter* pPainter,
+    babylon::ui::FontId promptFont)
 {
-    babylon::ui::Skin skin;
-
-    skin.panel        = babylon::ui::Color{ 0.05f, 0.06f, 0.09f, 1.0f };
-    skin.panelImage   = 0;
-    skin.panelBorder  = babylon::ui::Color{ 0.72f, 0.62f, 0.30f, 1.0f };
-    skin.borderWidth  = 2.0f;
-
-    skin.title        = babylon::ui::Color{ 1.0f, 0.85f, 0.15f, 1.0f };
-    skin.titleFont    = menuFont;
-
-    skin.text         = babylon::ui::Color{ 0.93f, 0.93f, 0.88f, 1.0f };
-    skin.textFocused  = babylon::ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-    skin.textDisabled = babylon::ui::Color{ 0.45f, 0.45f, 0.42f, 1.0f };
-    skin.textFont     = menuFont;
-    skin.promptFont   = promptFont;
-
-    skin.highlight           = babylon::ui::Color{ 0.42f, 0.12f, 0.06f, 1.0f };
-    skin.highlightUnfocused  = babylon::ui::Color{ 0.18f, 0.20f, 0.30f, 1.0f };
-    skin.dim                 = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.55f };
-
-    skin.rowSpacing   = 2.0f;
-    skin.panelPadding = 12.0f;
-    skin.minPanelWidth = 240.0f;
-    skin.canvasMargin = 16.0f;
-
-    // The font's line height at the point size the painter draws it, so a row always fits its
-    // label. Without a font the defaults keep the old layout; rebuilding the skin after the font
-    // is registered picks up its metrics.
-    float lineHeight = 0.0f;
-    if ( pPainter && menuFont != 0 )
-    {
-        lineHeight = pPainter->measureText(menuFont, "").height;
-    }
-
-    if ( lineHeight > 0.0f )
-    {
-        skin.rowHeight   = lineHeight + kRowPadding;
-        skin.titleHeight = lineHeight + kTitlePadding;
-    }
-    else
-    {
-        skin.rowHeight   = kDefaultRowHeight;
-        skin.titleHeight = kDefaultTitleHeight;
-    }
-
-    // Added: the HUD item menu's own cues (JonesUiSkin.h).
-    skin.focusSound  = kJonesUiSoundCueFocus;
-    skin.acceptSound = kJonesUiSoundCueAccept;
-    skin.backSound   = kJonesUiSoundCueBack;
-    return skin;
+    // The default is the end screens' table skin, so a screen that sets no skin of its own matches
+    // the styled screens (ADR-0028).
+    return JonesUiSkin_CreateEndScreen(titleFont, rowFont, pPainter, promptFont);
 }
 
 babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
@@ -187,7 +141,8 @@ babylon::ui::Skin JonesUiSkin_CreateOptions(babylon::ui::FontId tabFont,
 }
 
 babylon::ui::Skin JonesUiSkin_CreateEndScreen(babylon::ui::FontId titleFont,
-    babylon::ui::FontId rowFont, const babylon::ui::Painter* pPainter)
+    babylon::ui::FontId rowFont, const babylon::ui::Painter* pPainter,
+    babylon::ui::FontId promptFont)
 {
     babylon::ui::Skin skin;
 
@@ -208,11 +163,13 @@ babylon::ui::Skin JonesUiSkin_CreateEndScreen(babylon::ui::FontId titleFont,
     skin.textShadow       = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.85f };
     skin.textShadowOffset = 1.5f;
     skin.textFont         = rowFont;
+    skin.promptFont       = promptFont;
     skin.rowAlign         = babylon::ui::TextAlign::Left;
 
-    // No highlight box; the bullet marks the focused row.
+    // No highlight box; the bullet marks the focused row. A list that does not have focus keeps a
+    // very faint fill so the selected row (the save a Load would open) stays visible.
     skin.highlight          = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
-    skin.highlightUnfocused = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlightUnfocused = babylon::ui::Color{ 1.0f, 1.0f, 1.0f, 0.12f };
     skin.dim                = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.55f };
 
     skin.focusMarker   = "\xE2\x80\xA2"; // U+2022 BULLET

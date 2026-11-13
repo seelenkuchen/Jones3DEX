@@ -337,11 +337,14 @@ namespace
 TEST_CASE("the end screens share a centered table skin with a Cinzel title and Jost rows")
 {
     ui::NullPainter painter;
-    const ui::Skin skin = JonesUiSkin_CreateEndScreen(3, 4, &painter);
+    const ui::Skin skin = JonesUiSkin_CreateEndScreen(3, 4, &painter, 6);
 
     CHECK(skin.placement == ui::PanelPlacement::Center);
     CHECK(skin.titleFont == 3);
     CHECK(skin.textFont == 4);
+    CHECK(skin.promptFont == 6);
+    CHECK(skin.highlightUnfocused.a > 0.0f);
+    CHECK(skin.highlightUnfocused.a <= 0.15f);
     CHECK(skin.panel.a > 0.0f);
     CHECK(skin.panel.a < 1.0f);
     CHECK(skin.borderWidth == 0.0f);

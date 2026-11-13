@@ -23,6 +23,13 @@ namespace
     constexpr const char* kJonesUiFontFile = "mat\\jonesComic Sans MS14.gcf";
     constexpr float kJonesUiFontSize = 16.0f;
 
+    // Added: the default skin's Cinzel title and Jost rows (ADR-0028), at the same sizes as the
+    // end screens and the Options screen.
+    constexpr const char* kJonesUiTitleFontFile = "fonts/Cinzel[wght].ttf";
+    constexpr float kJonesUiTitleFontSize = 22.0f;
+    constexpr const char* kJonesUiRowFontFile = "fonts/Jost[wght].ttf";
+    constexpr float kJonesUiRowFontSize = 16.0f;
+
     // Added: the prompt bar's Jost and the five Xelu icon sets (ADR-0028, ADR-0031).
     constexpr const char* kJonesUiPromptFontFile = "fonts/Jost[wght].ttf";
     constexpr float kJonesUiPromptFontSize = 14.0f;
@@ -154,10 +161,33 @@ JonesUiContext* JonesUiContext_Acquire()
         return nullptr;
     }
 
+    // Added: the default skin's fonts; a missing file keeps the shared rdFont, so the default skin
+    // still starts and only looks like the old HUD skin.
+    babylon::ui::FontId titleFont = pState->font;
+    babylon::ui::FontId rowFont   = pState->font;
+
     // Added: the prompt bar's font and icons. Without a file system the labels still draw in the
     // menu font, so a missing asset never blocks a screen.
     if ( pContext->pFileSystem )
     {
+        titleFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
+            kJonesUiTitleFontFile, kJonesUiTitleFontSize);
+        if ( titleFont == 0 )
+        {
+            STDLOG_WARNING("JonesUiContext: '%s' unavailable, the default skin uses the rdFont.\n",
+                kJonesUiTitleFontFile);
+            titleFont = pState->font;
+        }
+
+        rowFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
+            kJonesUiRowFontFile, kJonesUiRowFontSize);
+        if ( rowFont == 0 )
+        {
+            STDLOG_WARNING("JonesUiContext: '%s' unavailable, the default skin uses the rdFont.\n",
+                kJonesUiRowFontFile);
+            rowFont = pState->font;
+        }
+
         pState->promptFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
             kJonesUiPromptFontFile, kJonesUiPromptFontSize);
         if ( pState->promptFont == 0 )
@@ -183,7 +213,7 @@ JonesUiContext* JonesUiContext_Acquire()
     }
 
     pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
-    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font, &pState->painter,
+    if ( !pState->pUi->setSkin(JonesUiSkin_Create(titleFont, rowFont, &pState->painter,
             pState->promptFont)) )
     {
         return nullptr;

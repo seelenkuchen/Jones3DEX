@@ -136,7 +136,8 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 {
     const Screen menu = BuildMainMenuScreen(bCanLoad);
 
-    // The skin to restore when the menu closes; the nested Options screen manages its own.
+    // The context default to restore when the menu closes, and the skin its nested Load screen
+    // runs on; the nested Options screen manages its own.
     const Skin settingsSkin = ui.skin();
     if ( pMenuSkin )
     {
@@ -171,8 +172,51 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
                 return true;
             }
 
+            // Added: a screen opened from the menu (the Load list and its warnings) uses the
+            // context's default skin and the darkened menu background, like Options. The menu's
+            // own skin and background come back when it closes.
+            const bool bMenuSkin = pMenuSkin != nullptr;
+            if ( bMenuSkin )
+            {
+                static_cast<void>(uiRef.setSkin(settingsSkin));
+            }
+
+            JonesUiContext* pActive = JonesUiContext_GetActive();
+            const bool bDarken = pActive != nullptr && pActive->bModalBackgroundStarted;
+            JonesUiModalBackground savedBackground;
+            if ( bDarken )
+            {
+                savedBackground = pActive->modalBackground;
+                const babylon::ui::Color dim = settingsSkin.dim;
+                const std::function<void()> overlay = savedBackground.overlay;
+                pActive->modalBackground.overlay = [pPainter, dim, overlay, &uiRef]()
+                {
+                    if ( overlay )
+                    {
+                        overlay();
+                    }
+                    if ( pPainter )
+                    {
+                        const babylon::ui::Size canvas = uiRef.canvasSize();
+                        pPainter->fillRect(babylon::ui::Rect{ 0.0f, 0.0f, canvas.width,
+                            canvas.height }, dim);
+                    }
+                };
+            }
+
             char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-            if ( pOutLoadPath && load(aPath) )
+            const bool bLoaded = pOutLoadPath && load(aPath);
+
+            if ( bDarken )
+            {
+                pActive->modalBackground = savedBackground;
+            }
+            if ( bMenuSkin )
+            {
+                static_cast<void>(uiRef.setSkin(*pMenuSkin));
+            }
+
+            if ( bLoaded )
             {
                 std::snprintf(pOutLoadPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", aPath);
                 static_cast<void>(uiRef.pop(action));

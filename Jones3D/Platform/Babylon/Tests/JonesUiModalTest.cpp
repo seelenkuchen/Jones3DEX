@@ -202,7 +202,7 @@ TEST_CASE("the modal loop maps OK and back")
 
 TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
 {
-    const ui::Skin skin = JonesUiSkin_Create(0, nullptr);
+    const ui::Skin skin = JonesUiSkin_Create(0, 0, nullptr);
 
     // Focus is slot 2 (inv_move.wav); accepting and going back are slot 3 (inv_expand.wav), the
     // sounds the HUD item menu plays when it opens, selects and closes.
@@ -215,6 +215,31 @@ TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
     // With no font the default metrics are kept.
     CHECK(skin.rowHeight == 24.0f);
     CHECK(skin.titleHeight == 32.0f);
+    // ADR-0028: the default is the centered, boxless end-screen table, not the old gold-bordered
+    // HUD box with the red focus bar.
+    CHECK(skin.placement == ui::PanelPlacement::Center);
+    CHECK(skin.borderWidth == 0.0f);
+    CHECK(skin.panelBorder.a == 0.0f);
+    CHECK(skin.panel.a > 0.0f);
+    CHECK(skin.panel.a < 1.0f);
+    CHECK(skin.highlight.a == 0.0f);
+    CHECK(skin.highlightUnfocused.a > 0.0f);
+    CHECK(skin.highlightUnfocused.a <= 0.15f);
+    CHECK(skin.focusMarker == "\xE2\x80\xA2");
+    CHECK(skin.textShadow.a > 0.0f);
+    CHECK(skin.textShadowOffset > 0.0f);
+}
+
+TEST_CASE("the default skin uses the given Cinzel and Jost ids and the prompt font")
+{
+    const ui::Skin skin = JonesUiSkin_Create(3, 4, nullptr, 5);
+
+    CHECK(skin.titleFont == 3);
+    CHECK(skin.textFont == 4);
+    CHECK(skin.promptFont == 5);
+    CHECK(skin.title.a > 0.0f);
+    CHECK(skin.text.a > 0.0f);
+    CHECK(skin.textFocused == ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
@@ -224,7 +249,7 @@ TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
 
     ui::Screen screen;
     screen.title   = "Cues";
@@ -344,7 +369,7 @@ TEST_CASE("the modal loop sets Select and Back for a plain menu")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
 
     ui::Screen screen;
     screen.title   = "Plain";
@@ -381,7 +406,7 @@ TEST_CASE("the modal loop adds Change for a focused Choice row")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
 
     ui::Screen screen;
     screen.title   = "Choice";
@@ -420,7 +445,7 @@ TEST_CASE("the modal loop adds Tabs for a tabbed screen")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
 
     ui::Screen screen;
     screen.title   = "Tabbed";
@@ -457,7 +482,7 @@ TEST_CASE("the modal loop omits Back when the screen has no back result")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
 
     ui::Screen screen;
     screen.title   = "No Back";
