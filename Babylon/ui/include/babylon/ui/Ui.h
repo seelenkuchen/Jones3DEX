@@ -104,9 +104,10 @@ namespace babylon::ui
         // Replaces the copied look and sound. Returns false and changes
         // nothing, with one log warning, for a skin whose rowHeight is not
         // positive, titleHeight is negative, rowSpacing, panelPadding,
-        // minPanelWidth, canvasMargin, borderWidth or markerSpacing is
-        // negative. May be called at any time; a pushed screen keeps its
-        // state and is laid out with the new metrics on the next draw.
+        // minPanelWidth, canvasMargin, topMargin, borderWidth or
+        // markerSpacing is negative, or fixedPanelWidth is outside 0..1.
+        // May be called at any time; a pushed screen keeps its state and is
+        // laid out with the new metrics on the next draw.
         [[nodiscard]] bool setSkin(const Skin& skin);
 
         // The current skin. The reference is valid until the next setSkin()

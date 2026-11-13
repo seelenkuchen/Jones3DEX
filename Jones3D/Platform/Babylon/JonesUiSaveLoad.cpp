@@ -472,7 +472,8 @@ babylon::ui::Image JonesUiSave_ThumbnailImage(babylon::ui::ImageId image)
         return babylon::ui::Image{ 0, babylon::ui::Size{}, babylon::ui::TextAlign::Center };
     }
 
-    return babylon::ui::Image{ image, kJonesThumbnailSize, babylon::ui::TextAlign::Center };
+    // Inside the row column, flush with the list rows below it (ADR-0028).
+    return babylon::ui::Image{ image, kJonesThumbnailSize, babylon::ui::TextAlign::Left };
 }
 
 std::string JonesUiSave_SanitizeName(const char* pName)

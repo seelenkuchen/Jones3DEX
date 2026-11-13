@@ -546,7 +546,7 @@ TEST_CASE("Load from the main menu uses the default skin and restores the menu s
     // The Load list ran on the context default (Cinzel/Jost ids), not on the menu's list skin.
     CHECK(skinDuringLoad.titleFont == 3);
     CHECK(skinDuringLoad.textFont == 4);
-    CHECK(skinDuringLoad.placement == ui::PanelPlacement::Center);
+    CHECK(skinDuringLoad.placement == ui::PanelPlacement::Top);
 
     // After the menu closes the skin it was opened on is back.
     CHECK(ui.skin().titleFont == 3);
