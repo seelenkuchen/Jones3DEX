@@ -34,6 +34,15 @@ namespace babylon::platform
         // pollEvent() hands back a copy of the event.
         void pushEvent(const Event& event);
 
+        // The type connectGamepad() reports. Tests set it to model pads of
+        // different families without building the event themselves.
+        void setGamepadType(GamepadType type);
+        GamepadType gamepadType() const;
+
+        // Appends a GamepadConnected event for gamepad with the configured
+        // type. A test then feeds button and axis events for the same id.
+        void connectGamepad(GamepadId gamepad);
+
         // There is no native window system here, so the title and text go to
         // one babylon::log::warning line and nothing blocks.
         [[nodiscard]] bool showMessageBox(std::string_view title,
@@ -63,6 +72,7 @@ namespace babylon::platform
         WindowId m_nextId = 1;
         std::deque<Event> m_events;
         std::optional<RumbleCall> m_lastRumble;
+        GamepadType m_gamepadType = GamepadType::Unknown;
     };
 
 }

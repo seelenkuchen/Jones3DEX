@@ -16,6 +16,26 @@
 namespace babylon::input
 {
 
+    // The device class that produced the most recent input. Keyboard
+    // includes the mouse: both share one prompt set.
+    enum class DeviceClass : std::uint8_t
+    {
+        KeyboardMouse,
+        Gamepad
+    };
+
+    // The last device the player used, as the last input event reported it.
+    // A gamepad keeps the family of the pad that produced the event; a
+    // keyboard or mouse event leaves that family as it was. Unknown is the
+    // initial state and the family of a pad a backend could not identify.
+    struct LastDevice
+    {
+        DeviceClass device = DeviceClass::KeyboardMouse;
+        platform::GamepadType gamepadType = platform::GamepadType::Unknown;
+
+        bool operator==(const LastDevice&) const = default;
+    };
+
     // The input a game reads during one frame. Feed every platform event
     // through apply(), and call beginFrame() once at the start of each
     // frame, before applying that frame's events.
@@ -58,6 +78,13 @@ namespace babylon::input
         bool gamepadButtonDown(platform::GamepadId gamepad, platform::GamepadButton button) const;
         float gamepadAxis(platform::GamepadId gamepad, platform::GamepadAxis axis) const;   // 0 for unknown pads
 
+        // The device class of the most recent input, with the family of the
+        // pad that produced it when that was a gamepad. Keys, mouse buttons
+        // and a significant mouse move select the keyboard and mouse; a
+        // gamepad button or a stick past the dead zone selects that pad.
+        // Connecting a pad changes nothing until the player uses it.
+        LastDevice lastDevice() const;
+
     private:
         // One key or mouse button: the current state plus the transitions
         // of this frame. A key pressed and released within one frame ends up
@@ -97,6 +124,12 @@ namespace babylon::input
         // Position of the pad in m_gamepads, or kNoGamepad.
         std::size_t indexOfGamepad(platform::GamepadId gamepad) const;
 
+        // Records the device class of the most recent input. A gamepad
+        // selects its own family; the keyboard and mouse leave the family
+        // as it was.
+        void useKeyboardMouse();
+        void useGamepad(std::size_t index);
+
         // Indexed by the enums; entry 0 of m_keys is Key::Unknown, which
         // is never set. Keys and buttons outside their tables are ignored.
         std::array<ButtonState, static_cast<std::size_t>(platform::Key::Count)> m_keys = {};
@@ -110,9 +143,12 @@ namespace babylon::input
         float m_wheelX = 0.0f;
         float m_wheelY = 0.0f;
 
-        // m_gamepadStates mirrors m_gamepads entry for entry.
+        // m_gamepadStates and m_gamepadTypes mirror m_gamepads entry for entry.
         std::vector<platform::GamepadId> m_gamepads;
         std::vector<GamepadState> m_gamepadStates;
+        std::vector<platform::GamepadType> m_gamepadTypes;
+
+        LastDevice m_lastDevice;
     };
 
 }

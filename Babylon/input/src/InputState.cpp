@@ -6,6 +6,7 @@
 #include <babylon/input/InputState.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <variant>
 
@@ -24,6 +25,13 @@ namespace
 
     template <typename... Functions>
     Overloaded(Functions...) -> Overloaded<Functions...>;
+
+    // A stick past this magnitude counts as the player using the pad, the
+    // same dead zone the ui uses for focus. A mouse move smaller than this,
+    // in either axis, is noise from a resting mouse and keeps the last
+    // device as it was.
+    constexpr float kDeviceAxisThreshold = 0.5f;
+    constexpr float kDeviceMouseMotion = 1.0f;
 
 }
 
@@ -50,6 +58,7 @@ namespace
         std::visit(Overloaded {
             [this](const platform::KeyChanged& changed)
             {
+                useKeyboardMouse();
                 // Unknown carries no state, and repeats never change it.
                 const std::size_t index = static_cast<std::size_t>(changed.key);
                 if ( changed.repeat || changed.key == platform::Key::Unknown
@@ -61,6 +70,7 @@ namespace
             },
             [this](const platform::MouseButtonChanged& changed)
             {
+                useKeyboardMouse();
                 const std::size_t index = static_cast<std::size_t>(changed.button);
                 if ( index >= m_mouseButtons.size() )
                 {
@@ -70,6 +80,11 @@ namespace
             },
             [this](const platform::MouseMoved& moved)
             {
+                if ( std::abs(moved.dx) >= kDeviceMouseMotion
+                    || std::abs(moved.dy) >= kDeviceMouseMotion )
+                {
+                    useKeyboardMouse();
+                }
                 m_mouseX = moved.x;
                 m_mouseY = moved.y;
                 m_mouseDeltaX += moved.dx;
@@ -89,6 +104,7 @@ namespace
                 }
                 m_gamepads.push_back(connected.gamepad);
                 m_gamepadStates.push_back(GamepadState{});
+                m_gamepadTypes.push_back(connected.type);
             },
             [this](const platform::GamepadDisconnected& disconnected)
             {
@@ -99,6 +115,7 @@ namespace
                 }
                 m_gamepads.erase(m_gamepads.begin() + static_cast<std::ptrdiff_t>(index));
                 m_gamepadStates.erase(m_gamepadStates.begin() + static_cast<std::ptrdiff_t>(index));
+                m_gamepadTypes.erase(m_gamepadTypes.begin() + static_cast<std::ptrdiff_t>(index));
             },
             [this](const platform::GamepadButtonChanged& changed)
             {
@@ -109,6 +126,7 @@ namespace
                     return;
                 }
                 m_gamepadStates[pad].buttons[button] = changed.down;
+                useGamepad(pad);
             },
             [this](const platform::GamepadAxisMoved& moved)
             {
@@ -119,6 +137,10 @@ namespace
                     return;
                 }
                 m_gamepadStates[pad].axes[axis] = moved.value;
+                if ( std::abs(moved.value) >= kDeviceAxisThreshold )
+                {
+                    useGamepad(pad);
+                }
             },
             // Losing the focus releases what is held, so nothing sticks
             // while another window has the keyboard.
@@ -229,6 +251,26 @@ namespace
             return 0.0f;
         }
         return m_gamepadStates[pad].axes[index];
+    }
+
+    LastDevice InputState::lastDevice() const
+    {
+        return m_lastDevice;
+    }
+
+    void InputState::useKeyboardMouse()
+    {
+        m_lastDevice.device = DeviceClass::KeyboardMouse;
+    }
+
+    void InputState::useGamepad(std::size_t index)
+    {
+        if ( index >= m_gamepadTypes.size() )
+        {
+            return;
+        }
+        m_lastDevice.device = DeviceClass::Gamepad;
+        m_lastDevice.gamepadType = m_gamepadTypes[index];
     }
 
     void InputState::applyPress(ButtonState& state, bool down)

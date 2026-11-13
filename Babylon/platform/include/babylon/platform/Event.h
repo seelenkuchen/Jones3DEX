@@ -22,6 +22,19 @@ namespace babylon::platform
     // gamepad, so it means "no gamepad" in an event.
     using GamepadId = std::uint32_t;
 
+    // The family a gamepad belongs to, as the operating system reports it.
+    // It selects the button labels and prompts a game shows; Unknown pads
+    // are treated as Xbox by the game. A backend that cannot tell the family
+    // leaves it Unknown.
+    enum class GamepadType : std::uint8_t
+    {
+        Unknown,
+        Xbox,
+        PlayStation,
+        Nintendo,
+        SteamDeck
+    };
+
     // A size in pixels. A window only ever has positive dimensions; see
     // isValidWindowSize().
     struct Size
@@ -113,10 +126,12 @@ namespace babylon::platform
     };
 
     // A gamepad was plugged in; its id is valid from this event on, and
-    // button and axis events carry it.
+    // button and axis events carry it. type is the family the backend
+    // reported, or Unknown when it could not tell.
     struct GamepadConnected
     {
         GamepadId gamepad;
+        GamepadType type = GamepadType::Unknown;
     };
 
     // A gamepad was unplugged; its id is not reused.

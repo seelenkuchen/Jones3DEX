@@ -5,6 +5,7 @@
 #include <Jones3D/Main/jonesString.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
+#include <babylon/files/FileSystem.h>
 #include <babylon/ui/Skin.h>
 
 #include <std/Babylon/stdBabylon.h>
@@ -13,6 +14,7 @@
 #include <std/General/stdDisplay.h>
 
 #include <cstring>
+#include <string>
 
 namespace
 {
@@ -20,6 +22,52 @@ namespace
     // the HUD exists, so the context loads its own instance.
     constexpr const char* kJonesUiFontFile = "mat\\jonesComic Sans MS14.gcf";
     constexpr float kJonesUiFontSize = 16.0f;
+
+    // Added: the prompt bar's Jost and the five Xelu icon sets (ADR-0028, ADR-0031).
+    constexpr const char* kJonesUiPromptFontFile = "fonts/Jost[wght].ttf";
+    constexpr float kJonesUiPromptFontSize = 14.0f;
+
+    // Loads one icon file; a missing or broken file returns 0, which draws the label alone.
+    babylon::ui::ImageId LoadPromptIcon(JonesUiPainter& painter,
+        babylon::files::FileSystem& files, const char* pRelativePath)
+    {
+        return painter.registerPngImageFile(files, pRelativePath);
+    }
+
+    // Loads the icons of one device set. A pad set has one D-pad icon for both Change
+    // directions, so changeRight stays 0. The sets are loaded once with the context, so the
+    // prompt bar never touches the file system while a screen runs.
+    JonesUiPromptIcons LoadPromptIcons(JonesUiPainter& painter,
+        babylon::files::FileSystem& files, const char* pSet,
+        const char* pAccept, const char* pBack, const char* pTabsLeft,
+        const char* pTabsRight, const char* pChange)
+    {
+        JonesUiPromptIcons icons;
+        const std::string prefix = std::string("prompts/") + pSet + "/";
+        icons.accept = LoadPromptIcon(painter, files, (prefix + pAccept).c_str());
+        icons.back = LoadPromptIcon(painter, files, (prefix + pBack).c_str());
+        icons.tabsLeft = LoadPromptIcon(painter, files, (prefix + pTabsLeft).c_str());
+        icons.tabsRight = LoadPromptIcon(painter, files, (prefix + pTabsRight).c_str());
+        icons.changeLeft = LoadPromptIcon(painter, files, (prefix + pChange).c_str());
+        return icons;
+    }
+
+    // The keyboard set has a separate key for each Change direction; the pad sets use one D-pad
+    // icon for both.
+    JonesUiPromptIcons LoadKeyboardPromptIcons(JonesUiPainter& painter,
+        babylon::files::FileSystem& files)
+    {
+        JonesUiPromptIcons icons;
+        icons.accept = LoadPromptIcon(painter, files, "prompts/keyboard/Enter_Key_Dark.png");
+        icons.back = LoadPromptIcon(painter, files, "prompts/keyboard/Esc_Key_Dark.png");
+        icons.tabsLeft = LoadPromptIcon(painter, files, "prompts/keyboard/Q_Key_Dark.png");
+        icons.tabsRight = LoadPromptIcon(painter, files, "prompts/keyboard/E_Key_Dark.png");
+        icons.changeLeft = LoadPromptIcon(painter, files,
+            "prompts/keyboard/Arrow_Left_Key_Dark.png");
+        icons.changeRight = LoadPromptIcon(painter, files,
+            "prompts/keyboard/Arrow_Right_Key_Dark.png");
+        return icons;
+    }
 
     JonesUiContext* g_pContext = nullptr;
 
@@ -106,8 +154,37 @@ JonesUiContext* JonesUiContext_Acquire()
         return nullptr;
     }
 
+    // Added: the prompt bar's font and icons. Without a file system the labels still draw in the
+    // menu font, so a missing asset never blocks a screen.
+    if ( pContext->pFileSystem )
+    {
+        pState->promptFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
+            kJonesUiPromptFontFile, kJonesUiPromptFontSize);
+        if ( pState->promptFont == 0 )
+        {
+            STDLOG_WARNING("JonesUiContext: '%s' unavailable, prompts use the menu font.\n",
+                kJonesUiPromptFontFile);
+        }
+
+        pState->prompts.keyboard = LoadKeyboardPromptIcons(pState->painter,
+            *pContext->pFileSystem);
+        pState->prompts.xbox = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+            "xbox", "XboxSeriesX_A.png", "XboxSeriesX_B.png", "XboxSeriesX_LB.png",
+            "XboxSeriesX_RB.png", "XboxSeriesX_Dpad.png");
+        pState->prompts.playStation = LoadPromptIcons(pState->painter,
+            *pContext->pFileSystem, "ps5", "PS5_Cross.png", "PS5_Circle.png",
+            "PS5_L1.png", "PS5_R1.png", "PS5_Dpad.png");
+        pState->prompts.nintendo = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+            "switch", "Switch_B.png", "Switch_A.png", "Switch_LB.png", "Switch_RB.png",
+            "Switch_Dpad.png");
+        pState->prompts.steamDeck = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+            "steamdeck", "SteamDeck_A.png", "SteamDeck_B.png", "SteamDeck_L1.png",
+            "SteamDeck_R1.png", "SteamDeck_Dpad.png");
+    }
+
     pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
-    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font, &pState->painter)) )
+    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->font, &pState->painter,
+            pState->promptFont)) )
     {
         return nullptr;
     }

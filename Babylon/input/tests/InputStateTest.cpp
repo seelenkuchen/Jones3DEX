@@ -16,7 +16,9 @@
 
 namespace
 {
+    using babylon::input::DeviceClass;
     using babylon::input::InputState;
+    using babylon::input::LastDevice;
     using babylon::platform::Event;
     using babylon::platform::GamepadAxis;
     using babylon::platform::GamepadAxisMoved;
@@ -25,6 +27,7 @@ namespace
     using babylon::platform::GamepadConnected;
     using babylon::platform::GamepadDisconnected;
     using babylon::platform::GamepadId;
+    using babylon::platform::GamepadType;
     using babylon::platform::Key;
     using babylon::platform::KeyChanged;
     using babylon::platform::MouseButton;
@@ -248,6 +251,50 @@ TEST_CASE("Gamepad connect, state, disconnect and the connection order")
     state.apply(GamepadConnected{7});
     CHECK(state.gamepads() == std::vector<GamepadId>{2, 7});
     CHECK_FALSE(state.gamepadButtonDown(7, GamepadButton::South));
+}
+
+TEST_CASE("The last used device follows keys, the mouse and pads of two types")
+{
+    InputState state;
+
+    // The initial device is the keyboard and mouse with no pad family yet.
+    CHECK(state.lastDevice() == LastDevice{});
+
+    state.apply(GamepadConnected{1, GamepadType::Xbox});
+    state.apply(GamepadConnected{2, GamepadType::PlayStation});
+
+    // Connecting alone does not select the pad.
+    CHECK(state.lastDevice().device == DeviceClass::KeyboardMouse);
+    CHECK(state.lastDevice().gamepadType == GamepadType::Unknown);
+
+    // A tiny mouse move is noise; a real one selects the keyboard and mouse.
+    state.apply(GamepadButtonChanged{1, GamepadButton::South, true});
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::Gamepad, GamepadType::Xbox });
+
+    state.apply(MouseMoved{kWindow, 10.0f, 10.0f, 0.25f, -0.25f});
+    CHECK(state.lastDevice().device == DeviceClass::Gamepad);
+    state.apply(MouseMoved{kWindow, 20.0f, 20.0f, 1.0f, 0.0f});
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::KeyboardMouse, GamepadType::Xbox });
+
+    // A key or mouse button selects the same class and keeps the family.
+    state.apply(GamepadAxisMoved{2, GamepadAxis::LeftX, -0.9f});
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::Gamepad, GamepadType::PlayStation });
+    state.apply(keyEvent(Key::W, true));
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::KeyboardMouse,
+        GamepadType::PlayStation });
+
+    // A pad axis inside the dead zone does not select the pad; one past it
+    // does. A button release counts as using the pad, like its press.
+    state.apply(GamepadButtonChanged{1, GamepadButton::South, false});
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::Gamepad, GamepadType::Xbox });
+    state.apply(keyEvent(Key::W, false));
+    CHECK(state.lastDevice().device == DeviceClass::KeyboardMouse);
+    state.apply(GamepadAxisMoved{1, GamepadAxis::LeftX, 0.4f});
+    CHECK(state.lastDevice().device == DeviceClass::KeyboardMouse);
+    state.apply(GamepadAxisMoved{1, GamepadAxis::LeftX, 0.5f});
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::Gamepad, GamepadType::Xbox });
+    state.apply(GamepadDisconnected{1});
+    CHECK(state.lastDevice() == LastDevice{ DeviceClass::Gamepad, GamepadType::Xbox });
 }
 
 TEST_CASE("Window and quit events are ignored, and focus gained changes nothing")

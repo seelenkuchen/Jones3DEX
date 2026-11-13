@@ -34,13 +34,16 @@
 // are drawn at full brightness, not dimmed. image is registered with the same JonesUiPainter; the
 // caller keeps it alive while the context is held and releases it. draw, when set, runs once each frame inside the scene,
 // before the screen; it takes precedence over image. width and height are the image's pixel size.
-// With neither, the frozen-frame or clear behavior is kept.
+// With neither, the frozen-frame or clear behavior is kept. overlay, when set, runs after the
+// background and its dim layer, before the screen, so a menu can add a shade over the frozen game
+// frame.
 struct JonesUiModalBackground
 {
     babylon::ui::ImageId image = 0;
     float width = 0.0f;
     float height = 0.0f;
     std::function<void()> draw;
+    std::function<void()> overlay;
 };
 
 // Maps the result a screen closed with to the wrapper's original return value.
