@@ -210,7 +210,6 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `engine.renderer.litFaces.enabled` | bool | `true` | Presentation only, in every build and both profiles. On: world surfaces and models reach the renderer as lit faces, with view-space positions and normals (smoothed across level edges under 45 degrees), which fill the normal target for later per-pixel passes; the colour is the same as off. Off: the classic path, exactly as before (classic draws only). Sky, sprites, particles, polylines, shadows and the HUD are always classic. Read when the display opens. |
 | `engine.renderer.vfx.weapon.fireFlash.enabled` | bool | `true` | Default build value. Legacy/QOL-off builds use `false`. |
 | `engine.renderer.vfx.weapon.fireFlash.ambientThreshold` | float | `0.65` | Ambient-light threshold for projectile fire flash effects. |
-| `engine.physics.fixedTimestep` | float | `150.0` | QOL builds only. Expressed as FPS. |
 | `engine.world.static.materials.extraCapacity` | int | `32` | Extra buffer space for static world materials. |
 | `engine.world.cnd.materials.loadExternal` | bool | `true` | If enabled, the engine first tries to load a matching external material from `mat\\<name>` instead of using the material data embedded in the CND. Falls back to the CND copy if no external file is found or loading fails. |
 | `engine.world.cnd.keyframes.loadExternal` | bool | `true` | If enabled, the engine first tries to load a matching external keyframe from `3do\\key\\<name>` instead of using the keyframe data embedded in the CND. Falls back to the CND copy if no external file is found or loading fails. |
@@ -218,6 +217,8 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `engine.world.static.sprites.extraCapacity` | int | `128` | QOL builds only. Extra buffer space for static world sprites. |
 
 For these CND `*.loadExternal` options, `external` means loose files on disk that override the matching data packed into the world CND. This is mainly useful for modding, testing, or replacing materials and animation keyframes without rebuilding the CND itself.
+
+Player physics always runs at the original 50 Hz step. The obsolete `engine.physics.fixedTimestep` key is ignored if present.
 
 ## Audio options
 

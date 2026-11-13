@@ -75,7 +75,7 @@ against this codebase. This page records findings and their sources; decisions t
 
 - **Jones3D:** mostly variable step. `sithTime_Advance()` measures the frame time, clamped to 1 to 200 ms, and
   the world advances by it once per drawn frame. Only player physics runs in fixed slices: 50 per second in
-  retail, 150 by default with the QOL changes (`engine.physics.fixedTimestep`). See
+  every build, at the original 20 ms step. See
   [Frame-Loop-And-Simulation.md](../arc42/06-runtime/Frame-Loop-And-Simulation.md).
 - **Verdict:** not a presentation-only change as in Doom. A fixed world step changes the simulation, so it
   needs an option (on by default since 2026-11-04, off in the Retail profile, [ADR-0003](../arc42/09-decisions/ADR-0003-fidelity-split.md)), with the retail trace unchanged. Not part of M5; an M9 investigation of

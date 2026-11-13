@@ -206,7 +206,7 @@ Instead of integrating once at the frame delta, it:
 3. processes those slices one by one
 4. stores the remainder back into `physicsRolloverFrames`
 
-Originally this path was effectively tuned around a 50 Hz step. OpenJones3D keeps the fixed-step model, because player movement and gameplay response were authored around it, but under `J3D_QOL_IMPROVEMENTS` the default fixed-step rate becomes configurable and defaults to 150 Hz.
+Originally this path was effectively tuned around a 50 Hz step. OpenJones3D keeps the fixed-step model, because player movement and gameplay response were authored around it. A configurable-rate experiment was reverted, so the step stays at 50 Hz in every build.
 
 The architectural reason for keeping a fixed-step path is stability and gameplay determinism. The player controller is much more sensitive to frame-rate-dependent drift than generic detached objects.
 

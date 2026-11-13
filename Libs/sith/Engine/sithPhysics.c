@@ -41,15 +41,16 @@
 //
 // Physics constants
 //
-#define SITHPHYSICS_FIXED_FRAMERATE_UNCAP 150.0f
-#define SITHPHYSICS_FIXED_FRAMERATE_DFLT  50.0f
-#define SITHPHYSICS_FIXED_TIMESTEP_DFLT   (1.0f/SITHPHYSICS_FIXED_FRAMERATE_DFLT)
+#define SITHPHYSICS_FIXED_FRAMERATE_DFLT 50.0f
+#define SITHPHYSICS_FIXED_TIMESTEP_DFLT  (1.0f/SITHPHYSICS_FIXED_FRAMERATE_DFLT)
 
 #define SITHPHYSICS_CROUCH_THRUST_SCALE 0.80000001f
 
 // Added
-static float sithPhysics_fixedFramerate = SITHPHYSICS_FIXED_FRAMERATE_DFLT;
-static float sithPhysics_fixedTimestep  = SITHPHYSICS_FIXED_TIMESTEP_DFLT;
+// Altered: Fixed at the original 50 Hz step. Fall speed must not depend on the
+// step, and the ledge-grab checks rely on the original falling velocities.
+static const float sithPhysics_fixedFramerate = SITHPHYSICS_FIXED_FRAMERATE_DFLT;
+static const float sithPhysics_fixedTimestep  = SITHPHYSICS_FIXED_TIMESTEP_DFLT;
 
 //
 // MineCar fx vars
@@ -300,15 +301,6 @@ void sithPhysics_ResetGlobals(void)
 void J3DAPI sithPhysics_Startup(void)
 {
 #ifdef J3D_QOL_IMPROVEMENTS
-    // Fixed timestap
-    sithPhysics_fixedFramerate = stdConfig_GetFloat(SITHPHYSICS_CFG_PHYSICS_FIXEDTIMESTEP, SITHPHYSICS_FIXED_FRAMERATE_UNCAP);
-    sithPhysics_fixedTimestep  = 1.0f / sithPhysics_fixedFramerate;
-
-    if ( !stdConfig_Contains(SITHPHYSICS_CFG_PHYSICS_FIXEDTIMESTEP) )
-    {
-        stdConfig_SetFloat(SITHPHYSICS_CFG_PHYSICS_FIXEDTIMESTEP, SITHPHYSICS_FIXED_FRAMERATE_UNCAP);
-    }
-
     // Jeep exhaust
     sithPhysics_bJeepExhaust = true;
 

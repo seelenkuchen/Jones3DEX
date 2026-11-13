@@ -3,6 +3,7 @@ set(SITH_TEST_SOURCES
     sithGamesaveTest.c
     ../Cog/Tests/sithCogTest.c
     ../Engine/Tests/sithCameraTest.c
+    ../Engine/Tests/sithPhysicsTest.c
     ../World/Tests/sithTemplateTest.c
     ../World/Tests/sithThingTest.c
     ../World/Tests/sithVoiceTest.c
@@ -10,6 +11,7 @@ set(SITH_TEST_SOURCES
 
 set(SITH_TESTED_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../Cog/sithCog.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithPhysics.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithTemplate.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithThing.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithVoice.c"
@@ -19,6 +21,18 @@ set(SITH_TESTED_SOURCES
 set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Cog/sithCog.c" PROPERTY COMPILE_DEFINITIONS
     sithConsole_PrintString=sithCogTest_PrintString
 )
+
+# Observe the fixed integration step and the obsolete rate setting only in the
+# test build of sithPhysics.c; the sith library is built without these seams.
+if (MSVC)
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithPhysics.c" APPEND PROPERTY COMPILE_OPTIONS
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/../Engine/Tests/sithPhysicsTestSeams.h"
+    )
+else()
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithPhysics.c" APPEND PROPERTY COMPILE_OPTIONS
+        "-include" "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/Tests/sithPhysicsTestSeams.h"
+    )
+endif()
 
 set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithTemplate.c" PROPERTY COMPILE_DEFINITIONS
     rdThing_FreeEntry=sithThingTest_FreeRdThingEntry

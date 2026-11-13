@@ -32,3 +32,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0025](ADR-0025-babylon-render-interface.md) | Babylon render interface | Accepted |
 | [ADR-0026](ADR-0026-in-game-menus.md) | In-game menus replace the Win32 dialogs | Accepted |
 | [ADR-0027](ADR-0027-sound-completion-on-game-time.md) | Sound completion follows game time, not the audio device | Accepted |
+| [ADR-0030](ADR-0030-fixed-50hz-physics.md) | Physics always integrates at the original 50 Hz step | Accepted |
