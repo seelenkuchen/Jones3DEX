@@ -701,6 +701,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     sithOverlayMap_EnableMapRotation(0);
     sithSetGameDifficulty(0);
     sithControl_g_controlOptions = 0x04;
+    sithControl_SetModernControlStyle(true);
     JonesReticle_Enable(false);
     sithWeapon_EnableBloodSplatter(false);
 
@@ -716,9 +717,9 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
-    // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading, 10 fire flash,
-    // 11 external materials, 12 external keyframes, 13 OK, 14 back.
+    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 control style,
+    // 6 reticle, 7 blood, 8 profile (disabled), 9 profile note, 10 enhancements heading,
+    // 11 fire flash, 12 external materials, 13 external keyframes, 14 OK, 15 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -728,6 +729,10 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Right); // difficulty 0 -> 1
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // default to run on
+    testContext.platform.PushKey(platform::Key::Down);
+#ifdef J3D_QOL_IMPROVEMENTS
+    testContext.platform.PushKey(platform::Key::Right); // control style Modern -> Classic
+#endif
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // reticle on
     testContext.platform.PushKey(platform::Key::Down);
@@ -753,6 +758,15 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 1);
     CHECK((sithControl_g_controlOptions & 0x02) != 0);
     CHECK(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK_FALSE(sithControl_IsModernControlStyle());
+    char aControlStyle[16] = { 0 };
+    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aControlStyle,
+        sizeof(aControlStyle), ""));
+    CHECK(std::string(aControlStyle) == "classic");
+#else
+    CHECK_FALSE(sithControl_IsModernControlStyle());
+#endif
     CHECK(JonesReticle_IsEnabled());
     CHECK(sithWeapon_IsBloodSplatterEnabled());
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
@@ -772,6 +786,7 @@ TEST_CASE("the gameplay screen back writes nothing")
     sithOverlayMap_EnableMapRotation(0);
     sithSetGameDifficulty(0);
     sithControl_g_controlOptions = 0x04;
+    sithControl_SetModernControlStyle(true);
     JonesReticle_Enable(false);
     sithWeapon_EnableBloodSplatter(false);
 
@@ -804,6 +819,10 @@ TEST_CASE("the gameplay screen back writes nothing")
     CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 0);
     CHECK((sithControl_g_controlOptions & 0x02) == 0);
     CHECK_FALSE(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, true));
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(sithControl_IsModernControlStyle());
+#endif
+    CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
     CHECK_FALSE(JonesReticle_IsEnabled());
     CHECK_FALSE(sithWeapon_IsBloodSplatterEnabled());
     CHECK(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, false));
@@ -936,6 +955,27 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
     // ADR-0028: the Display tab drops the row, while the stored level is still read and written.
     CHECK_FALSE(bHasPerformance);
     CHECK(bHasPerformance == false);
+
+    // Added: the Gameplay tab has the Control style row with both values and help.
+    const babylon::ui::Screen gameplay = JonesUiOptions_BuildTabScreenForTest(0, data);
+    bool bHasControlStyle = false;
+    for ( std::size_t i = 0; i < gameplay.widgets.size(); ++i )
+    {
+        if ( const babylon::ui::Choice* choice =
+                std::get_if<babylon::ui::Choice>(&gameplay.widgets[i]) )
+        {
+            if ( choice->text == "Control style" )
+            {
+                bHasControlStyle = true;
+                REQUIRE(choice->options.size() == 2u);
+                CHECK(choice->options[0] == "Modern");
+                CHECK(choice->options[1] == "Classic");
+                REQUIRE(gameplay.help.size() == gameplay.widgets.size());
+                CHECK(!gameplay.help[i].empty());
+            }
+        }
+    }
+    CHECK(bHasControlStyle);
 }
 
 TEST_CASE("Q and E switch options tabs and keep a changed value")

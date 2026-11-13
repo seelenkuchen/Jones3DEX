@@ -48,6 +48,8 @@
   - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
     default in both profiles, is presentation only, and the Controls screen has a Rumble row
     (`engine.input.rumble`) to turn it off.
+  - The Gameplay tab has a Control style option (`engine.input.controlStyle`); Modern arrives in
+    the next updates.
   - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
     Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
     help column for the focused row, and the Display tab drops the Performance row while the stored
