@@ -5,11 +5,13 @@
 // here: jonesConfig_ResolveStartMode keeps their startMode unchanged.
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
 
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
+#include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
 #include <rdroid/Engine/rdMaterial.h>
@@ -24,6 +26,7 @@
 #include <std/Babylon/stdBabylon.h>
 
 #include <std/General/std.h>
+#include <std/General/stdDisplay.h>
 
 #include <babylon/ui/Screen.h>
 #include <babylon/ui/UiEvent.h>
@@ -45,6 +48,7 @@ namespace
     constexpr ActionId kLoadAction     = 2;
     constexpr ActionId kSettingsAction = 3;
     constexpr ActionId kQuitAction     = 4;
+    constexpr ActionId kContinueAction = 6;
 
     constexpr ActionId kGameplayAction = 10;
     constexpr ActionId kControlsAction = 11;
@@ -61,6 +65,7 @@ namespace
             case kNewGameAction:
                 return JONES_MAINMENU_NEWGAME;
 
+            case kContinueAction:
             case kLoadAction:
                 return JONES_MAINMENU_LOADGAME;
 
@@ -77,19 +82,41 @@ namespace
         return text == pKey ? std::string(pFallback) : text;
     }
 
+    // Uppercases the ASCII and Latin-1 letters the game's string table stores one byte each.
+    std::string Uppercase(std::string text)
+    {
+        for ( char& chr : text )
+        {
+            const unsigned char value = (unsigned char)chr;
+            if ( (value >= 'a' && value <= 'z')
+                || (value >= 0xE0 && value <= 0xFE && value != 0xF7) )
+            {
+                chr = (char)(value - 0x20);
+            }
+        }
+        return text;
+    }
+
     Screen BuildMainMenuScreen(bool bCanLoad)
     {
         Screen menu;
-        // No game key holds the game's full title or a plain "New Game".
-        menu.title = "Indiana Jones and the Infernal Machine"; // TODO: [COMPAT]
+        menu.title.clear();
+        if ( bCanLoad )
+        {
+            menu.widgets.emplace_back(Button{
+                Uppercase(MenuLabel("JONES_STR_CONTINUE", "Continue")),
+                kContinueAction, true }); // TODO: [COMPAT] no game key holds a plain "Continue"
+        }
         menu.widgets.emplace_back(Button{
-            "New Game", kNewGameAction, true }); // TODO: [COMPAT]
+            Uppercase(MenuLabel("JONES_STR_NEWGAME", "New Game")),
+            kNewGameAction, true }); // TODO: [COMPAT] no game key holds a plain "New Game"
         menu.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_LOADGM", "Load Game"), kLoadAction, bCanLoad });
+            Uppercase(MenuLabel("JONES_STR_LOADGM", "Load Game")), kLoadAction, bCanLoad });
         menu.widgets.emplace_back(Button{
-            "Settings", kSettingsAction, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
+            Uppercase(MenuLabel("JONES_STR_OPTIONS", "Options")),
+            kSettingsAction, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
         menu.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_QUIT", "Quit"), kQuitAction, true });
+            "EXIT GAME", kQuitAction, true }); // TODO: [COMPAT] no game key holds exactly "Exit Game"
         menu.backResult   = kQuitAction;
         menu.initialFocus = 0;
         return menu;
@@ -127,9 +154,16 @@ void JonesUiMainMenu_SetFinishedWallpaper(rdWallpaper* pWallpaper)
 
 JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const JonesUiModalBackground& background, bool bCanLoad, const JonesUiMainMenuHooks& hooks,
-    char* pOutLoadPath)
+    char* pOutLoadPath, const babylon::ui::Skin* pMenuSkin)
 {
     const Screen menu = BuildMainMenuScreen(bCanLoad);
+
+    // The nested Settings screen keeps the look the Ui had before the main menu skin was applied.
+    const Skin settingsSkin = ui.skin();
+    if ( pMenuSkin )
+    {
+        static_cast<void>(ui.setSkin(*pMenuSkin));
+    }
 
     // Runs the nested Settings screen and calls the matching hook for every settings button. Back
     // and Escape close it with kBackAction; the action's return value is ignored deliberately, so
@@ -189,24 +223,33 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 
         if ( pAction->action == kSettingsAction )
         {
+            // The Options screen is still the original Settings screen, with its own panel look.
+            static_cast<void>(uiRef.setSkin(settingsSkin));
             static_cast<void>(JonesUiModal_RunHandled(uiRef, pPainter, BuildSettingsScreen(),
                 [](ResultCode code) { return (int)code; }, settingsHandler, background));
+            if ( pMenuSkin )
+            {
+                static_cast<void>(uiRef.setSkin(*pMenuSkin));
+            }
             return true;
         }
 
-        if ( pAction->action == kLoadAction )
+        if ( pAction->action == kContinueAction || pAction->action == kLoadAction )
         {
-            if ( !hooks.loadGame )
+            const ActionId action = pAction->action;
+            const std::function<bool(char*)>& load = action == kContinueAction
+                ? hooks.continueGame : hooks.loadGame;
+            if ( !load )
             {
-                static_cast<void>(uiRef.pop(kLoadAction));
+                static_cast<void>(uiRef.pop(action));
                 return true;
             }
 
             char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
-            if ( pOutLoadPath && hooks.loadGame(aPath) )
+            if ( pOutLoadPath && load(aPath) )
             {
                 std::snprintf(pOutLoadPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", aPath);
-                static_cast<void>(uiRef.pop(kLoadAction));
+                static_cast<void>(uiRef.pop(action));
             }
             return true;
         }
@@ -224,8 +267,19 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
         return false; // Quit uses the loop's default pop with its action id
     };
 
+    JonesUiModalResizeHandler resizeHandler;
+    if ( hooks.resized )
+    {
+        resizeHandler = hooks.resized;
+    }
+
     const int result = JonesUiModal_RunHandled(ui, pPainter, menu, MapMainMenuResult,
-        menuHandler, background);
+        menuHandler, background, resizeHandler);
+
+    if ( pMenuSkin )
+    {
+        static_cast<void>(ui.setSkin(settingsSkin));
+    }
 
     if ( result == JONES_MAINMENU_NEWGAME )
     {
@@ -241,6 +295,11 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 }
 
 #ifdef J3D_TEST
+babylon::ui::Screen JonesUiMainMenu_BuildScreenForTest(bool bCanLoad)
+{
+    return BuildMainMenuScreen(bCanLoad);
+}
+
 void JonesUiMainMenu_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
 {
     screens.push_back(BuildMainMenuScreen(true));
@@ -313,8 +372,40 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         return JONES_MAINMENU_QUIT;
     }
 
+    // The HUD is opened after the main menu, so its menu sounds must be loaded here.
+    JonesHud_InitializeMenuSounds();
+
     const JonesLevelInfo& level = *JonesMain_GetMainMenuBackgroundLevel();
     JonesUiPainter& painter     = pUiContext->painter;
+    babylon::ui::Ui* pUi        = pUiContext->pUi.get();
+
+    // The main menu uses Cinzel at 22 canvas units. registerTtfFontFile() bakes it at the
+    // window's current pixel scale; the resize hook re-registers it when that scale changes.
+    constexpr const char* kMainMenuFontFile = "fonts/Cinzel[wght].ttf";
+    constexpr float kMainMenuFontSize       = 22.0f;
+
+    babylon::ui::FontId cinzel = painter.registerTtfFontFile(*pContext->pFileSystem,
+        kMainMenuFontFile, kMainMenuFontSize);
+    if ( cinzel == 0 )
+    {
+        // Missing or unusable Cinzel: keep the shared rdFont look and say so once.
+        STDLOG_WARNING("Main menu: '%s' unavailable, using the rdFont skin.\n",
+            kMainMenuFontFile);
+    }
+
+    babylon::ui::FontId menuFont = cinzel != 0 ? cinzel : pUiContext->font;
+    babylon::ui::Skin menuSkin   = JonesUiSkin_CreateMainMenu(menuFont, &painter);
+
+    float menuFontScale = 1.0f;
+    {
+        uint32_t width  = 0;
+        uint32_t height = 0;
+        stdDisplay_GetBackBufferSize(&width, &height);
+        if ( height )
+        {
+            menuFontScale = (float)height / 480.0f;
+        }
+    }
 
     // Load the level's load-screen wallpaper the way JonesDisplay_OpenLoadScreen does, and draw
     // all six tiles behind the panel every frame. The wallpaper stays alive until the menu closes.
@@ -325,11 +416,37 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         // Draw the same finished image the load screen leaves up before it closes.
         JonesUiMainMenu_SetFinishedWallpaper(pWallpaper);
 
-        background.draw = [pWallpaper]()
+        background.draw = [pWallpaper, &painter, pUi]()
         {
             rdWallpaper_Draw(pWallpaper);
             rdCache_Flush();
             rdCache_FlushAlpha();
+
+            // With no panel box, a soft quadratic shade in the lower-left corner keeps the text
+            // readable. Many small cells make the ramp look continuous; the alpha falls to 0 at
+            // the right and top ends, so no rectangle edge shows.
+            const babylon::ui::Size canvas = pUi->canvasSize();
+            constexpr int kColumns = 32;
+            constexpr int kRows    = 24;
+            const float width  = canvas.width * 0.45f;
+            const float height = canvas.height * 0.55f;
+            const float cellWidth  = width / (float)kColumns;
+            const float cellHeight = height / (float)kRows;
+            for ( int column = 0; column < kColumns; ++column )
+            {
+                const float u = (float)column / (float)(kColumns - 1);
+                const float horizontal = (1.0f - u) * (1.0f - u);
+                for ( int row = 0; row < kRows; ++row )
+                {
+                    const float v = (float)row / (float)(kRows - 1);
+                    const float vertical = (1.0f - v) * (1.0f - v);
+                    const babylon::ui::Color shade = {
+                        0.0f, 0.0f, 0.0f, 0.55f * horizontal * vertical };
+                    painter.fillRect(babylon::ui::Rect{ cellWidth * (float)column,
+                        canvas.height - cellHeight * (float)(row + 1),
+                        cellWidth, cellHeight }, shade);
+                }
+            }
         };
     }
 
@@ -354,6 +471,43 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         // The load dialog answers 1 on success and 2 on cancel; it writes only on success.
         return jonesConfig_GetLoadGameFilePath(NULL, pPath) == 1;
     };
+    hooks.continueGame = [&entries](char* pPath) -> bool
+    {
+        // The loader collects the save folder newest first; Continue takes the first entry and
+        // returns the same engine path the Load screen would.
+        if ( entries.empty() )
+        {
+            return false;
+        }
+
+        std::snprintf(pPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s",
+            entries.front().path.c_str());
+        return true;
+    };
+    hooks.resized = [&](int width, int height)
+    {
+        (void)width;
+        (void)height;
+        float scale = 1.0f;
+        if ( height > 0 )
+        {
+            scale = (float)height / 480.0f;
+        }
+        if ( scale == menuFontScale )
+        {
+            return;
+        }
+        menuFontScale = scale;
+
+        const babylon::ui::FontId newFont = painter.registerTtfFontFile(
+            *pContext->pFileSystem, kMainMenuFontFile, kMainMenuFontSize);
+        if ( newFont != 0 )
+        {
+            menuFont = newFont;
+            menuSkin = JonesUiSkin_CreateMainMenu(menuFont, &painter);
+            static_cast<void>(pUi->setSkin(menuSkin));
+        }
+    };
     hooks.gameplay = []()
     {
         static_cast<void>(jonesConfig_ShowGamePlayOptions(NULL));
@@ -374,7 +528,7 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     };
 
     const JonesUiMainMenuAction action = JonesUiMainMenu_Run(*pUiContext->pUi, &painter,
-        background, bCanLoad, hooks, pOutLoadPath);
+        background, bCanLoad, hooks, pOutLoadPath, &menuSkin);
 
     if ( hMenuMusic
         && (Sound_GetChannelFlags(hMenuMusic) & SOUND_CHANNEL_PLAYING) != 0 )

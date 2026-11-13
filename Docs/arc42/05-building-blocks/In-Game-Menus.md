@@ -79,5 +79,6 @@ Start stays unbound because the pause menu reads it directly. See
   as a fallback when the scheme binds none. The Controls screen makes those binds editable
   ([Control-And-Input.md](Control-And-Input.md#menu-and-pause-keys)).
 - Menus play the HUD item menu's own sounds through `sithSoundMixer`: `inv_move.wav` when focus
-  moves, and `inv_expand.wav` when a screen accepts or goes back. The HUD loads those sounds with
-  its menu, so the startup main menu, which runs before a world opens, is silent.
+  moves, and `inv_expand.wav` when a screen accepts or goes back. The startup main menu runs before
+  the static world opens, so `JonesHud_InitializeMenuSounds` loads those two files directly; the
+  later HUD open replaces the handles with the static bank's own.

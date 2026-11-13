@@ -1172,3 +1172,211 @@ TEST_CASE("gamepad axis repeats after the fixed delay")
     ui.update(0.11);
     CHECK(ui.focusedWidget() == 0);
 }
+
+TEST_CASE("panel placement is exact for the center and bottom-left layouts")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Skin skin;
+    skin.rowHeight = 20.0f;
+    skin.titleHeight = 0.0f;
+    skin.rowSpacing = 0.0f;
+    skin.panelPadding = 10.0f;
+    skin.minPanelWidth = 160.0f;
+    skin.canvasMargin = 8.0f;
+    skin.borderWidth = 0.0f;
+    skin.panel = Color{ 0.1f, 0.2f, 0.3f, 1.0f };
+    REQUIRE(ui.setSkin(skin));
+
+    Screen screen;
+    screen.widgets = { Button{ "Go", 1, true } };
+    REQUIRE(ui.setViewport(640, 480));
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    const auto panelRect = [&painter, &ui, &skin]() -> Rect
+    {
+        ui.draw();
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedFillRect* fill = std::get_if<RecordedFillRect>(&call) )
+            {
+                if ( fill->color == skin.panel )
+                {
+                    return fill->rect;
+                }
+            }
+        }
+        return Rect{};
+    };
+
+    // 640 x 480: the panel is 160 x 40; centered or in the lower left at margin * 4.
+    CHECK(panelRect() == Rect{ 240.0f, 220.0f, 160.0f, 40.0f });
+
+    Skin bottomLeft = skin;
+    bottomLeft.placement = PanelPlacement::BottomLeft;
+    REQUIRE(ui.setSkin(bottomLeft));
+    painter.clearRecorded();
+    CHECK(panelRect() == Rect{ 32.0f, 408.0f, 160.0f, 40.0f });
+
+    // 1280 x 720: the canvas is 853.33 wide, so the centered panel moves but the lower-left one
+    // keeps its distance from the left and bottom edges.
+    REQUIRE(ui.setViewport(1280, 720));
+    painter.clearRecorded();
+    const Rect wideBottomLeft = panelRect();
+    const float expectedX = 32.0f;
+    CHECK(wideBottomLeft.x == expectedX);
+    CHECK(wideBottomLeft.y == 408.0f);
+    CHECK(wideBottomLeft.width == 160.0f);
+    CHECK(wideBottomLeft.height == 40.0f);
+
+    Skin centered = skin;
+    REQUIRE(ui.setSkin(centered));
+    painter.clearRecorded();
+    const Rect wideCentered = panelRect();
+    CHECK(wideCentered.y == 220.0f);
+    CHECK(wideCentered.width == 160.0f);
+    CHECK(wideCentered.height == 40.0f);
+    CHECK(wideCentered.x > 300.0f);
+}
+
+TEST_CASE("the focus marker is drawn only on the focused row at a fixed x")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    Skin skin;
+    skin.rowHeight = 20.0f;
+    skin.titleHeight = 0.0f;
+    skin.rowSpacing = 0.0f;
+    skin.panelPadding = 0.0f;
+    skin.minPanelWidth = 0.0f;
+    skin.canvasMargin = 8.0f;
+    skin.borderWidth = 0.0f;
+    skin.panel = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.focusMarker = "*";
+    skin.markerSpacing = 4.0f;
+    REQUIRE(ui.setSkin(skin));
+
+    Screen screen;
+    screen.widgets = { Button{ "A", 1, true }, Button{ "B", 2, true } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    // One glyph is 8 canvas units, so every row's text starts 12 units in.
+    const float markerX = 310.0f; // panel is 20 wide, centered at (640 - 20) / 2
+    const float textX   = 322.0f;
+
+    const auto checkDraw = [&painter, &ui, markerX, textX](const char* firstRow)
+    {
+        ui.draw();
+        int markers = 0;
+        float markerDrawnX = 0.0f;
+        float firstTextX = 0.0f;
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text == "*" )
+                {
+                    ++markers;
+                    markerDrawnX = text->rect.x;
+                }
+                if ( text->text == firstRow )
+                {
+                    firstTextX = text->rect.x;
+                }
+            }
+        }
+        CHECK(markers == 1);
+        CHECK(markerDrawnX == markerX);
+        CHECK(firstTextX == textX);
+    };
+
+    checkDraw("A");
+
+    ui.handleEvent(platform::Event(keyEvent(platform::Key::Down, true)));
+    ui.handleEvent(platform::Event(keyEvent(platform::Key::Down, false)));
+    painter.clearRecorded();
+    checkDraw("B");
+}
+
+TEST_CASE("a transparent panel, border and highlight draw no fills")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    Skin skin;
+    skin.panel = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.panelBorder = Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    skin.borderWidth = 0.0f;
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlightUnfocused = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    REQUIRE(ui.setSkin(skin));
+
+    Screen screen;
+    screen.widgets = { Button{ "A", 1, true }, Button{ "B", 2, true } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+    ui.draw();
+
+    std::size_t fills = 0;
+    for ( const RecordedCall& call : painter.recorded() )
+    {
+        fills += std::get_if<RecordedFillRect>(&call) != nullptr ? 1u : 0u;
+    }
+    CHECK(fills == 0u);
+}
+
+TEST_CASE("row text draws a shadow only when textShadow has alpha")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    Skin skin;
+    skin.borderWidth = 0.0f;
+    skin.panel = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    REQUIRE(ui.setSkin(skin));
+
+    Screen screen;
+    screen.widgets = { Button{ "A", 1, true } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    const auto texts = [&painter](std::string_view value)
+    {
+        std::vector<const RecordedDrawText*> found;
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text == value )
+                {
+                    found.push_back(text);
+                }
+            }
+        }
+        return found;
+    };
+
+    ui.draw();
+    CHECK(texts("A").size() == 1u);
+
+    painter.clearRecorded();
+    skin.textShadow = Color{ 0.0f, 0.0f, 0.0f, 0.6f };
+    skin.textShadowOffset = 2.0f;
+    REQUIRE(ui.setSkin(skin));
+    ui.draw();
+
+    const std::vector<const RecordedDrawText*> shadowed = texts("A");
+    REQUIRE(shadowed.size() == 2u);
+    CHECK(shadowed[0]->color == skin.textShadow);
+    CHECK(shadowed[0]->rect.x == shadowed[1]->rect.x + 2.0f);
+    CHECK(shadowed[0]->rect.y == shadowed[1]->rect.y + 2.0f);
+}

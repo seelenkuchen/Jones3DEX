@@ -85,6 +85,12 @@ int JonesHud_ShowExitGame(void);
 
 void JonesHud_Process(void);
 
+// Added: loads the HUD item menu's sound effects and, when enabled, its music theme. Before the
+// static world exists it loads the two cues the main menu uses straight from their sound files;
+// after it exists it takes every handle from the static bank, so JonesHud_Open's later call
+// replaces the pre-world handles with the bank's own.
+void JonesHud_InitializeMenuSounds(void);
+
 // Added: play the HUD menu's own sound for a Babylon UI sound cue.
 // cueIdx is an index of JonesHud_aSoundFxIdxs (the ids in JonesUiSkin.h), and the call is the HUD
 // item menu's sithSoundMixer_PlaySound call. It does nothing when the HUD has not loaded the sounds
