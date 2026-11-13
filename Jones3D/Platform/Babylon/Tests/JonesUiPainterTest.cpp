@@ -640,7 +640,8 @@ TEST_CASE("the Jones painter draws a settings screen")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -789,7 +790,8 @@ TEST_CASE("the modal loop draws the message over the frozen frame")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -912,7 +914,8 @@ TEST_CASE("a nested modal reuses the outermost frozen background")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1056,7 +1059,8 @@ TEST_CASE("a nested modal reuses the outermost background callback")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1188,7 +1192,8 @@ TEST_CASE("a screen after another closes draws over the session background")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1294,7 +1299,8 @@ TEST_CASE("a modal frame clears the previous screen's panel from the background"
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1407,7 +1413,8 @@ TEST_CASE("the main menu draws the level map behind its panel")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1553,7 +1560,8 @@ TEST_CASE("the Jones save screen draws thumbnails and the save list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1665,7 +1673,8 @@ TEST_CASE("the Jones level completed screen draws its statistics")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1773,7 +1782,8 @@ TEST_CASE("the Jones store screen draws its item list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1892,7 +1902,8 @@ TEST_CASE("the Jones display screen draws the settings list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2026,7 +2037,8 @@ TEST_CASE("the Jones controls screen draws the action list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2106,7 +2118,8 @@ TEST_CASE("the scripted tour drives a modal screen by present count")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2240,7 +2253,7 @@ TEST_CASE("the painter draws labels taller than the old skin row")
     REQUIRE(lineHeight > 24.0f);
 
     // The old skin metrics, kept to prove the painter no longer drops a line that does not fit.
-    Skin oldSkin = JonesUiSkin_Create(tallFont, &painter);
+    Skin oldSkin = JonesUiSkin_Create(tallFont, tallFont, &painter);
     oldSkin.rowHeight   = 24.0f;
     oldSkin.titleHeight = 32.0f;
 
@@ -2291,7 +2304,7 @@ TEST_CASE("the painter draws labels taller than the old skin row")
     }
 
     // The new skin makes the rows tall enough for the font.
-    const Skin newSkin = JonesUiSkin_Create(tallFont, &painter);
+    const Skin newSkin = JonesUiSkin_Create(tallFont, tallFont, &painter);
     CHECK(newSkin.rowHeight >= lineHeight);
     CHECK(newSkin.titleHeight >= lineHeight);
 
@@ -2351,7 +2364,8 @@ TEST_CASE("the painter measures the width it draws")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 20.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2453,7 +2467,8 @@ TEST_CASE("the modal loop calls the background callback before the screen")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));

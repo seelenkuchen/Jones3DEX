@@ -512,6 +512,47 @@ TEST_CASE("Load returns the load-game action when a save is chosen")
     CHECK(ui.screenCount() == 0u);
 }
 
+TEST_CASE("Load from the main menu uses the default skin and restores the menu skin")
+{
+    MenuTestContext testContext;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // The context default the menu was opened on, and the menu's own list skin.
+    const ui::Skin defaultSkin = JonesUiSkin_Create(3, 4, &painter, 5);
+    REQUIRE(ui.setSkin(defaultSkin));
+    const ui::Skin menuSkin = JonesUiSkin_CreateMainMenu(9, &painter, 5);
+
+    bool loadCalled = false;
+    ui::Skin skinDuringLoad;
+    JonesUiMainMenuHooks hooks;
+    hooks.loadGame = [&](char* pOutPath)
+    {
+        loadCalled   = true;
+        skinDuringLoad = ui.skin();
+        std::snprintf(pOutPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s", "chosen.nds");
+        return true;
+    };
+    char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
+
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath,
+        &menuSkin) == JonesUiMainMenuAction::LoadGame);
+    REQUIRE(loadCalled);
+
+    // The Load list ran on the context default (Cinzel/Jost ids), not on the menu's list skin.
+    CHECK(skinDuringLoad.titleFont == 3);
+    CHECK(skinDuringLoad.textFont == 4);
+    CHECK(skinDuringLoad.placement == ui::PanelPlacement::Center);
+
+    // After the menu closes the skin it was opened on is back.
+    CHECK(ui.skin().titleFont == 3);
+    CHECK(ui.screenCount() == 0u);
+}
+
 TEST_CASE("a cancelled Load keeps the main menu open")
 {
     MenuTestContext testContext;

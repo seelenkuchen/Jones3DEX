@@ -48,16 +48,16 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
 
 ## Screenshots
 
-The new in-game menus, captured from the windowed Babylon build; the [full set](Docs/References/M7/README.md)
-has eleven screens.
+The redesigned menus (M7.6), captured from the windowed Babylon build; the [full set](Docs/References/M7.6/README.md)
+has ten screens, and the [M7 set](Docs/References/M7/README.md) shows the first version.
 
 | Main menu | Pause menu |
 |---|---|
-| ![Main menu](Docs/References/M7/main-menu.png) | ![Pause menu](Docs/References/M7/pause-menu.png) |
+| ![Main menu](Docs/References/M7.6/main-menu.png) | ![Pause menu](Docs/References/M7.6/pause-menu.png) |
 
-| Save game | Display options |
+| Options | Save game |
 |---|---|
-| ![Save game](Docs/References/M7/save-game.png) | ![Display options](Docs/References/M7/display-options.png) |
+| ![Options, Display tab](Docs/References/M7.6/options-display.png) | ![Save game](Docs/References/M7.6/save-game.png) |
 
 ## The Babylon Engine
 
