@@ -63,6 +63,8 @@
   - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
     Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
   - The main menu's Quit button and the in-game Exit now end the game, as closing the window does.
+    Quitting from the main menu exits with status 0 instead of reporting a startup failure.
+  - The quicksave text now hides after one second of game time in the windowed build.
   - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
   - The Controls screen rebinds keys and gamepad buttons: a scheme picker, one rebind list for keys
     and gamepad controls, and a reset to the defaults.

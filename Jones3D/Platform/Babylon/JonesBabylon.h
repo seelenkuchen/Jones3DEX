@@ -18,5 +18,10 @@ J3D_EXTERN_C_START
 // code. Call once.
 int JonesBabylon_Run(int argc, char** argv);
 
+// Added: maps a JonesMain_Startup result to the process exit code. A user quit from the main menu
+// reports JONESMAIN_STARTUP_USERQUIT and is a normal exit; every other nonzero result is a startup
+// failure. Implemented in Jones3D/Platform/Babylon/JonesBabylonMainSys.cpp.
+int JonesBabylon_StartupExitCode(int startupResult);
+
 J3D_EXTERN_C_END
 #endif // JONES3D_PLATFORM_BABYLON_JONESBABYLON_H

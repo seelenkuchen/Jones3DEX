@@ -19,6 +19,7 @@
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 #include <Jones3D/types.h>
 #include <sith/Dss/sithGamesave.h>
+#include <sith/Gameplay/sithTime.h>
 
 #include <std/General/stdFnames.h>
 #include <std/General/stdUtil.h>
@@ -27,11 +28,35 @@
 
 // JonesMainSys_*: the Win32 message services moved out of JonesMain.c.
 
+// Added: the quicksave text timer on game time. The Windows SetTimer counted wall-clock
+// milliseconds and its message called JonesMain_OnQuickSaveTextTimer; both columns here run their
+// HUD timers on the game clock, which pauses with the game, so the text hides after one second of
+// game time and stays up while the game is paused.
+static bool     JonesMainSys_bQuickSaveTimerRunning;
+static uint32_t JonesMainSys_msecQuickSaveTimerStart;
+
 void JonesMainSys_StartQuickSaveTimer(tSysWindow hWnd)
 {
     J3D_UNUSED(hWnd);
-    // Added: The Windows SetTimer quicksave-text timer; a headless render keeps nothing
-    // that shows on-screen, so there is nothing to schedule.
+    JonesMainSys_bQuickSaveTimerRunning  = true;
+    JonesMainSys_msecQuickSaveTimerStart = sithTime_g_msecGameTime;
+}
+
+bool JonesMainSys_TakeQuickSaveTimerExpired(void)
+{
+    if ( !JonesMainSys_bQuickSaveTimerRunning )
+    {
+        return false;
+    }
+
+    if ( (uint32_t)(sithTime_g_msecGameTime - JonesMainSys_msecQuickSaveTimerStart) < 1000 )
+    {
+        return false;
+    }
+
+    // Disarm so the per-frame check reports the expiry exactly once.
+    JonesMainSys_bQuickSaveTimerRunning = false;
+    return true;
 }
 
 void JonesMainSys_ShowWindow(tSysWindow hWnd)
@@ -110,14 +135,8 @@ bool JonesMainSys_CloseHandle(tSysHandle handle)
     return true;
 }
 
-int JonesMainSys_ShowFatalMessage(const char* pText, const char* pTitle, bool bIconStop)
-{
-    // Added: No message box: the text goes to stderr. Returns IDOK (1), the value the
-    // Windows MessageBox returns when its default OK button closes the box.
-    fprintf(stderr, "%s: %s%s\n", pTitle ? pTitle : "", pText ? pText : "",
-        bIconStop ? " [Fatal]" : "");
-    return 1;
-}
+// Altered: JonesMainSys_ShowFatalMessage moved to JonesPlatformNullMainSys.c so the Babylon
+// column can also show a platform message box.
 
 // JonesMain_ShowDevDialog: developer startup dialog (devMode only).
 
