@@ -151,13 +151,24 @@ namespace
         return &glyphs[(std::size_t)(it - codepoints.begin())];
     }
 
-    // The baked set covers printable ASCII and Latin-1. Text outside it falls back to '?', the
-    // same substitution rdFont makes, so measuring and drawing still agree.
+    // The baked set covers printable ASCII and Latin-1. A symbol the font lacks is first replaced
+    // with the fallback chosen when the font was registered, then with '?' when nothing matches,
+    // the same substitution rdFont makes, so measuring and drawing still agree.
     void normalizeCodepoints(const std::vector<char32_t>& baked,
-        const std::vector<babylon::font::Glyph>& glyphs, std::vector<char32_t>& codepoints)
+        const std::vector<babylon::font::Glyph>& glyphs,
+        const std::vector<JonesUiGlyphAlias>& aliases, std::vector<char32_t>& codepoints)
     {
         for ( char32_t& codepoint : codepoints )
         {
+            for ( const JonesUiGlyphAlias& alias : aliases )
+            {
+                if ( alias.from == codepoint )
+                {
+                    codepoint = alias.to;
+                    break;
+                }
+            }
+
             if ( !findGlyph(baked, glyphs, codepoint) )
             {
                 codepoint = U'?';
@@ -223,6 +234,40 @@ babylon::ui::FontId JonesUiPainter::registerTtfFontScaled(const babylon::font::F
     // The main menu's focus marker.
     codepoints.push_back(0x2022); // BULLET
 
+    // The ui draws U+25C0/U+25B6 for Choice arrows and U+25B2/U+25BC for the overflow markers.
+    // Pick a pair this font actually maps, so a font without the geometric shapes still shows a
+    // readable arrow. Choice arrows try the triangles, then the single guillemets, then ASCII.
+    // ASCII '<', '>' and '^', 'v' are always baked.
+    const auto choosePair = [&font](char32_t first, char32_t second, char32_t nextFirst,
+        char32_t nextSecond, char32_t fallbackFirst, char32_t fallbackSecond)
+    {
+        if ( font.hasGlyph(first) && font.hasGlyph(second) )
+        {
+            return std::pair<char32_t, char32_t>{ first, second };
+        }
+        if ( font.hasGlyph(nextFirst) && font.hasGlyph(nextSecond) )
+        {
+            return std::pair<char32_t, char32_t>{ nextFirst, nextSecond };
+        }
+        return std::pair<char32_t, char32_t>{ fallbackFirst, fallbackSecond };
+    };
+
+    const std::pair<char32_t, char32_t> choiceArrows = choosePair(0x25C0, 0x25B6,
+        0x2039, 0x203A, U'<', U'>');
+    const std::pair<char32_t, char32_t> scrollMarkers = choosePair(0x25B2, 0x25BC,
+        U'^', U'v', U'^', U'v');
+    const auto addCodepoint = [&codepoints](char32_t codepoint)
+    {
+        if ( std::find(codepoints.begin(), codepoints.end(), codepoint) == codepoints.end() )
+        {
+            codepoints.push_back(codepoint);
+        }
+    };
+    addCodepoint(choiceArrows.first);
+    addCodepoint(choiceArrows.second);
+    addCodepoint(scrollMarkers.first);
+    addCodepoint(scrollMarkers.second);
+
     const std::optional<babylon::font::FontAtlas> atlas = font.bake(bakePixelHeight, codepoints);
     if ( !atlas )
     {
@@ -254,6 +299,12 @@ babylon::ui::FontId JonesUiPainter::registerTtfFontScaled(const babylon::font::F
     entry.rasterScale     = rasterScale;
     entry.codepoints      = std::move(codepoints);
     entry.glyphs          = atlas->glyphs;
+    entry.glyphAliases    = {
+        { 0x25C0, choiceArrows.first },
+        { 0x25B6, choiceArrows.second },
+        { 0x25B2, scrollMarkers.first },
+        { 0x25BC, scrollMarkers.second },
+    };
     entry.ascent          = atlas->ascent;
     entry.descent         = atlas->descent;
     entry.lineGap         = atlas->lineGap;
@@ -843,7 +894,7 @@ void JonesUiPainter::drawTrueTypeText(const FontEntry& entry, std::string_view t
     }
 
     std::vector<char32_t> codepoints = decodeUtf8(text);
-    normalizeCodepoints(entry.codepoints, entry.glyphs, codepoints);
+    normalizeCodepoints(entry.codepoints, entry.glyphs, entry.glyphAliases, codepoints);
     if ( codepoints.empty() )
     {
         return;
@@ -950,7 +1001,7 @@ babylon::ui::Size JonesUiPainter::measureTrueTypeText(const FontEntry& entry,
     }
 
     std::vector<char32_t> codepoints = decodeUtf8(text);
-    normalizeCodepoints(entry.codepoints, entry.glyphs, codepoints);
+    normalizeCodepoints(entry.codepoints, entry.glyphs, entry.glyphAliases, codepoints);
     for ( std::size_t index = 0; index < codepoints.size(); ++index )
     {
         if ( index > 0 )

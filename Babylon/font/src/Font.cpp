@@ -584,6 +584,23 @@ std::optional<FontAtlas> Font::bake(float pixelHeight,
     return atlas;
 }
 
+bool Font::hasGlyph(char32_t codepoint) const
+{
+    if ( m_fontOffset < 0 )
+    {
+        return false;
+    }
+
+    const std::uint8_t* pData = reinterpret_cast<const std::uint8_t*>(m_bytes.data());
+    stbtt_fontinfo info;
+    if ( !stbtt_InitFont(&info, const_cast<std::uint8_t*>(pData), m_fontOffset) )
+    {
+        return false;
+    }
+
+    return glyphIndexFor(info, codepoint) != 0;
+}
+
 float Font::kerning(char32_t a, char32_t b, float pixelHeight) const
 {
     if ( !(pixelHeight > 0.0f) || !std::isfinite(pixelHeight) || m_fontOffset < 0 )

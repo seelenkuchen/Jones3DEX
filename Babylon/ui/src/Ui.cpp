@@ -349,6 +349,21 @@ struct Ui::State
             / static_cast<float>(viewportHeight);
     }
 
+    // True when the prompt bar is actually drawn this frame: it needs entries and a positive
+    // prompt height. Only then does the row area make room for it.
+    bool promptsVisible(const ScreenState& state) const
+    {
+        return !state.prompts.empty() && skin.promptHeight > 0.0f;
+    }
+
+    // The lowest canvas y the panel and rows may reach: the canvas margin, minus the prompt bar
+    // when one is drawn.
+    float lowerLimit(const ScreenState& state) const
+    {
+        return kCanvasHeight - skin.canvasMargin
+            - (promptsVisible(state) ? skin.promptHeight : 0.0f);
+    }
+
     Point canvasPoint(float pixelX, float pixelY) const
     {
         if ( viewportHeight <= 0 )
@@ -681,25 +696,33 @@ struct Ui::State
         float panelWidth = std::max(skin.minPanelWidth,
             rowsNeeded + 2.0f * skin.panelPadding);
         float panelHeight = contentHeight + 2.0f * skin.panelPadding;
+        const float bottomLimit = lowerLimit(state);
         if ( skin.placement == PanelPlacement::BottomLeft )
         {
             const float left   = skin.canvasMargin * 4.0f;
             const float bottom = skin.canvasMargin * 4.0f;
             const float availableWidth = std::max(0.0f, canvas - left - skin.canvasMargin);
-            const float availableHeight = std::max(0.0f, kCanvasHeight - bottom);
+            const float panelBottom = promptsVisible(state)
+                ? std::min(kCanvasHeight - bottom, bottomLimit)
+                : kCanvasHeight - bottom;
+            const float availableHeight = promptsVisible(state)
+                ? std::max(0.0f, panelBottom - skin.canvasMargin)
+                : std::max(0.0f, kCanvasHeight - bottom);
             panelWidth = std::min(panelWidth, availableWidth);
             panelHeight = std::min(panelHeight, availableHeight);
-            layout.panel = Rect{ left, kCanvasHeight - bottom - panelHeight,
+            layout.panel = Rect{ left, panelBottom - panelHeight,
                 panelWidth, panelHeight };
         }
         else
         {
             const float availableWidth = std::max(0.0f, canvas - 2.0f * skin.canvasMargin);
-            const float availableHeight = std::max(0.0f, kCanvasHeight - 2.0f * skin.canvasMargin);
+            const float availableHeight = std::max(0.0f,
+                bottomLimit - skin.canvasMargin);
             panelWidth = std::min(panelWidth, availableWidth);
             panelHeight = std::min(panelHeight, availableHeight);
             layout.panel = Rect{ (canvas - panelWidth) * 0.5f,
-                (kCanvasHeight - panelHeight) * 0.5f, panelWidth, panelHeight };
+                skin.canvasMargin + (availableHeight - panelHeight) * 0.5f,
+                panelWidth, panelHeight };
         }
         layout.inner = Rect{ layout.panel.x + skin.panelPadding,
             layout.panel.y + skin.panelPadding,
@@ -728,8 +751,9 @@ struct Ui::State
             }
         }
 
-        const float rowsHeight = std::max(0.0f,
-            layout.inner.y + layout.inner.height - rowsY);
+        const float rowsBottom = std::min(layout.inner.y + layout.inner.height,
+            bottomLimit);
+        const float rowsHeight = std::max(0.0f, rowsBottom - rowsY);
         float rowsWidth = layout.inner.width;
         if ( bHelp )
         {
@@ -831,6 +855,15 @@ struct Ui::State
         }
     }
 
+    // True when the whole row lies inside the visible row area at this scroll. Drawing and
+    // pointer input use the same rule, so a partly hidden row is neither drawn nor clickable.
+    bool rowVisible(const Layout& layout, const LayoutRow& row, float scroll) const
+    {
+        const float top = row.rect.y - scroll;
+        return top >= layout.rowsClip.y - 0.01f
+            && top + row.height <= layout.rowsClip.y + layout.rowsClip.height + 0.01f;
+    }
+
     void ensureFocusVisible(ScreenState& state)
     {
         if ( state.focus == kNoWidget )
@@ -838,28 +871,61 @@ struct Ui::State
             return;
         }
         const Layout layout = computeLayout(state);
-        const float scroll = effectiveScroll(state, layout);
-        for ( const LayoutRow& row : layout.rows )
+        if ( layout.rows.empty() || layout.rowsClip.height <= 0.0f )
         {
-            if ( row.widget != state.focus )
-            {
-                continue;
-            }
-            const float top = row.rect.y - scroll;
-            const float bottom = top + row.height;
-            const float clipTop = layout.rowsClip.y;
-            const float clipBottom = layout.rowsClip.y + layout.rowsClip.height;
-            if ( top < clipTop )
-            {
-                state.scroll = std::max(0.0f, state.scroll - (clipTop - top));
-            }
-            else if ( bottom > clipBottom )
-            {
-                state.scroll = std::min(layout.maxScroll,
-                    state.scroll + (bottom - clipBottom));
-            }
             return;
         }
+        if ( layout.maxScroll <= 0.0f )
+        {
+            state.scroll = 0.0f;
+            return;
+        }
+
+        std::size_t focusIndex = kNoWidget;
+        for ( std::size_t index = 0; index < layout.rows.size(); ++index )
+        {
+            if ( layout.rows[index].widget == state.focus )
+            {
+                focusIndex = index;
+                break;
+            }
+        }
+        if ( focusIndex == kNoWidget )
+        {
+            return;
+        }
+
+        // Keep the scroll on a row boundary: the first visible row's top sits at the clip top.
+        const float scroll = effectiveScroll(state, layout);
+        const float clipTop = layout.rowsClip.y;
+        std::size_t first = 0;
+        for ( std::size_t index = 0; index < layout.rows.size(); ++index )
+        {
+            if ( layout.rows[index].rect.y - scroll >= clipTop - 0.01f )
+            {
+                first = index;
+                break;
+            }
+        }
+
+        if ( focusIndex < first )
+        {
+            first = focusIndex;
+        }
+        else
+        {
+            const float focusBottom = layout.rows[focusIndex].rect.y
+                + layout.rows[focusIndex].height;
+            while ( first < focusIndex
+                && focusBottom - layout.rows[first].rect.y
+                    > layout.rowsClip.height + 0.01f )
+            {
+                ++first;
+            }
+        }
+
+        state.scroll = clampFloat(layout.rows[first].rect.y - clipTop, 0.0f,
+            layout.maxScroll);
     }
 
     bool isReadOnly(std::string_view name) const
@@ -1635,9 +1701,17 @@ struct Ui::State
     {
         const Layout layout = computeLayout(state);
         const float scroll = effectiveScroll(state, layout);
+        if ( !layout.rowsClip.contains(point) )
+        {
+            return {};
+        }
         for ( auto it = layout.rows.rbegin(); it != layout.rows.rend(); ++it )
         {
             const LayoutRow& row = *it;
+            if ( !rowVisible(layout, row, scroll) )
+            {
+                continue;
+            }
             const Rect rect{ row.rect.x, row.rect.y - scroll, row.rect.width, row.rect.height };
             if ( const List* list = get<List>(state.screen.widgets[row.widget]) )
             {
@@ -2323,6 +2397,50 @@ struct Ui::State
         }
     }
 
+    // Small up/down markers at the right edge of the row area when rows are hidden above or
+    // below the scroll window.
+    void drawScrollMarkers(const Layout& layout, float scroll)
+    {
+        if ( layout.rows.empty() || layout.rowsClip.height <= 0.0f )
+        {
+            return;
+        }
+
+        const float clipTop = layout.rowsClip.y;
+        const float clipBottom = layout.rowsClip.y + layout.rowsClip.height;
+        const bool hiddenAbove = scroll > 0.01f;
+        const bool hiddenBelow = layout.rows.back().rect.y + layout.rows.back().height
+            - scroll > clipBottom + 0.01f;
+        if ( !hiddenAbove && !hiddenBelow )
+        {
+            return;
+        }
+
+        constexpr std::string_view kUpMarker   = "\xE2\x96\xB2"; // U+25B2
+        constexpr std::string_view kDownMarker = "\xE2\x96\xBC"; // U+25BC
+        const FontId font = skin.textFont;
+        float height = painter.measureText(font, "").height;
+        if ( !(height > 0.0f) )
+        {
+            height = skin.rowHeight;
+        }
+        height = std::min(height, layout.rowsClip.height);
+
+        const float width = std::max(painter.measureText(font, kUpMarker).width,
+            painter.measureText(font, kDownMarker).width);
+        const float x = layout.rowsClip.x + layout.rowsClip.width - width;
+        if ( hiddenAbove )
+        {
+            drawRowText(font, kUpMarker,
+                Rect{ x, clipTop, width, height }, TextAlign::Left, skin.text);
+        }
+        if ( hiddenBelow )
+        {
+            drawRowText(font, kDownMarker,
+                Rect{ x, clipBottom - height, width, height }, TextAlign::Left, skin.text);
+        }
+    }
+
     // The right-hand help column: only the focused row's text, wrapped at
     // spaces, in the help font. The column is clipped to its own rectangle
     // so a long word cannot run into the rows.
@@ -2492,8 +2610,12 @@ struct Ui::State
         stateClipBottom = layout.rowsClip.y + layout.rowsClip.height;
         for ( const LayoutRow& row : layout.rows )
         {
-            drawRow(*state, row, scroll);
+            if ( rowVisible(layout, row, scroll) )
+            {
+                drawRow(*state, row, scroll);
+            }
         }
+        drawScrollMarkers(layout, scroll);
         stateClipTop = -std::numeric_limits<float>::infinity();
         stateClipBottom = std::numeric_limits<float>::infinity();
         painter.popClip();
@@ -2793,6 +2915,10 @@ void Ui::setPrompts(std::vector<Prompt> prompts)
         return;
     }
     state->prompts = std::move(prompts);
+    // The row area may shrink or grow when the bar appears, so keep the scroll and focus valid
+    // for the new layout.
+    m_state->ensureScroll(*state);
+    m_state->ensureFocusVisible(*state);
 }
 
 const std::vector<Prompt>& Ui::prompts() const

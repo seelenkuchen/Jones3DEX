@@ -1837,3 +1837,117 @@ TEST_CASE("a negative prompt height is rejected with the rest of the skin")
     CHECK_FALSE(ui.setSkin(skin));
     CHECK(ui.skin().promptHeight == 20.0f);
 }
+
+TEST_CASE("a long screen scrolls whole rows above the prompt bar and marks what is hidden")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Skin skin;
+    skin.titleHeight = 0.0f;
+    skin.rowHeight = 30.0f;
+    skin.rowSpacing = 0.0f;
+    skin.panelPadding = 0.0f;
+    skin.minPanelWidth = 100.0f;
+    skin.canvasMargin = 10.0f;
+    skin.borderWidth = 0.0f;
+    skin.promptHeight = 30.0f;
+    skin.panel = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    for ( int row = 0; row < 20; ++row )
+    {
+        screen.widgets.emplace_back(Button{ "Row " + std::to_string(row), 1, true });
+    }
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    // The prompt bar sits at the canvas bottom minus the margin and its height.
+    constexpr float kPromptTop = 480.0f - 10.0f - 30.0f;
+    ui.setPrompts({ Prompt{ 0, "Select" } });
+
+    auto rowCalls = [&painter]() -> std::vector<const RecordedDrawText*>
+    {
+        std::vector<const RecordedDrawText*> rows;
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text.rfind("Row ", 0) == 0 )
+                {
+                    rows.push_back(text);
+                }
+            }
+        }
+        return rows;
+    };
+
+    auto hasText = [&painter](const std::string& value)
+    {
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text == value )
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    ui.draw();
+    std::vector<const RecordedDrawText*> rows = rowCalls();
+    REQUIRE(rows.size() == 14u);
+    CHECK(rows.front()->text == "Row 0");
+    CHECK(rows.back()->text == "Row 13");
+    for ( const RecordedDrawText* row : rows )
+    {
+        CHECK(row->rect.y + row->rect.height <= kPromptTop + 0.01f);
+    }
+    CHECK_FALSE(hasText("\xE2\x96\xB2"));
+    CHECK(hasText("\xE2\x96\xBC"));
+
+    // Moving focus to the last row scrolls by whole rows: rows 6..19 fill the window, the last
+    // row is fully visible and there is nothing left below it.
+    for ( int step = 0; step < 19; ++step )
+    {
+        tap(ui, platform::Key::Down);
+    }
+    CHECK(ui.focusedWidget() == 19u);
+    painter.clearRecorded();
+    ui.draw();
+    rows = rowCalls();
+    REQUIRE(rows.size() == 14u);
+    CHECK(rows.front()->text == "Row 6");
+    CHECK(rows.back()->text == "Row 19");
+    for ( const RecordedDrawText* row : rows )
+    {
+        CHECK(row->rect.y >= skin.canvasMargin - 0.01f);
+        CHECK(row->rect.y + row->rect.height <= kPromptTop + 0.01f);
+    }
+    CHECK(hasText("\xE2\x96\xB2"));
+    CHECK_FALSE(hasText("\xE2\x96\xBC"));
+
+    // Pointer hit-testing uses the scrolled position: clicking Row 10 focuses it.
+    Rect rowTen;
+    bool found = false;
+    for ( const RecordedDrawText* row : rows )
+    {
+        if ( row->text == "Row 10" )
+        {
+            rowTen = row->rect;
+            found = true;
+        }
+    }
+    REQUIRE(found);
+    ui.handleEvent(platform::Event(canvasMouse(rowTen.x + rowTen.width * 0.5f,
+        rowTen.y + rowTen.height * 0.5f)));
+    ui.handleEvent(platform::Event(mouseButtonEvent(platform::MouseButton::Left, true)));
+    ui.handleEvent(platform::Event(mouseButtonEvent(platform::MouseButton::Left, false)));
+    CHECK(ui.focusedWidget() == 10u);
+}

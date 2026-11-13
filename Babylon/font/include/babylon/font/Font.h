@@ -70,6 +70,11 @@ namespace babylon::font
         std::optional<FontAtlas> bake(float pixelHeight,
             std::span<const char32_t> codepoints) const;
 
+        // True when the font's character map maps codepoint to a real glyph
+        // (a glyph index other than 0). A font without a usable character
+        // map, or a codepoint outside Unicode, reports false.
+        bool hasGlyph(char32_t codepoint) const;
+
         // The horizontal kerning adjustment between two codepoints at
         // pixelHeight, in pixels; 0 when the font has no pair or the height
         // is invalid. The caller adds it to the second glyph's advance.

@@ -38,6 +38,14 @@ namespace babylon::image
     struct Image;
 }
 
+// One substitution a TrueType font needs because its character map lacks a
+// symbol the ui draws, such as the Choice arrows or the scroll markers.
+struct JonesUiGlyphAlias
+{
+    char32_t from = 0;
+    char32_t to = 0;
+};
+
 class JonesUiPainter final : public babylon::ui::Painter
 {
 public:
@@ -121,6 +129,9 @@ private:
         std::optional<babylon::font::Font> trueType;
         std::vector<char32_t> codepoints;
         std::vector<babylon::font::Glyph> glyphs;
+        // Codepoints text may use that this font does not map, and the
+        // baked codepoint that replaces each (for example U+25C0 to '<').
+        std::vector<JonesUiGlyphAlias> glyphAliases;
         // Size in canvas units, and the atlas pixels per canvas unit, so the
         // TTF path can convert the baked pixel metrics back to canvas units.
         float bakePixelHeight = 0.0f;

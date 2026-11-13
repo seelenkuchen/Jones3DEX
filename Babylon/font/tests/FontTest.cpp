@@ -115,6 +115,40 @@ TEST_CASE("Jost at 32 px bakes a coverage atlas with usable metrics")
     CHECK_FALSE(anyOverlap);
 }
 
+TEST_CASE("Jost maps a UI arrow pair and the focus bullet")
+{
+    const std::vector<std::byte> bytes = readFont();
+    const std::optional<babylon::font::Font> font = babylon::font::Font::load(bytes);
+    REQUIRE(font.has_value());
+
+    CHECK(font->hasGlyph(U'A'));
+    CHECK_FALSE(font->hasGlyph(0x10FFFD));
+
+    const bool primary = font->hasGlyph(0x25C0) && font->hasGlyph(0x25B6);
+    const bool secondary = font->hasGlyph(0x2039) && font->hasGlyph(0x203A);
+    const bool ascii = font->hasGlyph(U'<') && font->hasGlyph(U'>');
+    CHECK((primary || secondary || ascii));
+
+    // The same order JonesUiPainter uses when it bakes a font.
+    if ( primary )
+    {
+        CHECK(font->hasGlyph(0x25C0));
+        CHECK(font->hasGlyph(0x25B6));
+    }
+    else if ( secondary )
+    {
+        CHECK(font->hasGlyph(0x2039));
+        CHECK(font->hasGlyph(0x203A));
+    }
+    else
+    {
+        CHECK(font->hasGlyph(U'<'));
+        CHECK(font->hasGlyph(U'>'));
+    }
+
+    CHECK(font->hasGlyph(0x2022));
+}
+
 TEST_CASE("a truncated or garbage font is rejected instead of crashing")
 {
     std::vector<std::byte> bytes = readFont();
