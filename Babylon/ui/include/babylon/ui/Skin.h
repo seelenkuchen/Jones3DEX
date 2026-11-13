@@ -62,6 +62,13 @@ namespace babylon::ui
         Color textDisabled = { 0.45f, 0.45f, 0.45f, 1.0f };
         FontId textFont = 0;
 
+        // The prompt bar at the bottom left: the font its labels use (0
+        // keeps textFont) and the width and height of one prompt icon in
+        // canvas units. A promptHeight of 0 draws no bar. A missing icon
+        // draws its label alone.
+        FontId promptFont = 0;
+        float promptHeight = 20.0f;
+
         // How a row's own text is aligned inside its line box. Left keeps
         // the original dialog look; a bottom-left menu also uses Left.
         TextAlign rowAlign = TextAlign::Left;

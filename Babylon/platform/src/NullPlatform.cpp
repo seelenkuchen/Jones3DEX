@@ -162,4 +162,19 @@ namespace
         m_events.push_back(event);
     }
 
+    void NullPlatform::setGamepadType(GamepadType type)
+    {
+        m_gamepadType = type;
+    }
+
+    GamepadType NullPlatform::gamepadType() const
+    {
+        return m_gamepadType;
+    }
+
+    void NullPlatform::connectGamepad(GamepadId gamepad)
+    {
+        m_events.push_back(GamepadConnected{ gamepad, m_gamepadType });
+    }
+
 }

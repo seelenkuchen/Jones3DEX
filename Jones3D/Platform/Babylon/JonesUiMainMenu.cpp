@@ -394,7 +394,7 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     }
 
     babylon::ui::FontId menuFont = cinzel != 0 ? cinzel : pUiContext->font;
-    babylon::ui::Skin menuSkin   = JonesUiSkin_CreateMainMenu(menuFont, &painter);
+    babylon::ui::Skin menuSkin   = JonesUiSkin_CreateMainMenu(menuFont, &painter, pUiContext->promptFont);
 
     float menuFontScale = 1.0f;
     {
@@ -482,7 +482,7 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         if ( newFont != 0 )
         {
             menuFont = newFont;
-            menuSkin = JonesUiSkin_CreateMainMenu(menuFont, &painter);
+            menuSkin = JonesUiSkin_CreateMainMenu(menuFont, &painter, pUiContext->promptFont);
             static_cast<void>(pUi->setSkin(menuSkin));
         }
     };

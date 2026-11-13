@@ -13,7 +13,7 @@ namespace
 }
 
 babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
-    const babylon::ui::Painter* pPainter)
+    const babylon::ui::Painter* pPainter, babylon::ui::FontId promptFont)
 {
     babylon::ui::Skin skin;
 
@@ -29,6 +29,7 @@ babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
     skin.textFocused  = babylon::ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f };
     skin.textDisabled = babylon::ui::Color{ 0.45f, 0.45f, 0.42f, 1.0f };
     skin.textFont     = menuFont;
+    skin.promptFont   = promptFont;
 
     skin.highlight           = babylon::ui::Color{ 0.42f, 0.12f, 0.06f, 1.0f };
     skin.highlightUnfocused  = babylon::ui::Color{ 0.18f, 0.20f, 0.30f, 1.0f };
@@ -67,7 +68,7 @@ babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
 }
 
 babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
-    const babylon::ui::Painter* pPainter)
+    const babylon::ui::Painter* pPainter, babylon::ui::FontId promptFont)
 {
     babylon::ui::Skin skin;
 
@@ -90,6 +91,7 @@ babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
     skin.textShadow       = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.85f };
     skin.textShadowOffset = 1.5f;
     skin.textFont         = menuFont;
+    skin.promptFont       = promptFont;
     skin.rowAlign         = babylon::ui::TextAlign::Left;
 
     skin.highlight          = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };

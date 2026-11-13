@@ -320,6 +320,15 @@ namespace
                 }
                 if ( std::optional<Event> event = sdl::translateEvent(sdlEvent); event.has_value() )
                 {
+                    // SDL knows a pad's family before it is opened, so the
+                    // connect event carries it and the game can pick prompts
+                    // without opening a device of its own.
+                    if ( GamepadConnected* pConnected =
+                            std::get_if<GamepadConnected>(&*event) )
+                    {
+                        pConnected->type = sdl::translateGamepadType(
+                            SDL_GetGamepadTypeForID(sdlEvent.gdevice.which));
+                    }
                     return event;
                 }
                 // Everything translateEvent() does not deliver (display

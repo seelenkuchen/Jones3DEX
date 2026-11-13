@@ -1380,3 +1380,137 @@ TEST_CASE("row text draws a shadow only when textShadow has alpha")
     CHECK(shadowed[0]->rect.x == shadowed[1]->rect.x + 2.0f);
     CHECK(shadowed[0]->rect.y == shadowed[1]->rect.y + 2.0f);
 }
+
+TEST_CASE("the prompt bar draws its entries left to right at the bottom left")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Skin skin;
+    skin.borderWidth = 0.0f;
+    skin.panel = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.promptHeight = 20.0f;
+    skin.canvasMargin = 8.0f;
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.widgets = { Button{ "Go", 1, true } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    // A label-only prompt, then one with an icon, then a second icon-only
+    // entry such as the right arrow of Change.
+    ui.setPrompts({
+        Prompt{ 0, "Select" },
+        Prompt{ 9, "Back" },
+        Prompt{ 10, "" },
+    });
+    ui.draw();
+
+    const RecordedDrawText* select = nullptr;
+    const RecordedDrawText* back = nullptr;
+    const RecordedDrawImage* backIcon = nullptr;
+    const RecordedDrawImage* rightIcon = nullptr;
+    int selectIndex = -1;
+    int backIconIndex = -1;
+    int backIndex = -1;
+    int rightIndex = -1;
+    const std::vector<RecordedCall>& calls = painter.recorded();
+    for ( std::size_t i = 0; i < calls.size(); ++i )
+    {
+        if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&calls[i]) )
+        {
+            if ( text->text == "Select" )
+            {
+                select = text;
+                selectIndex = static_cast<int>(i);
+            }
+            else if ( text->text == "Back" )
+            {
+                back = text;
+                backIndex = static_cast<int>(i);
+            }
+        }
+        else if ( const RecordedDrawImage* image =
+            std::get_if<RecordedDrawImage>(&calls[i]) )
+        {
+            if ( image->image == 9 )
+            {
+                backIcon = image;
+                backIconIndex = static_cast<int>(i);
+            }
+            else if ( image->image == 10 )
+            {
+                rightIcon = image;
+                rightIndex = static_cast<int>(i);
+            }
+        }
+    }
+
+    // y is the canvas bottom minus the margin and one prompt height.
+    REQUIRE(select != nullptr);
+    CHECK(select->rect == Rect{ 8.0f, 452.0f, 48.0f, 20.0f });
+    CHECK(select->color == skin.text);
+    REQUIRE(backIcon != nullptr);
+    CHECK(backIcon->rect == Rect{ 80.0f, 452.0f, 20.0f, 20.0f });
+    REQUIRE(back != nullptr);
+    CHECK(back->rect == Rect{ 106.0f, 452.0f, 32.0f, 20.0f });
+    CHECK(back->color == skin.text);
+    REQUIRE(rightIcon != nullptr);
+    CHECK(rightIcon->rect == Rect{ 162.0f, 452.0f, 20.0f, 20.0f });
+
+    // The entries are drawn in list order.
+    CHECK(selectIndex < backIconIndex);
+    CHECK(backIconIndex < backIndex);
+    CHECK(backIndex < rightIndex);
+
+    // An empty list draws no prompt at all.
+    ui.setPrompts({});
+    painter.clearRecorded();
+    ui.draw();
+    for ( const RecordedCall& call : painter.recorded() )
+    {
+        const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call);
+        CHECK((text == nullptr || text->text != "Select"));
+        const RecordedDrawImage* image = std::get_if<RecordedDrawImage>(&call);
+        CHECK((image == nullptr || (image->image != 9 && image->image != 10)));
+    }
+}
+
+TEST_CASE("only a Choice, Slider or Toggle asks for the Change prompt")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Screen screen;
+    screen.widgets = {
+        Button{ "Go", 1, true },
+        Slider{ "Volume", "r_test_volume", 0.0, 1.0, 0.1 },
+        Toggle{ "Sound", "r_test_sound" },
+    };
+    addCvar(registry, "r_test_volume", cvars::Value{ 0.5 },
+        cvars::Flag::None, 0.0, 1.0);
+    addCvar(registry, "r_test_sound", cvars::Value{ true });
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    CHECK_FALSE(ui.focusedWidgetChangesValue());       // the button
+    tap(ui, platform::Key::Down);
+    CHECK(ui.focusedWidgetChangesValue());             // the slider
+    tap(ui, platform::Key::Down);
+    CHECK(ui.focusedWidgetChangesValue());             // the toggle
+}
+
+TEST_CASE("a negative prompt height is rejected with the rest of the skin")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Skin skin;
+    skin.promptHeight = -1.0f;
+    CHECK_FALSE(ui.setSkin(skin));
+    CHECK(ui.skin().promptHeight == 20.0f);
+}
