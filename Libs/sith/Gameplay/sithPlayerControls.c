@@ -391,7 +391,7 @@ void J3DAPI sithPlayerControls_PuppetCallback(SithThing* pThing, int track, rdKe
                     tSoundHandle hSnd = Sound_GetSoundHandle(SITHWORLD_STATICINDEX(24u)); // 0x8018 - fol_in_lrunhard.wav
                     sithCamera_RestoreExtCamera();
 
-                #ifdef J3D_QOL_IMPROVEMENTS
+                #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
                     // Added
                     // Player has landed after whip swing, check if height distance to solid floor is more than 0.2m.
                     // And in this case stop animation and make player fall
@@ -961,7 +961,7 @@ void J3DAPI sithPlayerControls_ProcessGeneralMove(SithThing* pThing, float secDe
 // New function
 static void J3DAPI sithPlayerControls_UpdateClimbingSpeed(SithThing* pThing, bool bFastClimb)
 {
-#ifdef J3D_QOL_IMPROVEMENTS
+#if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
     switch ( pThing->moveStatus )
     {
         case SITHPLAYERMOVE_MOUNTING_WALL:
@@ -1036,7 +1036,7 @@ void J3DAPI sithPlayerControls_ProcessClimbMove(SithThing* pThing, float secDelt
         || pThing->thingInfo.actorInfo.bForceMovePlay == 1
         || (pThing->type != SITH_THING_ACTOR && pThing->type != SITH_THING_PLAYER) )
     {
-    #ifdef J3D_QOL_IMPROVEMENTS
+    #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
         // Added: Update climbing animation playback speed
         sithPlayerControls_UpdateClimbingSpeed(pThing, bFastClimb);
 
@@ -2031,6 +2031,8 @@ void J3DAPI sithPlayerControls_ProcessSwimMove(SithThing* pThing, float secDelta
         {
             float directionFactor = 2.0f; // Default
 
+        #if defined(J3D_QOL_IMPROVEMENTS) && !defined(J3D_SPEEDRUN_BUILD)
+
             // Added: Swim boost logic
             //        When swim boost key is pressed swim faster for 3 sec at expense of endurance penalty
             if ( sithPlayerControls_secSwimBoostTimer == 0.0f && bBoostJustPrezzed )
@@ -2091,6 +2093,8 @@ void J3DAPI sithPlayerControls_ProcessSwimMove(SithThing* pThing, float secDelta
                     sithFX_CreateBubble(pThing);
                 }
             }
+
+        #endif // QOL & !SPEEDRUN_BUILD
 
             // Calculate new swim thrust
             pPhysics->thrust.y = sithPlayerControls_CalculateThrust(pActor, directionFactor, sithPlayerControls_moveFactorNormal);
@@ -3941,7 +3945,7 @@ bool J3DAPI sithPlayerControls_CanStrafeMove(SithThing* pThing, int bMoveRight)
 
 bool sithPlayerControls_CanClimbOn1m(SithThing* pThing)
 {
-#ifdef J3D_QOL_IMPROVEMENTS
+#if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
     // Added: Alow climbing on 1m when having weapon mounted
     bool bCanClimb = sithInventory_GetCurrentWeapon(pThing) <= SITHWEAPON_IMP5;
 #else
@@ -3953,7 +3957,7 @@ bool sithPlayerControls_CanClimbOn1m(SithThing* pThing)
 
 bool sithPlayerControls_CanClimbOn2m(SithThing* pThing)
 {
-#ifdef J3D_QOL_IMPROVEMENTS
+#if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
     // Added: Alow climbing on 1m when having weapon mounted
     int curWeapon = sithInventory_GetCurrentWeapon(pThing);
 
@@ -4621,7 +4625,7 @@ void J3DAPI sithPlayerControls_ProcessWalkMove(SithThing* pThing, float secDelta
             return;
         }
 
-    #ifdef J3D_QOL_IMPROVEMENTS
+    #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
         // Added: Try mounting wall for climbing
         //        OG no option to walk and mount wall
         if ( sithPlayerControls_TryMountClimbWall(pThing, /*bQuickMount*/true) )
@@ -4851,7 +4855,7 @@ void J3DAPI sithPlayerControls_ProcessRunMove(SithThing* pThing, float secDeltaT
             return;
         }
 
-    #ifdef J3D_QOL_IMPROVEMENTS
+    #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
         // Added: Try mounting wall for climbing
         //        OG no option to walk and mount wall
         if ( sithPlayerControls_TryMountClimbWall(pThing, /*bQuickMount*/true) )

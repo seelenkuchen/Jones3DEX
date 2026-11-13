@@ -42,6 +42,8 @@
   - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
   - The Controls screen rebinds keys and gamepad buttons: a scheme picker, one rebind list for keys
     and gamepad controls, and a reset to the defaults.
+  - Player physics always runs at the original 50 Hz (20 ms) step. This fixes ledge grabs that broke at the
+    old 150 Hz default, and the `engine.physics.fixedTimestep` setting is ignored.
 
 ### M6: The Babylon renderer
   - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system
@@ -229,7 +231,6 @@
   - Fixed skipping expired/empty slots and clearing correct part of pending subtitle array in `sithVoice_PurgeDrawnSubtitles` (693cbcf)  
     This resolves issues with drawing pending subtitles when `sithVoice_curSubtitleDrawIndex` < `sithVoice_numSubtitleInfos`
   - Fixed removing subtitle when stopping currently played thing voice sound in `sithVoice_PlayVoice` (4d5f54a)
-  - [QOL] Changed physics fixed timestep to 150 fps and added option to configure timestep (0eaa4eb)
   - Fixed incorrect handling of default control set (4b3ea73)
   - Fixed assigning default control set when loading control set from `kfg` file fails (d6c774c)
   - Fixed not to sync MineCar engine animation to savegame file (a6c5978)  

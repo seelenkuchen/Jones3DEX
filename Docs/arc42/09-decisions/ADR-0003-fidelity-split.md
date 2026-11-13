@@ -22,8 +22,8 @@ toggles, gameplay close to the original.
   the tie-breaker when the reference itself is in doubt.
 
 The trace reference is **retail behavior**. OpenJones3D's QOL improvements are kept and **switched on by
-default**. Those that change the simulation (for example player physics at 150 Hz instead of 50 Hz, larger
-thing and light collection distances, breadth-first visibility traversal) become individual runtime options
+default**. Those that change the simulation (for example larger thing and light collection distances,
+breadth-first visibility traversal) become individual runtime options
 instead of one compile-time profile, so a player or speedrunner can return to retail behavior. Pure bug and
 crash fixes stay on unconditionally. New simulation changes are on by default too (amended 2026-11-04, see
 below). Traces run against the Retail profile and against the Enhanced (default) profile.

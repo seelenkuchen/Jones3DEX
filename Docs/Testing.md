@@ -267,7 +267,7 @@ startup and a stable module-level CTest entry.
 | `jones3dTests` | `Jones3D.Main` | `JonesMain` video mode lookup | Available |
 | `soundTests` | `sound` | Deterministic lip-sync generation and lookup, AudioLib codec and header vectors | Available |
 | `smushTests` | `smush` | INSANE movie player: core, bitmap, codec, sound, stream areas and original-engine assembly vectors | Available |
-| `sithTests` | `sith` | World thing/template I/O, voice lip-sync and the cogstatus console command bounds | Available |
+| `sithTests` | `sith` | World thing/template I/O, voice lip-sync, camera interpolation, player physics at the original 50 Hz step, and the cogstatus console command bounds | Available |
 | `sithThingQuetzVecTests` | `sith.ThingQuetz` | Original-engine vectors of the Quetz tail functions (world-state harness, `Libs/sith/Tests/Vec`) | Available |
 | `sithAIInstinctVecTests` | `sith.AIInstinct` | Original-engine vectors of the instinct registration (world-state harness) | Available |
 | `sithAIInstinctFnVecTests` | `sith.AIInstinctFn` | Original-engine vectors of the instinct functions (world-state harness) | Available |
@@ -1067,6 +1067,16 @@ original executable.
 
 The fixture descriptions below cover the available `soundTests`, `smushTests`,
 `sithTests`, and `sithDSSTests` targets.
+
+The player-physics group in `sithTests` drives `sithPhysics_UpdateDetachedPlayerPhysics`
+at the original 20 ms step. It checks that a stored `engine.physics.fixedTimestep`
+(including 150) is ignored and not recreated, gravity with partial or disabled flags
+and zero mass, drag, local and sector thrust, remainder carry across frames, and the
+falling velocity around the falling controller's `1.1` ledge-query gate; this is not
+an end-to-end ledge-collision test. Test seams observe integration and drag operations
+while retaining the real vector calculations, so an unexpected step or the old
+unsigned negative-step loop fails without hanging the suite. The vectors come from
+upstream commit 85ac23e1.
 
 <a name="audiolib-fixtures"></a>
 
