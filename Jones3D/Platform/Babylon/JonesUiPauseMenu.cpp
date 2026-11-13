@@ -193,6 +193,12 @@ bool JonesUiPauseMenu_CaptureThumbnail(tVBuffer* pFrame)
     return sithGamesave_CreateThumbnail() != NULL;
 }
 
+babylon::ui::Skin JonesUiPauseMenu_CreateSkin(babylon::ui::FontId menuFont,
+    const babylon::ui::Painter* pPainter, babylon::ui::FontId promptFont)
+{
+    return JonesUiSkin_CreateMainMenu(menuFont, pPainter, promptFont);
+}
+
 extern "C" int J3DAPI jonesConfig_ShowPauseMenu(tSysWindow hWnd)
 {
     (void)hWnd;
@@ -228,7 +234,7 @@ extern "C" int J3DAPI jonesConfig_ShowPauseMenu(tSysWindow hWnd)
 
     const babylon::ui::FontId menuFont = cinzel != 0 ? cinzel : pUiContext->font;
     const babylon::ui::Skin menuSkin =
-        JonesUiSkin_CreateMainMenu(menuFont, &pUiContext->painter);
+        JonesUiPauseMenu_CreateSkin(menuFont, &pUiContext->painter, pUiContext->promptFont);
 
     // Keep today's dim from the modal loop and add the main menu's lower-left shade over it. When
     // the context already owns a background (an earlier screen in the same session), the modal

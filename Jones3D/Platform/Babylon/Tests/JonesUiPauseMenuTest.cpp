@@ -266,6 +266,17 @@ extern "C" int JonesHud_ShowExitGame(void)
     return g_exitResult;
 }
 
+TEST_CASE("the pause menu prompts use the prompt font, not the menu font")
+{
+    ui::NullPainter painter;
+    const ui::FontId menuFont   = 7;
+    const ui::FontId promptFont = 9;
+
+    const ui::Skin skin = JonesUiPauseMenu_CreateSkin(menuFont, &painter, promptFont);
+    CHECK(skin.textFont == menuFont);
+    CHECK(skin.promptFont == promptFont);
+}
+
 TEST_CASE("the pause menu has the original six entries and back closes it")
 {
     ScreenTestContext testContext;

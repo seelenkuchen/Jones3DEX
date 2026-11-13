@@ -19,6 +19,12 @@
 // The pause menu before it is pushed.
 babylon::ui::Screen JonesUiPauseMenu_BuildScreen(void);
 
+// The pause menu's skin: the main menu's lower-left list in menuFont, with the prompt bar labels in
+// promptFont (the context's small Jost font; 0 keeps menuFont). Cinzel draws lowercase as small
+// capitals, so the prompts must not inherit the menu font.
+babylon::ui::Skin JonesUiPauseMenu_CreateSkin(babylon::ui::FontId menuFont,
+    const babylon::ui::Painter* pPainter, babylon::ui::FontId promptFont);
+
 // Runs the pause menu until Resume or Back closes it. Save, Load, Options, Statistics and Exit
 // call the shared JonesHud functions on the way, exactly as the HUD menu's system items do.
 // background supplies the dimmed game frame and the lower-left shade; with the default empty
