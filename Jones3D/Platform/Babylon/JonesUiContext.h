@@ -10,6 +10,7 @@
 
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
+#include <Jones3D/Platform/Babylon/JonesUiPrompts.h>
 
 #include <babylon/ui/Painter.h>
 #include <babylon/ui/Ui.h>
@@ -26,6 +27,12 @@ struct JonesUiContext
     JonesUiPainter painter;
     rdFont* pFont = nullptr;
     babylon::ui::FontId font = 0;
+
+    // Added: the prompt bar's Jost font and the five icon sets, loaded once with the context. A
+    // missing file leaves its id 0, and the bar draws that label alone.
+    babylon::ui::FontId promptFont = 0;
+    JonesUiPromptAssets prompts;
+
     std::unique_ptr<babylon::ui::Ui> pUi;
     int refCount = 0;
 
