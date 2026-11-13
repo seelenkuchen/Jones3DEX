@@ -2498,6 +2498,134 @@ TEST_CASE("the modal loop calls the background callback before the screen")
     stdBabylon_SetContext(nullptr);
 }
 
+TEST_CASE("the painter draws a TrueType font and a PNG from Data/ui")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the TTF and PNG images");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    platform::NullPlatform platform;
+    cvars::Registry cvars;
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        &platform, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    {
+        JonesUiPainter painter;
+        const FontId font = painter.registerTtfFontFile(*pFileSystem,
+            "fonts/Jost[wght].ttf", 32.0f);
+        REQUIRE(font != 0);
+        const ImageId prompt = painter.registerPngImageFile(*pFileSystem,
+            "prompts/xbox/XboxSeriesX_A.png");
+        REQUIRE(prompt != 0);
+
+        const std::string text = "Indiana";
+        const babylon::ui::Size textSize = painter.measureText(font, text);
+        REQUIRE(textSize.width > 0.0f);
+        REQUIRE(textSize.height > 0.0f);
+
+        REQUIRE(std3D_StartScene() == 0);
+        const babylon::ui::Color black{ 0.0f, 0.0f, 0.0f, 1.0f };
+        const babylon::ui::Color white{ 1.0f, 1.0f, 1.0f, 1.0f };
+        painter.fillRect(babylon::ui::Rect{ 0.0f, 0.0f, 640.0f, 480.0f }, black);
+
+        const babylon::ui::Rect imageRect{ 400.0f, 20.0f, 100.0f, 100.0f };
+        painter.drawImage(prompt, imageRect);
+
+        // The same text and rectangle at all three alignments: if the measured width were not the
+        // advance the painter draws, the center and right copies would start at another x.
+        const babylon::ui::Rect leftRect{ 40.0f, 100.0f, textSize.width, textSize.height };
+        const babylon::ui::Rect centerRect{ 40.0f, 200.0f, textSize.width, textSize.height };
+        const babylon::ui::Rect rightRect{ 40.0f, 300.0f, textSize.width, textSize.height };
+        painter.drawText(font, text, leftRect, babylon::ui::TextAlign::Left, white);
+        painter.drawText(font, text, centerRect, babylon::ui::TextAlign::Center, white);
+        painter.drawText(font, text, rightRect, babylon::ui::TextAlign::Right, white);
+        std3D_EndScene();
+        REQUIRE(stdDisplay_Update() == 0);
+
+        std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+        std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+        REQUIRE(width == 640u);
+        REQUIRE(height == 480u);
+
+        std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+        REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+        const auto inkBounds = [&pixels, width](float y0, float y1,
+            float& minX, float& maxX, size_t& count)
+        {
+            minX = 1.0e9f;
+            maxX = -1.0f;
+            count = 0;
+            for ( std::uint32_t y = (std::uint32_t)y0; y < (std::uint32_t)y1; ++y )
+            {
+                for ( std::uint32_t x = 0; x < 300u; ++x )
+                {
+                    if ( IsBrightText(PixelAt(pixels, width, x, y)) )
+                    {
+                        minX = std::min(minX, (float)x);
+                        maxX = std::max(maxX, (float)x);
+                        ++count;
+                    }
+                }
+            }
+        };
+
+        float leftMin = 0.0f, leftMax = 0.0f, centerMin = 0.0f, centerMax = 0.0f;
+        float rightMin = 0.0f, rightMax = 0.0f;
+        size_t leftCount = 0, centerCount = 0, rightCount = 0;
+        inkBounds(100.0f, 100.0f + textSize.height, leftMin, leftMax, leftCount);
+        inkBounds(200.0f, 200.0f + textSize.height, centerMin, centerMax, centerCount);
+        inkBounds(300.0f, 300.0f + textSize.height, rightMin, rightMax, rightCount);
+
+        REQUIRE(leftCount > 0);
+        REQUIRE(centerCount > 0);
+        REQUIRE(rightCount > 0);
+        CHECK(std::abs(centerMin - leftMin) <= 1.0f);
+        CHECK(std::abs(rightMin - leftMin) <= 1.0f);
+        CHECK(std::abs(centerMax - leftMax) <= 1.0f);
+        CHECK(std::abs(rightMax - leftMax) <= 1.0f);
+
+        // The prompt's green A is drawn inside its rectangle and nowhere in the empty strip
+        // beside it.
+        const Rgb promptGreen{ 135, 214, 56 };
+        CHECK(CountColor(pixels, width, height, 400.0f, 20.0f, 500.0f, 120.0f,
+            promptGreen, 16) > 0u);
+        CHECK(CountColor(pixels, width, height, 510.0f, 20.0f, 610.0f, 120.0f,
+            promptGreen, 16) == 0u);
+    }
+
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
 int main(int argc, char** argv)
 {
     doctest::Context context;
