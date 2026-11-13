@@ -20,6 +20,9 @@
   - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on
     faces, safer render batches (16-bit index limits, faces with an invalid depth sort last), and fading
     inventory icons no longer hide overlapping icons.
+  - Inventory and HUD fixes from OpenJones3D: the inventory theme stops before gameplay sound resumes instead of
+    restarting after the menu closes, held menu keys keep repeating, backpacks keep their item amounts, level
+    times above 255 hours are kept, and a failed quick load no longer leaves saving disabled.
 
 ### M7: Playable
   - Sound plays in the windowed Babylon build through miniaudio, including cutscene sound, and the Sound

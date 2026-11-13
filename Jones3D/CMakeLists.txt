@@ -261,6 +261,7 @@ endif()
 
 if (JONES3D_BUILD_TESTS)
     add_subdirectory(Main/Tests)
+    add_subdirectory(Display/Tests)
     if (J3D_PLATFORM_BABYLON)
         add_subdirectory(Platform/Babylon/Tests)
     endif()

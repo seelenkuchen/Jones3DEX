@@ -813,6 +813,7 @@ void JonesMain_OnQuickLoadKey(void)
                     STD_FORMAT(aErrorText, pErrorFormat, aPath);
                     JonesMain_LogErrorToFile(aErrorText);
                 }
+                jonesCog_g_bEnableGamesave = 1; // Fixed: Re-enable saves after a failed load
                 return;
             }
         }
@@ -839,6 +840,10 @@ void JonesMain_OnQuickLoadKey(void)
 
         // Success
         JonesHud_RestoreGameStatistics();
+    }
+    else
+    {
+        jonesCog_g_bEnableGamesave = 1; // Fixed: Re-enable saves when there is no quicksave to load
     }
 }
 

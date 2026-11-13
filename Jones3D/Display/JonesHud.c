@@ -291,6 +291,8 @@ int J3DAPI JonesHud_SetCanvasSize(int width, int height);
 void JonesHud_UpdateSinCosTable(void);
 void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height);
 
+static void JonesHud_UpdateMenuMusic(void);
+static void JonesHud_StopMenuMusic(void);
 void JonesHud_MenuOpen(void);
 void JonesHud_MenuClose(void);
 
@@ -390,6 +392,9 @@ void JonesHud_Shutdown(void)
         STDLOG_STATUS("Warning: System already shutdown!\n");
         return;
     }
+
+    // Fixed: Release menu-owned audio during HUD teardown.
+    JonesHud_StopMenuMusic();
 
     //nullsub_2(); // Called empty jonesInventory function
     JonesHud_pHealthIndBaseMat             = NULL;
@@ -918,6 +923,9 @@ error:
 
 void JonesHud_Close(void)
 {
+    // Fixed: Release menu-owned audio during HUD teardown.
+    JonesHud_StopMenuMusic();
+
     // Added
     JonesReticle_Close();
 
@@ -1144,7 +1152,7 @@ void JonesHud_Process(void) // maybe this function should be called something el
                     {
                         healthState = (300.0f * sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.health / maxHealth);
                     }
-                    JonesHud_RenderHealthIndicatorHit(roundf(healthState));
+                    JonesHud_RenderHealthIndicatorHit((float)(int)healthState); // Fixed: Truncate like the original instead of rounding
                 }
 
                 // DRAW endurance indicator
@@ -1403,6 +1411,27 @@ void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height)
     JonesHud_invMenuMinZ = adjustedZ + offset;
 }
 
+static void JonesHud_UpdateMenuMusic(void)
+{
+    // Fixed: A closing menu must not restart a theme that has finished fading.
+    if ( (JonesHud_hudState & 0x04) == 0
+        && JonesHud_bMenuMusicEnabled && JonesHud_aSoundFxHandles[0]
+        && (Sound_GetChannelFlags(JonesHud_hSndChannelMusic) & SOUND_CHANNEL_PLAYING) == 0 )
+    {
+        // The game sound is paused, so repeat one-shots instead of using a loop.
+        JonesHud_hSndChannelMusic = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[0], JonesHud_menuMusicVolume, 0.0f, SOUNDPLAY_PLAYONCE);
+    }
+}
+
+static void JonesHud_StopMenuMusic(void)
+{
+    if ( JonesHud_hSndChannelMusic != SOUND_INVALIDHANDLE )
+    {
+        sithSoundMixer_StopSound(JonesHud_hSndChannelMusic);
+        JonesHud_hSndChannelMusic = SOUND_INVALIDHANDLE;
+    }
+}
+
 void JonesHud_MenuOpen(void)
 {
     if ( sithPlayer_g_pLocalPlayerThing && (!JonesHud_pMenuItemLinkedList || (JonesHud_hudState & 0x01) == 0) )
@@ -1418,12 +1447,8 @@ void JonesHud_MenuOpen(void)
             }
         }
 
-        // Added: Play menu theme music if not already playing
-        if ( JonesHud_bMenuMusicEnabled && JonesHud_aSoundFxHandles[0] )
-        {
-             // Note, must use playonce flag as loop play won't work due to sound module is stopped at this point
-            JonesHud_hSndChannelMusic = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[0], JonesHud_menuMusicVolume, 0.0f, SOUNDPLAY_PLAYONCE);
-        }
+        // Fixed: Release any closing theme before starting another menu session.
+        JonesHud_StopMenuMusic();
 
         JonesHud_selectedTreasuresMenuItemID = JONESHUD_MENU_TREASURE_CHEST;
         JonesHud_selectedItemsMenuItemID     = JONESHUD_MENU_INVITEM_ZIPPO;
@@ -1435,6 +1460,8 @@ void JonesHud_MenuOpen(void)
 
         if ( JonesHud_pMenuItemLinkedList )
         {
+            JonesHud_UpdateMenuMusic();
+
             if ( JonesHud_aSoundFxHandles[3] )  // inv_expand.wav
             {
                 JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[3], 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
@@ -1466,7 +1493,7 @@ void JonesHud_MenuClose(void)
                 || (JonesHud_apMenuItems[pItem->nextUpItemId]->flags & 0x20) != 0) )
         {
             //(JonesHud_item_flag_state_55514C & 0xFF) = (1 << i) | JonesHud_item_flag_state_55514C;
-            JonesHud_item_flag_state_55514C = (JonesHud_item_flag_state_55514C & ~0xFF) | (1 << i);
+            JonesHud_item_flag_state_55514C |= (1 << i); // Fixed: OR the column flag, the original does not clear the other bits
             if ( JonesHud_aSoundFxHandles[3] )  // inv_expand.wav
             {
                 JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[3], 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
@@ -1534,7 +1561,7 @@ void JonesHud_MenuClose(void)
     if ( JonesHud_hSndChannelMusic != SOUND_INVALIDHANDLE )
     {
         sithSoundMixer_FadeVolume(JonesHud_hSndChannelMusic, 0.0f, JonesHud_menuMusicFadeDuratuion);
-        JonesHud_hSndChannelMusic = SOUND_INVALIDHANDLE;
+        // Fixed: Keep ownership until the close animation stops it before sound resumes.
     }
 
     JonesHud_hudState |= 0x04; // Closing menu
@@ -2176,15 +2203,7 @@ void J3DAPI JonesHud_Draw(const rdMaterial* pMaterial, const JonesHudRect* rect,
 
 void JonesHud_ProcessInventoryMenu(void)
 {
-    // Added: Re start playing menu theme music if not already playing
-    if ( JonesHud_bMenuMusicEnabled && JonesHud_aSoundFxHandles[0] )
-    {
-        if ( JonesHud_hSndChannelMusic != SOUND_INVALIDHANDLE && (Sound_GetChannelFlags(JonesHud_hSndChannelMusic) & SOUND_CHANNEL_PLAYING) == 0 )
-        {
-            // Note, must use playonce flag as loop play won't work due to sound module is stopped at this point
-            JonesHud_hSndChannelMusic = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[0], JonesHud_menuMusicVolume, 0.0f, SOUNDPLAY_PLAYONCE);
-        }
-    }
+    JonesHud_UpdateMenuMusic();
 
     int bActivateKeyPressed;
     JonesHud_UpdateItem(JonesHud_pMenuItemLinkedList);
@@ -2569,7 +2588,6 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
         return 0;
     }
 
-    JonesHud_msecMenuItemMoveCurDuration = JonesHud_msecMenuItemMoveDuration;
     if ( keyId == JonesHud_curKeyId )
     {
         if ( JonesHud_msecMenuItemMoveCurDuration < JonesHud_msecMenuItemMoveDuration
@@ -2585,6 +2603,10 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
                 JonesHud_msecMenuItemMoveCurDuration = 75;
             }
         }
+    }
+    else
+    {
+        JonesHud_msecMenuItemMoveCurDuration = JonesHud_msecMenuItemMoveDuration; // Fixed: Reset the repeat delay only for a new key
     }
 
     JonesHud_msecLastKeyPressTime = JonesHud_msecTime;
@@ -2838,6 +2860,8 @@ void J3DAPI JonesHud_UpdateItem(JonesHudMenuItem* pItem)
                             JonesHud_pCloseMenuItem = NULL;
 
                             sithGamesave_CloseRestore();
+                            // Fixed: Stop the menu-owned fade before resuming the paused sound clock.
+                            JonesHud_StopMenuMusic();
                             JonesMain_ResumeGame();
                             JonesReticle_Resume();
 
