@@ -1470,7 +1470,7 @@ void J3DAPI sithPlayerActions_HopBack(SithThing* pThing)
             }
         }
 
-        sithSoundClass_PlayModeFirst(pThing, sndmode);
+        sithSoundClass_PlayModeRandom(pThing, sndmode); // Fixed: Pick the jump sound randomly like the original, not always the first
     }
 
     sithThing_DetachThing(pThing);
@@ -1998,13 +1998,15 @@ int J3DAPI sithPlayerActions_CanClimbOn1m(SithThing* pThing)
                 }
             }
         }
-        else if ( (pCollision->type & SITHCOLLISION_THING) != 0 && pCollision->pFaceCollided )
+        else if ( (pCollision->type & SITHCOLLISION_THING) != 0 )
         {
-            if ( ((pCollision->pThingCollided->flags & SITH_TF_STANDON) != 0
-                && ((pCollision->pThingCollided->flags & SITH_TF_MOUNTABLE) != 0)
-                || (pCollision->pThingCollided->flags & SITH_TF_UNKNOWN_1000) != 0) )
+            if ( (pCollision->pFaceCollided
+                && (pCollision->pThingCollided->flags & SITH_TF_STANDON) != 0
+                && (pCollision->pThingCollided->flags & SITH_TF_MOUNTABLE) != 0)
+                || (pCollision->pThingCollided->flags & SITH_TF_UNKNOWN_1000) != 0 )
             {
-                if ( pCollision->pFaceCollided->normal.z == 0.0f ) // TODO: Maybe also do a dot product check here?
+                // Fixed: Check for NULL face, the original dereferences the face of a SITH_TF_UNKNOWN_1000 thing without the check
+                if ( pCollision->pFaceCollided && pCollision->pFaceCollided->normal.z == 0.0f ) // TODO: Maybe also do a dot product check here?
                 {
                     // TODO: This hardcoded check for thing names should be replaced with a more generic check
                     bFoundVerticalSurf =

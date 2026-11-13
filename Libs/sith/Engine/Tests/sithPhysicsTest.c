@@ -195,6 +195,34 @@ TEST(sithPhysics, TestStartupDoesNotCreateFixedRateSetting)
     sithPhysicsTest_AssertVector(&delta, &sithPhysicsTest_thing.moveInfo.physics.deltaVelocity);
 }
 
+TEST(sithPhysics, TestNegativeAccumulatedTimeDoesNotIntegrate)
+{
+    // Fixed: A negative accumulated time takes no steps; the original wrapped the
+    // floored count through an unsigned conversion and ran about 4 billion steps.
+    static const struct { float timestep; float rollover; } aCases[] = {
+        { -0.02f, 0.0f }, { -0.005f, 0.0f }, { 0.01f, -0.03f }
+    };
+    for ( size_t i = 0; i < sizeof(aCases) / sizeof(aCases[0]); ++i )
+    {
+        sithPhysicsTest_InitThing();
+        SithPhysicsInfo* pPhysics = &sithPhysicsTest_thing.moveInfo.physics;
+        pPhysics->physicsRolloverFrames = aCases[i].rollover;
+        pPhysics->deltaVelocity = (rdVector3){ 4.0f, 5.0f, 6.0f };
+        pPhysics->gravityForce = (rdVector3){ 7.0f, 8.0f, 9.0f };
+        const rdVector3 velocity = pPhysics->velocity;
+        const rdVector3 delta = pPhysics->deltaVelocity;
+        const rdVector3 zero = { 0 };
+
+        sithPhysics_UpdateDetachedPlayerPhysics(&sithPhysicsTest_thing, aCases[i].timestep);
+
+        TEST_ASSERT_EQUAL_size_t(0, sithPhysicsTest_numSteps);
+        TEST_ASSERT_EQUAL_FLOAT(aCases[i].timestep + aCases[i].rollover, pPhysics->physicsRolloverFrames);
+        TEST_ASSERT_EQUAL_MEMORY(&velocity, &pPhysics->velocity, sizeof(velocity));
+        TEST_ASSERT_EQUAL_MEMORY(&delta, &pPhysics->deltaVelocity, sizeof(delta));
+        TEST_ASSERT_EQUAL_MEMORY(&zero, &pPhysics->gravityForce, sizeof(zero));
+    }
+}
+
 TEST(sithPhysics, TestFallingGravityUsesCompleteStepsAndCarriesRemainder)
 {
     SithPhysicsInfo* pPhysics = sithPhysicsTest_InitFall();
@@ -332,6 +360,7 @@ TEST_GROUP_RUNNER(sithPhysics)
 {
     RUN_TEST_CASE(sithPhysics, TestStartupIgnoresStoredNonOriginalRates);
     RUN_TEST_CASE(sithPhysics, TestStartupDoesNotCreateFixedRateSetting);
+    RUN_TEST_CASE(sithPhysics, TestNegativeAccumulatedTimeDoesNotIntegrate);
     RUN_TEST_CASE(sithPhysics, TestFallingGravityUsesCompleteStepsAndCarriesRemainder);
     RUN_TEST_CASE(sithPhysics, TestDragAndGravityKeepTheOriginalTrajectoryAcrossFrames);
     RUN_TEST_CASE(sithPhysics, TestGravityFlagsAndMassPreserveTwentyMillisecondSteps);

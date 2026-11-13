@@ -797,7 +797,7 @@ int J3DAPI sithPlayerControls_ProcessPlayerDebugControls(SithThing* pThing, floa
         }
     }
 
-    return 1;
+    return 0; // Fixed: Report no handled input like the original so the normal controls still run
 }
 
 void J3DAPI sithPlayerControls_ProcessLookControls(SithThing* pThing, float secDeltaTime)
@@ -826,7 +826,7 @@ void J3DAPI sithPlayerControls_ProcessLookControls(SithThing* pThing, float secD
 
     if ( yawDelta != 0.0f )
     {
-        yawDelta *= 90.0f * secDeltaTime;
+        yawDelta = (yawDelta * 90.0f) * secDeltaTime; // Fixed: Multiply in the original order so float rounding matches
     }
 
     if ( sithControl_GetKey(SITHCONTROL_FORWARD, NULL) )
@@ -841,7 +841,7 @@ void J3DAPI sithPlayerControls_ProcessLookControls(SithThing* pThing, float secD
     if ( pitchDelta != 0.0f )
     {
         bInputReceived = true;
-        pitchDelta *= 90.0f * secDeltaTime;
+        pitchDelta = (pitchDelta * 90.0f) * secDeltaTime; // Fixed: Multiply in the original order so float rounding matches
     }
 
     if ( bInputReceived )
@@ -1080,11 +1080,12 @@ void J3DAPI sithPlayerControls_ProcessClimbMove(SithThing* pThing, float secDelt
 
                 sithPlayerActions_ClimbPullUp(pThing);
                 sithPlayerControls_UpdateClimbingSpeed(pThing, bFastClimb); // Added: Speedup play if runmode is enabled
+                return; // Fixed: Stop after the pull up, the original does not also process the jump key in this frame
             }
         }
     }
     // Handle Jump-off key
-    else if ( sithControl_GetKey(SITHCONTROL_JUMP, NULL)
+    if ( sithControl_GetKey(SITHCONTROL_JUMP, NULL)
         && !sithPlayerControls_bJumpKeyActive
         && !pThing->thingInfo.actorInfo.bForceMovePlay )
     {
@@ -1288,6 +1289,13 @@ void J3DAPI sithPlayerControls_ProcessJewelFlyMove(SithThing* pThing, float secD
     {
         pPhysics->thrust.z = 0.0f;
         if ( !bCanMoveUp )
+        {
+            pPhysics->velocity.z = 0.0f;
+            sithPhysics_ResetThingMovement(pThing);
+        }
+
+        // Fixed: Stop the falling velocity when the downward check above finds no room, like the original
+        if ( !bCanMoveDown )
         {
             pPhysics->velocity.z = 0.0f;
             sithPhysics_ResetThingMovement(pThing);
@@ -1902,6 +1910,7 @@ void J3DAPI sithPlayerControls_ProcessSwimMove(SithThing* pThing, float secDelta
     J3D_UNUSED(secDeltaTime);
     SithPhysicsInfo* pPhysics = &pThing->moveInfo.physics;
     SithActorInfo* pActor     = &pThing->thingInfo.actorInfo;
+    bool bFlying              = false; // TODO: Never set in the original, so the thrust is never rotated by the head angles (see the end of the function)
 
     sithPlayerControls_curJumpDirection = 0;
 
@@ -2152,7 +2161,6 @@ void J3DAPI sithPlayerControls_ProcessSwimMove(SithThing* pThing, float secDelta
             return;
         }
 
-        pPhysics->thrust.z = 0.0f;
     }
     else
     {
@@ -2253,8 +2261,11 @@ void J3DAPI sithPlayerControls_ProcessSwimMove(SithThing* pThing, float secDelta
     //
     // Transform thrust based on head rotation
     //
+    // Retail compiles this block out because bFlying is always false; the debug build keeps it.
+    //
     if ( !rdVector_IsZero3(&pPhysics->thrust)
         && !rdVector_IsZero3(&pActor->headPYR)
+        && bFlying
         && (pPhysics->flags & SITH_PF_ONWATERSURFACE) == 0 )
     {
         rdMatrix34 mat;
@@ -2356,16 +2367,19 @@ void J3DAPI sithPlayerControls_ProcessHangMove(SithThing* pThing, float secDelta
 
             pThing->forceMoveStartPos = pThing->pos;
             pThing->collide.movesize = 0.0f;
-            sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_HANGSHIMLEFT, NULL);
-            sithSoundClass_PlayModeFirst(pThing, SITHSOUNDCLASS_CLIMBHANDLEFT);
 
+            // Fixed: Play the force move and the sound in the original order for each branch
             if ( pLedgeSurf )
             {
+                sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_HANGSHIMLEFT, NULL);
                 sithThing_AttachThingToClimbSurface(pThing, pLedgeSurf);
+                sithSoundClass_PlayModeFirst(pThing, SITHSOUNDCLASS_CLIMBHANDLEFT);
                 sithPlayerActions_g_pCurHitLedgeSurface = pLedgeSurf;
             }
             else
             {
+                sithSoundClass_PlayModeFirst(pThing, SITHSOUNDCLASS_CLIMBHANDLEFT);
+                sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_HANGSHIMLEFT, NULL);
                 sithThing_AttachThingToThingFace(pThing, pLedgeThing, pLedgeFace, pLedgeMesh->apVertices, 1);
                 sithPlayerActions_g_pCurHitLedgeModelFace = pLedgeFace;
                 sithPlayerActions_g_pCurHitLedgeModel     = pLedgeModel;
@@ -3924,7 +3938,7 @@ bool J3DAPI sithPlayerControls_CanStrafeMove(SithThing* pThing, int bMoveRight)
             rdVector3* apVertices = pMeshCollided->apVertices;
 
             rdVector3 worldVert;
-            rdMatrix_TransformPoint34(&worldVert, &apVertices[*pFaceCollided->aVertices], &pCollision->pThingCollided->orient);
+            rdMatrix_TransformVector34(&worldVert, &apVertices[*pFaceCollided->aVertices], &pCollision->pThingCollided->orient); // Fixed: Transform the model-space vertex, the position is added next
             rdVector_Add3Acc(&worldVert, &pCollision->pThingCollided->pos);
 
             // Calculate distance from start pos to face plane
@@ -5148,7 +5162,9 @@ void J3DAPI sithPlayerControls_ProcessPushPullMove(SithThing* pThing, float secD
     //
     // Handle pull object move
     //
-    if ( sithControl_GetKey(SITHCONTROL_BACK, NULL) )
+    // Pull when the forward key is not pressed; the earlier check ensures the back key is. Forward (push) has priority when both are pressed, like in the original
+    // Fixed: Only treat it as a pull when forward is not held, the fork used the back key directly
+    if ( !sithControl_GetKey(SITHCONTROL_FORWARD, NULL) )
     {
         // Check height difference for pull - can't pull objects that are higher
         if ( searchRadius > 0.05f && pThing->pos.z > sithPlayerControls_pMovableThing->pos.z )
