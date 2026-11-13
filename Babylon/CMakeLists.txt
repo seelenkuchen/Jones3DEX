@@ -40,9 +40,12 @@ if (BABYLON_BUILD_TESTS)
 endif()
 
 add_subdirectory(third_party/miniaudio)
+add_subdirectory(third_party/stb)
 
 add_subdirectory(core)
 add_subdirectory(log)
+add_subdirectory(font)
+add_subdirectory(image)
 add_subdirectory(time)
 add_subdirectory(files)
 add_subdirectory(platform)

@@ -3,6 +3,8 @@
 
 *.bmp binary
 *.gob binary
+*.png binary
+*.ttf binary
 
 # Whitespace in these parser fixtures is intentional test data.
 Libs/std/General/Tests/tv/stdConffile/read_args.cfg whitespace=-blank-at-eol,-space-before-tab
