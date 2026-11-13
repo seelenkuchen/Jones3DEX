@@ -50,3 +50,29 @@ fixed puzzle views, overrides the free camera while it is active.
 - Quick-step reuses the original sidestep, so alignment for block pushing and jumps matches retail.
 - New tests need recorded inputs with expected Enhanced traces; the Retail traces must not change.
 - Speedrun and savegame behavior under Classic is unchanged; under Modern, movement differs by design.
+
+## Implementation (2026-11-13)
+
+The style is read once at startup into `sithControl`, where `engine.input.controlStyle` selects Modern or
+Classic; non-QOL builds always stay Classic. The movement layer never edits the original movement code. It
+runs once per frame before `sithPlayerControls_Process` reads its functions and writes virtual key
+overrides: `FORWARD`, `BACK`, `TURNLEFT` and `TURNRIGHT` carry the translated direction and amount,
+`RUNFWD` carries walk/run, and quick-step suppresses a held `STPLEFT`/`STPRIGHT` so only the press edge
+reaches the original sidestep force move. `sithControl_ClearKeyOverrides` drops the overrides before every
+player frame, so a cutscene or a transition cannot inherit them.
+
+One move-status classifier (`sithModernControls_GetMode`) is shared by movement and the free camera. It
+returns the original tank-style states (climbing, pushing, vehicles, slides) as relative, leaves jump and
+forced-move states to the real keys, and makes every other grounded or swimming state camera-relative. The
+free camera is world-anchored: its yaw and pitch live in the camera module rather than in Indy's
+orientation, right-stick and mouse input orbit it, and the original camera collision is kept. A camera set
+by a COG script or a cutscene overrides it for the duration.
+
+Target lock is acquired on the press edge of `TARGETLOCK` with the same nearest-visible-hostile pick as the
+game's auto-aim. While held, Indy turns toward the target with a dead band and the stick is decomposed in
+Indy's frame into forward, back and strafe thrust; without a target the camera is centered forward for the
+press and the stick uses Indy's facing. The gamepad binder redirects a scheme's left-trigger Run binding to
+target lock in Modern, while Classic keeps it as Run.
+
+Deferred until after the owner's play-test: favourite weapons for D-pad left/right (they remain previous
+and next owned weapon, with a TODO at the scheme), and tuning of the turn rate and stick dead zone.

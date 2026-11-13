@@ -69,8 +69,13 @@ const char* J3DAPI JonesControlSchemes_GetDirectory(void);
 // trigger axes) instead of the original action lines.
 int J3DAPI JonesControlSchemes_IsExtraControl(size_t controlId);
 
-// Number of built-in default schemes: the original three plus the keyboard-and-gamepad default.
+// Number of built-in default schemes: the original three plus the keyboard-and-gamepad and
+// Modern-keyboard-and-gamepad defaults.
 size_t J3DAPI JonesControlSchemes_GetNumDefaultSchemes(void);
+
+// Index of the default scheme for a new install: the Modern scheme when the control style is
+// Modern, else the Keyboard and gamepad scheme. A remembered active scheme is never replaced.
+size_t J3DAPI JonesControlSchemes_GetDefaultSchemeIndex(void);
 
 // Name of a built-in default scheme, resolved through the string table with the JONES_STR_ key as
 // fallback.

@@ -48,11 +48,14 @@
   - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
     default in both profiles, is presentation only, and the Controls screen has a Rumble row
     (`engine.input.rumble`) to turn it off.
-  - The Gameplay tab has a Control style option (`engine.input.controlStyle`); Modern arrives in
-    the next updates.
-  - Modern target lock holds the nearest visible hostile in front of Indy, turns him toward it and
-    makes the left stick strafe and backpedal. With no target it centers the camera forward. LT on a
-    gamepad, `F` and the right mouse button on keyboard and mouse, all as Enhanced options.
+  - The Gameplay tab has a Control style option (`engine.input.controlStyle`, Modern by default).
+    Modern adds camera-relative movement on the left stick, a mouse and right-stick free camera,
+    quick-step on LB/RB and Q/E, quick-select on the D-pad, and target lock on LT, `F` and the
+    right mouse button with strafe and backpedal. New installs get a "Modern
+    keyboard and gamepad" default scheme (WASD and arrows, mouse look, Space jump, Ctrl and the
+    left mouse button to activate and fire, R draw, V or the middle mouse button to snap the
+    camera); Classic keeps the original tank controls and the "Keyboard and gamepad" scheme. A
+    remembered scheme is never replaced.
   - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
     Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
     help column for the focused row, and the Display tab drops the Performance row while the stored

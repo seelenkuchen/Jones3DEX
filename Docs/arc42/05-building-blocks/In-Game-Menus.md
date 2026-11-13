@@ -28,7 +28,7 @@ the Performance row; `graphics.performanceLevel` and the level stored in savegam
 | Options | Main menu and pause menu | [`JonesUiOptions.cpp`](../../../Jones3D/Platform/Babylon/JonesUiOptions.cpp) | One tabbed screen: Gameplay, Controls, Display and Sound. Tabs switch with Q/E, LB/RB or a click; each row is a setting and a help column describes the focused one. The tabs reuse the standalone builders below |
 | Save, Load | Pause menu, main menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level display name and date; the thumbnail row is hidden when a save has none; the default save name uses the level display name; overwrite and load warnings |
 | Exit | Pause menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
-| Gameplay tab | Options | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the enhancements that are runtime keys |
+| Gameplay tab | Options | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the Control style row (`engine.input.controlStyle`: Modern or Classic) and the enhancements that are runtime keys |
 | Controls tab | Options | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, a Rumble toggle, reset to defaults; deeper edit and capture screens open from the tab. Writes `controls.configFile`, `controls.mouse` and `engine.input.rumble` and applies the active scheme on OK. The gamepad is always on, so there is no controller toggle |
 | Display tab | Options | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in). No Performance row; the stored `graphics.performanceLevel` is written back unchanged |
 | Sound tab | Options | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
@@ -42,9 +42,11 @@ Dropped: Insert CD (all data is installed; a missing file gets a message screen 
 ## Default keyboard and gamepad scheme
 
 New installs use the `JONES_STR_DFLTPAD` ("Keyboard and gamepad") default scheme when
-`controls.configFile` names no active scheme; a remembered active scheme stays as it is. It keeps
-the first default's keyboard bindings and adds this pad layout inside the classic movement model.
-Start stays unbound because the pause menu reads it directly. See
+`controls.configFile` names no active scheme; a remembered active scheme stays as it is. With the
+Modern control style, new installs use the `JONES_STR_DFLTMODERN` ("Modern keyboard and gamepad")
+scheme instead ([Control-And-Input.md](Control-And-Input.md#modern-control-style-end-to-end)). The
+Classic default keeps the first default's keyboard bindings and adds this pad layout inside the
+classic movement model. Start stays unbound because the pause menu reads it directly. See
 [Control-And-Input.md](Control-And-Input.md#control-scheme-files) for the scheme format.
 
 | Pad | Action |

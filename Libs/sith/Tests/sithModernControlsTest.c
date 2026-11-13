@@ -150,6 +150,8 @@ TEST_SETUP(sithModernControls)
     sithControl_RegisterAxisFunction(SITHCONTROL_RUNFWD, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_ACT1, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_TARGETLOCK, SITHCONTROLFUNCTION_KEY);
+    sithControl_RegisterAxisFunction(SITHCONTROL_STPLEFT, SITHCONTROLFUNCTION_KEY);
+    sithControl_RegisterAxisFunction(SITHCONTROL_STPRIGHT, SITHCONTROLFUNCTION_KEY);
 
     TEST_ASSERT_EQUAL_INT(1, sithControl_Open());
 
@@ -162,6 +164,8 @@ TEST_SETUP(sithModernControls)
     sithControl_BindControl(SITHCONTROL_RUNFWD, STDKEY_LSHIFT, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_ACT1, STDKEY_SPACE, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDKEY_F, (SithControlBindFlag)0);
+    sithControl_BindControl(SITHCONTROL_STPLEFT, STDKEY_Q, (SithControlBindFlag)0);
+    sithControl_BindControl(SITHCONTROL_STPRIGHT, STDKEY_E, (SithControlBindFlag)0);
 
     sithModernControlsTest_ResetWorld();
 }
@@ -371,6 +375,59 @@ TEST(sithModernControls, UpdateLeavesRealKeysWhenClassic)
         sithControl_GetKeyAsAxisNormalized(SITHCONTROL_FORWARD));
 
     sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+}
+
+TEST(sithModernControls, UpdateQuickStepCountsOnlyThePressEdge)
+{
+    int pressed = -1;
+
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_ReadKey(STDKEY_Q, 1);
+
+    // The press edge reaches the original sidestep code once.
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed));
+    TEST_ASSERT_TRUE(pressed != 0);
+
+    // A held key is suppressed on the next frame, so the step does not repeat.
+    sithControl_ReadControls();
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed));
+    TEST_ASSERT_EQUAL_INT(0, pressed);
+
+    // Releasing and pressing again is a new edge.
+    sithModernControlsTest_ReadKey(STDKEY_Q, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    sithModernControlsTest_ReadKey(STDKEY_Q, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed));
+    TEST_ASSERT_TRUE(pressed != 0);
+    sithModernControlsTest_ReadKey(STDKEY_Q, 0);
+
+    // The right step follows the same rule.
+    sithModernControlsTest_ReadKey(STDKEY_E, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+    sithControl_ReadControls();
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+    sithModernControlsTest_ReadKey(STDKEY_E, 0);
+}
+
+TEST(sithModernControls, UpdateLeavesQuickStepHoldInClassic)
+{
+    sithControl_SetModernControlStyle(false);
+    sithModernControlsTest_ReadKey(STDKEY_Q, 1);
+
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    // Classic keeps the original hold behavior.
+    sithControl_ReadControls();
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_Q, 0);
 }
 
 TEST(sithModernControls, UpdateAppliesStickDeadzone)
@@ -794,6 +851,8 @@ TEST_GROUP_RUNNER(sithModernControls)
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesRealKeysWhenClassic);
+    RUN_TEST_CASE(sithModernControls, UpdateQuickStepCountsOnlyThePressEdge);
+    RUN_TEST_CASE(sithModernControls, UpdateLeavesQuickStepHoldInClassic);
     RUN_TEST_CASE(sithModernControls, UpdateAppliesStickDeadzone);
     RUN_TEST_CASE(sithModernControls, UpdateSnapsCameraOnceWhenLockHasNoTarget);
     RUN_TEST_CASE(sithModernControls, UpdateIgnoresTargetLockWhenClassic);

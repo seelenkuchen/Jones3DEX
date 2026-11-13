@@ -177,10 +177,10 @@ namespace
         return pName ? std::string(pName) : std::string();
     }
 
-    // Added: the keyboard-and-gamepad scheme is the default for new installs.
+    // Added: the default scheme for a new install follows the control style.
     std::size_t JonesUiControls_DefaultSchemeIndex(void)
     {
-        return 3u;
+        return JonesControlSchemes_GetDefaultSchemeIndex();
     }
 
     bool FindBinding(const JonesControlsScheme& scheme, std::size_t controlId,

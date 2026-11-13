@@ -31,7 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define JONESCONFIG_NUMDEFAULTCONTROLSCHEMES 4u
+#define JONESCONFIG_NUMDEFAULTCONTROLSCHEMES 5u
 #define JONESCONFIG_KEYSDIRPATH_MAX 512u
 #define JONESCONFIG_KFG_EXT ".kfg"
 
@@ -621,12 +621,80 @@ static const JonesConfigControlAction jonesConfig_aDefaultPadControlSet[JONESCON
     { STD_ARRAYLEN(aActionChalk)                , aActionChalk                }
 };
 
+// Added: the Modern keyboard and gamepad default (ADR-0029). Its keyboard follows the Modern
+// model: WASD and the arrows move, Q/E quick-step, Space jumps, Ctrl and the left mouse button
+// activate and fire, R draws, V and the middle mouse button snap the camera. Its gamepad part is
+// the keyboard-and-gamepad scheme's, with LT still stored as Run so the Modern binder maps it to
+// target lock.
+static const size_t aActionWalkFwdModernKeys[2]       = { STDKEY_W, STDKEY_UP };
+static const size_t aActionWalkBackModernKeys[2]      = { STDKEY_S, STDKEY_DOWN };
+static const size_t aActionTurnLeftModernKeys[2]      = { STDKEY_A, STDKEY_LEFT };
+static const size_t aActionTurnRightModernKeys[2]     = { STDKEY_D, STDKEY_RIGHT };
+static const size_t aActionStepLeftModernKeys[2]      = { STDKEY_Q, STDCONTROL_JOYSTICK_GETBUTTON(0, 4) };
+static const size_t aActionStepRightModernKeys[2]     = { STDKEY_E, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
+static const size_t aActionCrawlModernKeys[2]         = { STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) };
+static const size_t aActionRunModernKeys[2]           = { STDKEY_LSHIFT, JONESCONFIG_JOYAXISKID_GROUND };
+static const size_t aActionRollModernKeys[2]          = { STDKEY_Z, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) };
+static const size_t aActionJumpModernKeys[2]          = { STDKEY_SPACE, STDCONTROL_JOYSTICK_GETBUTTON(0, 0) };
+static const size_t aActionLookModernKeys[3]          = { STDKEY_V, STDCONTROL_KID_MOUSE_MBUTTON, STDCONTROL_JOYSTICK_GETBUTTON(0, 9) };
+static const size_t aActionActivateModernKeys[4]      = { STDKEY_LCONTROL, STDCONTROL_KID_MOUSE_LBUTTON, STDCONTROL_JOYSTICK_GETBUTTON(0, 2), JONESCONFIG_JOYAXISKID_TWISTR };
+static const size_t aActionToggleWeaponModernKeys[2]  = { STDKEY_R, STDCONTROL_JOYSTICK_GETBUTTON(0, 3) };
+static const size_t aActionPrevWeaponModernKeys[2]    = { STDKEY_COMMA, STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0) };
+static const size_t aActionNextWeaponModernKeys[2]    = { STDKEY_PERIOD, STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0) };
+static const size_t aActionToggleLightModernKeys[2]   = { STDKEY_L, STDCONTROL_JOYSTICK_GETPOVUP(0, 0) };
+static const size_t aActionInterfaceModernKeys[3]     = { STDKEY_TAB, STDKEY_I, STDCONTROL_JOYSTICK_GETBUTTON(0, 6) };
+static const size_t aActionHealthModernKeys[2]        = { STDKEY_H, STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0) };
+
+// TODO: D-pad left/right should cycle the inventory's favourite weapons once that feature exists;
+// until then they stay previous/next owned weapon.
+static const JonesConfigControlAction jonesConfig_aDefaultModernControlSet[JONESCONTROL_ACTION_NUMACTIONS] =
+{
+    { STD_ARRAYLEN(aActionWalkFwdModernKeys)     , aActionWalkFwdModernKeys      },
+    { STD_ARRAYLEN(aActionWalkBackModernKeys)    , aActionWalkBackModernKeys     },
+    { STD_ARRAYLEN(aActionTurnLeftModernKeys)    , aActionTurnLeftModernKeys     },
+    { STD_ARRAYLEN(aActionTurnRightModernKeys)   , aActionTurnRightModernKeys    },
+    { STD_ARRAYLEN(aActionStepLeftModernKeys)    , aActionStepLeftModernKeys     },
+    { STD_ARRAYLEN(aActionStepRightModernKeys)   , aActionStepRightModernKeys    },
+    { STD_ARRAYLEN(aActionCrawlModernKeys)       , aActionCrawlModernKeys        },
+    { STD_ARRAYLEN(aActionRunModernKeys)         , aActionRunModernKeys          },
+    { STD_ARRAYLEN(aActionRollModernKeys)        , aActionRollModernKeys         },
+    { STD_ARRAYLEN(aActionJumpModernKeys)        , aActionJumpModernKeys         },
+    { STD_ARRAYLEN(aActionLookModernKeys)        , aActionLookModernKeys         },
+    { STD_ARRAYLEN(aActionActivateModernKeys)    , aActionActivateModernKeys     },
+    { STD_ARRAYLEN(aActionToggleWeaponModernKeys), aActionToggleWeaponModernKeys },
+    { STD_ARRAYLEN(aActionPrevWeaponModernKeys)  , aActionPrevWeaponModernKeys   },
+    { STD_ARRAYLEN(aActionNextWeaponModernKeys)  , aActionNextWeaponModernKeys   },
+    { STD_ARRAYLEN(aActionToggleLightModernKeys) , aActionToggleLightModernKeys  },
+    { STD_ARRAYLEN(aActionFistsKeys)             , aActionFistsKeys              },
+    { STD_ARRAYLEN(aActionWhipKeys)              , aActionWhipKeys               },
+    { STD_ARRAYLEN(aActionMauserKeys)            , aActionMauserKeys             },
+    { STD_ARRAYLEN(aActionPPSH41Keys)            , aActionPPSH41Keys             },
+    { STD_ARRAYLEN(aActionPistolKeys)            , aActionPistolKeys             },
+    { STD_ARRAYLEN(aActionSimonovKeys)           , aActionSimonovKeys            },
+    { STD_ARRAYLEN(aActionTokarevKeys)           , aActionTokarevKeys            },
+    { STD_ARRAYLEN(aActionToz34Keys)             , aActionToz34Keys              },
+    { STD_ARRAYLEN(aActionBazookaKeys)           , aActionBazookaKeys            },
+    { STD_ARRAYLEN(aActionMacheteKeys)           , aActionMacheteKeys            },
+    { STD_ARRAYLEN(aActionSatchelKeys)           , aActionSatchelKeys            },
+    { STD_ARRAYLEN(aActionGrenadeKeys)           , aActionGrenadeKeys            },
+    { STD_ARRAYLEN(aActionMapKeys)               , aActionMapKeys                },
+    { STD_ARRAYLEN(aActionInterfaceModernKeys)   , aActionInterfaceModernKeys    },
+    { STD_ARRAYLEN(aActionHealthModernKeys)      , aActionHealthModernKeys       },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { STD_ARRAYLEN(aActionChalk)                 , aActionChalk                  }
+};
+
 static const JonesConfigControlAction* jonesConfig_aDfltKeySets[] =
 {
     jonesConfig_aDefaultControlSet,
     jonesConfig_aDfault2Axis4Button,
     jonesConfig_aDefault2Axis8Button,
-    jonesConfig_aDefaultPadControlSet
+    jonesConfig_aDefaultPadControlSet,
+    jonesConfig_aDefaultModernControlSet
 };
 
 static const char* jonesConfig_aDfltKeySetNames[JONESCONFIG_NUMDEFAULTCONTROLSCHEMES] =
@@ -634,7 +702,8 @@ static const char* jonesConfig_aDfltKeySetNames[JONESCONFIG_NUMDEFAULTCONTROLSCH
     "JONES_STR_DFLTKEY",
     "JONES_STR_DFLT2A4B",
     "JONES_STR_DFLT2A8B",
-    "JONES_STR_DFLTPAD"
+    "JONES_STR_DFLTPAD",
+    "JONES_STR_DFLTMODERN"
 };
 
 static const char* jonesConfig_aDfltKeySetFallbackNames[JONESCONFIG_NUMDEFAULTCONTROLSCHEMES] =
@@ -642,7 +711,8 @@ static const char* jonesConfig_aDfltKeySetFallbackNames[JONESCONFIG_NUMDEFAULTCO
     "JONES_STR_DFLTKEY",
     "JONES_STR_DFLT2A4B",
     "JONES_STR_DFLT2A8B",
-    "Keyboard and gamepad"
+    "Keyboard and gamepad",
+    "Modern keyboard and gamepad"
 };
 
 static int JonesControlSchemes_IsMouseButton(size_t controlId)
@@ -1501,11 +1571,17 @@ int J3DAPI JonesControlSchemes_SetDefaultScheme(JonesControlsScheme* pScheme, si
     return jonesConfig_SetDefaultControlScheme(pScheme, index);
 }
 
-// Added: the keyboard-and-gamepad scheme is the default for new installs. A remembered active
-// scheme stays as it is; a connected pad is always on, so the pad count no longer picks a default.
+// Added: a new install gets the Modern keyboard and gamepad scheme when the control style is
+// Modern, and the Keyboard and gamepad scheme in Classic. A remembered active scheme stays as it
+// is; a connected pad is always on, so the pad count no longer picks a default.
+size_t J3DAPI JonesControlSchemes_GetDefaultSchemeIndex(void)
+{
+    return sithControl_IsModernControlStyle() ? 4u : 3u;
+}
+
 static size_t JonesControlSchemes_DefaultSchemeIndex(void)
 {
-    return 3u;
+    return JonesControlSchemes_GetDefaultSchemeIndex();
 }
 
 // --- Reading ----------------------------------------------------------------------------------

@@ -503,6 +503,24 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
     }
 }
 
+// Added: a Modern quick-step counts only the press edge. The original sidestep force move starts
+// once per press, but a held STPLEFT/STPRIGHT starts another step as soon as the previous one
+// finishes. Suppressing the held key leaves the original move code and its alignment untouched.
+static void sithModernControls_UpdateQuickStep(void)
+{
+    int pressed = 0;
+    if ( sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed) && !pressed )
+    {
+        sithControl_SuppressKey(SITHCONTROL_STPLEFT);
+    }
+
+    pressed = 0;
+    if ( sithControl_GetKey(SITHCONTROL_STPRIGHT, &pressed) && !pressed )
+    {
+        sithControl_SuppressKey(SITHCONTROL_STPRIGHT);
+    }
+}
+
 void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 {
     sithControl_ClearKeyOverrides();
@@ -515,6 +533,8 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         sithModernControls_ResetLock();
         return;
     }
+
+    sithModernControls_UpdateQuickStep();
 
     SithModernControlMode mode = sithModernControls_GetMode(pPlayer);
 

@@ -192,6 +192,110 @@ range. Its defaults are `F` and the right mouse button on keyboard and mouse, an
 lock; Run comes from the left-stick magnitude instead. Classic keeps LT as Run. The lock does not
 add an action to the `.kfg` format, so files written before it still load.
 
+## Modern Control Style End To End
+
+`engine.input.controlStyle` is read once in `JonesControl_Startup` and stored in `sithControl`, so
+the movement, camera and binder code all see the same answer. QOL builds default to Modern and
+write the key back; the Retail profile always uses Classic and neither reads nor writes it.
+
+Each player frame runs `sithModernControls_Update` before the original movement code. It clears the
+previous frame's virtual keys, classifies the current move status, reads the stick and the real
+movement keys, and writes the frame's `FORWARD`, `BACK`, `TURNLEFT`, `TURNRIGHT` and `RUNFWD`
+overrides. `sithModernControls_Compute` is the pure part: given a screen-space move vector, the
+camera and player yaws and a mode, it returns the original keys to press and their amounts. The
+classifier returns three modes:
+
+- **Camera-relative**: grounded and swimming states; the stick moves Indy relative to the camera,
+  turning him toward the move direction and running when the push is large.
+- **Relative**: the original tank-style states (climbing, pushing, pulling, slides and vehicles);
+  the real keys keep their original meaning.
+- **None**: jump, fall and forced-move states; the real keys pass through untouched.
+
+The free camera is world-anchored in `sithModernCamera`: right-stick and mouse motion orbit it, the
+original camera collision stays, and a camera set by a COG script or cutscene wins while active.
+Quick-step reuses the original sidestep force move. The original repeats a held step, so Modern
+suppresses a held `STPLEFT`/`STPRIGHT` and lets only the press edge start exactly one step. Quick
+select uses the scheme's D-pad bindings: up toggles the lighter, down uses the best health item
+(herbs, then small health pack, then big herbs, then big health pack, as the original HEALTH
+function does), and left/right remain previous and next owned weapon. Favourite weapons for
+left/right are deferred.
+
+### Default schemes
+
+A new install picks the `JONES_STR_DFLTMODERN` ("Modern keyboard and gamepad") scheme when the style
+is Modern and the `JONES_STR_DFLTPAD` ("Keyboard and gamepad") scheme when it is Classic. A
+remembered active scheme is never replaced. See
+[In-Game-Menus.md](In-Game-Menus.md#default-keyboard-and-gamepad-scheme) for the scheme file format
+and the pad layout of the Classic default.
+
+**Keyboard and gamepad (Classic default)**
+
+| Input | Action |
+|---|---|
+| Arrow up / down | Forward / back |
+| Arrow left / right | Turn left / right |
+| A / S | Step left / right |
+| Left / right Shift | Run |
+| X, Alt | Jump |
+| Left / right Ctrl | Activate and fire |
+| Z | Roll |
+| C | Crawl |
+| Space | Toggle weapon |
+| Insert / Numpad 0 | Look |
+| Comma / period | Previous / next weapon |
+| 0-9, P, G | Weapons, satchel, grenade |
+| L / H / M / I / K | Lighter / health / map / inventory / chalk |
+| Left stick | Walk forward/back, turn left/right |
+| A (South) | Jump |
+| X (West) | Activate (grab, pull, push, open; fires with a weapon drawn) |
+| RT | Activate as well (fire) |
+| B (East) | Roll |
+| Y (North) | Toggle weapon |
+| LB / RB | Step left / step right |
+| LT (hold) | Run |
+| L3 | Crawl |
+| R3 | Look |
+| D-pad up / down | Toggle light / health |
+| D-pad left / right | Previous / next weapon |
+| Back (View) | Interface (inventory) |
+
+**Modern keyboard and gamepad (Modern default)**
+
+| Input | Action |
+|---|---|
+| W / S | Forward / back, relative to the camera |
+| A / D | Turn left / right, relative to the camera |
+| Arrow keys | Same as W / S / A / D |
+| Mouse | Free camera (with `controls.mouse` on) |
+| Left Shift | Hold to run; a small stick push walks |
+| Space | Jump |
+| Left Ctrl / left mouse button | Activate and fire |
+| Q / E | Quick-step left / right, exactly one original step per press |
+| F / right mouse button | Target lock |
+| C | Crawl |
+| R | Draw or holster the weapon |
+| L / H | Lighter / best health item |
+| Tab or I | Inventory |
+| 1-0, P, G | Weapons, satchel, grenade |
+| M | Map |
+| V / middle mouse button | Snap the camera behind Indy |
+| Left stick | Omnidirectional movement relative to the camera |
+| Right stick | Free camera |
+| A (South) | Jump |
+| X (West) | Activate (grab, pull, push, open; fires with a weapon drawn) |
+| RT | Activate as well (fire) |
+| B (East) | Roll |
+| Y (North) | Toggle weapon |
+| LB / RB | Step left / step right |
+| LT (hold) | Target lock |
+| L3 | Crawl |
+| R3 | Snap the camera behind Indy |
+| D-pad up / down | Toggle light / health |
+| D-pad left / right | Previous / next weapon |
+| Back (View) | Interface (inventory) |
+
+
+
 ## Callback Dispatch And Camera Side Effects
 
 [`sithControl_Update()`](../../../Libs/sith/Devices/sithControl.c#L334) is the high-level runtime entry point called from the frame loop.
