@@ -51,7 +51,7 @@
   - The Gameplay tab has a Control style option (`engine.input.controlStyle`, Modern by default).
     Modern adds camera-relative movement on the left stick, a mouse and right-stick free camera,
     quick-step on LB/RB and Q/E, quick-select on the D-pad, and target lock on LT, `F` and the
-    right mouse button with strafe and backpedal. New installs get a "Modern
+    right mouse button with sidesteps and backpedal. New installs get a "Modern
     keyboard and gamepad" default scheme (WASD and arrows, mouse look, Space jump, Ctrl and the
     left mouse button to activate and fire, R draw, V or the middle mouse button to snap the
     camera); Classic keeps the original tank controls and the "Keyboard and gamepad" scheme. A

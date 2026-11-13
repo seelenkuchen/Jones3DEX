@@ -42,8 +42,10 @@ typedef struct sSithModernOutput
     SithModernKey turnLeft;
     SithModernKey turnRight;
     SithModernKey run;
-    SithModernKey strafeLeft; // Added: locked-sideways input, played as thrust by sithPlayerControls.
-    SithModernKey strafeRight; // Added
+    SithModernKey strafeLeft; // Added: locked-sideways input, held as the original STPLEFT key.
+    SithModernKey strafeRight; // Added: the same for STPRIGHT.
+    bool bTurnTowardTarget; // Added: the caller rotates the player's facing to targetYaw.
+    float targetYaw; // Added: desired facing in the same convention as cameraYaw.
 } SithModernOutput;
 
 // Added: the one classifier shared by movement and the free camera. Relative is the original
@@ -64,9 +66,6 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime);
 SithThing* J3DAPI sithModernControls_GetLockedTarget(void);
 bool J3DAPI sithModernControls_IsLockActive(void);
 void J3DAPI sithModernControls_ResetLock(void);
-
-// Added: -1..1 sideways input the locked move produces, consumed by sithPlayerControls.
-float J3DAPI sithModernControls_GetStrafeInput(void);
 
 // Added: if the free camera should ease toward a locked target this frame, write its yaw.
 bool J3DAPI sithModernControls_GetLockCameraYaw(float* pYaw);

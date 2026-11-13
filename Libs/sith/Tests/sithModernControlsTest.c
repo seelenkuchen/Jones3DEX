@@ -16,6 +16,7 @@
 
 #include <std/General/stdControl.h>
 #include <std/General/stdKeys.h>
+#include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
 #include <std/Null/stdControlNull.h>
 
@@ -68,6 +69,8 @@ static void sithModernControlsTest_ResetWorld(void)
     sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_STILL;
     sithModernControlsTest_player.attach.flags = SITH_ATTACH_SURFACE;
     sithModernControlsTest_player.orient.lvec  = (rdVector3){ { 0.0f }, { 1.0f }, { 0.0f } };
+    sithModernControlsTest_player.orient.rvec  = (rdVector3){ { 1.0f }, { 0.0f }, { 0.0f } };
+    sithModernControlsTest_player.orient.uvec  = (rdVector3){ { 0.0f }, { 0.0f }, { 1.0f } };
 
     memset(&sithModernControlsTest_camera, 0, sizeof(sithModernControlsTest_camera));
     sithModernControlsTest_camera.orient.lvec = (rdVector3){ { 0.0f }, { 1.0f }, { 0.0f } };
@@ -109,6 +112,12 @@ static SithModernOutput sithModernControlsTest_ComputeLock(float x, float y, flo
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
     return out;
+}
+
+static float sithModernControlsTest_PlayerYaw(void)
+{
+    const rdVector3* pLvec = &sithModernControlsTest_player.orient.lvec;
+    return STDMATH_TODEGREESF(atan2f(-pLvec->x, pLvec->y));
 }
 
 static SithModernControlMode sithModernControlsTest_ModeForStatus(SithThingMoveStatus moveStatus)
@@ -206,27 +215,30 @@ TEST(sithModernControls, ComputeCameraBehindPressingUpMovesForward)
     TEST_ASSERT_TRUE(out.run.bPressed);
 }
 
-TEST(sithModernControls, ComputePressingBackTurnsWithoutBack)
+TEST(sithModernControls, ComputePressingBackFacesBackAndMovesForward)
 {
     SithModernOutput out = sithModernControlsTest_Compute(0.0f, -1.0f, 0.0f, 0.0f,
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
 
-    TEST_ASSERT_FALSE(out.forward.bPressed);
+    TEST_ASSERT_TRUE(out.forward.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.forward.amount);
     TEST_ASSERT_FALSE(out.back.bPressed);
-    TEST_ASSERT_TRUE(out.turnLeft.bPressed || out.turnRight.bPressed);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f,
-        out.turnLeft.bPressed ? out.turnLeft.amount : out.turnRight.amount);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 180.0f, fabsf(out.targetYaw));
 }
 
-TEST(sithModernControls, ComputePressingRightTurnsThenMovesWhenAligned)
+TEST(sithModernControls, ComputePressingRightFacesRightAndMovesForward)
 {
     SithModernOutput out = sithModernControlsTest_Compute(1.0f, 0.0f, 0.0f, 0.0f,
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
 
-    TEST_ASSERT_TRUE(out.turnRight.bPressed);
+    TEST_ASSERT_TRUE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
-    TEST_ASSERT_FALSE(out.forward.bPressed);
-    TEST_ASSERT_FALSE(out.back.bPressed);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -90.0f, out.targetYaw);
 
     // Facing +X, the same stick input now points along Indy's facing.
     out = sithModernControlsTest_Compute(1.0f, 0.0f, 0.0f, -90.0f,
@@ -235,6 +247,8 @@ TEST(sithModernControls, ComputePressingRightTurnsThenMovesWhenAligned)
     TEST_ASSERT_TRUE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -90.0f, out.targetYaw);
 }
 
 TEST(sithModernControls, ComputeCameraYawRotatesWorldDirection)
@@ -243,9 +257,11 @@ TEST(sithModernControls, ComputeCameraYawRotatesWorldDirection)
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
 
     // A camera yawed 90 degrees makes stick up point to world -X, which is Indy's left.
-    TEST_ASSERT_TRUE(out.turnLeft.bPressed);
+    TEST_ASSERT_TRUE(out.forward.bPressed);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
-    TEST_ASSERT_FALSE(out.forward.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, out.targetYaw);
 
     out = sithModernControlsTest_Compute(0.0f, 1.0f, 90.0f, 90.0f,
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
@@ -253,27 +269,31 @@ TEST(sithModernControls, ComputeCameraYawRotatesWorldDirection)
     TEST_ASSERT_TRUE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, out.targetYaw);
 }
 
-TEST(sithModernControls, ComputeTurnAmountScalesWithAngle)
+TEST(sithModernControls, ComputeUsesHeadingForAnyStickAngle)
 {
-    // A target 30 degrees to the left turns and still moves forward.
+    // A target 30 degrees to the left still moves forward and faces that heading.
     SithModernOutput out = sithModernControlsTest_Compute(-0.5f, 0.8660254f, 0.0f, 0.0f,
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
 
-    TEST_ASSERT_TRUE(out.turnLeft.bPressed);
-    TEST_ASSERT_EQUAL_FLOAT(0.5f, out.turnLeft.amount);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 30.0f, out.targetYaw);
     TEST_ASSERT_TRUE(out.forward.bPressed);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
 
-    // A target 10 degrees to the right stays above the turn threshold but uses the minimum amount.
+    // A target 10 degrees to the right keeps the same rule.
     out = sithModernControlsTest_Compute(0.1736482f, 0.9848078f, 0.0f, 0.0f,
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
 
-    TEST_ASSERT_TRUE(out.turnRight.bPressed);
-    TEST_ASSERT_EQUAL_FLOAT(0.25f, out.turnRight.amount);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -10.0f, out.targetYaw);
     TEST_ASSERT_TRUE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
 }
 
 TEST(sithModernControls, ComputeWalkAndRunFromMagnitude)
@@ -345,15 +365,50 @@ TEST(sithModernControls, UpdateAppliesOverridesWhenModern)
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_RUNFWD, NULL));
 
-    // A real BACK press is suppressed and translated into a turn, not a backpedal.
+    // A real BACK press becomes a forward move toward the camera and never a backpedal.
     sithModernControlsTest_ReadKey(STDKEY_UP, 0);
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
 
-    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
-    TEST_ASSERT_TRUE(sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL)
-        || sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
+}
+
+TEST(sithModernControls, UpdateBackRunsAtOnceAndTurnsDirectly)
+{
+    int pressed = -1;
+
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
+
+    sithModernControls_Update(&sithModernControlsTest_player, 0.1f);
+
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, &pressed));
+    TEST_ASSERT_TRUE(pressed != 0);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
+
+    // 0.1 s at 720 deg/s is 72 degrees of the 180-degree turn.
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 72.0f, sithModernControlsTest_PlayerYaw());
+
+    // Repeated updates settle on the target heading without overshooting it.
+    for ( int i = 0; i < 600; ++i )
+    {
+        sithModernControls_Update(&sithModernControlsTest_player, 0.016f);
+        float delta = stdMath_NormalizeAngleAcute(180.0f - sithModernControlsTest_PlayerYaw());
+        TEST_ASSERT_TRUE(delta >= -0.1f);
+        if ( fabsf(delta) <= 0.1f )
+        {
+            break;
+        }
+    }
+
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 180.0f, fabsf(sithModernControlsTest_PlayerYaw()));
 
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
 }
@@ -455,6 +510,74 @@ TEST(sithModernControls, UpdateAppliesStickDeadzone)
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_RUNFWD, NULL));
 
     stdControl_SetAxisState(axisY, 0);
+}
+
+TEST(sithModernControls, UpdateLockedSidewaysHoldsSidestepKey)
+{
+    size_t axisX = STDCONTROL_GET_JOYSTICK_AXIS_X(0);
+    size_t axisY = STDCONTROL_GET_JOYSTICK_AXIS_Y(0);
+
+    sithControl_SetModernControlStyle(true);
+
+    stdControl_RegisterAxis(axisX, -32768, 32767, 0.0f);
+    stdControl_RegisterAxis(axisY, -32768, 32767, 0.0f);
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(axisX));
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis(axisY));
+    stdControl_SetAxisState(axisX, 0);
+    stdControl_SetAxisState(axisY, 0);
+
+    // A held lock with no target still owns the camera-relative movement.
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
+
+    // Stick right holds the original sidestep key for as long as it stays right.
+    stdControl_SetAxisState(axisX, 32767);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+
+    // The Modern layer adds no lateral thrust of its own.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithModernControlsTest_player.moveInfo.physics.thrust.x);
+
+    // The other side follows the same rule.
+    stdControl_SetAxisState(axisX, -32767);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+
+    stdControl_SetAxisState(axisX, 0);
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+}
+
+TEST(sithModernControls, UpdateQuickStepRuleIsOffWhileLocked)
+{
+    sithControl_SetModernControlStyle(true);
+
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
+
+    // While locked the physical sidestep key keeps its original hold behavior.
+    sithModernControlsTest_ReadKey(STDKEY_Q, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    sithControl_ReadControls();
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    // Releasing the lock puts the quick-step press-edge rule back.
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_FALSE(sithModernControls_IsLockActive());
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_Q, 0);
 }
 #endif
 
@@ -645,99 +768,96 @@ TEST(sithModernControls, ClassifierUsesWaterAndFloorFallback)
         sithModernControls_GetMode(&sithModernControlsTest_player));
 }
 
-TEST(sithModernControls, ComputeStickLeftConvergesWithAnchoredCamera)
-{
-    const float cameraYaw = 30.0f;
-    const float step      = 10.0f;
-    float playerYaw       = cameraYaw;
-    bool bForward         = false;
-    int steps             = 0;
-
-    for ( ; steps < 60; ++steps )
-    {
-        SithModernOutput out = sithModernControlsTest_Compute(-1.0f, 0.0f, cameraYaw,
-            playerYaw, SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
-
-        if ( out.forward.bPressed )
-        {
-            bForward = true;
-        }
-
-        if ( !out.turnLeft.bPressed && !out.turnRight.bPressed )
-        {
-            break;
-        }
-
-        TEST_ASSERT_TRUE(out.turnLeft.bPressed || out.turnRight.bPressed);
-        playerYaw += out.turnLeft.bPressed ? step : -step;
-    }
-
-    TEST_ASSERT_TRUE(bForward);
-    TEST_ASSERT_TRUE(steps < 60);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, cameraYaw + 90.0f, playerYaw);
-}
-
-TEST(sithModernControls, SelectLockTargetChoosesNearestLiveActorInCone)
+TEST(sithModernControls, SelectLockTargetPrefersTheCameraDirection)
 {
     SithThing selector;
     memset(&selector, 0, sizeof(selector));
     selector.type = SITH_THING_ACTOR;
-    selector.orient.lvec.x = 0.0f;
-    selector.orient.lvec.y = 1.0f;
-    selector.orient.lvec.z = 0.0f;
-    selector.orient.uvec.x = 0.0f;
-    selector.orient.uvec.y = 0.0f;
+    // Indy faces away from the camera's forward direction (+Y).
+    selector.orient.lvec.y = -1.0f;
     selector.orient.uvec.z = 1.0f;
     selector.orient.rvec.x = 1.0f;
-    selector.orient.rvec.y = 0.0f;
-    selector.orient.rvec.z = 0.0f;
 
-    SithThing near;
-    memset(&near, 0, sizeof(near));
-    near.type  = SITH_THING_ACTOR;
-    near.pos.y = 1.0f;
+    // 60 degrees off the camera, 1 m away.
+    SithThing offCamera60;
+    memset(&offCamera60, 0, sizeof(offCamera60));
+    offCamera60.type = SITH_THING_ACTOR;
+    offCamera60.pos.x = -0.8660254f;
+    offCamera60.pos.y = 0.5f;
 
-    SithThing behind;
-    memset(&behind, 0, sizeof(behind));
-    behind.type  = SITH_THING_ACTOR;
-    behind.pos.y = -0.5f;
+    // 10 degrees off the camera and 2 m away, behind Indy's facing.
+    SithThing camera10;
+    memset(&camera10, 0, sizeof(camera10));
+    camera10.type = SITH_THING_ACTOR;
+    camera10.pos.x = 0.3472964f;
+    camera10.pos.y = 1.9696155f;
+
+    // 20 degrees off the camera but much closer: the smaller angle still wins.
+    SithThing camera20Near;
+    memset(&camera20Near, 0, sizeof(camera20Near));
+    camera20Near.type = SITH_THING_ACTOR;
+    camera20Near.pos.x = 0.1710101f;
+    camera20Near.pos.y = 0.4698463f;
 
     SithThing dead;
     memset(&dead, 0, sizeof(dead));
-    dead.type   = SITH_THING_ACTOR;
-    dead.pos.y  = 0.4f;
-    dead.flags  = SITH_TF_DYING;
+    dead.type  = SITH_THING_ACTOR;
+    dead.pos.y = 0.4f;
+    dead.flags = SITH_TF_DYING;
 
     SithThing notAnActor;
     memset(&notAnActor, 0, sizeof(notAnActor));
     notAnActor.type  = SITH_THING_FREE;
     notAnActor.pos.y = 0.2f;
 
-    SithThing* aCandidates[] = { &behind, &dead, &notAnActor, &near };
-    TEST_ASSERT_EQUAL_PTR(&near, sithPlayerControls_SelectLockTarget(&selector, aCandidates, STD_ARRAYLEN(aCandidates)));
+    SithThing* aCandidates[] = { &offCamera60, &camera20Near, &dead, &notAnActor, &camera10 };
+    TEST_ASSERT_EQUAL_PTR(&camera10, sithPlayerControls_SelectLockTarget(&selector, 0.0f,
+        aCandidates, STD_ARRAYLEN(aCandidates)));
 
-    // Without the live actor in front there is no lock target.
-    TEST_ASSERT_NULL(sithPlayerControls_SelectLockTarget(&selector, &aCandidates[0], 3));
+    // A hostile outside the 35 degree cone is never chosen.
+    TEST_ASSERT_NULL(sithPlayerControls_SelectLockTarget(&selector, 0.0f,
+        &aCandidates[0], 1));
 }
 
-TEST(sithModernControls, ComputeLockTurnsTowardTargetAndHonorsDeadBand)
+TEST(sithModernControls, SelectLockTargetRejectsOutsideCone)
+{
+    SithThing selector;
+    memset(&selector, 0, sizeof(selector));
+    selector.type = SITH_THING_ACTOR;
+
+    SithThing outside;
+    memset(&outside, 0, sizeof(outside));
+    outside.type = SITH_THING_ACTOR;
+    outside.pos.x = -0.6427876f; // 40 degrees left of the camera
+    outside.pos.y = 0.7660444f;
+
+    TEST_ASSERT_NULL(sithPlayerControls_SelectLockTarget(&selector, 0.0f, (SithThing*[]){ &outside }, 1));
+}
+
+TEST(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys)
 {
     SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, 0.0f, 0.0f, 0.0f, true, 30.0f);
-    TEST_ASSERT_TRUE(out.turnLeft.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 30.0f, out.targetYaw);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
     TEST_ASSERT_FALSE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.back.bPressed);
 
     out = sithModernControlsTest_ComputeLock(0.0f, 0.0f, 0.0f, 0.0f, true, -30.0f);
-    TEST_ASSERT_TRUE(out.turnRight.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -30.0f, out.targetYaw);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
 
     out = sithModernControlsTest_ComputeLock(0.0f, 0.0f, 0.0f, 0.0f, true, 2.0f);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 2.0f, out.targetYaw);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
 }
 
-TEST(sithModernControls, ComputeLockBackpedalsAndStrafes)
+TEST(sithModernControls, ComputeLockHoldsSidestepKeys)
 {
     SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
     TEST_ASSERT_TRUE(out.back.bPressed);
@@ -756,6 +876,12 @@ TEST(sithModernControls, ComputeLockBackpedalsAndStrafes)
 
     out = sithModernControlsTest_ComputeLock(-1.0f, 0.0f, 0.0f, 0.0f, true, 0.0f);
     TEST_ASSERT_TRUE(out.strafeLeft.bPressed);
+
+    // A diagonal that is not sideways falls back to forward or back.
+    out = sithModernControlsTest_ComputeLock(0.4f, -0.8f, 0.0f, 0.0f, true, 0.0f);
+    TEST_ASSERT_FALSE(out.strafeLeft.bPressed);
+    TEST_ASSERT_FALSE(out.strafeRight.bPressed);
+    TEST_ASSERT_TRUE(out.back.bPressed);
 }
 
 TEST(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing)
@@ -766,17 +892,7 @@ TEST(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing)
     TEST_ASSERT_FALSE(out.strafeRight.bPressed);
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
-}
-
-TEST(sithModernControls, ComputeStrafeThrustScalesWalkThrust)
-{
-    SithActorInfo actor;
-    memset(&actor, 0, sizeof(actor));
-    actor.maxThrust = 2.0f;
-    actor.extraSpeed = 0.5f;
-
-    TEST_ASSERT_EQUAL_FLOAT(-1.25f, sithPlayerControls_CalculateStrafeThrust(&actor, -1.0f, 0.5f));
-    TEST_ASSERT_EQUAL_FLOAT(0.625f, sithPlayerControls_CalculateStrafeThrust(&actor, 0.5f, 0.5f));
+    TEST_ASSERT_FALSE(out.bTurnTowardTarget);
 }
 
 #ifdef J3D_QOL_IMPROVEMENTS
@@ -791,7 +907,6 @@ TEST(sithModernControls, UpdateSnapsCameraOnceWhenLockHasNoTarget)
 
     TEST_ASSERT_NULL(sithModernControls_GetLockedTarget());
     TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithModernControls_GetStrafeInput());
 
     // The press starts the snap; finishing it centers the camera behind Indy.
     sithModernCamera_Advance(0.0f, 0.0f, 0.0f, 0.0f, 0.3f);
@@ -806,7 +921,6 @@ TEST(sithModernControls, UpdateSnapsCameraOnceWhenLockHasNoTarget)
     sithModernControlsTest_ReadKey(STDKEY_F, 0);
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
     TEST_ASSERT_FALSE(sithModernControls_IsLockActive());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithModernControls_GetStrafeInput());
 }
 
 TEST(sithModernControls, UpdateIgnoresTargetLockWhenClassic)
@@ -821,7 +935,6 @@ TEST(sithModernControls, UpdateIgnoresTargetLockWhenClassic)
 
     TEST_ASSERT_NULL(sithModernControls_GetLockedTarget());
     TEST_ASSERT_FALSE(sithModernControls_IsLockActive());
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithModernControls_GetStrafeInput());
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, sithModernCamera_GetYaw());
 
     sithModernControlsTest_ReadKey(STDKEY_F, 0);
@@ -831,10 +944,10 @@ TEST(sithModernControls, UpdateIgnoresTargetLockWhenClassic)
 TEST_GROUP_RUNNER(sithModernControls)
 {
     RUN_TEST_CASE(sithModernControls, ComputeCameraBehindPressingUpMovesForward);
-    RUN_TEST_CASE(sithModernControls, ComputePressingBackTurnsWithoutBack);
-    RUN_TEST_CASE(sithModernControls, ComputePressingRightTurnsThenMovesWhenAligned);
+    RUN_TEST_CASE(sithModernControls, ComputePressingBackFacesBackAndMovesForward);
+    RUN_TEST_CASE(sithModernControls, ComputePressingRightFacesRightAndMovesForward);
     RUN_TEST_CASE(sithModernControls, ComputeCameraYawRotatesWorldDirection);
-    RUN_TEST_CASE(sithModernControls, ComputeTurnAmountScalesWithAngle);
+    RUN_TEST_CASE(sithModernControls, ComputeUsesHeadingForAnyStickAngle);
     RUN_TEST_CASE(sithModernControls, ComputeWalkAndRunFromMagnitude);
     RUN_TEST_CASE(sithModernControls, ComputeRelativeModeMapsAxesLikeClassic);
     RUN_TEST_CASE(sithModernControls, ComputeNoneSetsNothing);
@@ -842,18 +955,20 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, ClassifierLeavesJumpAndForcedStatesToRealKeys);
     RUN_TEST_CASE(sithModernControls, ClassifierMakesTransitionsAndUnknownsCameraRelative);
     RUN_TEST_CASE(sithModernControls, ClassifierUsesWaterAndFloorFallback);
-    RUN_TEST_CASE(sithModernControls, ComputeStickLeftConvergesWithAnchoredCamera);
-    RUN_TEST_CASE(sithModernControls, SelectLockTargetChoosesNearestLiveActorInCone);
-    RUN_TEST_CASE(sithModernControls, ComputeLockTurnsTowardTargetAndHonorsDeadBand);
-    RUN_TEST_CASE(sithModernControls, ComputeLockBackpedalsAndStrafes);
+    RUN_TEST_CASE(sithModernControls, SelectLockTargetPrefersTheCameraDirection);
+    RUN_TEST_CASE(sithModernControls, SelectLockTargetRejectsOutsideCone);
+    RUN_TEST_CASE(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys);
+    RUN_TEST_CASE(sithModernControls, ComputeLockHoldsSidestepKeys);
     RUN_TEST_CASE(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing);
-    RUN_TEST_CASE(sithModernControls, ComputeStrafeThrustScalesWalkThrust);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
+    RUN_TEST_CASE(sithModernControls, UpdateBackRunsAtOnceAndTurnsDirectly);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesRealKeysWhenClassic);
     RUN_TEST_CASE(sithModernControls, UpdateQuickStepCountsOnlyThePressEdge);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesQuickStepHoldInClassic);
     RUN_TEST_CASE(sithModernControls, UpdateAppliesStickDeadzone);
+    RUN_TEST_CASE(sithModernControls, UpdateLockedSidewaysHoldsSidestepKey);
+    RUN_TEST_CASE(sithModernControls, UpdateQuickStepRuleIsOffWhileLocked);
     RUN_TEST_CASE(sithModernControls, UpdateSnapsCameraOnceWhenLockHasNoTarget);
     RUN_TEST_CASE(sithModernControls, UpdateIgnoresTargetLockWhenClassic);
 #endif

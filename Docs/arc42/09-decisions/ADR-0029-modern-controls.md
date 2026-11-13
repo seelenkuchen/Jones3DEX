@@ -25,7 +25,7 @@ Modern, on a gamepad:
 | R3 | Snap the camera behind Indy |
 | L3 | Toggle crouch or crawl |
 | LB / RB | Quick-step: one tap moves Indy exactly one original sidestep left or right, independent of the stick |
-| LT (hold) | Target lock on the nearest visible hostile in front of Indy, the same pick the game's auto-aim makes; with no target it centers the camera forward. While held, the left stick strafes and backpedals. Release ends the lock |
+| LT (hold) | Target lock on the visible hostile closest to the free camera's forward direction within 35 degrees; with no target it centers the camera forward. While held, the left stick sidesteps sideways and walks or backpedals forward and back. Release ends the lock |
 | RT | Fire the weapon, whip or punch |
 | A | Jump, swim up |
 | X | Context action: grab, pull, push, open |
@@ -56,10 +56,13 @@ fixed puzzle views, overrides the free camera while it is active.
 The style is read once at startup into `sithControl`, where `engine.input.controlStyle` selects Modern or
 Classic; non-QOL builds always stay Classic. The movement layer never edits the original movement code. It
 runs once per frame before `sithPlayerControls_Process` reads its functions and writes virtual key
-overrides: `FORWARD`, `BACK`, `TURNLEFT` and `TURNRIGHT` carry the translated direction and amount,
-`RUNFWD` carries walk/run, and quick-step suppresses a held `STPLEFT`/`STPRIGHT` so only the press edge
-reaches the original sidestep force move. `sithControl_ClearKeyOverrides` drops the overrides before every
-player frame, so a cutscene or a transition cannot inherit them.
+overrides: `FORWARD` and `BACK` carry the translated direction and amount, `TURNLEFT` and `TURNRIGHT`
+keep their meaning only in the relative states, `RUNFWD` carries walk/run, and quick-step suppresses a
+held `STPLEFT`/`STPRIGHT` so only the press edge reaches the original sidestep force move. In the
+camera-relative states the layer instead turns `orient` directly toward the move heading, about the world
+up axis at up to 720 degrees per second with the last few degrees eased, so a direction change starts a
+run at once and the original turn keys stay off. `sithControl_ClearKeyOverrides` drops the overrides
+before every player frame, so a cutscene or a transition cannot inherit them.
 
 One move-status classifier (`sithModernControls_GetMode`) is shared by movement and the free camera. It
 returns the original tank-style states (climbing, pushing, vehicles, slides) as relative, leaves jump and
@@ -68,11 +71,15 @@ free camera is world-anchored: its yaw and pitch live in the camera module rathe
 orientation, right-stick and mouse input orbit it, and the original camera collision is kept. A camera set
 by a COG script or a cutscene overrides it for the duration.
 
-Target lock is acquired on the press edge of `TARGETLOCK` with the same nearest-visible-hostile pick as the
-game's auto-aim. While held, Indy turns toward the target with a dead band and the stick is decomposed in
-Indy's frame into forward, back and strafe thrust; without a target the camera is centered forward for the
-press and the stick uses Indy's facing. The gamepad binder redirects a scheme's left-trigger Run binding to
-target lock in Modern, while Classic keeps it as Run.
+Target lock is acquired on the press edge of `TARGETLOCK` from living hostiles with line of sight, within
+35 degrees of the free camera's forward direction and inside the track range; the smallest angle to the
+camera direction wins, with distance as the tie-break. While held, Indy turns toward the target with the
+same direct rotation at 720 degrees per second. A sideways stick holds the original sidestep keys, so the
+original animation and distance repeat and quick-step's press-edge rule stays off; forward and back walk
+and backpedal. Without a target the camera is centered forward for the press and the stick uses Indy's
+facing. The gamepad binder redirects a scheme's left-trigger Run binding to target lock in Modern, while
+Classic keeps it as Run.
 
-Deferred until after the owner's play-test: favourite weapons for D-pad left/right (they remain previous
-and next owned weapon, with a TODO at the scheme), and tuning of the turn rate and stick dead zone.
+The first owner play-test replaced the slow turn-in-place with the direct facing rotation and the
+continuous strafe thrust with the original repeated sidesteps. Deferred: favourite weapons for D-pad
+left/right (they remain previous and next owned weapon, with a TODO at the scheme).

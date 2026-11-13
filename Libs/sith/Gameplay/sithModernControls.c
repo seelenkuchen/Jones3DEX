@@ -6,6 +6,8 @@
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 
+#include <rdroid/Math/rdMatrix.h>
+
 #include <std/General/stdControl.h>
 #include <std/General/stdMath.h>
 
@@ -19,12 +21,10 @@
 #define SITHMODERNCONTROL_KEY_WALK_MAGNITUDE  0.5f
 #define SITHMODERNCONTROL_KEY_RUN_MAGNITUDE   1.0f
 #define SITHMODERNCONTROL_RUN_THRESHOLD       0.75f
-#define SITHMODERNCONTROL_TURN_THRESHOLD      8.0f
-#define SITHMODERNCONTROL_FORWARD_THRESHOLD   50.0f
-#define SITHMODERNCONTROL_TURN_FULL_ANGLE     60.0f
-#define SITHMODERNCONTROL_TURN_MIN_AMOUNT     0.25f
 #define SITHMODERNCONTROL_ZERO_EPSILON        0.0001f
-#define SITHMODERNCONTROL_LOCK_DEAD_BAND      3.0f
+#define SITHMODERNCONTROL_TURN_SPEED          720.0f // degrees per second toward the target facing
+#define SITHMODERNCONTROL_TURN_EASE_ANGLE     10.0f  // scale the step down below this angle
+#define SITHMODERNCONTROL_LOCK_SIDEWAYS       0.5f
 #define SITHMODERNCONTROL_LOCK_LOST_SECONDS   0.5f
 
 static SithThing* sithModernControls_pLockedTarget;
@@ -32,7 +32,6 @@ static bool sithModernControls_bLockHeld;
 static bool sithModernControls_bLockActive;
 static bool sithModernControls_bLockWasHeld;
 static float sithModernControls_secLockLost;
-static float sithModernControls_lockStrafe;
 
 // Added: a floor-plane yaw in the engine's convention: 0 faces +Y and positive turns left.
 static float sithModernControls_GetYaw(const rdMatrix34* pOrient)
@@ -52,6 +51,40 @@ static float sithModernControls_GetDirectionYaw(const rdVector3* pFrom, const rd
     return STDMATH_TODEGREESF(atan2f(-(pTo->x - pFrom->x), pTo->y - pFrom->y));
 }
 
+// Added: rotate Indy's facing toward a target heading the way the original turn does, about the
+// world up axis. Short angles ease down so the facing settles without overshoot or jitter.
+static void sithModernControls_TurnToYaw(SithThing* pPlayer, float targetYaw, float secDeltaTime)
+{
+    if ( !pPlayer || secDeltaTime <= 0.0f )
+    {
+        return;
+    }
+
+    float currentYaw = sithModernControls_GetYaw(&pPlayer->orient);
+    float delta      = stdMath_NormalizeAngleAcute(targetYaw - currentYaw);
+    float angle      = fabsf(delta);
+    if ( angle <= SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        return;
+    }
+
+    float step = SITHMODERNCONTROL_TURN_SPEED * secDeltaTime;
+    if ( step > angle )
+    {
+        step = angle;
+    }
+
+    // Added: ease the last few degrees so a changing target does not make the facing snap.
+    if ( angle < SITHMODERNCONTROL_TURN_EASE_ANGLE )
+    {
+        step *= angle / SITHMODERNCONTROL_TURN_EASE_ANGLE;
+    }
+
+    rdVector3 turn = { 0.0f, delta > 0.0f ? step : -step, 0.0f };
+    rdMatrix_PreRotate34(&pPlayer->orient, &turn);
+    rdMatrix_Normalize34(&pPlayer->orient);
+}
+
 void J3DAPI sithModernControls_ResetLock(void)
 {
     sithModernControls_pLockedTarget = NULL;
@@ -59,7 +92,6 @@ void J3DAPI sithModernControls_ResetLock(void)
     sithModernControls_bLockActive   = false;
     sithModernControls_bLockWasHeld  = false;
     sithModernControls_secLockLost   = 0.0f;
-    sithModernControls_lockStrafe    = 0.0f;
 }
 
 SithThing* J3DAPI sithModernControls_GetLockedTarget(void)
@@ -70,16 +102,6 @@ SithThing* J3DAPI sithModernControls_GetLockedTarget(void)
 bool J3DAPI sithModernControls_IsLockActive(void)
 {
     return sithModernControls_bLockHeld && sithModernControls_bLockActive;
-}
-
-float J3DAPI sithModernControls_GetStrafeInput(void)
-{
-    if ( !sithModernControls_IsLockActive() )
-    {
-        return 0.0f;
-    }
-
-    return sithModernControls_lockStrafe;
 }
 
 bool J3DAPI sithModernControls_GetLockCameraYaw(float* pYaw)
@@ -101,7 +123,7 @@ bool J3DAPI sithModernControls_GetLockCameraYaw(float* pYaw)
 
 // Added: acquire on the press edge, then keep or drop the target. Other move states keep the
 // lock but do not apply it; returning to a camera-relative state resumes the lock.
-static void sithModernControls_UpdateLock(SithThing* pPlayer, SithModernControlMode mode, float secDeltaTime)
+static void sithModernControls_UpdateLock(SithThing* pPlayer, SithModernControlMode mode, float cameraYaw, float secDeltaTime)
 {
     if ( secDeltaTime < 0.0f )
     {
@@ -119,7 +141,7 @@ static void sithModernControls_UpdateLock(SithThing* pPlayer, SithModernControlM
 
     if ( !sithModernControls_bLockWasHeld )
     {
-        sithModernControls_pLockedTarget = sithPlayerControls_FindLockTarget(pPlayer);
+        sithModernControls_pLockedTarget = sithPlayerControls_FindLockTarget(pPlayer, cameraYaw);
         sithModernControls_secLockLost   = 0.0f;
 
         // Added: with no target, center the free camera forward for this press.
@@ -384,74 +406,41 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
 
     if ( pIn->bLocked )
     {
-        // Added: Indy faces the locked target, with a dead band so the turn does not jitter.
+        // Added: Indy faces the locked target directly, so the original turn keys stay off.
         if ( pIn->bHasLockTarget )
         {
-            float delta = stdMath_NormalizeAngleAcute(pIn->lockTargetYaw - pIn->playerYaw);
-            if ( fabsf(delta) > SITHMODERNCONTROL_LOCK_DEAD_BAND )
-            {
-                float amount = STDMATH_CLAMP(fabsf(delta) / SITHMODERNCONTROL_TURN_FULL_ANGLE,
-                    SITHMODERNCONTROL_TURN_MIN_AMOUNT, 1.0f);
-
-                if ( delta > 0.0f )
-                {
-                    pOut->turnLeft.bPressed = true;
-                    pOut->turnLeft.amount   = amount;
-                }
-                else
-                {
-                    pOut->turnRight.bPressed = true;
-                    pOut->turnRight.amount   = amount;
-                }
-            }
+            pOut->bTurnTowardTarget = true;
+            pOut->targetYaw         = pIn->lockTargetYaw;
         }
 
-        if ( magnitude < SITHMODERNCONTROL_ZERO_EPSILON )
+        // Added: a sideways stick holds the original sidestep key; the original code repeats the
+        // step with its own animation and distance while the key stays down.
+        if ( fabsf(pIn->x) > SITHMODERNCONTROL_LOCK_SIDEWAYS
+            && fabsf(pIn->x) > fabsf(pIn->y) )
         {
+            if ( pIn->x > 0.0f )
+            {
+                pOut->strafeRight.bPressed = true;
+                pOut->strafeRight.amount   = fabsf(pIn->x);
+            }
+            else
+            {
+                pOut->strafeLeft.bPressed = true;
+                pOut->strafeLeft.amount   = fabsf(pIn->x);
+            }
+
             return;
         }
 
-        // Added: with a target the stick is camera-relative; without one the centered camera
-        // means Indy's own facing. Either way the move is decomposed in Indy's frame.
-        float referenceYaw = pIn->bHasLockTarget ? pIn->cameraYaw : pIn->playerYaw;
-
-        float sinReferenceYaw, cosReferenceYaw;
-        stdMath_SinCos(referenceYaw, &sinReferenceYaw, &cosReferenceYaw);
-
-        float targetX = cosReferenceYaw * pIn->x - sinReferenceYaw * pIn->y;
-        float targetY = sinReferenceYaw * pIn->x + cosReferenceYaw * pIn->y;
-
-        float sinPlayerYaw, cosPlayerYaw;
-        stdMath_SinCos(pIn->playerYaw, &sinPlayerYaw, &cosPlayerYaw);
-
-        float forwardX = -sinPlayerYaw;
-        float forwardY = cosPlayerYaw;
-        float rightX   = cosPlayerYaw;
-        float rightY   = sinPlayerYaw;
-
-        float forwardAmount = forwardX * targetX + forwardY * targetY;
-        float strafeAmount  = rightX * targetX + rightY * targetY;
-
-        if ( forwardAmount > SITHMODERNCONTROL_ZERO_EPSILON )
+        if ( pIn->y > SITHMODERNCONTROL_ZERO_EPSILON )
         {
             pOut->forward.bPressed = true;
-            pOut->forward.amount   = forwardAmount;
+            pOut->forward.amount   = pIn->y;
         }
-        else if ( forwardAmount < -SITHMODERNCONTROL_ZERO_EPSILON )
+        else if ( pIn->y < -SITHMODERNCONTROL_ZERO_EPSILON )
         {
             pOut->back.bPressed = true;
-            pOut->back.amount   = -forwardAmount;
-        }
-
-        if ( strafeAmount > SITHMODERNCONTROL_ZERO_EPSILON )
-        {
-            pOut->strafeRight.bPressed = true;
-            pOut->strafeRight.amount   = strafeAmount;
-        }
-        else if ( strafeAmount < -SITHMODERNCONTROL_ZERO_EPSILON )
-        {
-            pOut->strafeLeft.bPressed = true;
-            pOut->strafeLeft.amount   = -strafeAmount;
+            pOut->back.amount   = -pIn->y;
         }
 
         return;
@@ -469,45 +458,25 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
     float targetX = cosCameraYaw * pIn->x - sinCameraYaw * pIn->y;
     float targetY = sinCameraYaw * pIn->x + cosCameraYaw * pIn->y;
 
-    float sinPlayerYaw, cosPlayerYaw;
-    stdMath_SinCos(pIn->playerYaw, &sinPlayerYaw, &cosPlayerYaw);
-
-    float playerX = -sinPlayerYaw;
-    float playerY = cosPlayerYaw;
-
-    float dot   = playerX * targetX + playerY * targetY;
-    float cross = playerX * targetY - playerY * targetX;
-    float angle = STDMATH_TODEGREESF(atan2f(cross, dot));
-
-    if ( fabsf(angle) > SITHMODERNCONTROL_TURN_THRESHOLD )
-    {
-        float amount = STDMATH_CLAMP(fabsf(angle) / SITHMODERNCONTROL_TURN_FULL_ANGLE,
-            SITHMODERNCONTROL_TURN_MIN_AMOUNT, 1.0f);
-
-        if ( angle > 0.0f )
-        {
-            pOut->turnLeft.bPressed = true;
-            pOut->turnLeft.amount   = amount;
-        }
-        else
-        {
-            pOut->turnRight.bPressed = true;
-            pOut->turnRight.amount   = amount;
-        }
-    }
-
-    if ( fabsf(angle) < SITHMODERNCONTROL_FORWARD_THRESHOLD )
-    {
-        pOut->forward.bPressed = true;
-        pOut->forward.amount   = magnitude;
-    }
+    // Added: the movement layer turns the facing directly toward this heading; it never presses
+    // the original turn keys in camera-relative mode.
+    pOut->bTurnTowardTarget = true;
+    pOut->targetYaw         = STDMATH_TODEGREESF(atan2f(-targetX, targetY));
+    pOut->forward.bPressed  = true;
+    pOut->forward.amount    = magnitude;
 }
 
 // Added: a Modern quick-step counts only the press edge. The original sidestep force move starts
 // once per press, but a held STPLEFT/STPRIGHT starts another step as soon as the previous one
 // finishes. Suppressing the held key leaves the original move code and its alignment untouched.
-static void sithModernControls_UpdateQuickStep(void)
+static void sithModernControls_UpdateQuickStep(bool bLocked)
 {
+    // Added: the lock uses the held sidestep, so quick-step's press-edge rule stays off for it.
+    if ( bLocked )
+    {
+        return;
+    }
+
     int pressed = 0;
     if ( sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed) && !pressed )
     {
@@ -534,17 +503,7 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         return;
     }
 
-    sithModernControls_UpdateQuickStep();
-
     SithModernControlMode mode = sithModernControls_GetMode(pPlayer);
-
-    // Added: the target lock is read in every move state; only camera-relative states apply it.
-    sithModernControls_UpdateLock(pPlayer, mode, secDeltaTime);
-
-    if ( mode == SITHMODERNCONTROL_MODE_NONE )
-    {
-        return;
-    }
 
     float playerYaw = sithModernControls_GetYaw(&pPlayer->orient);
     float cameraYaw = playerYaw;
@@ -559,6 +518,16 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     else if ( sithCamera_g_pCurCamera )
     {
         cameraYaw = sithModernControls_GetYaw(&sithCamera_g_pCurCamera->orient);
+    }
+
+    // Added: the target lock is read in every move state; only camera-relative states apply it.
+    sithModernControls_UpdateLock(pPlayer, mode, cameraYaw, secDeltaTime);
+
+    sithModernControls_UpdateQuickStep(sithModernControls_IsLockActive());
+
+    if ( mode == SITHMODERNCONTROL_MODE_NONE )
+    {
+        return;
     }
 
     float stickX, stickY, stickMagnitude;
@@ -620,13 +589,27 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
 
-    sithModernControls_lockStrafe = out.strafeRight.bPressed
-        ? out.strafeRight.amount
-        : -out.strafeLeft.amount;
-
     sithModernControls_ApplyMovementKey(SITHCONTROL_FORWARD, &out.forward);
     sithModernControls_ApplyMovementKey(SITHCONTROL_BACK, &out.back);
     sithModernControls_ApplyMovementKey(SITHCONTROL_TURNLEFT, &out.turnLeft);
     sithModernControls_ApplyMovementKey(SITHCONTROL_TURNRIGHT, &out.turnRight);
     sithModernControls_ApplyMovementKey(SITHCONTROL_RUNFWD, &out.run);
+
+    // Added: only a lock's sideways stick holds a sidestep key, leaving the physical quick-step
+    // key alone otherwise.
+    if ( out.strafeLeft.bPressed )
+    {
+        sithModernControls_ApplyMovementKey(SITHCONTROL_STPLEFT, &out.strafeLeft);
+    }
+    else if ( out.strafeRight.bPressed )
+    {
+        sithModernControls_ApplyMovementKey(SITHCONTROL_STPRIGHT, &out.strafeRight);
+    }
+
+    // Added: the facing turns directly toward the stick or lock heading before the original
+    // movement code runs, so a direction change starts a run at once.
+    if ( out.bTurnTowardTarget )
+    {
+        sithModernControls_TurnToYaw(pPlayer, out.targetYaw, secDeltaTime);
+    }
 }

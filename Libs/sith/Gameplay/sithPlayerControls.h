@@ -37,10 +37,11 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
 SithThing* sithPlayerControls_GetTargetThing(void);
 
 // Added: target lock for the Modern control style (ADR-0029). These reuse the auto-aim
-// filters and acquisition cone. The pure selector takes candidate things so tests need no
-// collision world; FindLockTarget gathers the same candidates the auto-aim search does.
-SithThing* J3DAPI sithPlayerControls_SelectLockTarget(SithThing* pThing, SithThing* const* apCandidates, size_t numCandidates); // Added
-SithThing* J3DAPI sithPlayerControls_FindLockTarget(SithThing* pThing); // Added
+// filters and acquisition cone. The pure selector takes candidate things and the free camera's
+// world yaw so tests need no collision world; FindLockTarget gathers the same candidates the
+// auto-aim search does.
+SithThing* J3DAPI sithPlayerControls_SelectLockTarget(SithThing* pThing, float cameraYaw, SithThing* const* apCandidates, size_t numCandidates); // Added
+SithThing* J3DAPI sithPlayerControls_FindLockTarget(SithThing* pThing, float cameraYaw); // Added
 bool J3DAPI sithPlayerControls_IsLockTargetAlive(const SithThing* pTarget); // Added
 bool J3DAPI sithPlayerControls_IsLockTargetVisible(SithThing* pThing, SithThing* pTarget); // Added
 
@@ -57,18 +58,6 @@ void J3DAPI sithPlayerControls_SetVehicleBoardedThing(SithThing* pThing);
 static inline float sithPlayerControls_CalculateThrust(SithActorInfo* pActor, float direction, float speedFactor)
 {
     return (pActor->maxThrust + pActor->extraSpeed) * direction * speedFactor;
-}
-
-/**
-* Calculates the lateral thrust of a locked strafe. It is the original walk thrust along the
-* thing's right vector, scaled by the sideways stick amount.
-* @param pActor - Actor info
-* @param strafe - -1..1, positive strafes right
-* @param speedFactor - Walk speed factor the caller uses
-*/
-static inline float sithPlayerControls_CalculateStrafeThrust(SithActorInfo* pActor, float strafe, float speedFactor)
-{
-    return sithPlayerControls_CalculateThrust(pActor, strafe, speedFactor);
 }
 
 /**

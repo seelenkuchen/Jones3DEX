@@ -185,10 +185,10 @@ This lets the engine map many hardware forms onto the same movement and camera m
 
 The Modern control style adds a per-frame override layer on top of the bindings. `sithControl_SetKeyOverride()` makes a movement function read as pressed with an axis amount (0..1) and a one-press edge, `sithControl_SuppressKey()` makes a function without an override read as released, and `sithControl_ClearKeyOverrides()` drops both at the next frame. Overrides take precedence over suppressions, so Modern can suppress a real movement binding and drive the same function virtually. `engine.input.controlStyle` selects Modern or Classic; QOL builds default to Modern, non-QOL builds always use Classic.
 
-Target lock is the `TARGETLOCK` key function, active only in Modern. It acquires the nearest
-live actor in the auto-aim acquisition cone with line of sight, then keeps it while visible and in
-range. Its defaults are `F` and the right mouse button on keyboard and mouse, and the left trigger
-(`Z+`) on a gamepad. In Modern the scheme binder redirects a scheme's LT-as-Run binding to target
+Target lock is the `TARGETLOCK` key function, active only in Modern. It acquires the live
+actor with line of sight that is closest to the free camera's forward direction within 35 degrees
+and the track range, then keeps it while visible and in range. Its defaults are `F` and the right
+mouse button on keyboard and mouse, and the left trigger (`Z+`) on a gamepad. In Modern the scheme binder redirects a scheme's LT-as-Run binding to target
 lock; Run comes from the left-stick magnitude instead. Classic keeps LT as Run. The lock does not
 add an action to the `.kfg` format, so files written before it still load.
 
@@ -202,11 +202,12 @@ Each player frame runs `sithModernControls_Update` before the original movement 
 previous frame's virtual keys, classifies the current move status, reads the stick and the real
 movement keys, and writes the frame's `FORWARD`, `BACK`, `TURNLEFT`, `TURNRIGHT` and `RUNFWD`
 overrides. `sithModernControls_Compute` is the pure part: given a screen-space move vector, the
-camera and player yaws and a mode, it returns the original keys to press and their amounts. The
-classifier returns three modes:
+camera and player yaws and a mode, it returns the original keys to press and their amounts plus the
+heading to face. The classifier returns three modes:
 
 - **Camera-relative**: grounded and swimming states; the stick moves Indy relative to the camera,
-  turning him toward the move direction and running when the push is large.
+  turning his `orient` directly toward the move heading at up to 720 degrees per second and running
+  when the push is large. The original turn keys stay off.
 - **Relative**: the original tank-style states (climbing, pushing, pulling, slides and vehicles);
   the real keys keep their original meaning.
 - **None**: jump, fall and forced-move states; the real keys pass through untouched.
