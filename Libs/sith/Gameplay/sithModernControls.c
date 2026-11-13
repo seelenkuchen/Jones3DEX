@@ -27,6 +27,8 @@
 #define SITHMODERNCONTROL_TURN_SNAP_ANGLE     100.0f  // snapped in one update instead of rotating
 #define SITHMODERNCONTROL_LOCK_SIDEWAYS       0.5f
 #define SITHMODERNCONTROL_LOCK_LOST_SECONDS   0.5f
+#define SITHMODERNCONTROL_ACCEL_TIME          0.15f  // seconds from rest to the original target speed
+#define SITHMODERNCONTROL_GROUND_THRUST_SCALE 0.30000001f // the player physics' ground thrust scale
 
 static SithThing* sithModernControls_pLockedTarget;
 static bool sithModernControls_bLockHeld;
@@ -195,6 +197,39 @@ static bool sithModernControls_IsSwimming(const SithThing* pPlayer)
 
     return pPlayer->pInSector
         && (pPlayer->pInSector->flags & (SITH_SECTOR_UNDERWATER | SITH_SECTOR_AETHERIUM)) != 0;
+}
+
+// Added: the Modern camera-relative states that move along the floor. Swimming and airborne
+// states keep their momentum untouched.
+static bool sithModernControls_IsGroundStatus(SithThingMoveStatus moveStatus)
+{
+    return moveStatus == SITHPLAYERMOVE_WALKING
+        || moveStatus == SITHPLAYERMOVE_RUNNING
+        || moveStatus == SITHPLAYERMOVE_CRAWLIDLE;
+}
+
+static float sithModernControls_GetHorizontalSpeed(const rdVector3* pVelocity)
+{
+    return sqrtf(pVelocity->x * pVelocity->x + pVelocity->y * pVelocity->y);
+}
+
+// Added: rotate the horizontal velocity by the same yaw the facing turned this frame, so the
+// old momentum follows the new facing instead of carrying across it. The vertical velocity stays.
+static void sithModernControls_RotateVelocityToFacing(SithThing* pPlayer, float yawDelta)
+{
+    if ( fabsf(yawDelta) <= SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        return;
+    }
+
+    float sinYaw, cosYaw;
+    stdMath_SinCos(yawDelta, &sinYaw, &cosYaw);
+
+    rdVector3* pVelocity = &pPlayer->moveInfo.physics.velocity;
+    float x = pVelocity->x;
+    float y = pVelocity->y;
+    pVelocity->x = cosYaw * x - sinYaw * y;
+    pVelocity->y = sinYaw * x + cosYaw * y;
 }
 
 static bool sithModernControls_IsNoneStatus(SithThingMoveStatus moveStatus)
@@ -624,5 +659,88 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         bool bSnap  = pPlayer->moveStatus == SITHPLAYERMOVE_STILL
             || delta > SITHMODERNCONTROL_TURN_SNAP_ANGLE;
         sithModernControls_TurnToYaw(pPlayer, out.targetYaw, secDeltaTime, bSnap);
+
+        // Added: the horizontal momentum turns with the facing, so a direction change bends the
+        // path at once instead of letting the old velocity carry across it.
+        if ( sithModernControls_IsGroundStatus(pPlayer->moveStatus) )
+        {
+            float yawDelta = stdMath_NormalizeAngleAcute(
+                sithModernControls_GetYaw(&pPlayer->orient) - playerYaw);
+            sithModernControls_RotateVelocityToFacing(pPlayer, yawDelta);
+        }
     }
+}
+
+// Added: shorten the start of a Modern ground move to the original target speed without raising
+// it. The original movement code has already set this frame's thrust; the steady speed of that
+// thrust under the player physics' drag is the target, and the extra velocity is capped there.
+void J3DAPI sithModernControls_ApplyGroundAcceleration(SithThing* pPlayer, float secDeltaTime)
+{
+    if ( !sithControl_IsModernControlStyle()
+        || !pPlayer
+        || pPlayer != sithPlayer_g_pLocalPlayerThing
+        || pPlayer->moveType != SITH_MT_PHYSICS
+        || !sithModernControls_IsGroundStatus(pPlayer->moveStatus)
+        || secDeltaTime <= 0.0f )
+    {
+        return;
+    }
+
+    SithPhysicsInfo* pPhysics = &pPlayer->moveInfo.physics;
+    if ( pPhysics->thrust.y == 0.0f )
+    {
+        return;
+    }
+
+    // Added: the ground move runs the surface-attached physics, which uses the surface drag and
+    // the full attachment scale; a detached thing uses the air drag and the player ground scale.
+    float drag;
+    float thrustScale;
+    if ( (pPlayer->attach.flags & (SITH_ATTACH_SURFACE | SITH_ATTACH_THINGFACE)) != 0 )
+    {
+        drag        = pPhysics->surfDrag;
+        thrustScale = (pPhysics->flags & SITH_PF_CROUCHING) != 0 ? 0.80000001f : 1.0f;
+    }
+    else
+    {
+        drag        = pPhysics->airDrag;
+        thrustScale = SITHMODERNCONTROL_GROUND_THRUST_SCALE;
+    }
+
+    if ( drag <= SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        return;
+    }
+
+    // Added: the local forward thrust reaches the world floor plane through the horizontal part
+    // of the facing.
+    float facingX = pPlayer->orient.lvec.x;
+    float facingY = pPlayer->orient.lvec.y;
+    float facingLength = sqrtf(facingX * facingX + facingY * facingY);
+    if ( facingLength <= SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        return;
+    }
+
+    float targetSpeed = thrustScale * fabsf(pPhysics->thrust.y) * facingLength / drag;
+
+    // Added: add velocity along the facing at a constant rate, capped at the target. The
+    // original thrust then holds the target without ever passing it.
+    float speed = sithModernControls_GetHorizontalSpeed(&pPhysics->velocity);
+    if ( speed >= targetSpeed )
+    {
+        return;
+    }
+
+    float acceleratedSpeed = speed + targetSpeed * secDeltaTime / SITHMODERNCONTROL_ACCEL_TIME;
+    if ( acceleratedSpeed > targetSpeed )
+    {
+        acceleratedSpeed = targetSpeed;
+    }
+
+    float direction = pPhysics->thrust.y > 0.0f ? 1.0f : -1.0f;
+    float extraSpeed = acceleratedSpeed - speed;
+
+    pPhysics->velocity.x += facingX / facingLength * direction * extraSpeed;
+    pPhysics->velocity.y += facingY / facingLength * direction * extraSpeed;
 }

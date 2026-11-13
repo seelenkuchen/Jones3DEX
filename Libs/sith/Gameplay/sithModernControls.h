@@ -65,6 +65,10 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
 // overrides. Called at the start of sithPlayerControls_Process.
 void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime);
 
+// Added: raises a Modern ground move's acceleration to its original target speed. Called after
+// the original movement code sets this frame's thrust, before the physics step.
+void J3DAPI sithModernControls_ApplyGroundAcceleration(SithThing* pPlayer, float secDeltaTime);
+
 // Added: the target lock state (ADR-0029). GetLockedTarget stays valid for a held lock even in
 // states that ignore movement; IsLockActive is false outside the camera-relative states.
 SithThing* J3DAPI sithModernControls_GetLockedTarget(void);

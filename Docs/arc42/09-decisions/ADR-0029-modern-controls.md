@@ -90,5 +90,8 @@ binding to target lock in Modern, while Classic keeps it as Run.
 The first owner play-test replaced the slow turn-in-place with the direct facing rotation and the
 continuous strafe thrust with the original repeated sidesteps. The second replaced the remaining
 turn-and-pause when starting or reversing with the snap and transition skip above, doubled the
-locked sidestep rate, and moved the lock's line of sight to the camera. Deferred: favourite weapons
-for D-pad left/right (they remain previous and next owned weapon, with a TODO at the scheme).
+locked sidestep rate, and moved the lock's line of sight to the camera. The third turns the
+horizontal momentum with the facing and shortens the start to the original walk or run speed in
+about 0.15 s, both only on Modern ground moves; release still stops at once. Deferred: favourite
+weapons for D-pad left/right (they remain previous and next owned weapon, with a TODO at the
+scheme).

@@ -4,7 +4,10 @@
 #include <string.h>
 
 #include <rdroid/Math/rdVector.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Engine/sithPhysics.h>
+#include <sith/Gameplay/sithModernControls.h>
+#include <sith/Gameplay/sithPlayer.h>
 #include <sith/Main/sithMain.h>
 #include <sith/World/sithThing.h>
 #include <sith/World/sithWorld.h>
@@ -356,6 +359,55 @@ TEST(sithPhysics, TestFallingVelocityCrossesTheLedgeSpeedGateAtOriginalSteps)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, pPhysics->physicsRolloverFrames);
 }
 
+TEST(sithPhysics, TestModernGroundAccelerationReachesTargetWithoutPassingIt)
+{
+    // Added: the Modern start helper adds velocity before the original player physics steps.
+    SithPhysicsInfo* pPhysics = &sithPhysicsTest_thing.moveInfo.physics;
+    pPhysics->flags      = SITH_PF_USETHRUST;
+    pPhysics->airDrag    = 5.0f;
+    pPhysics->velocity   = (rdVector3){ 0 };
+    pPhysics->thrust     = (rdVector3){ 0 };
+
+    sithPhysicsTest_thing.moveStatus = SITHPLAYERMOVE_WALKING;
+
+    SithThing* pSavedPlayerThing = sithPlayer_g_pLocalPlayerThing;
+    bool bSavedModernStyle       = sithControl_IsModernControlStyle();
+    sithPlayer_g_pLocalPlayerThing = &sithPhysicsTest_thing;
+    sithControl_SetModernControlStyle(true);
+
+    // Walk thrust 0.9 reaches 0.3 * 0.9 / 5 = 0.054 under the player physics.
+    const float targetSpeed = 0.3f * 0.9f / 5.0f;
+    float timeTo95 = -1.0f;
+    bool bPassed   = true;
+    sithPhysicsTest_maxSteps = 10;
+    for ( size_t i = 0; i < 10; ++i )
+    {
+        // The original movement code sets the frame's thrust before the helper call.
+        pPhysics->thrust.y = 0.9f;
+
+        sithModernControls_ApplyGroundAcceleration(&sithPhysicsTest_thing, 0.02f);
+        sithPhysics_UpdateDetachedPlayerPhysics(&sithPhysicsTest_thing, 0.02f);
+
+        float speed = rdVector_Len2((const rdVector2*)&pPhysics->velocity);
+        if ( speed > targetSpeed + 0.000001f )
+        {
+            bPassed = false;
+        }
+
+        if ( timeTo95 < 0.0f && speed >= 0.95f * targetSpeed )
+        {
+            timeTo95 = (float)(i + 1) * 0.02f;
+        }
+    }
+
+    sithPlayer_g_pLocalPlayerThing = pSavedPlayerThing;
+    sithControl_SetModernControlStyle(bSavedModernStyle);
+
+    TEST_ASSERT_TRUE(bPassed);
+    TEST_ASSERT_TRUE(timeTo95 > 0.0f);
+    TEST_ASSERT_TRUE(timeTo95 <= 0.2f);
+}
+
 TEST_GROUP_RUNNER(sithPhysics)
 {
     RUN_TEST_CASE(sithPhysics, TestStartupIgnoresStoredNonOriginalRates);
@@ -366,4 +418,5 @@ TEST_GROUP_RUNNER(sithPhysics)
     RUN_TEST_CASE(sithPhysics, TestGravityFlagsAndMassPreserveTwentyMillisecondSteps);
     RUN_TEST_CASE(sithPhysics, TestLocalAndSectorThrustUseTheSameFixedStepAsGravity);
     RUN_TEST_CASE(sithPhysics, TestFallingVelocityCrossesTheLedgeSpeedGateAtOriginalSteps);
+    RUN_TEST_CASE(sithPhysics, TestModernGroundAccelerationReachesTargetWithoutPassingIt);
 }

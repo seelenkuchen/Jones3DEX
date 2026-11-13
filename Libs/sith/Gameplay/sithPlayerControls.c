@@ -766,6 +766,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
             break;
     }
 
+    // Added: after the move code set this frame's thrust, shorten the Modern ground accel to the
+    // original target speed; the physics step that follows reads the raised velocity.
+    sithModernControls_ApplyGroundAcceleration(pPlayerThing, secDeltaTime);
+
     sithPlayerControls_ProcessHUDControls(pPlayerThing, secDeltaTime);
     return 0;
 }

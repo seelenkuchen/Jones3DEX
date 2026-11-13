@@ -1191,6 +1191,109 @@ TEST(sithModernControls, UpdateIgnoresTargetLockWhenClassic)
 
     sithModernControlsTest_ReadKey(STDKEY_F, 0);
 }
+
+TEST(sithModernControls, UpdateTurnsHorizontalMomentumWithTheFacing)
+{
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_WALKING;
+    sithModernControlsTest_player.orient.lvec = (rdVector3){ 1.0f, 0.0f, 0.0f };
+    sithModernControlsTest_player.orient.rvec = (rdVector3){ 0.0f, -1.0f, 0.0f };
+    sithModernControlsTest_player.orient.uvec = (rdVector3){ 0.0f, 0.0f, 1.0f };
+    sithModernControlsTest_player.moveInfo.physics.velocity = (rdVector3){ 1.0f, 0.0f, 3.0f };
+
+    // The camera faces +Y, so a forward press turns the +X facing to +Y over this update.
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.1f);
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+
+    const rdVector3* pVelocity = &sithModernControlsTest_player.moveInfo.physics.velocity;
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, pVelocity->x);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, pVelocity->y);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, pVelocity->z);
+}
+
+TEST(sithModernControls, ApplyGroundAccelerationUsesTheOriginalSurfaceTarget)
+{
+    sithControl_SetModernControlStyle(true);
+
+    SithThing* pPlayer = &sithModernControlsTest_player;
+    pPlayer->moveStatus = SITHPLAYERMOVE_WALKING;
+    pPlayer->moveInfo.physics.thrust.y = 0.9f;
+    pPlayer->moveInfo.physics.velocity = (rdVector3){ 0 };
+
+    // Attached surface drag without crouch: 0.9 / 2.
+    pPlayer->attach.flags = SITH_ATTACH_SURFACE;
+    pPlayer->moveInfo.physics.surfDrag = 2.0f;
+    sithModernControls_ApplyGroundAcceleration(pPlayer, 1.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.45f, pPlayer->moveInfo.physics.velocity.y);
+
+    // Crawling uses the original crouch thrust scale: 0.9 * 0.8 / 2.
+    pPlayer->moveInfo.physics.flags |= SITH_PF_CROUCHING;
+    pPlayer->moveInfo.physics.velocity = (rdVector3){ 0 };
+    sithModernControls_ApplyGroundAcceleration(pPlayer, 1.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.36f, pPlayer->moveInfo.physics.velocity.y);
+
+    // A detached thing uses the player physics' air drag and ground thrust scale.
+    pPlayer->attach.flags = 0;
+    pPlayer->moveInfo.physics.flags &= ~SITH_PF_CROUCHING;
+    pPlayer->moveInfo.physics.airDrag = 5.0f;
+    pPlayer->moveInfo.physics.velocity = (rdVector3){ 0 };
+    sithModernControls_ApplyGroundAcceleration(pPlayer, 1.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.054f, pPlayer->moveInfo.physics.velocity.y);
+}
+
+TEST(sithModernControls, MomentumAndAccelerationLeaveClassicAndWaterAndAirAlone)
+{
+    SithThing* pPlayer = &sithModernControlsTest_player;
+    pPlayer->orient.lvec = (rdVector3){ 1.0f, 0.0f, 0.0f };
+    pPlayer->orient.rvec = (rdVector3){ 0.0f, -1.0f, 0.0f };
+    pPlayer->orient.uvec = (rdVector3){ 0.0f, 0.0f, 1.0f };
+    pPlayer->moveInfo.physics.airDrag = 5.0f;
+    pPlayer->moveInfo.physics.thrust.y = 0.9f;
+
+    const rdVector3 velocity = { 1.0f, 0.0f, 3.0f };
+
+    // Classic never runs the Modern facing or acceleration code.
+    sithControl_SetModernControlStyle(false);
+    pPlayer->moveStatus = SITHPLAYERMOVE_WALKING;
+    pPlayer->moveInfo.physics.velocity = velocity;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(pPlayer, 0.1f);
+    sithModernControls_ApplyGroundAcceleration(pPlayer, 0.02f);
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+
+    TEST_ASSERT_EQUAL_FLOAT(velocity.x, pPlayer->moveInfo.physics.velocity.x);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.y, pPlayer->moveInfo.physics.velocity.y);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.z, pPlayer->moveInfo.physics.velocity.z);
+
+    // Swimming turns the camera-relative facing but keeps the water momentum.
+    sithControl_SetModernControlStyle(true);
+    pPlayer->moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+    pPlayer->moveInfo.physics.velocity = velocity;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(pPlayer, 0.1f);
+    sithModernControls_ApplyGroundAcceleration(pPlayer, 0.02f);
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+
+    TEST_ASSERT_EQUAL_FLOAT(velocity.x, pPlayer->moveInfo.physics.velocity.x);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.y, pPlayer->moveInfo.physics.velocity.y);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.z, pPlayer->moveInfo.physics.velocity.z);
+
+    // Airborne states keep the real keys and their momentum.
+    pPlayer->moveStatus = SITHPLAYERMOVE_FALLING;
+    pPlayer->moveInfo.physics.velocity = velocity;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(pPlayer, 0.1f);
+    sithModernControls_ApplyGroundAcceleration(pPlayer, 0.02f);
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+
+    TEST_ASSERT_EQUAL_FLOAT(velocity.x, pPlayer->moveInfo.physics.velocity.x);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.y, pPlayer->moveInfo.physics.velocity.y);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.z, pPlayer->moveInfo.physics.velocity.z);
+}
 #endif
 
 TEST_GROUP_RUNNER(sithModernControls)
@@ -1232,5 +1335,8 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, LockedSidestepPlaysAtDoubleSpeed);
     RUN_TEST_CASE(sithModernControls, UpdateSnapsCameraOnceWhenLockHasNoTarget);
     RUN_TEST_CASE(sithModernControls, UpdateIgnoresTargetLockWhenClassic);
+    RUN_TEST_CASE(sithModernControls, UpdateTurnsHorizontalMomentumWithTheFacing);
+    RUN_TEST_CASE(sithModernControls, ApplyGroundAccelerationUsesTheOriginalSurfaceTarget);
+    RUN_TEST_CASE(sithModernControls, MomentumAndAccelerationLeaveClassicAndWaterAndAirAlone);
 #endif
 }
