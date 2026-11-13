@@ -538,7 +538,8 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
     if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_INEDITOR) == 0 )
     {
         // Check if Look key is pressed & process movement
-        if ( sithControl_GetKey(SITHCONTROL_LOOK, NULL) )
+        // Altered: in the Modern style the Look button (R3) snaps the free camera instead.
+        if ( !sithControl_IsModernControlStyle() && sithControl_GetKey(SITHCONTROL_LOOK, NULL) )
         {
             if ( !sithPlayerControls_g_bCutsceneMode
                 && !sithPlayerControls_bLookKeyActive

@@ -6,6 +6,7 @@
 
 #include <sith/Engine/sithAnimate.h>
 #include <sith/Engine/sithCollision.h>
+#include <sith/Engine/sithModernCamera.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/Gameplay/sithInventory.h>
 #include <sith/Gameplay/sithPlayer.h>
@@ -82,6 +83,8 @@ void sithCamera_ResetGlobals(void)
     STD_ZEROMEM(&sithCamera_g_cameraAngleDelta, sizeof(sithCamera_g_cameraAngleDelta));
     STD_ZEROMEM(&sithCamera_g_orbCamOrient, sizeof(sithCamera_g_orbCamOrient));
     STD_ZEROMEM(&sithCamera_g_camLookSpot, sizeof(sithCamera_g_camLookSpot));
+
+    sithModernCamera_ResetGlobals(); // Added: the Modern free camera's orbit state
 }
 
 int sithCamera_Startup(void)
@@ -518,6 +521,7 @@ void J3DAPI sithCamera_Update(SithCamera* pCamera)
     rdVector3 curLookPos;
     SithWorld* pWorld;
     rdVector3 vecPYR;
+    bool bFreeCamera;
 
     secFrameTime = sithTime_g_frameTimeFlex;
     angleDelta = sithTime_g_frameTimeFlex * sithCamera_g_cameraAngleDelta;
@@ -526,6 +530,7 @@ void J3DAPI sithCamera_Update(SithCamera* pCamera)
     interpSpeed = pCamera->interpSpeed;
     interpSpeedHalf = interpSpeed / 2.0f;
     v45 = 0;
+    bFreeCamera = false;
     pWorld = sithWorld_g_pCurrentWorld;
 
     SITH_ASSERTREL(pCamera != NULL);
@@ -878,6 +883,10 @@ LABEL_35:
         newPYR.z = newPYR.z + sithCamera_g_vecCameraAngleOffset.roll;
     }
 
+    // Added: the Modern free camera reads its orbit input here, before the original camera path
+    // chooses offsets and interpolation. It only takes over the orientation below.
+    bFreeCamera = sithModernCamera_Update(pCamera, pThing1, secFrameTime);
+
     if ( pThing1 != sithPlayer_g_pLocalPlayerThing || sithCamera_g_bExtCameraLookMode || sithCamera_bUpdateCameraOffset )
     {
     LABEL_75:
@@ -1011,6 +1020,23 @@ LABEL_76:
 
     // Set camera new orient
     rdMatrix_PreRotate34(&newOrient, &newPYR);
+
+    // Altered: the Modern free camera replaces Indy's orientation with the world-anchored orbit
+    // yaw and pitch. The offsets, focus point, interpolation and collision below stay original.
+    if ( bFreeCamera )
+    {
+        newPYR.pitch = sithModernCamera_GetPitch() + sithCamera_g_vecCameraAngleOffset.pitch;
+        newPYR.yaw   = sithModernCamera_GetYaw() + sithCamera_g_vecCameraAngleOffset.yaw;
+        newPYR.roll  = sithCamera_g_vecCameraAngleOffset.roll;
+        rdMatrix_BuildRotate34(&newOrient, &newPYR);
+    }
+    else if ( sithModernCamera_IsPlayerExternalCamera(pCamera, pThing1) )
+    {
+        // Added: keep the orbit behind Indy while the original camera path runs, so leaving a
+        // climbing or vehicle state does not snap the view.
+        sithModernCamera_SyncYawFromOrient(&newOrient);
+    }
+
     rdMatrix_PostTranslate34(&newOrient, &newPos);
     memcpy(&pCamera->orient, &newOrient, sizeof(pCamera->orient));
 

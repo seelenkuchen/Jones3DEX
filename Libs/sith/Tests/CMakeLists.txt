@@ -4,6 +4,7 @@ set(SITH_TEST_SOURCES
     sithControlTest.c
     ../Cog/Tests/sithCogTest.c
     ../Engine/Tests/sithCameraTest.c
+    ../Engine/Tests/sithModernCameraTest.c
     ../Engine/Tests/sithPhysicsTest.c
     ../World/Tests/sithTemplateTest.c
     ../World/Tests/sithThingTest.c
