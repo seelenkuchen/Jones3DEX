@@ -15,6 +15,7 @@
 #include <sith/Engine/sithPhysics.h>
 #include <sith/Gameplay/sithFX.h>
 #include <sith/Gameplay/sithInventory.h>
+#include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithOverlayMap.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerActions.h>
@@ -443,6 +444,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
     SithPhysicsInfo* pPhysics = &pPlayerThing->moveInfo.physics;
     SithActorInfo* pActor     = &pPlayerThing->thingInfo.actorInfo;
 
+    // Added: drop the Modern control style's virtual keys of the previous frame before any early
+    // return, so none of them outlives a cutscene, a death or an editor frame.
+    sithControl_ClearKeyOverrides();
+
     if ( sithPlayerControls_g_bCutsceneMode )
     {
         return 0;
@@ -473,6 +478,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
         sithPlayerControls_ProcessDeadPlayer(pPlayerThing, secDeltaTime);
         return 0;
     }
+
+    // Added: translate the Modern control style's move input into this frame's virtual keys
+    // before any movement handling reads them.
+    sithModernControls_Update(pPlayerThing, secDeltaTime);
 
     if ( sithPlayerControls_secCommentWaitTimer != 0.0f )
     {
