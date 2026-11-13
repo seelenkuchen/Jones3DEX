@@ -16,6 +16,11 @@
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
 
+### Upstream fixes (OpenJones3D develop)
+  - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on
+    faces, safer render batches (16-bit index limits, faces with an invalid depth sort last), and fading
+    inventory icons no longer hide overlapping icons.
+
 ### M7: Playable
   - Sound plays in the windowed Babylon build through miniaudio, including cutscene sound, and the Sound
     settings screen chooses the output device (stored in `engine.audio.outputDevice`). Headless runs use the

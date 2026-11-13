@@ -3106,6 +3106,7 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
         rdModel3_GetThingColor(pItem->prdIcon, &color);
         float oalpha = color.alpha;
         color.alpha  = pItem->alpha;
+        rdFaceFlags faceFlags = 0; // Added: per-draw face flags
 
         if ( (pItem->flags & 0x08) == 0
             && ((pItem->flags & 0x10) != 0
@@ -3180,6 +3181,13 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
                     color.alpha  = 0.0f;
                 }
             }
+
+            // Fixed: Fading icons must not occlude overlapping icons through depth writes.
+            const float visibleAlpha = bDisabled ? 0.40000001f : 0.94999999f;
+            if ( color.alpha < visibleAlpha )
+            {
+                faceFlags |= RD_FF_ZWRITE_DISABLED;
+            }
         }
         else
         {
@@ -3202,7 +3210,7 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
         rdModel3_SetThingColor(pItem->prdIcon, &color);
         bool bLitFaces = rdGetLitFaces(); // Added: HUD models stay classic (option A, ADR-0023)
         rdSetLitFaces(false);
-        rdModel3_Draw(pItem->prdIcon, &placement);
+        rdModel3_DrawWithFlags(pItem->prdIcon, &placement, faceFlags); // Fixed: Disable depth writes on a fading icon
         rdSetLitFaces(bLitFaces);
 
         pItem->alpha = color.alpha;
