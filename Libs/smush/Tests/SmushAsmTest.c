@@ -4,8 +4,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 #include <smush/insane/Bitmap/BlitAsm.h>
 #include <smush/insane/Bitmap/MemCopy.h>
@@ -74,11 +80,26 @@ TEST_GROUP(SmushAsm);
 static void* SmushAsmTest_pGuardAllocation;
 static size_t SmushAsmTest_guardSize;
 
+static size_t SmushAsmTest_PageSize(void)
+{
+#ifdef _WIN32
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return (size_t)info.dwPageSize;
+#else
+    return (size_t)sysconf(_SC_PAGESIZE);
+#endif
+}
+
 static void SmushAsmTest_FreeGuard(void)
 {
     if ( SmushAsmTest_pGuardAllocation )
     {
+#ifdef _WIN32
+        VirtualFree(SmushAsmTest_pGuardAllocation, 0, MEM_RELEASE);
+#else
         munmap(SmushAsmTest_pGuardAllocation, SmushAsmTest_guardSize);
+#endif
         SmushAsmTest_pGuardAllocation = NULL;
         SmushAsmTest_guardSize        = 0;
     }
@@ -862,14 +883,23 @@ static uint8_t* SmushAsmTest_BuildMotionStream(uint8_t* pOut, int size, int x, i
 // source offset, which is a pointer difference, stays representable.
 static uint16_t* SmushAsmTest_GuardedImage(int guardAfter, uint16_t** ppOutput)
 {
-    size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
-    SmushAsmTest_guardSize        = pageSize * 4u;
+    size_t pageSize = SmushAsmTest_PageSize();
+    SmushAsmTest_guardSize = pageSize * 4u;
+#ifdef _WIN32
+    SmushAsmTest_pGuardAllocation = VirtualAlloc(NULL, SmushAsmTest_guardSize, MEM_RESERVE, PAGE_NOACCESS);
+    TEST_ASSERT_NOT_NULL(SmushAsmTest_pGuardAllocation);
+    uint8_t* pPage = (uint8_t*)SmushAsmTest_pGuardAllocation + pageSize;
+    TEST_ASSERT_EQUAL_PTR(pPage, VirtualAlloc(pPage, pageSize, MEM_COMMIT, PAGE_READWRITE));
+    uint8_t* pOutput = pPage + pageSize * 2u;
+    TEST_ASSERT_EQUAL_PTR(pOutput, VirtualAlloc(pOutput, pageSize, MEM_COMMIT, PAGE_READWRITE));
+#else
     SmushAsmTest_pGuardAllocation = mmap(NULL, SmushAsmTest_guardSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     TEST_ASSERT_TRUE(SmushAsmTest_pGuardAllocation != MAP_FAILED);
     uint8_t* pPage = (uint8_t*)SmushAsmTest_pGuardAllocation + pageSize;
     TEST_ASSERT_EQUAL_INT(0, mprotect(pPage, pageSize, PROT_READ | PROT_WRITE));
     uint8_t* pOutput = pPage + pageSize * 2u;
     TEST_ASSERT_EQUAL_INT(0, mprotect(pOutput, pageSize, PROT_READ | PROT_WRITE));
+#endif
     *ppOutput = (uint16_t*)pOutput;
     return (uint16_t*)(pPage + (guardAfter ? pageSize - 128u : 0u));
 }
@@ -878,10 +908,15 @@ static uint16_t* SmushAsmTest_GuardedImage(int guardAfter, uint16_t** ppOutput)
 // padding cases that need readable bytes outside the image.
 static uint16_t* SmushAsmTest_PaddedImage(uint16_t** ppOutput)
 {
-    size_t pageSize = (size_t)sysconf(_SC_PAGESIZE);
-    SmushAsmTest_guardSize        = pageSize;
+    size_t pageSize = SmushAsmTest_PageSize();
+    SmushAsmTest_guardSize = pageSize;
+#ifdef _WIN32
+    SmushAsmTest_pGuardAllocation = VirtualAlloc(NULL, SmushAsmTest_guardSize, MEM_COMMIT, PAGE_READWRITE);
+    TEST_ASSERT_NOT_NULL(SmushAsmTest_pGuardAllocation);
+#else
     SmushAsmTest_pGuardAllocation = mmap(NULL, SmushAsmTest_guardSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     TEST_ASSERT_TRUE(SmushAsmTest_pGuardAllocation != MAP_FAILED);
+#endif
     for ( size_t i = 0; i < SmushAsmTest_guardSize / sizeof(uint16_t); ++i )
     {
         ((uint16_t*)SmushAsmTest_pGuardAllocation)[i] = 0xBAD5u;
