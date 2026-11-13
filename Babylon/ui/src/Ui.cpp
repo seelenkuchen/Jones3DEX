@@ -38,6 +38,8 @@ namespace
 {
     constexpr float kCanvasHeight = 480.0f;
     constexpr float kColumnGap = 8.0f;
+    constexpr float kPromptIconGap = 6.0f;
+    constexpr float kPromptSpacing = 24.0f;
 
     // The magnitude a gamepad axis must reach to be reported by a binding capture. It is a fixed
     // rule, independent of NavigationMap::axisThreshold: capture accepts every gamepad axis, not
@@ -245,6 +247,7 @@ namespace
         std::size_t editCursor = 0;
         std::string editStartText;
         float scroll = 0.0f;
+        std::vector<Prompt> prompts;
     };
 
     struct AxisState
@@ -368,6 +371,44 @@ struct Ui::State
             painter.drawText(font, text, shadow, align, skin.textShadow);
         }
         painter.drawText(font, text, rect, align, color);
+    }
+
+    // Draws the prompt bar left to right along the bottom left: icon, label,
+    // then the next entry. The icons are promptHeight square and the labels
+    // sit in a line box of that height, so every entry shares one baseline.
+    void drawPrompts(const std::vector<Prompt>& prompts)
+    {
+        if ( prompts.empty() || !(skin.promptHeight > 0.0f) )
+        {
+            return;
+        }
+        const float canvas = canvasWidth();
+        if ( canvas <= 0.0f )
+        {
+            return;
+        }
+
+        const FontId font = skin.promptFont != 0 ? skin.promptFont : skin.textFont;
+        const float rowTop = kCanvasHeight - skin.canvasMargin - skin.promptHeight;
+        float x = skin.canvasMargin;
+        for ( const Prompt& prompt : prompts )
+        {
+            if ( prompt.icon != 0 )
+            {
+                painter.drawImage(prompt.icon,
+                    Rect{ x, rowTop, skin.promptHeight, skin.promptHeight });
+                x += skin.promptHeight + kPromptIconGap;
+            }
+            if ( !prompt.label.empty() )
+            {
+                const float width = painter.measureText(font, prompt.label).width;
+                drawRowText(font, prompt.label,
+                    Rect{ x, rowTop, width, skin.promptHeight },
+                    TextAlign::Left, skin.text);
+                x += width;
+            }
+            x += kPromptSpacing;
+        }
     }
 
     std::string sliderText(const Slider& slider, double value) const
@@ -2163,6 +2204,7 @@ struct Ui::State
         stateClipTop = -std::numeric_limits<float>::infinity();
         stateClipBottom = std::numeric_limits<float>::infinity();
         painter.popClip();
+        drawPrompts(state->prompts);
         painter.popClip();
     }
 };
@@ -2179,7 +2221,8 @@ bool Ui::setSkin(const Skin& skin)
     if ( !(skin.rowHeight > 0.0f) || skin.titleHeight < 0.0f
         || skin.rowSpacing < 0.0f || skin.panelPadding < 0.0f
         || skin.minPanelWidth < 0.0f || skin.canvasMargin < 0.0f
-        || skin.borderWidth < 0.0f || skin.markerSpacing < 0.0f )
+        || skin.borderWidth < 0.0f || skin.markerSpacing < 0.0f
+        || skin.promptHeight < 0.0f )
     {
         babylon::log::warning("ui: rejected an invalid skin");
         return false;
@@ -2425,6 +2468,35 @@ std::size_t Ui::focusedWidget() const
 {
     const ScreenState* state = m_state->top();
     return state == nullptr ? kNoWidget : state->focus;
+}
+
+bool Ui::focusedWidgetChangesValue() const
+{
+    const ScreenState* state = m_state->top();
+    if ( state == nullptr || state->focus >= state->screen.widgets.size() )
+    {
+        return false;
+    }
+    const Widget& widget = state->screen.widgets[state->focus];
+    return get<Choice>(widget) != nullptr || get<Slider>(widget) != nullptr
+        || get<Toggle>(widget) != nullptr;
+}
+
+void Ui::setPrompts(std::vector<Prompt> prompts)
+{
+    ScreenState* state = m_state->top();
+    if ( state == nullptr )
+    {
+        return;
+    }
+    state->prompts = std::move(prompts);
+}
+
+const std::vector<Prompt>& Ui::prompts() const
+{
+    static const std::vector<Prompt> empty;
+    const ScreenState* state = m_state->top();
+    return state == nullptr ? empty : state->prompts;
 }
 
 std::optional<WidgetValue> Ui::widgetValue(ScreenId screenId, std::size_t index) const

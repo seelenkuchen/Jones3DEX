@@ -83,6 +83,29 @@ namespace
 
 }
 
+    GamepadType translateGamepadType(SDL_GamepadType type)
+    {
+        switch ( type )
+        {
+            case SDL_GAMEPAD_TYPE_XBOX360:
+            case SDL_GAMEPAD_TYPE_XBOXONE:
+                return GamepadType::Xbox;
+            case SDL_GAMEPAD_TYPE_PS3:
+            case SDL_GAMEPAD_TYPE_PS4:
+            case SDL_GAMEPAD_TYPE_PS5:
+                return GamepadType::PlayStation;
+            case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+            case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+            case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+            case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+                return GamepadType::Nintendo;
+            case SDL_GAMEPAD_TYPE_STEAM:
+                return GamepadType::SteamDeck;
+            default:
+                return GamepadType::Unknown;
+        }
+    }
+
     Key translateScancode(SDL_Scancode scancode)
     {
         switch ( scancode )
