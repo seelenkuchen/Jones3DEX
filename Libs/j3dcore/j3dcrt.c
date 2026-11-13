@@ -416,7 +416,8 @@ static bool j3dcrt_FindPathEntry(const char* pDirPath, const char* pName, char* 
 // pOut, truncating to size bytes: backslashes become slashes and every component that does not
 // exist with the case it is written in is replaced by the first case-insensitive match in its
 // directory. Components that match nothing, and everything after them, stay as given so a file that
-// does not exist yet can still be created. Returns pOut.
+// does not exist yet can still be created. A Wine "Z:\" or "z:/" path is the Unix root, so it
+// resolves from '/'; other drive letters stay relative. Returns pOut.
 char* j3dcrt_ResolvePath(const char* pPath, char* pOut, size_t size)
 {
     struct stat st;
@@ -440,6 +441,16 @@ char* j3dcrt_ResolvePath(const char* pPath, char* pOut, size_t size)
         // Added: a leading slash is absolute on both platforms and resolves from the root.
         bAbsolute = true;
         cur       = 1;
+        pOut[outLen] = '/';
+        ++outLen;
+    }
+    else if ( ( pPath[0] == 'Z' || pPath[0] == 'z' ) && pPath[1] == ':'
+        && ( pPath[2] == '\\' || pPath[2] == '/' ) )
+    {
+        // Wine's Z: drive is the Unix root, so a Windows config written under Wine is absolute
+        // here. "Z:" alone and "Z:x" stay relative, as do every other drive letter.
+        bAbsolute    = true;
+        cur          = 3;
         pOut[outLen] = '/';
         ++outLen;
     }

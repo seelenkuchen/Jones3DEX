@@ -15,6 +15,7 @@
 
 #if !defined(_WIN32)
 // Added: the path-resolution tests create and remove a real directory tree beside the binary.
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -486,6 +487,54 @@ TEST(j3dCrt, TestResolvePath)
     j3dCrtTest_CleanTree();
 }
 
+TEST(j3dCrt, TestResolveWineZDrive)
+{
+    char aTmp[] = "/tmp/j3dCrtZXXXXXX";
+    char aSub[512];
+    char aFile[512];
+    char aInput[512];
+    char aExpected[512];
+    char aPath[512];
+    struct stat st;
+    FILE* pFile;
+    char* pDir = mkdtemp(aTmp);
+    TEST_ASSERT_NOT_NULL(pDir);
+
+    snprintf(aSub, sizeof(aSub), "%s/Mixed", pDir);
+    TEST_ASSERT_EQUAL_INT(0, mkdir(aSub, 0777));
+    snprintf(aFile, sizeof(aFile), "%s/Name.TXT", aSub);
+    pFile = fopen(aFile, "wb");
+    TEST_ASSERT_NOT_NULL(pFile);
+    fclose(pFile);
+
+    snprintf(aInput, sizeof(aInput), "%s/mixed/name.txt", pDir);
+    if ( stat(aInput, &st) == 0 )
+    {
+        remove(aFile);
+        rmdir(aSub);
+        rmdir(pDir);
+        TEST_IGNORE_MESSAGE("needs a case-sensitive file system (this volume ignores letter case)");
+    }
+
+    // Wine's Z: drive is the Unix root, so both spellings resolve from '/'. The case differs from
+    // the real directory and file names.
+    snprintf(aInput, sizeof(aInput), "Z:\\%s\\mixed\\name.txt", pDir + 1);
+    snprintf(aExpected, sizeof(aExpected), "%s/Mixed/Name.TXT", pDir);
+    TEST_ASSERT_EQUAL_STRING(aExpected, j3dcrt_ResolvePath(aInput, aPath, sizeof(aPath)));
+
+    snprintf(aInput, sizeof(aInput), "z:/%s/MIXED/NAME.txt", pDir + 1);
+    TEST_ASSERT_EQUAL_STRING(aExpected, j3dcrt_ResolvePath(aInput, aPath, sizeof(aPath)));
+
+    // Other drive letters, "Z:" alone and "Z:x" stay relative.
+    TEST_ASSERT_EQUAL_STRING("C:/x", j3dcrt_ResolvePath("C:\\x", aPath, sizeof(aPath)));
+    TEST_ASSERT_EQUAL_STRING("Z:", j3dcrt_ResolvePath("Z:", aPath, sizeof(aPath)));
+    TEST_ASSERT_EQUAL_STRING("Z:x", j3dcrt_ResolvePath("Z:x", aPath, sizeof(aPath)));
+
+    remove(aFile);
+    rmdir(aSub);
+    rmdir(pDir);
+}
+
 TEST(j3dCrt, TestFopenResolvePath)
 {
     struct stat st;
@@ -731,6 +780,7 @@ TEST_GROUP_RUNNER(j3dCrt)
 #endif
 #if !defined(_WIN32)
     RUN_TEST_CASE(j3dCrt, TestResolvePath);
+    RUN_TEST_CASE(j3dCrt, TestResolveWineZDrive);
     RUN_TEST_CASE(j3dCrt, TestFopenResolvePath);
 #endif
     RUN_TEST_CASE(j3dCrt, TestStrcmpi);
