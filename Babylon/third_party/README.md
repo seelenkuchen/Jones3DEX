@@ -8,6 +8,7 @@ a row with its source and version (ADR-0017).
 |------|---------|---------|--------|-------|
 | doctest | 2.5.3 | MIT | <https://github.com/doctest/doctest/releases/tag/v2.5.3> | `doctest/doctest.h`, `doctest/LICENSE.txt` |
 | miniaudio | 0.11.25 | public domain | <https://github.com/mackron/miniaudio/releases/tag/0.11.25> | `miniaudio/miniaudio.h`, `miniaudio/LICENSE` |
+| stb | 1.28 (truetype), 2.32 (image) | MIT | <https://github.com/nothings/stb> | `stb/stb_truetype.h`, `stb/stb_image.h`, `stb/LICENSE` |
 | SDL3 | 3.4.18 | zlib | <https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18> | fetched at configure time, not vendored |
 | SDL_shadercross | commit 1ff05bec573988a98ef9e0260b4da44f512b8367 (2026-09-03) | zlib | <https://github.com/libsdl-org/SDL_shadercross> | build tool, fetched at configure time (`cmake/BabylonShaders.cmake`), not vendored |
 | SPIRV-Cross | commit 1a6169566c73d3da552748fc372fe2bbb856e46e (pinned by SDL_shadercross) | Apache-2.0 | <https://github.com/KhronosGroup/SPIRV-Cross> | build tool, fetched with SDL_shadercross, not vendored |

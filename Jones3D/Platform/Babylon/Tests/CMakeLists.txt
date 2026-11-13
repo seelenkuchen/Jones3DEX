@@ -56,6 +56,8 @@ if (APPLE OR MSVC)
         ${JONES3D_UI_TEST_LIBS}
         babylon::ui
         babylon::render
+        babylon::font
+        babylon::image
         babylon_doctest
         # Added: SDL_getenv reads BABYLON_REQUIRE_GPU. Babylon links SDL privately, so its headers
         # come from the SDL target itself (static when Babylon fetched SDL).
@@ -68,6 +70,8 @@ else()
         -Wl,--end-group
         babylon::ui
         babylon::render
+        babylon::font
+        babylon::image
         babylon_doctest
         $<IF:$<TARGET_EXISTS:SDL3::SDL3-static>,SDL3::SDL3-static,SDL3::SDL3>
         m
@@ -88,3 +92,10 @@ set_tests_properties(Jones3D.UiPainter PROPERTIES
     ENVIRONMENT "SDL_VIDEO_DRIVER=$<IF:$<PLATFORM_ID:Darwin>,dummy,offscreen>"
     TIMEOUT 120
 )
+
+# Added: the painter's TrueType and PNG cases read the committed assets through the file system's
+# base path, so the test executable needs Data/ beside it just like the game (ADR-0031).
+add_custom_command(TARGET Jones3DUiPainterTests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${JONES3D_UI_TEST_ROOT}/Data" "$<TARGET_FILE_DIR:Jones3DUiPainterTests>/Data"
+    COMMENT "Copying Data/ next to Jones3DUiPainterTests")

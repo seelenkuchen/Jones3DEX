@@ -34,3 +34,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0027](ADR-0027-sound-completion-on-game-time.md) | Sound completion follows game time, not the audio device | Accepted |
 | [ADR-0028](ADR-0028-modern-menu-style-and-always-on-gamepad.md) | Modern menu style, button prompts and an always-on gamepad | Accepted |
 | [ADR-0029](ADR-0029-modern-controls.md) | Modern controls as an Enhanced option | Accepted |
+| [ADR-0031](ADR-0031-babylon-font-and-image-modules.md) | Babylon font and image modules for the menu assets | Accepted |

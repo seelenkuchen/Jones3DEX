@@ -1,6 +1,10 @@
 // Added: the game's babylon::ui painter (ADR-0026 amendment); see JonesUiPainter.h.
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 
+#include <babylon/files/FileSystem.h>
+#include <babylon/files/Path.h>
+#include <babylon/image/Image.h>
+
 #include <rdroid/Main/rdroid.h>
 #include <rdroid/Primitives/rdFont.h>
 #include <rdroid/Raster/rdCache.h>
@@ -12,8 +16,12 @@
 #include <std/General/stdMemory.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <cstring>
+#include <memory>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -57,10 +65,113 @@ namespace
         color.blue  = value.b;
         color.alpha = value.a;
     }
+
+    // Decodes UTF-8 into codepoints, replacing each malformed byte with U+FFFD. The painter uses
+    // the same result for measuring and drawing, so the two always agree.
+    std::vector<char32_t> decodeUtf8(std::string_view text)
+    {
+        std::vector<char32_t> codepoints;
+        codepoints.reserve(text.size());
+
+        std::size_t index = 0;
+        while ( index < text.size() )
+        {
+            const unsigned char first = (unsigned char)text[index];
+            if ( first < 0x80 )
+            {
+                codepoints.push_back((char32_t)first);
+                ++index;
+                continue;
+            }
+
+            std::size_t length = 0;
+            char32_t codepoint = 0;
+            char32_t minimum   = 0;
+            if ( (first & 0xE0u) == 0xC0u )
+            {
+                length    = 2;
+                codepoint = first & 0x1Fu;
+                minimum   = 0x80;
+            }
+            else if ( (first & 0xF0u) == 0xE0u )
+            {
+                length    = 3;
+                codepoint = first & 0x0Fu;
+                minimum   = 0x800;
+            }
+            else if ( (first & 0xF8u) == 0xF0u )
+            {
+                length    = 4;
+                codepoint = first & 0x07u;
+                minimum   = 0x10000;
+            }
+            else
+            {
+                codepoints.push_back(0xFFFD);
+                ++index;
+                continue;
+            }
+
+            bool valid = index + length <= text.size();
+            for ( std::size_t cur = 1; valid && cur < length; ++cur )
+            {
+                const unsigned char next = (unsigned char)text[index + cur];
+                if ( (next & 0xC0u) != 0x80u )
+                {
+                    valid = false;
+                    break;
+                }
+                codepoint = (codepoint << 6) | (next & 0x3Fu);
+            }
+
+            if ( !valid || codepoint < minimum || codepoint > 0x10FFFF
+                || (codepoint >= 0xD800 && codepoint <= 0xDFFF) )
+            {
+                codepoints.push_back(0xFFFD);
+                ++index;
+                continue;
+            }
+
+            codepoints.push_back(codepoint);
+            index += length;
+        }
+
+        return codepoints;
+    }
+
+    const babylon::font::Glyph* findGlyph(const std::vector<char32_t>& codepoints,
+        const std::vector<babylon::font::Glyph>& glyphs, char32_t codepoint)
+    {
+        const auto it = std::find(codepoints.begin(), codepoints.end(), codepoint);
+        if ( it == codepoints.end() )
+        {
+            return nullptr;
+        }
+
+        return &glyphs[(std::size_t)(it - codepoints.begin())];
+    }
+
+    // The baked set covers printable ASCII and Latin-1. Text outside it falls back to '?', the
+    // same substitution rdFont makes, so measuring and drawing still agree.
+    void normalizeCodepoints(const std::vector<char32_t>& baked,
+        const std::vector<babylon::font::Glyph>& glyphs, std::vector<char32_t>& codepoints)
+    {
+        for ( char32_t& codepoint : codepoints )
+        {
+            if ( !findGlyph(baked, glyphs, codepoint) )
+            {
+                codepoint = U'?';
+            }
+        }
+    }
 }
 
 JonesUiPainter::~JonesUiPainter()
 {
+    for ( FontEntry& entry : m_fonts )
+    {
+        releaseImageEntry(entry.atlas);
+    }
     for ( ImageEntry& entry : m_images )
     {
         releaseImageEntry(entry);
@@ -80,6 +191,251 @@ babylon::ui::FontId JonesUiPainter::registerFont(rdFont* pFont, float pointSize)
     entry.pointSize = pointSize;
     m_fonts.push_back(entry);
     return (babylon::ui::FontId)m_fonts.size();
+}
+
+babylon::ui::FontId JonesUiPainter::registerTtfFont(const babylon::font::Font& font,
+    float pixelHeight)
+{
+    if ( !(pixelHeight > 0.0f) || !std::isfinite(pixelHeight) )
+    {
+        STDLOG_WARNING("JonesUiPainter::registerTtfFont: bad pixel height.\n");
+        return 0;
+    }
+
+    std::vector<char32_t> codepoints;
+    codepoints.reserve(0x7F - 0x20 + 0x100 - 0xA0);
+    for ( char32_t codepoint = 0x20; codepoint <= 0x7E; ++codepoint )
+    {
+        codepoints.push_back(codepoint);
+    }
+    for ( char32_t codepoint = 0xA0; codepoint <= 0xFF; ++codepoint )
+    {
+        codepoints.push_back(codepoint);
+    }
+
+    const std::optional<babylon::font::FontAtlas> atlas = font.bake(pixelHeight, codepoints);
+    if ( !atlas )
+    {
+        STDLOG_WARNING("JonesUiPainter::registerTtfFont: the font did not bake.\n");
+        return 0;
+    }
+
+    std::vector<std::uint8_t> rgba((std::size_t)atlas->width * atlas->height * 4u);
+    for ( std::size_t index = 0; index < atlas->coverage.size(); ++index )
+    {
+        rgba[index * 4u + 0u] = 255;
+        rgba[index * 4u + 1u] = 255;
+        rgba[index * 4u + 2u] = 255;
+        rgba[index * 4u + 3u] = atlas->coverage[index];
+    }
+
+    ImageEntry atlasEntry;
+    if ( !createRgbaMaterial(rgba.data(), atlas->width, atlas->height, atlasEntry) )
+    {
+        STDLOG_WARNING("JonesUiPainter::registerTtfFont: the atlas texture failed.\n");
+        return 0;
+    }
+
+    FontEntry entry;
+    entry.kind       = FontEntry::Kind::TrueType;
+    entry.trueType   = font;
+    entry.pointSize  = pixelHeight;
+    entry.codepoints = std::move(codepoints);
+    entry.glyphs     = atlas->glyphs;
+    entry.ascent     = atlas->ascent;
+    entry.descent    = atlas->descent;
+    entry.lineGap    = atlas->lineGap;
+    entry.atlas      = atlasEntry;
+    m_fonts.push_back(std::move(entry));
+    return (babylon::ui::FontId)m_fonts.size();
+}
+
+babylon::ui::ImageId JonesUiPainter::registerPngImage(const babylon::image::Image& image)
+{
+    if ( !image.width || !image.height || image.pixels.empty() )
+    {
+        STDLOG_WARNING("JonesUiPainter::registerPngImage: empty image.\n");
+        return 0;
+    }
+
+    ImageEntry entry;
+    if ( !createRgbaMaterial(image.pixels.data(), image.width, image.height, entry) )
+    {
+        STDLOG_WARNING("JonesUiPainter::registerPngImage: the image texture failed.\n");
+        return 0;
+    }
+
+    m_images.push_back(entry);
+    return (babylon::ui::ImageId)m_images.size();
+}
+
+babylon::ui::FontId JonesUiPainter::registerTtfFontFile(babylon::files::FileSystem& files,
+    std::string_view relativePath, float pixelHeight)
+{
+    const std::optional<std::vector<std::byte>> bytes = loadUiFile(files, relativePath);
+    if ( !bytes )
+    {
+        return 0;
+    }
+
+    const std::optional<babylon::font::Font> font =
+        babylon::font::Font::load(std::move(*bytes));
+    if ( !font )
+    {
+        STDLOG_WARNING("JonesUiPainter: '%s' is not a usable TrueType font.\n",
+            std::string(relativePath).c_str());
+        return 0;
+    }
+
+    return registerTtfFont(*font, pixelHeight);
+}
+
+babylon::ui::ImageId JonesUiPainter::registerPngImageFile(babylon::files::FileSystem& files,
+    std::string_view relativePath)
+{
+    const std::optional<std::vector<std::byte>> bytes = loadUiFile(files, relativePath);
+    if ( !bytes )
+    {
+        return 0;
+    }
+
+    const std::optional<babylon::image::Image> image = babylon::image::decodePng(*bytes);
+    if ( !image )
+    {
+        STDLOG_WARNING("JonesUiPainter: '%s' is not a usable PNG.\n",
+            std::string(relativePath).c_str());
+        return 0;
+    }
+
+    return registerPngImage(*image);
+}
+
+std::optional<std::vector<std::byte>> JonesUiPainter::loadUiFile(
+    babylon::files::FileSystem& files, std::string_view relativePath)
+{
+    if ( relativePath.empty() || relativePath.front() == '/'
+        || !babylon::files::isValidPath(relativePath) )
+    {
+        STDLOG_WARNING("JonesUiPainter: invalid UI asset path '%.*s'.\n",
+            (int)relativePath.size(), relativePath.data());
+        return std::nullopt;
+    }
+
+    const std::string path = babylon::files::joinPath(files.basePath(),
+        "Data/ui/" + std::string(relativePath));
+    if ( path.empty() )
+    {
+        return std::nullopt;
+    }
+
+    const std::unique_ptr<babylon::files::File> file =
+        files.open(path, babylon::files::OpenMode::Read);
+    if ( !file )
+    {
+        return std::nullopt;
+    }
+
+    const std::optional<std::int64_t> size = file->size();
+    if ( !size || *size < 0 )
+    {
+        return std::nullopt;
+    }
+
+    std::vector<std::byte> bytes((std::size_t)*size);
+    if ( !bytes.empty() )
+    {
+        const std::optional<std::size_t> read = file->read(bytes);
+        if ( !read || *read != bytes.size() )
+        {
+            return std::nullopt;
+        }
+    }
+
+    return bytes;
+}
+
+bool JonesUiPainter::createRgbaMaterial(const std::uint8_t* pRgbaPixels,
+    std::uint32_t width, std::uint32_t height, ImageEntry& entry)
+{
+    if ( !pRgbaPixels || !width || !height )
+    {
+        return false;
+    }
+
+    const std::uint64_t rowSize = (std::uint64_t)width * 4u;
+    if ( rowSize > (std::uint64_t)SIZE_MAX
+        || (std::uint64_t)height > (std::uint64_t)SIZE_MAX / rowSize )
+    {
+        return false;
+    }
+
+    tRasterInfo raster;
+    STD_ZEROMEM(&raster, sizeof(raster));
+    raster.width     = width;
+    raster.height    = height;
+    raster.rowWidth  = width;
+    raster.rowSize   = (std::size_t)rowSize;
+    raster.size      = (std::size_t)(rowSize * height);
+    raster.colorInfo = stdColor_cfARGB8888;
+
+    tVBuffer* pVBuffer = stdDisplay_VBufferNew(&raster, /*bUseVSurface=*/0, /*bUseVideoMemory=*/0);
+    if ( !pVBuffer )
+    {
+        return false;
+    }
+
+    // cfARGB8888 stores B, G, R, A in memory; the painter's input is R, G, B, A.
+    for ( std::uint32_t y = 0; y < height; ++y )
+    {
+        const std::uint8_t* pSource = pRgbaPixels + y * (std::size_t)rowSize;
+        std::uint8_t* pDestination = pVBuffer->pPixels + y * pVBuffer->rasterInfo.rowSize;
+        for ( std::uint32_t x = 0; x < width; ++x )
+        {
+            pDestination[x * 4u + 0u] = pSource[x * 4u + 2u];
+            pDestination[x * 4u + 1u] = pSource[x * 4u + 1u];
+            pDestination[x * 4u + 2u] = pSource[x * 4u + 0u];
+            pDestination[x * 4u + 3u] = pSource[x * 4u + 3u];
+        }
+    }
+
+    rdMaterial* pMaterial = (rdMaterial*)STDMALLOC(sizeof(rdMaterial));
+    if ( !pMaterial )
+    {
+        stdDisplay_VBufferFree(pVBuffer);
+        return false;
+    }
+
+    STD_ZEROMEM(pMaterial, sizeof(*pMaterial));
+    pMaterial->formatType = STDCOLOR_FORMAT_RGBA;
+    pMaterial->width      = width;
+    pMaterial->height     = height;
+    pMaterial->numCels    = 1;
+    pMaterial->aTextures  = (tSystemTexture*)STDMALLOC(sizeof(tSystemTexture));
+    if ( !pMaterial->aTextures )
+    {
+        stdMemory_Free(pMaterial);
+        stdDisplay_VBufferFree(pVBuffer);
+        return false;
+    }
+
+    STD_ZEROMEM(&pMaterial->aTextures[0], sizeof(tSystemTexture));
+    tVBuffer* aMips[1] = { pVBuffer };
+    std3D_AllocSystemTexture(&pMaterial->aTextures[0], aMips, 1u, STDCOLOR_FORMAT_RGBA);
+    std3D_AddToTextureCache(&pMaterial->aTextures[0], STDCOLOR_FORMAT_RGBA);
+    stdDisplay_VBufferFree(pVBuffer);
+
+    if ( !pMaterial->aTextures[0].pCachedTexture )
+    {
+        std3D_ClearSystemTexture(&pMaterial->aTextures[0]);
+        stdMemory_Free(pMaterial->aTextures);
+        stdMemory_Free(pMaterial);
+        return false;
+    }
+
+    entry.pMaterial      = pMaterial;
+    entry.celNum         = 0;
+    entry.pOwnedMaterial = pMaterial;
+    return true;
 }
 
 babylon::ui::ImageId JonesUiPainter::registerMaterialImage(const rdMaterial* pMaterial, int celNum)
@@ -321,6 +677,12 @@ void JonesUiPainter::drawText(babylon::ui::FontId font, std::string_view text,
     }
 
     const FontEntry& entry = m_fonts[font - 1];
+    if ( entry.kind == FontEntry::Kind::TrueType )
+    {
+        drawTrueTypeText(entry, text, rect, align, color);
+        return;
+    }
+
     if ( !entry.pFont || text.empty() || isEmpty(rect) )
     {
         return;
@@ -424,6 +786,11 @@ babylon::ui::Size JonesUiPainter::measureText(babylon::ui::FontId font,
     }
 
     const FontEntry& entry = m_fonts[font - 1];
+    if ( entry.kind == FontEntry::Kind::TrueType )
+    {
+        return measureTrueTypeText(entry, text);
+    }
+
     if ( !entry.pFont )
     {
         return size;
@@ -441,6 +808,136 @@ babylon::ui::Size JonesUiPainter::measureText(babylon::ui::FontId font,
     const std::string str(text);
     size.width  = (float)textWidth(entry.pFont, str, fontScale, xScale);
     size.height = (float)((double)entry.pFont->lineSpacing * fontScale);
+    return size;
+}
+
+void JonesUiPainter::drawTrueTypeText(const FontEntry& entry, std::string_view text,
+    const babylon::ui::Rect& rect, babylon::ui::TextAlign align,
+    const babylon::ui::Color& color)
+{
+    if ( text.empty() || isEmpty(rect) || !entry.trueType || !entry.atlas.pMaterial )
+    {
+        return;
+    }
+
+    std::vector<char32_t> codepoints = decodeUtf8(text);
+    normalizeCodepoints(entry.codepoints, entry.glyphs, codepoints);
+    if ( codepoints.empty() )
+    {
+        return;
+    }
+
+    float lineHeight = entry.ascent - entry.descent + entry.lineGap;
+    if ( !(lineHeight > 0.0f) )
+    {
+        lineHeight = entry.pointSize;
+    }
+    const float lineTop = rect.y + (rect.height - lineHeight) * 0.5f;
+
+    const babylon::ui::Rect visible = intersect(rect, currentClip());
+    if ( isEmpty(visible) || lineTop >= visible.y + visible.height
+        || lineTop + lineHeight <= visible.y )
+    {
+        return;
+    }
+
+    float drawnWidth = 0.0f;
+    for ( std::size_t index = 0; index < codepoints.size(); ++index )
+    {
+        if ( index > 0 )
+        {
+            drawnWidth += entry.trueType->kerning(codepoints[index - 1],
+                codepoints[index], entry.pointSize);
+        }
+        if ( const babylon::font::Glyph* pGlyph =
+            findGlyph(entry.codepoints, entry.glyphs, codepoints[index]) )
+        {
+            drawnWidth += pGlyph->advance;
+        }
+    }
+
+    drawnWidth = std::max(0.0f, drawnWidth);
+    float penX = rect.x;
+    if ( align == babylon::ui::TextAlign::Center )
+    {
+        penX = rect.x + (rect.width - drawnWidth) * 0.5f;
+    }
+    else if ( align == babylon::ui::TextAlign::Right )
+    {
+        penX = rect.x + rect.width - drawnWidth;
+    }
+
+    const float atlasWidth  = (float)entry.atlas.pMaterial->width;
+    const float atlasHeight = (float)entry.atlas.pMaterial->height;
+    const float baseline    = lineTop + entry.ascent;
+    for ( std::size_t index = 0; index < codepoints.size(); ++index )
+    {
+        if ( index > 0 )
+        {
+            penX += entry.trueType->kerning(codepoints[index - 1],
+                codepoints[index], entry.pointSize);
+        }
+
+        const babylon::font::Glyph* pGlyph =
+            findGlyph(entry.codepoints, entry.glyphs, codepoints[index]);
+        if ( !pGlyph )
+        {
+            continue;
+        }
+
+        if ( pGlyph->width > 0 && pGlyph->height > 0 )
+        {
+            const babylon::ui::Rect destination = { penX + pGlyph->offsetX,
+                baseline + pGlyph->offsetY, (float)pGlyph->width, (float)pGlyph->height };
+            const babylon::ui::Rect clipped = intersect(destination, visible);
+            if ( !isEmpty(clipped) )
+            {
+                const float u0 = ((float)pGlyph->x + (clipped.x - destination.x)) / atlasWidth;
+                const float v0 = ((float)pGlyph->y + (clipped.y - destination.y)) / atlasHeight;
+                const float u1 = u0 + clipped.width / atlasWidth;
+                const float v1 = v0 + clipped.height / atlasHeight;
+                drawQuad(clipped, entry.atlas.pMaterial, entry.atlas.celNum,
+                    u0, v0, u1, v1, color);
+            }
+        }
+
+        penX += pGlyph->advance;
+    }
+}
+
+babylon::ui::Size JonesUiPainter::measureTrueTypeText(const FontEntry& entry,
+    std::string_view text) const
+{
+    babylon::ui::Size size;
+    float lineHeight = entry.ascent - entry.descent + entry.lineGap;
+    if ( !(lineHeight > 0.0f) )
+    {
+        lineHeight = entry.pointSize;
+    }
+    size.height = lineHeight;
+
+    if ( !entry.trueType )
+    {
+        return size;
+    }
+
+    std::vector<char32_t> codepoints = decodeUtf8(text);
+    normalizeCodepoints(entry.codepoints, entry.glyphs, codepoints);
+    for ( std::size_t index = 0; index < codepoints.size(); ++index )
+    {
+        if ( index > 0 )
+        {
+            size.width += entry.trueType->kerning(codepoints[index - 1],
+                codepoints[index], entry.pointSize);
+        }
+        if ( const babylon::font::Glyph* pGlyph =
+            findGlyph(entry.codepoints, entry.glyphs, codepoints[index]) )
+        {
+            size.width += pGlyph->advance;
+        }
+    }
+
+    size.width = std::max(0.0f, size.width);
     return size;
 }
 
