@@ -22,6 +22,14 @@ void JonesControl_ResetGlobals(void)
 int JonesControl_Startup(void)
 {
     int bMouseControl = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: rumble is on unless the player turned it off; a missing key is written with its
+    // default so the next save carries it (presentation only, ADR-0028).
+    bool bRumble = stdConfig_GetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true);
+    if ( !stdConfig_Contains(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE) )
+    {
+        (void)stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, bRumble);
+    }
+    stdControl_EnableRumble(bRumble);
     JonesDisplaySettings* pSettings = JonesMain_GetDisplaySettings();
 
     if ( JonesControl_bStartup )

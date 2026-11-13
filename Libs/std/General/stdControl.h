@@ -291,6 +291,17 @@ const char* J3DAPI stdControl_GetJoysticDescription(int joyNum); // Added: From 
 
 int J3DAPI stdControl_IsGamePad(int joyNum);
 
+// Added: gamepad rumble (presentation only, ADR-0028). It never changes simulation state.
+// Asks every connected gamepad to rumble. lowFrequency and highFrequency are the two motors,
+// 0..1, and durationMs is capped at 5000 by the platform. Does nothing while rumble is disabled.
+// The Null column has no device and only keeps the enabled flag; the Babylon column forwards the
+// request to the platform for each connected pad.
+void J3DAPI stdControl_Rumble(float lowFrequency, float highFrequency, uint32_t durationMs);
+
+// Added: turns rumble output on or off. On by default; the game applies engine.input.rumble.
+void stdControl_EnableRumble(bool bEnable);
+bool stdControl_IsRumbleEnabled(void);
+
 void stdControl_ResetGlobals(void);
 
 J3D_EXTERN_C_END

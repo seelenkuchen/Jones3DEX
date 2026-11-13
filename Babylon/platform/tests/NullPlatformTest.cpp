@@ -287,3 +287,35 @@ TEST_CASE("The Null window records text input mode and delivers injected text")
     // A mode that cannot fail never logs.
     CHECK(sink.records().empty());
 }
+
+TEST_CASE("The Null platform records the last rumble with its inputs clamped")
+{
+    using babylon::platform::kMaxRumbleDurationMs;
+    using babylon::platform::NullPlatform;
+    using babylon::platform::Platform;
+
+    NullPlatform platform;
+    Platform& asPlatform = platform;
+
+    // Nothing was asked for yet.
+    CHECK_FALSE(platform.lastRumble().has_value());
+
+    // The two motors are clamped to 0..1 and the duration to the maximum;
+    // there is no device, so the call always answers false.
+    CHECK_FALSE(asPlatform.rumbleGamepad(7, 0.25f, 1.5f, 9000));
+    const std::optional<NullPlatform::RumbleCall> boosted = platform.lastRumble();
+    REQUIRE(boosted.has_value());
+    CHECK(boosted->gamepad == 7);
+    CHECK(boosted->lowFrequency == 0.25f);
+    CHECK(boosted->highFrequency == 1.0f);
+    CHECK(boosted->durationMs == kMaxRumbleDurationMs);
+
+    // Negative intensities clamp to zero, and only the last call is kept.
+    CHECK_FALSE(asPlatform.rumbleGamepad(9, -1.0f, 0.6f, 180));
+    const std::optional<NullPlatform::RumbleCall> normal = platform.lastRumble();
+    REQUIRE(normal.has_value());
+    CHECK(normal->gamepad == 9);
+    CHECK(normal->lowFrequency == 0.0f);
+    CHECK(normal->highFrequency == 0.6f);
+    CHECK(normal->durationMs == 180);
+}

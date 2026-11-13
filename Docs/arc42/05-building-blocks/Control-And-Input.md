@@ -123,6 +123,14 @@ A connected gamepad becomes joystick slot 0, 1, ... in `InputState::gamepads()` 
 
 The d-pad drives POV 0 (left, up, right, down).
 
+Rumble is output only and never changes the simulation. The game calls
+`stdControl_Rumble(low, high, durationMs)` when an event should shake the pad: taking damage
+(strength grows with the damage), firing a weapon, and standing inside an explosion's range. The
+shared layer drops the call while rumble is off and otherwise forwards it to the column's device
+side; the Babylon column calls `babylon::platform::Platform::rumbleGamepad()` for every connected
+pad, and the Null column only records the call in test builds. `engine.input.rumble` (default on,
+both profiles) is read in `JonesControl_Startup()` and changed by the Controls screen's Rumble row.
+
 Enumeration happens whenever `stdControl_GetNumJoysticks()` is called, which pumps the platform queue, so a pad connected before startup is seen. The game calls it only from `JonesControl_Startup()`. A pad connected or disconnected later is reflected by the device read (the joystick slots follow `InputState::gamepads()`), but the game does not re-enumerate or rebuild its gameplay bindings at runtime: connect a pad before startup, or restart the game. `sithControl_RebindJoystick()` rebuilds the bindings but does not enable axes for newly seen pads.
 
 

@@ -78,8 +78,9 @@ namespace
     constexpr std::size_t kJonesMainNew        = 1;
     constexpr std::size_t kJonesMainDelete     = 2;
     constexpr std::size_t kJonesMainMouse      = 3;
-    constexpr std::size_t kJonesMainEdit       = 4;
-    constexpr std::size_t kJonesMainReset      = 5;
+    constexpr std::size_t kJonesMainRumble     = 4;
+    constexpr std::size_t kJonesMainEdit       = 5;
+    constexpr std::size_t kJonesMainReset      = 6;
 
     // Widget indices of the Edit screen and the assignment screen.
     constexpr std::size_t kJonesEditList = 0;
@@ -96,6 +97,7 @@ namespace
     constexpr const char* kJonesControlsNewText        = "New";               // TODO: [COMPAT]
     constexpr const char* kJonesControlsDeleteText     = "Delete";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsMouseText      = "Mouse";             // TODO: [COMPAT]
+    constexpr const char* kJonesControlsRumbleText     = "Rumble";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsResetText      = "Reset to defaults"; // TODO: [COMPAT]
     constexpr const char* kJonesControlsNameText       = "Name";              // TODO: [COMPAT]
     constexpr const char* kJonesControlsAddText        = "Add binding";       // TODO: [COMPAT]
@@ -289,7 +291,7 @@ namespace
     }
 
     babylon::ui::Screen BuildMainScreen(const JonesControlsConfig& config, std::size_t selected,
-        bool bMouse)
+        bool bMouse, bool bRumble)
     {
         babylon::ui::Screen screen;
         screen.title = ResolveLabel("JONES_STR_CTRL_OPTS", kJonesControlsFallbackTitle);
@@ -303,6 +305,8 @@ namespace
             kJonesControlsDeleteText, kJonesControlsActionDelete, bCustom });
         screen.widgets.emplace_back(babylon::ui::Toggle{
             kJonesControlsMouseText, std::string(), true, bMouse });
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            kJonesControlsRumbleText, std::string(), true, bRumble });
         screen.widgets.emplace_back(EditButton(config, selected));
         screen.widgets.emplace_back(babylon::ui::Button{
             kJonesControlsResetText, kJonesControlsActionReset, bCustom });
@@ -1033,14 +1037,31 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
     working.selectedShemeIdx = (int)selected;
 
     bool bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    bool bRumble = stdControl_IsRumbleEnabled();
 
-    const babylon::ui::Screen screen = BuildMainScreen(working, selected, bMouse);
+    const babylon::ui::Screen screen = BuildMainScreen(working, selected, bMouse, bRumble);
     std::vector<std::string> deleteFiles;
     bool bApply = false;
 
     const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
         babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
     {
+        // Added: the Rumble row takes effect and is stored as soon as it is toggled; the OK path
+        // repeats the write from the final value, like the screen's other settings.
+        if ( const babylon::ui::ValueChanged* pChanged =
+                std::get_if<babylon::ui::ValueChanged>(&event) )
+        {
+            if ( pChanged->screen == screenId && pChanged->widget == kJonesMainRumble
+                && std::holds_alternative<bool>(pChanged->value) )
+            {
+                bRumble = std::get<bool>(pChanged->value);
+                stdControl_EnableRumble(bRumble);
+                static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE,
+                    bRumble));
+            }
+            return false;
+        }
+
         const babylon::ui::ActionPressed* pAction =
             std::get_if<babylon::ui::ActionPressed>(&event);
         if ( !pAction || pAction->screen != screenId )
@@ -1132,6 +1153,7 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
                 // Read the unbound toggles while the screen is still open; the modal loop then pops
                 // it with this action's value.
                 static_cast<void>(ReadToggle(uiRef, screenId, kJonesMainMouse, bMouse));
+                static_cast<void>(ReadToggle(uiRef, screenId, kJonesMainRumble, bRumble));
                 bApply = true;
                 return false;
             }
@@ -1170,6 +1192,8 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
     }
 
     static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, bMouse));
+    static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, bRumble));
+    stdControl_EnableRumble(bRumble);
 
     JonesControl_EnableJoystickAxes();
 
@@ -1222,7 +1246,7 @@ void JonesUiControls_AppendScreensForTest(std::vector<babylon::ui::Screen>& scre
     JonesControlsScheme scheme{};
     const JonesControlActions action = (JonesControlActions)0;
 
-    screens.push_back(BuildMainScreen(config, 0, false));
+    screens.push_back(BuildMainScreen(config, 0, false, true));
     screens.push_back(BuildEditScreen(scheme, true));
     screens.push_back(BuildAssignScreen(scheme, action, true));
     screens.push_back(BuildNameScreen());

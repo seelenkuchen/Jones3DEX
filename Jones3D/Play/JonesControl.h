@@ -10,6 +10,7 @@ J3D_EXTERN_C_START
 
 #define JONESCONTROL_CFG_CONTROLS_MOUSE      "controls.mouse"
 #define JONESCONTROL_CFG_CONTROLS_CONTROLLER "controls.controller"
+#define JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE "engine.input.rumble"
 
 int JonesControl_Startup(void);
 void JonesControl_Shutdown(void);

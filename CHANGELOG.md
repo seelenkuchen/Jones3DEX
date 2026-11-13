@@ -33,6 +33,9 @@
   - A connected gamepad is always on and works together with the keyboard and mouse. New installs get a
     default keyboard-and-gamepad scheme, the Controls screen has no controller toggle, and the old
     `controls.controller` key is ignored and removed on the next save.
+  - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
+    default in both profiles, is presentation only, and the Controls screen has a Rumble row
+    (`engine.input.rumble`) to turn it off.
   - In-game menus replace the Win32 dialogs. A main menu at startup (New Game, Load, Settings, Quit) replaces
     the launcher: `startMode` 5 opens it, the windowed build also opens it for a missing value or 2, and values
     1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause
