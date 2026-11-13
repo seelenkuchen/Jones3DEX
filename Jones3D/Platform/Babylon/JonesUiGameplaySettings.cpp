@@ -69,6 +69,9 @@ namespace
     constexpr const char* kJonesGameplayRotateMapText      = "Rotate Map";           // TODO: [COMPAT]
     constexpr const char* kJonesGameplayDifficultyText     = "Difficulty";           // TODO: [COMPAT]
     constexpr const char* kJonesGameplayDefaultRunText     = "Default to Run";       // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayControlStyleText   = "Control style";        // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayModernText         = "Modern";               // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayClassicText        = "Classic";              // TODO: [COMPAT]
     constexpr const char* kJonesGameplayReticleText        = "Aim Reticle";          // TODO: [COMPAT]
     constexpr const char* kJonesGameplayBloodText          = "Blood Splatter Effect"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayProfileText        = "Profile";              // TODO: [COMPAT]
@@ -131,6 +134,14 @@ namespace
         }
     }
 
+    void JonesUiGameplay_SetConfigString(const char* pKey, const char* pValue)
+    {
+        if ( stdConfig_HasStarted() )
+        {
+            static_cast<void>(stdConfig_SetString(pKey, pValue));
+        }
+    }
+
     std::string JonesUiGameplay_DifficultyLabel(int difficulty)
     {
         char aKey[32] = { 0 };
@@ -186,6 +197,20 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiContext_ResolveString(kJonesGameplayDefaultRunText), std::string(), true,
             values.bDefaultRun });
+
+        // Added: the Modern control style is an Enhanced option. Retail keeps the row visible but
+        // disabled at Classic, like the Profile row.
+        layout.controlStyle = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiContext_ResolveString(kJonesGameplayControlStyleText), std::string(),
+            { JonesUiContext_ResolveString(kJonesGameplayModernText),
+                JonesUiContext_ResolveString(kJonesGameplayClassicText) },
+#ifdef J3D_QOL_IMPROVEMENTS
+            true,
+#else
+            false,
+#endif
+            std::min(values.controlStyle, (std::size_t)1) });
 
         layout.reticle = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
@@ -252,6 +277,7 @@ JonesUiGameplayValues JonesUiGameplay_LoadValues(bool bEnhancedProfile)
     values.difficulty         = (std::size_t)currentDifficulty;
     values.bDefaultRun        = JonesUiGameplay_ReadConfigBool(
         JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false);
+    values.controlStyle       = sithControl_IsModernControlStyle() ? 0u : 1u;
     values.bReticle           = JonesReticle_IsEnabled();
     values.bBlood             = sithWeapon_IsBloodSplatterEnabled();
     values.bFireFlash         = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
@@ -282,6 +308,8 @@ void JonesUiGameplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
         values.difficulty));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.defaultRun,
         values.bDefaultRun));
+    static_cast<void>(JonesUiGameplay_ReadChoice(ui, screen, layout.controlStyle,
+        values.controlStyle));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.reticle,
         values.bReticle));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.blood,
@@ -326,6 +354,17 @@ int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedPro
     {
         sithControl_g_controlOptions &= ~kJonesGameplayRunOption;
     }
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Added: the Modern control style. The row only edits it in Enhanced builds; Retail stays
+    // Classic and writes no key.
+    const bool bModern = values.controlStyle == 0;
+    sithControl_SetModernControlStyle(bModern);
+    JonesUiGameplay_SetConfigString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        bModern ? "modern" : "classic");
+#else
+    sithControl_SetModernControlStyle(false);
+#endif
 
     // Each of these writes its own key when it changes, as the original calls did.
     JonesReticle_Enable(values.bReticle);

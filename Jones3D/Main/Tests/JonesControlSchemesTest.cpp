@@ -640,6 +640,70 @@ TEST(JonesControlSchemes, TestStartupDropsControllerKey)
     stdControl_GetNumJoysticks();
 }
 
+TEST(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle)
+{
+    TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    char aStyle[16] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("modern", aStyle);
+#else
+    // Retail never reads or writes the key, so it stays absent and the style stays Classic.
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupReadsClassicControlStyle)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+
+    char aStyle[16] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+#else
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+
+    // Retail leaves the key as it found it.
+    char aStyle[16] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "turbo"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+#else
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "turbo"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+#endif
+}
+
 TEST(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard)
 {
     g_bTestWindowed = true;
@@ -840,6 +904,9 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedActiveSchemeIsKept);
     RUN_TEST_CASE(JonesControlSchemes, TestBinderKeepsJoystickBindingsWithControllerFalse);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupReadsClassicControlStyle);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern);
     RUN_TEST_CASE(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard);
     RUN_TEST_CASE(JonesControlSchemes, TestHeadlessStartupDoesNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuFallbackWhenSchemeBindsNothing);

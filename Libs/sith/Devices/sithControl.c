@@ -32,6 +32,23 @@ static SithControlCallback aControlCallbacks[32];
 static SithControlFunctionFlag aControlFlags[SITHCONTROL_MAXFUNCTIONS];
 static SithControlFunctionBinding aControlBindings[SITHCONTROL_MAXFUNCTIONS];
 
+// Added: the Modern control style's per-frame virtual keys. bPrevPressed keeps the previous
+// frame's override across sithControl_ClearKeyOverrides, so a held override reports one press.
+typedef struct sSithControlKeyOverride
+{
+    bool bSet;
+    bool bPressed;
+    bool bPrevPressed;
+    int pressCount;
+    float amount;
+} SithControlKeyOverride;
+
+static SithControlKeyOverride aKeyOverrides[SITHCONTROL_MAXFUNCTIONS];
+static bool aKeySuppressed[SITHCONTROL_MAXFUNCTIONS];
+
+// Added: Enhanced starts Modern; the Retail profile never leaves Classic.
+static bool sithControl_bModernControlStyle = J3D_QOL_VALUE(true, false);
+
 const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
 {
     "FORWARD",
@@ -100,6 +117,9 @@ void sithControl_FinishRead(void);
 void sithControl_ResetGlobals(void)
 {
     memset(&sithControl_g_controlOptions, 0, sizeof(sithControl_g_controlOptions));
+    // Added: a reset drops the Modern layer's per-frame state.
+    memset(aKeyOverrides, 0, sizeof(aKeyOverrides));
+    memset(aKeySuppressed, 0, sizeof(aKeySuppressed));
 }
 
 int J3DAPI sithControl_Startup(int bKeyboardForeground)
@@ -143,6 +163,9 @@ int sithControl_Open(void)
 
 int sithControl_Close(void)
 {
+    // Added: no override survives a close.
+    sithControl_ClearKeyOverrides();
+
     if ( !bControlOpen )
     {
         SITHLOG_STATUS("Control system illegal close.\n");
@@ -391,10 +414,90 @@ void J3DAPI sithControl_Update(float secDeltaTime, uint32_t msecDeltaTime)
     }
 }
 
+// Added: an override only makes sense for a function that can be a key. A real axis function
+// (PITCH, MOUSETURN) has no key meaning to override.
+static bool sithControl_IsAxisOnlyFunction(SithControlFunction keyId)
+{
+    return (aControlFlags[keyId] & SITHCONTROLFUNCTION_AXIS) != 0
+        && (aControlFlags[keyId] & SITHCONTROLFUNCTION_KEY) == 0;
+}
+
+void J3DAPI sithControl_SetKeyOverride(SithControlFunction keyId, int bPressed, float amount)
+{
+    if ( (size_t)keyId >= SITHCONTROL_MAXFUNCTIONS )
+    {
+        return;
+    }
+
+    if ( sithControl_IsAxisOnlyFunction(keyId) )
+    {
+        SITH_ASSERT(0); // Debug: an axis-only function cannot carry a key override.
+        return;
+    }
+
+    SithControlKeyOverride* pOverride = &aKeyOverrides[keyId];
+    pOverride->bSet         = true;
+    pOverride->bPressed     = bPressed != 0;
+    pOverride->pressCount   = pOverride->bPressed && !pOverride->bPrevPressed ? 1 : 0;
+    pOverride->bPrevPressed = pOverride->bPressed;
+    pOverride->amount       = STDMATH_CLAMP(amount, 0.0f, 1.0f);
+}
+
+void J3DAPI sithControl_SuppressKey(SithControlFunction keyId)
+{
+    if ( (size_t)keyId >= SITHCONTROL_MAXFUNCTIONS )
+    {
+        return;
+    }
+
+    aKeySuppressed[keyId] = true;
+}
+
+void J3DAPI sithControl_ClearKeyOverrides(void)
+{
+    for ( size_t i = 0; i < SITHCONTROL_MAXFUNCTIONS; ++i )
+    {
+        // Added: a key that was overridden last frame keeps its pressed state for the next
+        // press edge; a key without an override counts as released.
+        aKeyOverrides[i].bPrevPressed = aKeyOverrides[i].bSet && aKeyOverrides[i].bPressed;
+        aKeyOverrides[i].bSet         = false;
+        aKeyOverrides[i].bPressed     = false;
+        aKeyOverrides[i].pressCount   = 0;
+        aKeyOverrides[i].amount       = 0.0f;
+        aKeySuppressed[i]             = false;
+    }
+}
+
+bool J3DAPI sithControl_IsModernControlStyle(void)
+{
+    return sithControl_bModernControlStyle;
+}
+
+void J3DAPI sithControl_SetModernControlStyle(bool bModern)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    sithControl_bModernControlStyle = bModern;
+#else
+    J3D_UNUSED(bModern);
+    sithControl_bModernControlStyle = false;
+#endif
+}
+
 float J3DAPI sithControl_GetKeyAsAxisNormalized(size_t axisId)
 {
     SITH_ASSERTREL((axisId >= 0) && (axisId < SITHCONTROL_MAXFUNCTIONS));
     SITH_ASSERTREL(((aControlFlags[axisId]) & (SITHCONTROLFUNCTION_AXIS)));
+
+    // Added: the Modern layer's virtual key wins over the real bindings; a suppressed key reads 0.
+    if ( aKeyOverrides[axisId].bSet )
+    {
+        return aKeyOverrides[axisId].bPressed ? aKeyOverrides[axisId].amount : 0.0f;
+    }
+
+    if ( aKeySuppressed[axisId] )
+    {
+        return 0.0f;
+    }
 
     float value = 0.0f;
     for ( size_t i = 0; i < aControlBindings[axisId].numBindings; ++i )
@@ -450,6 +553,17 @@ float J3DAPI sithControl_GetKeyAsAxis(SithControlFunction axisId)
 {
     SITH_ASSERTREL((axisId >= 0) && (axisId < SITHCONTROL_MAXFUNCTIONS));
     SITH_ASSERTREL(((aControlFlags[axisId]) & (SITHCONTROLFUNCTION_AXIS)));
+
+    // Added: the Modern layer's virtual key wins over the real bindings; a suppressed key reads 0.
+    if ( aKeyOverrides[axisId].bSet )
+    {
+        return aKeyOverrides[axisId].bPressed ? aKeyOverrides[axisId].amount : 0.0f;
+    }
+
+    if ( aKeySuppressed[axisId] )
+    {
+        return 0.0f;
+    }
 
     float value = 0.0f;
     for ( size_t i = 0; i < aControlBindings[axisId].numBindings; ++i )
@@ -523,6 +637,23 @@ int J3DAPI sithControl_GetKey(SithControlFunction keyId, int* pState)
     if ( pState )
     {
         *pState = 0;
+    }
+
+    // Added: the Modern layer's virtual key wins over the real bindings; a suppressed key reads
+    // as released with no new press.
+    if ( aKeyOverrides[keyId].bSet )
+    {
+        if ( pState )
+        {
+            *pState = aKeyOverrides[keyId].pressCount;
+        }
+
+        return aKeyOverrides[keyId].bPressed ? 1 : 0;
+    }
+
+    if ( aKeySuppressed[keyId] )
+    {
+        return 0;
     }
 
     int value = 0;
@@ -652,6 +783,7 @@ void sithControl_RebindMouse(void)
 void sithControl_Reset(void)
 {
     memset(aControlBindings, 0, sizeof(aControlBindings));
+    sithControl_ClearKeyOverrides(); // Added: a binding reset drops the virtual keys too.
     stdControl_Reset();
 }
 
