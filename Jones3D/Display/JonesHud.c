@@ -2669,14 +2669,41 @@ void JonesHud_InitializeMenuSounds(void)
     // Altered: Changed start idx to 1 as 0 is reserved for ambient music
     for ( size_t i = 1; i < STD_ARRAYLEN(JonesHud_aSoundFxIdxs); ++i )
     {
-        if ( JonesHud_aSoundFxIdxs[i] > -1 )
+        if ( JonesHud_aSoundFxIdxs[i] <= -1 )
         {
-            int sndIdx = SITHWORLD_STATICINDEX(JonesHud_aSoundFxIdxs[i]);
+            continue;
+        }
+
+        const int sndIdx = SITHWORLD_STATICINDEX(JonesHud_aSoundFxIdxs[i]);
+        if ( sithWorld_g_pStaticWorld )
+        {
+            // The static bank is loaded and is the reference, including after a save imports it.
             JonesHud_aSoundFxHandles[i] = Sound_GetSoundHandle(sndIdx);
+            continue;
+        }
+
+        // Added: the main menu runs before the static world opens, so the two cues it uses are
+        // loaded from their sound files directly to keep it from being silent. Later, once the
+        // static world exists, the branch above replaces them with the bank's own handles.
+        const char* pFile = NULL;
+        if ( i == 2 )
+        {
+            pFile = "sound\\inv_move.wav";
+        }
+        else if ( i == 3 )
+        {
+            pFile = "sound\\inv_expand.wav";
+        }
+
+        if ( pFile && !JonesHud_aSoundFxHandles[i] )
+        {
+            uint32_t loadIdx = (uint32_t)sndIdx;
+            JonesHud_aSoundFxHandles[i] = Sound_LoadStatic(pFile, &loadIdx);
         }
     }
 
-    if ( JonesHud_bMenuMusicEnabled && JonesHud_aMenuMusicFilename[0] )
+    if ( sithWorld_g_pStaticWorld && JonesHud_bMenuMusicEnabled
+        && JonesHud_aMenuMusicFilename[0] && !JonesHud_aSoundFxHandles[0] )
     {
         JonesHud_aSoundFxHandles[0] = sithSound_Load(sithWorld_g_pStaticWorld, JonesHud_aMenuMusicFilename);
     }

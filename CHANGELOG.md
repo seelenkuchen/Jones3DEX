@@ -42,10 +42,20 @@
   - Gamepads, mouse motion and the mouse wheel work in the Babylon column, and text input fills save names and
     the other text fields. The windowed build loads the player's control scheme from `controls.configFile` and
     binds it; headless runs keep the engine's default bindings.
-  - In-game menus replace the Win32 dialogs. A main menu at startup (New Game, Load, Settings, Quit) replaces
+  - A connected gamepad is always on and works together with the keyboard and mouse. New installs get a
+    default keyboard-and-gamepad scheme, the Controls screen has no controller toggle, and the old
+    `controls.controller` key is ignored and removed on the next save.
+  - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
+    default in both profiles, is presentation only, and the Controls screen has a Rumble row
+    (`engine.input.rumble`) to turn it off.
+  - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
+    Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
+    help column for the focused row, and the Display tab drops the Performance row while the stored
+    `graphics.performanceLevel` and the level in savegames keep working.
+  - In-game menus replace the Win32 dialogs. A main menu at startup (Continue, New Game, Load Game, Options, Exit Game) replaces
     the launcher: `startMode` 5 opens it, the windowed build also opens it for a missing value or 2, and values
     1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause
-    menu on Escape or gamepad Start offers Resume, Save, Load, Settings, Statistics and Exit; the HUD menu
+    menu on Escape or gamepad Start offers Resume, Save, Load, Options, Statistics and Exit; the HUD menu
     opens on the active control scheme's interface key, with Tab and gamepad Back as a fallback while a scheme
     binds none. `engine.ui.hud.systemIcons` can hide the HUD menu's system items.
   - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,

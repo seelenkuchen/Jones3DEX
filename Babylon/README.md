@@ -33,7 +33,10 @@ polled events into the state a game reads per frame, and `InputScript` replays
 recorded events so headless runs see exactly what a device would (ADR-0018).
 `cvars` holds named, typed settings with defaults, ranges, flags and change
 callbacks (ADR-0013, ADR-0020); a `Registry` is an ordinary object owned by the
-composition root, never a global.
+composition root, never a global. `font` loads a TrueType file from bytes and
+bakes the glyphs a caller asks for into an 8-bit coverage atlas with metrics
+and kerning; `image` decodes PNG bytes into RGBA8. Both are CPU-only and read no
+files themselves (ADR-0031).
 
 `ui` is the game-agnostic menu toolkit (ADR-0026): a screen stack, declarative
 widgets (labels, images, buttons, toggles, sliders, choices, lists, binding

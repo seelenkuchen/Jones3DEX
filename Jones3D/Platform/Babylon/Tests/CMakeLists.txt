@@ -6,6 +6,7 @@ set(JONES3D_UI_TEST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../..")
 add_executable(Jones3DUiPainterTests
     JonesUiPainterTest.cpp
     JonesUiModalTest.cpp
+    JonesUiPromptsTest.cpp
     JonesUiSaveLoadTest.cpp
     JonesUiMainMenuTest.cpp
     JonesUiEndScreensTest.cpp
@@ -16,6 +17,7 @@ add_executable(Jones3DUiPainterTests
     JonesUiActionIdsTest.cpp
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPrompts.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModalMessage.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesWindowMode.cpp"
@@ -29,6 +31,7 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiGameplaySettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiStore.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiControls.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiOptions.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesBabylonMainSys.cpp"
     # Added: the control-scheme module the Controls screen reads and writes (M7.17a). It is part of
     # the Babylon column, not of Jones3DGame, so the test compiles it itself.
@@ -56,6 +59,8 @@ if (APPLE OR MSVC)
         ${JONES3D_UI_TEST_LIBS}
         babylon::ui
         babylon::render
+        babylon::font
+        babylon::image
         babylon_doctest
         # Added: SDL_getenv reads BABYLON_REQUIRE_GPU. Babylon links SDL privately, so its headers
         # come from the SDL target itself (static when Babylon fetched SDL).
@@ -68,6 +73,8 @@ else()
         -Wl,--end-group
         babylon::ui
         babylon::render
+        babylon::font
+        babylon::image
         babylon_doctest
         $<IF:$<TARGET_EXISTS:SDL3::SDL3-static>,SDL3::SDL3-static,SDL3::SDL3>
         m
@@ -88,3 +95,10 @@ set_tests_properties(Jones3D.UiPainter PROPERTIES
     ENVIRONMENT "SDL_VIDEO_DRIVER=$<IF:$<PLATFORM_ID:Darwin>,dummy,offscreen>"
     TIMEOUT 120
 )
+
+# Added: the painter's TrueType and PNG cases read the committed assets through the file system's
+# base path, so the test executable needs Data/ beside it just like the game (ADR-0031).
+add_custom_command(TARGET Jones3DUiPainterTests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${JONES3D_UI_TEST_ROOT}/Data" "$<TARGET_FILE_DIR:Jones3DUiPainterTests>/Data"
+    COMMENT "Copying Data/ next to Jones3DUiPainterTests")

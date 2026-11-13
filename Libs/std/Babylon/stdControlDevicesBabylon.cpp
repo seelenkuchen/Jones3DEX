@@ -313,6 +313,7 @@ namespace
 
         const size_t numGamepads = std::min(rInputState.gamepads().size(),
             static_cast<size_t>(STDCONTROL_MAX_JOYSTICK_DEVICES));
+        stdControl_ObserveJoystickCount(numGamepads);
         if ( bRegister )
         {
             for ( size_t joyNum = 0; joyNum < numGamepads; ++joyNum )
@@ -453,9 +454,8 @@ extern "C" {
 size_t stdControl_GetNumJoysticks(void)
 {
     // Pumping here means a pad connected before the game enumerates is visible, and so is one
-    // plugged in later when the game asks again. The game enumerates only at startup
-    // (JonesControl_Startup); a pad connected afterwards is read through stdControl, but the
-    // gameplay bindings are not rebuilt until sithControl_RebindJoystick() runs.
+    // plugged in later. The shared std layer records each count change; JonesControl polls
+    // stdControl_GetJoystickChangeCount() and rebuilds the pad bindings at the next update.
     return StdControlDevicesBabylon_SyncGamepads(true);
 }
 
@@ -530,6 +530,7 @@ void stdControl_ReadDevices(uint32_t readTime, bool bReadMouse)
     // just lost its pad is cleared, so its buttons release and its axes return to their centers.
     const size_t numGamepads = std::min(rInputState.gamepads().size(),
         static_cast<size_t>(STDCONTROL_MAX_JOYSTICK_DEVICES));
+    stdControl_ObserveJoystickCount(numGamepads);
     for ( size_t joyNum = 0; joyNum < numGamepads; ++joyNum )
     {
         StdControlDevicesBabylon_RegisterJoystickAxes(joyNum);
@@ -545,6 +546,22 @@ void stdControl_ReadDevices(uint32_t readTime, bool bReadMouse)
     // The snapshot is taken: clear the per-frame flags, so the next pump records the next frame's
     // transitions, the way beginFrame before the apply of the frame's events did.
     rInputState.beginFrame();
+}
+
+void stdControl_RumbleDevices(float lowFrequency, float highFrequency, uint32_t durationMs)
+{
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    if ( !pContext || !pContext->pPlatform )
+    {
+        return;
+    }
+
+    // The read has already pumped this frame's events, so the gamepad list is the connected set.
+    for ( const babylon::platform::GamepadId gamepad : stdBabylonEvents_InputState().gamepads() )
+    {
+        static_cast<void>(pContext->pPlatform->rumbleGamepad(gamepad, lowFrequency,
+            highFrequency, durationMs));
+    }
 }
 
 bool stdControl_QueueKeyEvent(int keyId, int bPressed)

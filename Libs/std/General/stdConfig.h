@@ -38,6 +38,13 @@ void J3DAPI stdConfig_Shutdown(void);
 bool stdConfig_Contains(const char* pKey);
 
 /**
+ * @brief Removes a key from the config
+ * @param pKey - key to remove (supports nested paths with dot notation)
+ * @return true if the key was present and removed, otherwise false
+ */
+bool J3DAPI stdConfig_Remove(const char* pKey);
+
+/**
  * Adds a mapping between a config key and a registry key.
  * This allows falling back to the registry if the config key does not exist in the JSON config.
  * The key supports nested keys using dot notation (e.g. "graphics.fullscreen").

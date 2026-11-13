@@ -31,7 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define JONESCONFIG_NUMDEFAULTCONTROLSCHEMES 3u
+#define JONESCONFIG_NUMDEFAULTCONTROLSCHEMES 4u
 #define JONESCONFIG_KEYSDIRPATH_MAX 512u
 #define JONESCONFIG_KFG_EXT ".kfg"
 
@@ -561,18 +561,88 @@ static const JonesConfigControlAction jonesConfig_aDefault2Axis8Button[JONESCONT
     { STD_ARRAYLEN(aActionChalk)                 , aActionChalk                  }
 };
 
+// Added: the keyboard bindings of jonesConfig_aDefaultControlSet plus the ADR-0029 pad layout,
+// used as the default scheme for new installs. A = South, B = East, X = West, Y = North, LB/RB are
+// buttons 4/5, Back is button 6, L3/R3 are buttons 8/9, the D-pad is POV 0 and LT/RT are the Z and
+// RZ axes (Z+ and RZ+; the triggers only read positive). Start stays unbound for the pause menu.
+static const size_t aActionStepLeftPadKeys[2]        = { STDKEY_A, STDCONTROL_JOYSTICK_GETBUTTON(0, 4) };
+static const size_t aActionStepRightPadKeys[2]       = { STDKEY_S, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
+static const size_t aActionCrawlPadKeys[2]           = { STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) };
+static const size_t aActionRunPadKeys[3]             = { STDKEY_LSHIFT, STDKEY_RSHIFT, JONESCONFIG_JOYAXISKID_GROUND };
+static const size_t aActionRollPadKeys[2]            = { STDKEY_Z, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) };
+static const size_t aActionJumpPadKeys[4]            = { STDKEY_X, STDKEY_LMENU, STDKEY_RMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 0) };
+static const size_t aActionLookPadKeys[3]            = { STDKEY_INSERT, STDKEY_NUMPAD0, STDCONTROL_JOYSTICK_GETBUTTON(0, 9) };
+static const size_t aActionActivatePadKeys[4]        = { STDKEY_LCONTROL, STDKEY_RCONTROL, STDCONTROL_JOYSTICK_GETBUTTON(0, 2), JONESCONFIG_JOYAXISKID_TWISTR };
+static const size_t aActionToggleWeaponPadKeys[2]    = { STDKEY_SPACE, STDCONTROL_JOYSTICK_GETBUTTON(0, 3) };
+static const size_t aActionPrevWeaponPadKeys[2]      = { STDKEY_COMMA, STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0) };
+static const size_t aActionNextWeaponPadKeys[2]      = { STDKEY_PERIOD, STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0) };
+static const size_t aActionToggleLightPadKeys[2]     = { STDKEY_L, STDCONTROL_JOYSTICK_GETPOVUP(0, 0) };
+static const size_t aActionInterfacePadKeys[2]       = { STDKEY_I, STDCONTROL_JOYSTICK_GETBUTTON(0, 6) };
+static const size_t aActionHealthPadKeys[2]          = { STDKEY_H, STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0) };
+
+static const JonesConfigControlAction jonesConfig_aDefaultPadControlSet[JONESCONTROL_ACTION_NUMACTIONS] =
+{
+    { STD_ARRAYLEN(aActionWalkFwdKeys)          , aActionWalkFwdKeys          },
+    { STD_ARRAYLEN(aActionWalkBackKeys)         , aActionWalkBackKeys         },
+    { STD_ARRAYLEN(aActionTurnLeftKeys)         , aActionTurnLeftKeys         },
+    { STD_ARRAYLEN(aActionTurnRightKeys)        , aActionTurnRightKeys        },
+    { STD_ARRAYLEN(aActionStepLeftPadKeys)      , aActionStepLeftPadKeys      },
+    { STD_ARRAYLEN(aActionStepRightPadKeys)     , aActionStepRightPadKeys     },
+    { STD_ARRAYLEN(aActionCrawlPadKeys)         , aActionCrawlPadKeys         },
+    { STD_ARRAYLEN(aActionRunPadKeys)           , aActionRunPadKeys           },
+    { STD_ARRAYLEN(aActionRollPadKeys)          , aActionRollPadKeys          },
+    { STD_ARRAYLEN(aActionJumpPadKeys)          , aActionJumpPadKeys          },
+    { STD_ARRAYLEN(aActionLookPadKeys)          , aActionLookPadKeys          },
+    { STD_ARRAYLEN(aActionActivatePadKeys)      , aActionActivatePadKeys      },
+    { STD_ARRAYLEN(aActionToggleWeaponPadKeys)  , aActionToggleWeaponPadKeys  },
+    { STD_ARRAYLEN(aActionPrevWeaponPadKeys)    , aActionPrevWeaponPadKeys    },
+    { STD_ARRAYLEN(aActionNextWeaponPadKeys)    , aActionNextWeaponPadKeys    },
+    { STD_ARRAYLEN(aActionToggleLightPadKeys)   , aActionToggleLightPadKeys   },
+    { STD_ARRAYLEN(aActionFistsKeys)            , aActionFistsKeys            },
+    { STD_ARRAYLEN(aActionWhipKeys)             , aActionWhipKeys             },
+    { STD_ARRAYLEN(aActionMauserKeys)           , aActionMauserKeys           },
+    { STD_ARRAYLEN(aActionPPSH41Keys)           , aActionPPSH41Keys           },
+    { STD_ARRAYLEN(aActionPistolKeys)           , aActionPistolKeys           },
+    { STD_ARRAYLEN(aActionSimonovKeys)          , aActionSimonovKeys          },
+    { STD_ARRAYLEN(aActionTokarevKeys)          , aActionTokarevKeys          },
+    { STD_ARRAYLEN(aActionToz34Keys)            , aActionToz34Keys            },
+    { STD_ARRAYLEN(aActionBazookaKeys)          , aActionBazookaKeys          },
+    { STD_ARRAYLEN(aActionMacheteKeys)          , aActionMacheteKeys          },
+    { STD_ARRAYLEN(aActionSatchelKeys)          , aActionSatchelKeys          },
+    { STD_ARRAYLEN(aActionGrenadeKeys)          , aActionGrenadeKeys          },
+    { STD_ARRAYLEN(aActionMapKeys)              , aActionMapKeys              },
+    { STD_ARRAYLEN(aActionInterfacePadKeys)     , aActionInterfacePadKeys     },
+    { STD_ARRAYLEN(aActionHealthPadKeys)        , aActionHealthPadKeys        },
+    { STD_ARRAYLEN(aActionIMP1Keys)             , aActionIMP1Keys             },
+    { STD_ARRAYLEN(aActionIMP2Keys)             , aActionIMP2Keys             },
+    { STD_ARRAYLEN(aActionIMP3Keys)             , aActionIMP3Keys             },
+    { STD_ARRAYLEN(aActionIMP4Keys)             , aActionIMP4Keys             },
+    { STD_ARRAYLEN(aActionIMP5Keys)             , aActionIMP5Keys             },
+    { STD_ARRAYLEN(aActionChalk)                , aActionChalk                }
+};
+
 static const JonesConfigControlAction* jonesConfig_aDfltKeySets[] =
 {
     jonesConfig_aDefaultControlSet,
     jonesConfig_aDfault2Axis4Button,
-    jonesConfig_aDefault2Axis8Button
+    jonesConfig_aDefault2Axis8Button,
+    jonesConfig_aDefaultPadControlSet
 };
 
 static const char* jonesConfig_aDfltKeySetNames[JONESCONFIG_NUMDEFAULTCONTROLSCHEMES] =
 {
     "JONES_STR_DFLTKEY",
     "JONES_STR_DFLT2A4B",
-    "JONES_STR_DFLT2A8B"
+    "JONES_STR_DFLT2A8B",
+    "JONES_STR_DFLTPAD"
+};
+
+static const char* jonesConfig_aDfltKeySetFallbackNames[JONESCONFIG_NUMDEFAULTCONTROLSCHEMES] =
+{
+    "JONES_STR_DFLTKEY",
+    "JONES_STR_DFLT2A4B",
+    "JONES_STR_DFLT2A8B",
+    "Keyboard and gamepad"
 };
 
 static int JonesControlSchemes_IsMouseButton(size_t controlId)
@@ -1382,7 +1452,8 @@ const char* J3DAPI JonesControlSchemes_GetDefaultSchemeName(size_t index)
         return NULL;
     }
 
-    return JonesControlSchemes_ResolveKey(jonesConfig_aDfltKeySetNames[index]);
+    return JonesControlSchemes_ResolveOr(jonesConfig_aDfltKeySetNames[index],
+        jonesConfig_aDfltKeySetFallbackNames[index]);
 }
 
 int J3DAPI jonesConfig_SetDefaultControlScheme(JonesControlsScheme* pScheme, size_t num)
@@ -1430,11 +1501,11 @@ int J3DAPI JonesControlSchemes_SetDefaultScheme(JonesControlsScheme* pScheme, si
     return jonesConfig_SetDefaultControlScheme(pScheme, index);
 }
 
-// The original picked the default by the joystick's max button count. The Babylon gamepad has no
-// such cap API any more; a connected pad gets the 2-axis 8-button scheme, else the keyboard one.
+// Added: the keyboard-and-gamepad scheme is the default for new installs. A remembered active
+// scheme stays as it is; a connected pad is always on, so the pad count no longer picks a default.
 static size_t JonesControlSchemes_DefaultSchemeIndex(void)
 {
-    return stdControl_GetNumJoysticks() ? 2u : 0u;
+    return 3u;
 }
 
 // --- Reading ----------------------------------------------------------------------------------
@@ -2060,8 +2131,7 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
         return;
     }
 
-    int bMouse    = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
-    int bJoystick = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false);
+    int bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
 
     // Altered: enable/disable the mouse before the action loop, not after it. sithControl_RebindMouse
     // removes every mouse-button binding, so the original order dropped a scheme's mouse bindings.
@@ -2137,7 +2207,7 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                                 sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
                             }
                         }
-                        else if ( bJoystick )
+                        else
                         {
                             jonesConfig_BindJoystickControl(functionId, controlId);
                         }
@@ -2192,7 +2262,7 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                         sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
                     }
                 }
-                else if ( bJoystick )
+                else
                 {
                     jonesConfig_BindJoystickControl(functionId, controlId);
                 }
@@ -2241,18 +2311,13 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                             sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
                         }
                     }
-                    else if ( bJoystick )
+                    else
                     {
                         jonesConfig_BindJoystickControl(functionId, controlId);
                     }
                 }
             }
         }
-    }
-
-    if ( !bJoystick )
-    {
-        sithControl_UnbindJoystickAxes();
     }
 }
 
@@ -2469,9 +2534,9 @@ int jonesConfig_Startup(void)
 
     if ( !aConfigured[0] )
     {
-        // Added: on the first run there is no active scheme yet. Choosing the default needs the
-        // connected gamepad count, which enumerates and pumps platform events; that waits for
-        // JonesControlSchemes_BindActive after sithControl and stdControl have started.
+        // Added: on the first run there is no active scheme yet. Choosing the default waits for
+        // JonesControlSchemes_BindActive after sithControl and stdControl have started, because the
+        // binding calls need the registered control functions.
         jonesConfig_bPendingDefaultScheme = 1;
     }
     else
@@ -2537,7 +2602,7 @@ void J3DAPI JonesControlSchemes_BindActive(void)
 
     if ( jonesConfig_bPendingDefaultScheme )
     {
-        // First run: choose the default now that stdControl has enumerated the gamepads.
+        // First run: choose the default now that sithControl has registered its functions.
         size_t defaultIndex = JonesControlSchemes_DefaultSchemeIndex();
         JonesControlsScheme scheme;
         if ( jonesConfig_SetDefaultControlScheme(&scheme, defaultIndex) )

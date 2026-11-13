@@ -52,6 +52,7 @@
 #include <sound/Sound.h>
 
 #include <std/General/stdConfig.h>
+#include <std/General/stdControl.h>
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -2099,6 +2100,14 @@ float J3DAPI sithThing_DamageThing(SithThing* pThing, const SithThing* pDamageTh
     if ( damage <= 0.0f || (pThing->flags & (SITH_TF_DISABLED | SITH_TF_DYING | SITH_TF_DESTROYED)) != 0 )
     {
         return 0.0f;
+    }
+
+    // Added: a hit on the local player rumbles the gamepad (presentation only, ADR-0028). The
+    // strength grows with the incoming damage and never drops below a light bump.
+    if ( pThing == sithPlayer_g_pLocalPlayerThing && damage > 0.0f )
+    {
+        const float rumbleStrength = STDMATH_CLAMP(damage / 40.0f, 0.25f, 1.0f);
+        stdControl_Rumble(rumbleStrength, rumbleStrength, 180);
     }
 
     float retDamage = (float)(unsigned int)sithCog_ThingSendMessageEx(pThing, pDamageThing, SITHCOG_MSG_DAMAGED, (int32_t)damage, hitType, 0, 0);

@@ -40,6 +40,8 @@ CODE_SUFFIXES = (".h", ".hpp", ".cpp", ".in")
 THIRD_PARTY_INCLUDES = (
     ("SDL3/", ("backends", "sdl")),
     ("miniaudio.h", ("backends", "miniaudio")),
+    ("stb_truetype.h", ("font", "src")),
+    ("stb_image.h", ("image", "src")),
 )
 
 # Game names that must never appear in Babylon code or CMake files, matched

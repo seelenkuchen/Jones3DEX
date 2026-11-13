@@ -287,3 +287,73 @@ TEST_CASE("The Null window records text input mode and delivers injected text")
     // A mode that cannot fail never logs.
     CHECK(sink.records().empty());
 }
+
+TEST_CASE("The Null platform records the last rumble with its inputs clamped")
+{
+    using babylon::platform::kMaxRumbleDurationMs;
+    using babylon::platform::NullPlatform;
+    using babylon::platform::Platform;
+
+    NullPlatform platform;
+    Platform& asPlatform = platform;
+
+    // Nothing was asked for yet.
+    CHECK_FALSE(platform.lastRumble().has_value());
+
+    // The two motors are clamped to 0..1 and the duration to the maximum;
+    // there is no device, so the call always answers false.
+    CHECK_FALSE(asPlatform.rumbleGamepad(7, 0.25f, 1.5f, 9000));
+    const std::optional<NullPlatform::RumbleCall> boosted = platform.lastRumble();
+    REQUIRE(boosted.has_value());
+    CHECK(boosted->gamepad == 7);
+    CHECK(boosted->lowFrequency == 0.25f);
+    CHECK(boosted->highFrequency == 1.0f);
+    CHECK(boosted->durationMs == kMaxRumbleDurationMs);
+
+    // Negative intensities clamp to zero, and only the last call is kept.
+    CHECK_FALSE(asPlatform.rumbleGamepad(9, -1.0f, 0.6f, 180));
+    const std::optional<NullPlatform::RumbleCall> normal = platform.lastRumble();
+    REQUIRE(normal.has_value());
+    CHECK(normal->gamepad == 9);
+    CHECK(normal->lowFrequency == 0.0f);
+    CHECK(normal->highFrequency == 0.6f);
+    CHECK(normal->durationMs == 180);
+}
+
+TEST_CASE("A Null platform reports the gamepad type a test configured")
+{
+    NullPlatform platform;
+    CHECK(platform.gamepadType() == babylon::platform::GamepadType::Unknown);
+
+    platform.setGamepadType(babylon::platform::GamepadType::PlayStation);
+    CHECK(platform.gamepadType() == babylon::platform::GamepadType::PlayStation);
+
+    // connectGamepad() carries the configured type, so a test can model a
+    // pad family without building the event itself.
+    platform.connectGamepad(4);
+    const std::optional<babylon::platform::Event> event = platform.pollEvent();
+    REQUIRE(event.has_value());
+    const auto* const connected =
+        std::get_if<babylon::platform::GamepadConnected>(&*event);
+    REQUIRE(connected != nullptr);
+    CHECK(connected->gamepad == 4);
+    CHECK(connected->type == babylon::platform::GamepadType::PlayStation);
+
+    platform.setGamepadType(babylon::platform::GamepadType::Nintendo);
+    platform.connectGamepad(5);
+    const std::optional<babylon::platform::Event> next = platform.pollEvent();
+    REQUIRE(next.has_value());
+    const auto* const nintendo =
+        std::get_if<babylon::platform::GamepadConnected>(&*next);
+    REQUIRE(nintendo != nullptr);
+    CHECK(nintendo->type == babylon::platform::GamepadType::Nintendo);
+
+    // A pushed event keeps the type it carries, whatever was configured.
+    platform.pushEvent(babylon::platform::GamepadConnected{
+        6, babylon::platform::GamepadType::Xbox });
+    const std::optional<babylon::platform::Event> pushed = platform.pollEvent();
+    REQUIRE(pushed.has_value());
+    const auto* const xbox = std::get_if<babylon::platform::GamepadConnected>(&*pushed);
+    REQUIRE(xbox != nullptr);
+    CHECK(xbox->type == babylon::platform::GamepadType::Xbox);
+}

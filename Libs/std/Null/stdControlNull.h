@@ -30,5 +30,26 @@ bool stdControl_QueueKeyEvent(int keyId, int bPressed);
 // axis ids are ignored; the value is whatever the backend measured (the caller clamps).
 void stdControl_SetAxisState(size_t aid, int value);
 
+// Added: reports the connected gamepad count observed by the platform adapter. The shared std
+// layer raises stdControl_GetJoystickChangeCount() when it differs from the previous observation;
+// the first observation after startup only establishes the baseline. The Null column never calls
+// it, so its change count stays 0.
+void stdControl_ObserveJoystickCount(size_t numJoysticks);
+
+// Added: forwards one rumble request to the connected gamepads. The shared stdControl_Rumble()
+// checks the enabled flag and calls this; the Null column has no device and does nothing, the
+// Babylon column asks the platform for every connected pad. Intensities are 0..1; the platform
+// clamps them and the duration.
+void stdControl_RumbleDevices(float lowFrequency, float highFrequency, uint32_t durationMs);
+
+#ifdef J3D_TEST
+// Added: test seams of the Null column's rumble device side. They record the requests the adapter
+// forwarded, so a test can prove which game trigger asked for rumble and with what values.
+void stdControl_ResetRumbleForTest(void);
+size_t stdControl_GetRumbleCountForTest(void);
+void stdControl_GetRumbleForTest(size_t index, float* pLowFrequency, float* pHighFrequency,
+    uint32_t* pDurationMs);
+#endif
+
 J3D_EXTERN_C_END
 #endif // STD_STDCONTROLNULL_H

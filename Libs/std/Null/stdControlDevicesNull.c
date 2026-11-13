@@ -6,8 +6,25 @@
 // this file used to do, lost its press count to the per-read clear in stdControl_ReadControls.
 #include <j3dcore/j3d.h>
 
+#include <string.h>
+
 #include <std/Null/stdControlNull.h>
 #include <std/General/stdControl.h>
+#include <std/General/stdUtil.h>
+
+#ifdef J3D_TEST
+// The rumble requests this column forwarded, kept only for the tests that check the game triggers.
+typedef struct sStdControlNullRumbleCall
+{
+    float lowFrequency;
+    float highFrequency;
+    uint32_t durationMs;
+} StdControlNullRumbleCall;
+
+#define STDCONTROLDEVICESNULL_MAXRUMBLECALLS 16
+static StdControlNullRumbleCall stdControlDevicesNull_aRumbleCalls[STDCONTROLDEVICESNULL_MAXRUMBLECALLS];
+static size_t stdControlDevicesNull_numRumbleCalls = 0;
+#endif
 
 // The scripted down state: one flag per engine key id, the STDCONTROL_MAX_KEYBOARD_BUTTONS keyboard
 // ids at their own index and the STDCONTROL_MAX_MOUSE_BUTTONS mouse buttons (engine ids
@@ -66,3 +83,61 @@ bool stdControl_QueueKeyEvent(int keyId, int bPressed)
     *pKeyDown = bPressed != 0;
     return true;
 }
+
+// Added: the Null column has no gamepad to vibrate. The request is dropped; a test build records
+// it so the game triggers can be checked without a device.
+void stdControl_RumbleDevices(float lowFrequency, float highFrequency, uint32_t durationMs)
+{
+#ifdef J3D_TEST
+    if ( stdControlDevicesNull_numRumbleCalls < STD_ARRAYLEN(stdControlDevicesNull_aRumbleCalls) )
+    {
+        StdControlNullRumbleCall* pCall =
+            &stdControlDevicesNull_aRumbleCalls[stdControlDevicesNull_numRumbleCalls];
+        pCall->lowFrequency  = lowFrequency;
+        pCall->highFrequency = highFrequency;
+        pCall->durationMs    = durationMs;
+    }
+    ++stdControlDevicesNull_numRumbleCalls;
+#else
+    J3D_UNUSED(lowFrequency);
+    J3D_UNUSED(highFrequency);
+    J3D_UNUSED(durationMs);
+#endif
+}
+
+#ifdef J3D_TEST
+void stdControl_ResetRumbleForTest(void)
+{
+    memset(stdControlDevicesNull_aRumbleCalls, 0, sizeof(stdControlDevicesNull_aRumbleCalls));
+    stdControlDevicesNull_numRumbleCalls = 0;
+}
+
+size_t stdControl_GetRumbleCountForTest(void)
+{
+    return stdControlDevicesNull_numRumbleCalls;
+}
+
+void stdControl_GetRumbleForTest(size_t index, float* pLowFrequency, float* pHighFrequency,
+    uint32_t* pDurationMs)
+{
+    if ( index >= stdControlDevicesNull_numRumbleCalls
+        || index >= STD_ARRAYLEN(stdControlDevicesNull_aRumbleCalls) )
+    {
+        return;
+    }
+
+    const StdControlNullRumbleCall* pCall = &stdControlDevicesNull_aRumbleCalls[index];
+    if ( pLowFrequency )
+    {
+        *pLowFrequency = pCall->lowFrequency;
+    }
+    if ( pHighFrequency )
+    {
+        *pHighFrequency = pCall->highFrequency;
+    }
+    if ( pDurationMs )
+    {
+        *pDurationMs = pCall->durationMs;
+    }
+}
+#endif

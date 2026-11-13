@@ -212,60 +212,24 @@ namespace
         }
     }
 
-    // The widget indices of one built screen, so the OK handler can read the values before the
-    // screen closes. The resolution and bit-depth choices are absent when the environment has no
-    // mode to offer.
-    struct JonesUiDisplayLayout
-    {
-        std::optional<std::size_t> bitDepth;
-        std::optional<std::size_t> resolution;
-        std::size_t windowed = 0;
-        std::size_t filter = 0;
-        std::size_t fog = 0;
-        std::size_t fogDensity = 0;
-        std::size_t performance = 0;
-        std::size_t hiPoly = 0;
-        std::size_t litFaces = 0;
-        std::size_t ok = 0;
-        std::size_t back = 0;
-    };
-
-    // The values the OK handler captured, before the screen is popped.
-    struct JonesUiDisplayValues
-    {
-        bool bBitDepth = false;
-        std::size_t bitDepth = 0;
-        bool bResolution = false;
-        std::size_t resolution = 0;
-        bool bWindowed = false;
-        std::size_t filter = 0;
-        bool bFog = false;
-        double fogDensity = 1.0;
-        std::size_t performance = 0;
-        bool bHiPoly = false;
-        bool bLitFaces = false;
-    };
-
     std::string JonesUiDisplay_ResolveLabel(const char* pText)
     {
         return JonesUiContext_ResolveString(pText);
     }
 
-    babylon::ui::Screen JonesUiDisplay_BuildScreen(const JonesDisplaySettings* pSettings,
-        const std::vector<JonesUiDisplayVideoMode>& modes,
-        const std::vector<int>& bitDepths, std::size_t curBitDepth,
-        std::size_t curResolution, int performance, bool bHiPoly, bool bLitFaces,
-        JonesUiDisplayLayout& layout)
+    babylon::ui::Screen BuildDisplayScreen(const JonesUiDisplayModel& model,
+        const JonesUiDisplayValues& values, JonesUiDisplayLayout& layout,
+        bool bShowPerformance)
     {
         babylon::ui::Screen screen;
         screen.title = JonesUiDisplay_ResolveLabel("JONES_STR_DPLY_OPTS");
 
         // A bit-depth choice is only useful when the column offers more than one.
-        if ( bitDepths.size() > 1 )
+        if ( model.bitDepths.size() > 1 )
         {
             std::vector<std::string> options;
-            options.reserve(bitDepths.size());
-            for ( int bpp : bitDepths )
+            options.reserve(model.bitDepths.size());
+            for ( int bpp : model.bitDepths )
             {
                 options.push_back(JonesUiDisplay_BitDepthLabel(bpp));
             }
@@ -273,14 +237,14 @@ namespace
             layout.bitDepth = screen.widgets.size();
             screen.widgets.emplace_back(babylon::ui::Choice{
                 JonesUiDisplay_ResolveLabel(kJonesDisplayBitDepthText), std::string(),
-                std::move(options), true, curBitDepth });
+                std::move(options), true, values.bitDepth });
         }
 
-        if ( !modes.empty() )
+        if ( !model.modes.empty() )
         {
             std::vector<std::string> options;
-            options.reserve(modes.size());
-            for ( const JonesUiDisplayVideoMode& mode : modes )
+            options.reserve(model.modes.size());
+            for ( const JonesUiDisplayVideoMode& mode : model.modes )
             {
                 options.push_back(mode.text);
             }
@@ -288,13 +252,13 @@ namespace
             layout.resolution = screen.widgets.size();
             screen.widgets.emplace_back(babylon::ui::Choice{
                 JonesUiDisplay_ResolveLabel(kJonesDisplayResolutionText), std::string(),
-                std::move(options), true, curResolution });
+                std::move(options), true, values.resolution });
         }
 
         layout.windowed = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiDisplay_ResolveLabel(kJonesDisplayWindowedText), std::string(), true,
-            pSettings->bWindowMode != 0 });
+            values.bWindowed });
 
         // Added: the original radio-button captions came from the dialog resource, which has no
         // JONES_STR key.
@@ -306,39 +270,42 @@ namespace
         layout.filter = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Choice{
             JonesUiDisplay_ResolveLabel(kJonesDisplayFilterText), std::string(),
-            std::move(filterOptions), true,
-            (std::size_t)std::clamp((int)pSettings->filter, 0, 2) });
+            std::move(filterOptions), true, values.filter });
 
         layout.fog = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiDisplay_ResolveLabel(kJonesDisplayFogText), std::string(), true,
-            pSettings->bFog != 0 });
+            values.bFog });
 
         layout.fogDensity = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Slider{
             JonesUiDisplay_ResolveLabel(kJonesDisplayFogDensityText), std::string(), 0.0, 1.0,
-            0.01, true, (double)std::clamp(pSettings->fogDensity, 0.0f, 1.0f) });
+            0.01, true, values.fogDensity });
 
-        // Added: the original radio-button captions came from the dialog resource, which has no
-        // JONES_STR key.
-        std::vector<std::string> performanceOptions = {
-            JonesUiDisplay_ResolveLabel("Average"),   // TODO: [COMPAT]
-            JonesUiDisplay_ResolveLabel("Fast"),      // TODO: [COMPAT]
-            JonesUiDisplay_ResolveLabel("Very fast"), // TODO: [COMPAT]
-        };
-        layout.performance = screen.widgets.size();
-        screen.widgets.emplace_back(babylon::ui::Choice{
-            JonesUiDisplay_ResolveLabel(kJonesDisplayPerformanceText), std::string(),
-            std::move(performanceOptions), true, (std::size_t)performance });
+        // The Options Display tab drops the Performance row (ADR-0028); the value is still
+        // written back unchanged by the apply path.
+        if ( bShowPerformance )
+        {
+            std::vector<std::string> performanceOptions = {
+                JonesUiDisplay_ResolveLabel("Average"),   // TODO: [COMPAT]
+                JonesUiDisplay_ResolveLabel("Fast"),      // TODO: [COMPAT]
+                JonesUiDisplay_ResolveLabel("Very fast"), // TODO: [COMPAT]
+            };
+            layout.performance = screen.widgets.size();
+            screen.widgets.emplace_back(babylon::ui::Choice{
+                JonesUiDisplay_ResolveLabel(kJonesDisplayPerformanceText), std::string(),
+                std::move(performanceOptions), true, values.performance });
+        }
 
         layout.hiPoly = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
-            JonesUiDisplay_ResolveLabel(kJonesDisplayHiPolyText), std::string(), true, bHiPoly });
+            JonesUiDisplay_ResolveLabel(kJonesDisplayHiPolyText), std::string(), true,
+            values.bHiPoly });
 
         layout.litFaces = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiDisplay_ResolveLabel(kJonesDisplayLitFacesText), std::string(), true,
-            bLitFaces });
+            values.bLitFaces });
 
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
@@ -398,6 +365,132 @@ namespace
     }
 }
 
+JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDisplayEnv,
+    JonesDisplaySettings* pSettings, JonesUiDisplayValues& values)
+{
+    JonesUiDisplayModel model;
+    model.pDisplayEnv = pDisplayEnv;
+    model.pSettings   = pSettings;
+    if ( !pSettings )
+    {
+        return model;
+    }
+
+    const StdDisplayInfo* pInfo = JonesUiDisplay_GetInfo(pDisplayEnv, pSettings->displayDeviceNum);
+    static_cast<void>(JonesUiDisplay_CollectVideoModes(pDisplayEnv,
+        pSettings->displayDeviceNum, model.modes));
+
+    for ( const JonesUiDisplayVideoMode& mode : model.modes )
+    {
+        for ( int bpp : mode.aBitDepths )
+        {
+            if ( std::find(model.bitDepths.begin(), model.bitDepths.end(), bpp)
+                == model.bitDepths.end() )
+            {
+                model.bitDepths.push_back(bpp);
+            }
+        }
+    }
+    std::sort(model.bitDepths.begin(), model.bitDepths.end());
+
+    model.bHasCurMode = JonesUiDisplay_FindCurrentMode(pDisplayEnv,
+        pSettings->displayDeviceNum, pSettings, model.curModeNum);
+    if ( model.bHasCurMode && pInfo )
+    {
+        model.curBpp = (int)pInfo->aModes[model.curModeNum].rasterInfo.colorInfo.bpp;
+    }
+
+    const auto bitDepthIt = std::find(model.bitDepths.begin(), model.bitDepths.end(),
+        model.curBpp);
+    if ( bitDepthIt != model.bitDepths.end() )
+    {
+        model.curBitDepth = (std::size_t)(bitDepthIt - model.bitDepths.begin());
+    }
+
+    model.curResolution = 0;
+    if ( model.bHasCurMode )
+    {
+        for ( std::size_t cur = 0; cur < model.modes.size(); ++cur )
+        {
+            if ( model.modes[cur].width == pInfo->aModes[model.curModeNum].rasterInfo.width
+                && model.modes[cur].height == pInfo->aModes[model.curModeNum].rasterInfo.height )
+            {
+                model.curResolution = cur;
+                break;
+            }
+        }
+    }
+
+    model.perfLevel = JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, 4);
+    // Anything outside the original radio values keeps its "very fast" default (4).
+    int performance = (int)STD_ARRAYLEN(kJonesDisplayPerformanceValues) - 1;
+    for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayPerformanceValues); ++cur )
+    {
+        if ( kJonesDisplayPerformanceValues[cur] == model.perfLevel )
+        {
+            performance = (int)cur;
+            break;
+        }
+    }
+
+    // The original Advanced Display init showed the runtime high-poly state, not the config key.
+    model.bHiPoly = sithModel_IsHiPolyEnabled();
+    model.bLitFaces = JonesUiDisplay_ReadConfigBool(
+        JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+
+    values.bBitDepth   = model.bitDepths.size() > 1;
+    values.bitDepth    = model.curBitDepth;
+    values.bResolution = !model.modes.empty();
+    values.resolution  = model.curResolution;
+    values.bWindowed   = pSettings->bWindowMode != 0;
+    values.filter      = (std::size_t)std::clamp((int)pSettings->filter, 0, 2);
+    values.bFog        = pSettings->bFog != 0;
+    values.fogDensity  = (double)std::clamp(pSettings->fogDensity, 0.0f, 1.0f);
+    values.performance = (std::size_t)performance;
+    values.bHiPoly     = model.bHiPoly;
+    values.bLitFaces   = model.bLitFaces;
+    return model;
+}
+
+babylon::ui::Screen JonesUiDisplay_BuildScreen(const JonesUiDisplayModel& model,
+    const JonesUiDisplayValues& values, JonesUiDisplayLayout& layout, bool bShowPerformance)
+{
+    return BuildDisplayScreen(model, values, layout, bShowPerformance);
+}
+
+void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiDisplayLayout& layout, JonesUiDisplayValues& values)
+{
+    if ( layout.bitDepth )
+    {
+        values.bBitDepth = JonesUiDisplay_ReadChoice(ui, screen, layout.bitDepth,
+            values.bitDepth);
+    }
+    if ( layout.resolution )
+    {
+        values.bResolution = JonesUiDisplay_ReadChoice(ui, screen, layout.resolution,
+            values.resolution);
+    }
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.windowed,
+        values.bWindowed));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.filter,
+        values.filter));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.fog,
+        values.bFog));
+    static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.fogDensity,
+        values.fogDensity));
+    if ( layout.performance )
+    {
+        static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.performance,
+            values.performance));
+    }
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.hiPoly,
+        values.bHiPoly));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.litFaces,
+        values.bLitFaces));
+}
+
 bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int displayDeviceNum,
     std::vector<JonesUiDisplayVideoMode>& modes)
 {
@@ -447,161 +540,31 @@ bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int dis
     return true;
 }
 
-int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    const StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pSettings)
+int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
+    const JonesUiDisplayValues& values)
 {
+    JonesDisplaySettings* pSettings = model.pSettings;
     if ( !pSettings )
     {
         return kJonesDialogCancel;
     }
 
-    const StdDisplayInfo* pInfo = JonesUiDisplay_GetInfo(pDisplayEnv, pSettings->displayDeviceNum);
-
-    std::vector<JonesUiDisplayVideoMode> modes;
-    static_cast<void>(JonesUiDisplay_CollectVideoModes(pDisplayEnv,
-        pSettings->displayDeviceNum, modes));
-
-    std::vector<int> bitDepths;
-    for ( const JonesUiDisplayVideoMode& mode : modes )
-    {
-        for ( int bpp : mode.aBitDepths )
-        {
-            if ( std::find(bitDepths.begin(), bitDepths.end(), bpp) == bitDepths.end() )
-            {
-                bitDepths.push_back(bpp);
-            }
-        }
-    }
-    std::sort(bitDepths.begin(), bitDepths.end());
-
-    std::size_t curModeNum = 0;
-    const bool bHasCurMode = JonesUiDisplay_FindCurrentMode(pDisplayEnv,
-        pSettings->displayDeviceNum, pSettings, curModeNum);
-
-    int curBpp = 0;
-    if ( bHasCurMode && pInfo )
-    {
-        curBpp = (int)pInfo->aModes[curModeNum].rasterInfo.colorInfo.bpp;
-    }
-
-    std::size_t curBitDepth = 0;
-    const auto bitDepthIt = std::find(bitDepths.begin(), bitDepths.end(), curBpp);
-    if ( bitDepthIt != bitDepths.end() )
-    {
-        curBitDepth = (std::size_t)(bitDepthIt - bitDepths.begin());
-    }
-
-    std::size_t curResolution = 0;
-    if ( bHasCurMode )
-    {
-        for ( std::size_t cur = 0; cur < modes.size(); ++cur )
-        {
-            if ( modes[cur].width == pInfo->aModes[curModeNum].rasterInfo.width
-                && modes[cur].height == pInfo->aModes[curModeNum].rasterInfo.height )
-            {
-                curResolution = cur;
-                break;
-            }
-        }
-    }
-
-    const int perfLevel = JonesUiDisplay_ReadConfigInt(
-        JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, 4);
-    // Anything outside the original radio values keeps its "very fast" default (4).
-    int performance = (int)STD_ARRAYLEN(kJonesDisplayPerformanceValues) - 1;
-    for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayPerformanceValues); ++cur )
-    {
-        if ( kJonesDisplayPerformanceValues[cur] == perfLevel )
-        {
-            performance = (int)cur;
-            break;
-        }
-    }
-
-    // The original Advanced Display init showed the runtime high-poly state, not the config key.
-    const bool bHiPoly  = sithModel_IsHiPolyEnabled();
-    const bool bLitFaces = JonesUiDisplay_ReadConfigBool(
-        JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
-
-    JonesUiDisplayLayout layout;
-    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(pSettings, modes, bitDepths,
-        curBitDepth, curResolution, performance, bHiPoly, bLitFaces, layout);
-
-    JonesUiDisplayValues values;
-    values.bBitDepth  = layout.bitDepth.has_value();
-    values.bitDepth   = curBitDepth;
-    values.bResolution = layout.resolution.has_value();
-    values.resolution = curResolution;
-    values.bWindowed  = pSettings->bWindowMode != 0;
-    values.filter     = (std::size_t)std::clamp((int)pSettings->filter, 0, 2);
-    values.bFog       = pSettings->bFog != 0;
-    values.fogDensity = (double)std::clamp(pSettings->fogDensity, 0.0f, 1.0f);
-    values.performance = (std::size_t)performance;
-    values.bHiPoly    = bHiPoly;
-    values.bLitFaces  = bLitFaces;
-
-    bool bApply = false;
-    const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
-        babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
-    {
-        const babylon::ui::ActionPressed* pAction =
-            std::get_if<babylon::ui::ActionPressed>(&event);
-        if ( !pAction || pAction->screen != screenId
-            || pAction->action != kJonesDisplayActionOk )
-        {
-            return false;
-        }
-
-        // Read the unbound widget values while the screen is still open; accepting the OK button
-        // pops it right after this handler returns. A missing value keeps the initial one.
-        if ( layout.bitDepth )
-        {
-            values.bBitDepth = JonesUiDisplay_ReadChoice(uiRef, screenId, layout.bitDepth,
-                values.bitDepth);
-        }
-        if ( layout.resolution )
-        {
-            values.bResolution = JonesUiDisplay_ReadChoice(uiRef, screenId, layout.resolution,
-                values.resolution);
-        }
-        static_cast<void>(JonesUiDisplay_ReadToggle(uiRef, screenId, layout.windowed,
-            values.bWindowed));
-        static_cast<void>(JonesUiDisplay_ReadChoice(uiRef, screenId, layout.filter,
-            values.filter));
-        static_cast<void>(JonesUiDisplay_ReadToggle(uiRef, screenId, layout.fog, values.bFog));
-        static_cast<void>(JonesUiDisplay_ReadSlider(uiRef, screenId, layout.fogDensity,
-            values.fogDensity));
-        static_cast<void>(JonesUiDisplay_ReadChoice(uiRef, screenId, layout.performance,
-            values.performance));
-        static_cast<void>(JonesUiDisplay_ReadToggle(uiRef, screenId, layout.hiPoly,
-            values.bHiPoly));
-        static_cast<void>(JonesUiDisplay_ReadToggle(uiRef, screenId, layout.litFaces,
-            values.bLitFaces));
-
-        bApply = true;
-        return false;
-    };
-
-    const int result = JonesUiModal_RunHandled(ui, pPainter, screen,
-        [](babylon::ui::ResultCode code) { return (int)code; }, handler);
-    if ( result != kJonesDialogOk || !bApply )
-    {
-        return result;
-    }
+    const StdDisplayInfo* pInfo = JonesUiDisplay_GetInfo(model.pDisplayEnv,
+        pSettings->displayDeviceNum);
 
     // The original Display OK wrote the chosen mode and the device's current keys.
     std::size_t newModeNum = pSettings->videoModeNum;
     std::uint32_t newWidth  = pSettings->width;
     std::uint32_t newHeight = pSettings->height;
-    if ( bHasCurMode && pInfo && !modes.empty() )
+    if ( model.bHasCurMode && pInfo && !model.modes.empty() )
     {
-        const std::size_t resolution = std::min(values.resolution, modes.size() - 1);
-        const JonesUiDisplayVideoMode& mode = modes[resolution];
+        const std::size_t resolution = std::min(values.resolution, model.modes.size() - 1);
+        const JonesUiDisplayVideoMode& mode = model.modes[resolution];
 
         std::size_t chosen = mode.aModeNums.empty() ? 0 : mode.aModeNums.front();
-        const int bpp = (!bitDepths.empty() && values.bBitDepth)
-            ? bitDepths[std::min(values.bitDepth, bitDepths.size() - 1)]
-            : curBpp;
+        const int bpp = (!model.bitDepths.empty() && values.bBitDepth)
+            ? model.bitDepths[std::min(values.bitDepth, model.bitDepths.size() - 1)]
+            : model.curBpp;
         for ( std::size_t cur = 0; cur < mode.aBitDepths.size(); ++cur )
         {
             if ( mode.aBitDepths[cur] == bpp )
@@ -673,7 +636,7 @@ int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
     const int newPerf = kJonesDisplayPerformanceValues[
         std::min(values.performance, STD_ARRAYLEN(kJonesDisplayPerformanceValues) - 1)];
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, newPerf);
-    if ( JonesMain_HasStarted() && newPerf != perfLevel )
+    if ( JonesMain_HasStarted() && newPerf != model.perfLevel )
     {
         const char* pMessage = jonesString_GetString("JONES_STR_PERFORMANCE");
         if ( pMessage )
@@ -703,6 +666,50 @@ int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
         values.bLitFaces);
 
     return kJonesDialogOk;
+}
+
+int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    const StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pSettings)
+{
+    if ( !pSettings )
+    {
+        return kJonesDialogCancel;
+    }
+
+    JonesUiDisplayValues values;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(pDisplayEnv, pSettings, values);
+
+    JonesUiDisplayLayout layout;
+    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout,
+        true);
+
+    bool bApply = false;
+    const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
+        babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
+    {
+        const babylon::ui::ActionPressed* pAction =
+            std::get_if<babylon::ui::ActionPressed>(&event);
+        if ( !pAction || pAction->screen != screenId
+            || pAction->action != kJonesDisplayActionOk )
+        {
+            return false;
+        }
+
+        // Read the unbound widget values while the screen is still open; accepting the OK button
+        // pops it right after this handler returns. A missing value keeps the initial one.
+        JonesUiDisplay_ReadValues(uiRef, screenId, layout, values);
+        bApply = true;
+        return false;
+    };
+
+    const int result = JonesUiModal_RunHandled(ui, pPainter, screen,
+        [](babylon::ui::ResultCode code) { return (int)code; }, handler);
+    if ( result != kJonesDialogOk || !bApply )
+    {
+        return result;
+    }
+
+    return JonesUiDisplay_Apply(model, values);
 }
 
 extern "C" int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd,
@@ -741,8 +748,9 @@ void JonesUiDisplay_AppendScreensForTest(std::vector<babylon::ui::Screen>& scree
     const std::vector<JonesUiDisplayVideoMode> modes;
     const std::vector<int> bitDepths;
 
+    JonesUiDisplayValues values;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(nullptr, &settings, values);
     JonesUiDisplayLayout layout;
-    screens.push_back(JonesUiDisplay_BuildScreen(&settings, modes, bitDepths, 0, 0, 0, false,
-        false, layout));
+    screens.push_back(JonesUiDisplay_BuildScreen(model, values, layout, true));
 }
 #endif

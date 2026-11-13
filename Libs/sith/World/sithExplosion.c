@@ -10,11 +10,13 @@
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Main/sithMain.h>
 
+#include <sith/Gameplay/sithPlayer.h>
 #include <sith/World/sithSurface.h>
 #include <sith/World/sithTemplate.h>
 #include <sith/World/sithThing.h>
 
 #include <std/General/stdConffile.h>
+#include <std/General/stdControl.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdUtil.h>
 
@@ -313,6 +315,19 @@ void J3DAPI sithExplosion_MakeBlast(SithThing* pThing)
     const float exprange  = pExplode->range;
     const float expforce  = pExplode->force;
     float expdamage       = pExplode->damage;
+
+    // Added: a blast shakes the gamepad when the local player stands inside its range
+    // (presentation only, ADR-0028). Closer blasts kick harder; the minimum keeps the far edge
+    // noticeable.
+    if ( exprange > 0.0f && sithPlayer_g_pLocalPlayerThing )
+    {
+        const float dist = rdVector_Dist3(&pThing->pos, &sithPlayer_g_pLocalPlayerThing->pos);
+        if ( dist <= exprange )
+        {
+            const float rumbleStrength = STDMATH_CLAMP(1.0f - dist / exprange, 0.2f, 1.0f);
+            stdControl_Rumble(rumbleStrength, rumbleStrength * 0.6f, 350);
+        }
+    }
 
     if ( exprange > 0.0f && (expdamage > 0.0f || expforce > 0.0f) )
     {

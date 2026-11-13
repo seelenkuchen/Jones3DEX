@@ -282,9 +282,25 @@ void J3DAPI stdControl_SetAxisFlags(size_t axis, StdControlAxisFlag flags);
 void J3DAPI stdControl_RegisterAxis(size_t aid, int min, int max, float deadzoneScale);
 size_t stdControl_GetMaxJoystickButtons(void);
 size_t stdControl_GetNumJoysticks(void);
+
+// Added: number of times the connected joystick count changed since startup. The Babylon adapter
+// raises it when a gamepad is added or removed; the Null column never changes it. Game code polls
+// it at a safe point and rebinds when the value differs from the last one it saw.
+unsigned int J3DAPI stdControl_GetJoystickChangeCount(void);
 const char* J3DAPI stdControl_GetJoysticDescription(int joyNum); // Added: From debug version
 
 int J3DAPI stdControl_IsGamePad(int joyNum);
+
+// Added: gamepad rumble (presentation only, ADR-0028). It never changes simulation state.
+// Asks every connected gamepad to rumble. lowFrequency and highFrequency are the two motors,
+// 0..1, and durationMs is capped at 5000 by the platform. Does nothing while rumble is disabled.
+// The Null column has no device and only keeps the enabled flag; the Babylon column forwards the
+// request to the platform for each connected pad.
+void J3DAPI stdControl_Rumble(float lowFrequency, float highFrequency, uint32_t durationMs);
+
+// Added: turns rumble output on or off. On by default; the game applies engine.input.rumble.
+void stdControl_EnableRumble(bool bEnable);
+bool stdControl_IsRumbleEnabled(void);
 
 void stdControl_ResetGlobals(void);
 

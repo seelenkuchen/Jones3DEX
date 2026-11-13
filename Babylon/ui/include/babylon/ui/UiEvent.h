@@ -36,6 +36,16 @@ namespace babylon::ui
         ResultCode result = 0;
     };
 
+    // The player asked for another tab of a tabbed screen. tab is the new
+    // index in Screen::tabs; Ui has already stored it in the open screen's
+    // activeTab. The game builds the screen for that tab and replaces the
+    // current one.
+    struct TabChanged
+    {
+        ScreenId screen = kInvalidScreen;
+        std::size_t tab = 0;
+    };
+
     // A Toggle, Slider or Choice changed because of user input. widget is
     // the widget's index in Screen::widgets. The event is reported for both
     // bound and unbound widgets, after the cvar write for a bound one:
@@ -103,7 +113,7 @@ namespace babylon::ui
     // happened. Ui::pollEvent() returns one at a time; the game drains the
     // queue once per frame. Cvar writes happen before their corresponding
     // event is queued.
-    using UiEvent = std::variant<ActionPressed, ScreenClosed, ValueChanged,
+    using UiEvent = std::variant<ActionPressed, ScreenClosed, TabChanged, ValueChanged,
         SelectionChanged, BindingCaptured, TextSubmitted, TextInputWanted, SoundCue>;
 
 }

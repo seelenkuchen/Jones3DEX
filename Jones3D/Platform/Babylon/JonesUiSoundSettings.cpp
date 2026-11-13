@@ -51,22 +51,6 @@ namespace
     constexpr const char* kJonesSoundOutputDeviceText = "Output device";  // TODO: [COMPAT]
     constexpr const char* kJonesSoundDefaultText      = "Default";        // TODO: [COMPAT]
 
-    struct JonesUiSoundLayout
-    {
-        std::size_t volume = 0;
-        std::size_t reverse = 0;
-        std::size_t outputDevice = 0;
-        std::size_t ok = 0;
-        std::size_t back = 0;
-    };
-
-    struct JonesUiSoundValues
-    {
-        double volume = 1.0;
-        bool bReverse = false;
-        std::size_t outputDevice = 0;
-    };
-
     bool JonesUiSound_ReadSlider(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
         std::size_t index, double& value)
     {
@@ -148,9 +132,8 @@ void JonesUiSound_CollectOutputDevices(std::vector<JonesUiSoundOutputDevice>& de
     }
 }
 
-static babylon::ui::Screen JonesUiSound_BuildScreen(const JonesSoundSettings* pData,
-    const std::vector<JonesUiSoundOutputDevice>& devices, std::size_t curDevice,
-    JonesUiSoundLayout& layout, JonesUiSoundValues& values)
+static babylon::ui::Screen BuildSoundScreen(const JonesUiSoundModel& model,
+    const JonesUiSoundValues& values, JonesUiSoundLayout& layout)
 {
     babylon::ui::Screen screen;
     screen.title = JonesUiContext_ResolveString(kJonesSoundTitleText);
@@ -158,16 +141,16 @@ static babylon::ui::Screen JonesUiSound_BuildScreen(const JonesSoundSettings* pD
     layout.volume = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Slider{
         JonesUiContext_ResolveString(kJonesSoundVolumeText), std::string(), 0.0, 1.0, 0.01, true,
-        (double)std::clamp(pData->maxSoundVolume, 0.0f, 1.0f) });
+        values.volume });
 
     layout.reverse = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Toggle{
         JonesUiContext_ResolveString(kJonesSoundReverseText), std::string(), true,
-        pData->bReverseSound != 0 });
+        values.bReverse });
 
     std::vector<std::string> deviceOptions;
-    deviceOptions.reserve(devices.size());
-    for ( const JonesUiSoundOutputDevice& device : devices )
+    deviceOptions.reserve(model.devices.size());
+    for ( const JonesUiSoundOutputDevice& device : model.devices )
     {
         deviceOptions.push_back(device.name);
     }
@@ -175,7 +158,7 @@ static babylon::ui::Screen JonesUiSound_BuildScreen(const JonesSoundSettings* pD
     layout.outputDevice = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Choice{
         JonesUiContext_ResolveString(kJonesSoundOutputDeviceText), std::string(),
-        std::move(deviceOptions), true, curDevice });
+        std::move(deviceOptions), true, values.outputDevice });
 
     layout.ok = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Button{
@@ -187,11 +170,80 @@ static babylon::ui::Screen JonesUiSound_BuildScreen(const JonesSoundSettings* pD
 
     screen.backResult   = kJonesDialogCancel;
     screen.initialFocus = 0;
+    return screen;
+}
+
+JonesUiSoundModel JonesUiSound_LoadModel(JonesSoundSettings* pData, JonesUiSoundValues& values)
+{
+    JonesUiSoundModel model;
+    model.pData = pData;
+    if ( !pData )
+    {
+        return model;
+    }
+
+    JonesUiSound_CollectOutputDevices(model.devices);
+    const std::string currentDevice = SoundDriver_GetCurrentOutputDevice();
+    model.curDevice = 0;
+    for ( std::size_t cur = 0; cur < model.devices.size(); ++cur )
+    {
+        if ( model.devices[cur].id == currentDevice )
+        {
+            model.curDevice = cur;
+            break;
+        }
+    }
 
     values.volume       = (double)std::clamp(pData->maxSoundVolume, 0.0f, 1.0f);
     values.bReverse     = pData->bReverseSound != 0;
-    values.outputDevice = curDevice;
-    return screen;
+    values.outputDevice = model.curDevice;
+    return model;
+}
+
+babylon::ui::Screen JonesUiSound_BuildScreen(const JonesUiSoundModel& model,
+    const JonesUiSoundValues& values, JonesUiSoundLayout& layout)
+{
+    return BuildSoundScreen(model, values, layout);
+}
+
+void JonesUiSound_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiSoundLayout& layout, JonesUiSoundValues& values)
+{
+    static_cast<void>(JonesUiSound_ReadSlider(ui, screen, layout.volume, values.volume));
+    static_cast<void>(JonesUiSound_ReadToggle(ui, screen, layout.reverse, values.bReverse));
+    static_cast<void>(JonesUiSound_ReadChoice(ui, screen, layout.outputDevice,
+        values.outputDevice));
+}
+
+int JonesUiSound_Apply(const JonesUiSoundModel& model, const JonesUiSoundValues& values)
+{
+    JonesSoundSettings* pData = model.pData;
+    if ( !pData )
+    {
+        return kJonesDialogCancel;
+    }
+
+    // The original Sound OK wrote these two fields and their keys. b3DHWSupport has no effect any
+    // more and keeps its value; its key is written back unchanged to keep the original write set.
+    pData->maxSoundVolume = (float)std::clamp(values.volume, 0.0, 1.0);
+    pData->bReverseSound  = values.bReverse ? 1 : 0;
+
+    JonesUiSound_SetConfigFloat(JONESCONFIG_CFG_SOUND_VOLUME, pData->maxSoundVolume);
+    JonesUiSound_SetConfigBool(JONESCONFIG_CFG_SOUND_REVERSE, pData->bReverseSound != 0);
+    JonesUiSound_SetConfigBool(JONESCONFIG_CFG_SOUND_HW, pData->b3DHWSupport != 0);
+
+    if ( !model.devices.empty() )
+    {
+        const std::size_t selected = std::min(values.outputDevice, model.devices.size() - 1);
+        const std::string& selectedId = model.devices[selected].id;
+        if ( SoundDriver_SetOutputDevice(selectedId.c_str()) )
+        {
+            JonesUiSound_SetConfigString(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE,
+                selectedId.c_str());
+        }
+    }
+
+    return kJonesDialogOk;
 }
 
 int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
@@ -202,24 +254,11 @@ int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPain
         return kJonesDialogCancel;
     }
 
-    std::vector<JonesUiSoundOutputDevice> devices;
-    JonesUiSound_CollectOutputDevices(devices);
-
-    const std::string currentDevice = SoundDriver_GetCurrentOutputDevice();
-    std::size_t curDevice = 0;
-    for ( std::size_t cur = 0; cur < devices.size(); ++cur )
-    {
-        if ( devices[cur].id == currentDevice )
-        {
-            curDevice = cur;
-            break;
-        }
-    }
+    JonesUiSoundValues values;
+    const JonesUiSoundModel model = JonesUiSound_LoadModel(pData, values);
 
     JonesUiSoundLayout layout;
-    JonesUiSoundValues values;
-    const babylon::ui::Screen screen = JonesUiSound_BuildScreen(pData, devices, curDevice,
-        layout, values);
+    const babylon::ui::Screen screen = JonesUiSound_BuildScreen(model, values, layout);
 
     bool bApply = false;
     const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
@@ -233,12 +272,7 @@ int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPain
         }
 
         // Read the unbound widget values while the screen is still open.
-        static_cast<void>(JonesUiSound_ReadSlider(uiRef, screenId, layout.volume, values.volume));
-        static_cast<void>(JonesUiSound_ReadToggle(uiRef, screenId, layout.reverse,
-            values.bReverse));
-        static_cast<void>(JonesUiSound_ReadChoice(uiRef, screenId, layout.outputDevice,
-            values.outputDevice));
-
+        JonesUiSound_ReadValues(uiRef, screenId, layout, values);
         bApply = true;
         return false;
     };
@@ -250,24 +284,7 @@ int JonesUiSound_RunSoundScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPain
         return result;
     }
 
-    // The original Sound OK wrote these two fields and their keys. b3DHWSupport has no effect any
-    // more and keeps its value; its key is written back unchanged to keep the original write set.
-    pData->maxSoundVolume = (float)std::clamp(values.volume, 0.0, 1.0);
-    pData->bReverseSound  = values.bReverse ? 1 : 0;
-
-    JonesUiSound_SetConfigFloat(JONESCONFIG_CFG_SOUND_VOLUME, pData->maxSoundVolume);
-    JonesUiSound_SetConfigBool(JONESCONFIG_CFG_SOUND_REVERSE, pData->bReverseSound != 0);
-    JonesUiSound_SetConfigBool(JONESCONFIG_CFG_SOUND_HW, pData->b3DHWSupport != 0);
-
-    const std::size_t selected = std::min(values.outputDevice, devices.size() - 1);
-    const std::string& selectedId = devices[selected].id;
-    if ( SoundDriver_SetOutputDevice(selectedId.c_str()) )
-    {
-        JonesUiSound_SetConfigString(JONESCONFIG_CFG_ENGINE_AUDIO_OUTPUTDEVICE,
-            selectedId.c_str());
-    }
-
-    return kJonesDialogOk;
+    return JonesUiSound_Apply(model, values);
 }
 
 extern "C" int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd, JonesSoundSettings* pData)
@@ -304,11 +321,9 @@ void JonesUiSound_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens
     JonesSoundSettings data{};
     data.maxSoundVolume = 1.0f;
 
-    std::vector<JonesUiSoundOutputDevice> devices;
-    JonesUiSound_CollectOutputDevices(devices);
-
-    JonesUiSoundLayout layout;
     JonesUiSoundValues values;
-    screens.push_back(JonesUiSound_BuildScreen(&data, devices, 0, layout, values));
+    const JonesUiSoundModel model = JonesUiSound_LoadModel(&data, values);
+    JonesUiSoundLayout layout;
+    screens.push_back(JonesUiSound_BuildScreen(model, values, layout));
 }
 #endif

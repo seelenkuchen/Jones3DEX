@@ -17,14 +17,34 @@
 #error "JonesUiPainter.h is C++ only: it implements a babylon::ui interface."
 #endif
 
+#include <babylon/font/Font.h>
 #include <babylon/ui/Painter.h>
 #include <babylon/ui/Types.h>
 
 #include <rdroid/types.h>
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <vector>
+
+namespace babylon::files
+{
+    class FileSystem;
+}
+
+namespace babylon::image
+{
+    struct Image;
+}
+
+// One substitution a TrueType font needs because its character map lacks a
+// symbol the ui draws, such as the Choice arrows or the scroll markers.
+struct JonesUiGlyphAlias
+{
+    char32_t from = 0;
+    char32_t to = 0;
+};
 
 class JonesUiPainter final : public babylon::ui::Painter
 {
@@ -34,6 +54,27 @@ public:
 
     JonesUiPainter(const JonesUiPainter&) = delete;
     JonesUiPainter& operator=(const JonesUiPainter&) = delete;
+
+    // Registers a TrueType font the painter bakes and draws with. pixelHeight is the size in
+    // canvas units; the painter bakes printable ASCII, Latin-1 (U+0020..U+007E and
+    // U+00A0..U+00FF) and the U+2022 bullet once and owns that atlas. The font is copied, so the caller may release it
+    // afterwards. Returns an id of at least 1, or 0 with one warning when the bake fails.
+    babylon::ui::FontId registerTtfFont(const babylon::font::Font& font, float pixelHeight);
+
+    // Registers a decoded PNG as a drawable image. The painter copies the RGBA pixels into an
+    // RGBA texture once and owns it until unregisterImage(). Returns an id of at least 1, or 0
+    // with one warning for an empty image.
+    babylon::ui::ImageId registerPngImage(const babylon::image::Image& image);
+
+    // Loads <basePath>Data/ui/<relativePath> through the file system and registers it. pixelHeight
+    // is the size in canvas units; the atlas is baked at pixelHeight * (back-buffer height / 480)
+    // physical pixels and drawn at pixelHeight canvas units, so re-registering after a resize keeps
+    // it crisp. relativePath uses '/' and must be relative. A missing or invalid file logs one
+    // warning and returns 0.
+    babylon::ui::FontId registerTtfFontFile(babylon::files::FileSystem& files,
+        std::string_view relativePath, float pixelHeight);
+    babylon::ui::ImageId registerPngImageFile(babylon::files::FileSystem& files,
+        std::string_view relativePath);
 
     // Registers a font the painter draws with. pointSize is the size in canvas units it is drawn
     // at; the font is scaled from its own rdFont::fontSize. The painter borrows the font and does
@@ -67,18 +108,51 @@ public:
     void popClip() override;
 
 private:
-    struct FontEntry
-    {
-        rdFont* pFont      = nullptr;
-        float pointSize    = 0.0f;
-    };
-
     struct ImageEntry
     {
         const rdMaterial* pMaterial = nullptr;
         int celNum                  = 0;
         rdMaterial* pOwnedMaterial  = nullptr;
     };
+
+    struct FontEntry
+    {
+        enum class Kind
+        {
+            RdFont,
+            TrueType
+        };
+
+        Kind kind             = Kind::RdFont;
+        rdFont* pFont         = nullptr;
+        float pointSize       = 0.0f;
+        std::optional<babylon::font::Font> trueType;
+        std::vector<char32_t> codepoints;
+        std::vector<babylon::font::Glyph> glyphs;
+        // Codepoints text may use that this font does not map, and the
+        // baked codepoint that replaces each (for example U+25C0 to '<').
+        std::vector<JonesUiGlyphAlias> glyphAliases;
+        // Size in canvas units, and the atlas pixels per canvas unit, so the
+        // TTF path can convert the baked pixel metrics back to canvas units.
+        float bakePixelHeight = 0.0f;
+        float rasterScale     = 1.0f;
+        float ascent          = 0.0f;
+        float descent         = 0.0f;
+        float lineGap         = 0.0f;
+        ImageEntry atlas;
+    };
+
+    static std::optional<std::vector<std::byte>> loadUiFile(
+        babylon::files::FileSystem& files, std::string_view relativePath);
+    babylon::ui::FontId registerTtfFontScaled(const babylon::font::Font& font,
+        float bakePixelHeight, float rasterScale);
+    bool createRgbaMaterial(const std::uint8_t* pRgbaPixels, std::uint32_t width,
+        std::uint32_t height, ImageEntry& entry);
+    void drawTrueTypeText(const FontEntry& entry, std::string_view text,
+        const babylon::ui::Rect& rect, babylon::ui::TextAlign align,
+        const babylon::ui::Color& color);
+    babylon::ui::Size measureTrueTypeText(const FontEntry& entry,
+        std::string_view text) const;
 
     // The canvas width and the number of back-buffer pixels per canvas unit, or false when there
     // is no back buffer.

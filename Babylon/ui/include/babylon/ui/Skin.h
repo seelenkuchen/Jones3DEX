@@ -9,9 +9,19 @@
 #include <babylon/ui/Types.h>
 
 #include <cstdint>
+#include <string>
 
 namespace babylon::ui
 {
+
+    // Where the panel sits on the canvas. Center is the original layout for
+    // dialogs; BottomLeft is the main-menu layout, whose rows read as a list
+    // stacked in the lower left corner.
+    enum class PanelPlacement : std::uint8_t
+    {
+        Center,
+        BottomLeft
+    };
 
     // The look and sound of every screen: colors, fonts, row metrics and
     // sound cue ids. The game supplies one Skin; the ui module copies it
@@ -30,6 +40,13 @@ namespace babylon::ui
         Color panel = { 0.06f, 0.06f, 0.08f, 0.95f };
         ImageId panelImage = 0;
 
+        // Where the panel sits. Center keeps the dialog layout. BottomLeft
+        // puts the panel's left edge at canvasMargin * 4 from the left and
+        // its bottom at canvasMargin * 4 from the bottom, with the rows left
+        // aligned in it. A panel whose panel color has alpha 0 draws no fill;
+        // a borderWidth of 0 draws no border.
+        PanelPlacement placement = PanelPlacement::Center;
+
         // The panel border, drawn as a rectangle outline of borderWidth
         // inside the panel's rectangle. A borderWidth of 0 draws none.
         Color panelBorder = { 0.45f, 0.45f, 0.55f, 1.0f };
@@ -44,6 +61,42 @@ namespace babylon::ui
         Color textFocused = { 1.0f, 1.0f, 1.0f, 1.0f };
         Color textDisabled = { 0.45f, 0.45f, 0.45f, 1.0f };
         FontId textFont = 0;
+
+        // The font of a tabbed screen's right-hand help column. Defaults to
+        // the row font when the skin is default-constructed; a skin that
+        // wants a different face sets it explicitly.
+        FontId helpFont = textFont;
+
+        // The share of the panel's inner width given to the help column of a
+        // tabbed screen, 0..1. 0 disables the column; the default leaves
+        // about a third for help. When a screen has help text, the rows use
+        // the remaining width.
+        float helpColumnWidth = 0.35f;
+
+        // The prompt bar at the bottom left: the font its labels use (0
+        // keeps textFont) and the width and height of one prompt icon in
+        // canvas units. A promptHeight of 0 draws no bar. A missing icon
+        // draws its label alone.
+        FontId promptFont = 0;
+        float promptHeight = 20.0f;
+
+        // How a row's own text is aligned inside its line box. Left keeps
+        // the original dialog look; a bottom-left menu also uses Left.
+        TextAlign rowAlign = TextAlign::Left;
+
+        // A shadow drawn behind every row's text before the text itself, so
+        // light text stays readable on a light background. An alpha of 0
+        // draws none. textShadowOffset moves it down and right in canvas
+        // units; 0 places it exactly behind the text.
+        Color textShadow = { 0.0f, 0.0f, 0.0f, 0.0f };
+        float textShadowOffset = 1.0f;
+
+        // A marker drawn in textFocused immediately left of the focused
+        // row's text, such as a bullet for a menu selection. UTF-8; empty
+        // draws none. Every row reserves the marker's width plus
+        // markerSpacing, so text does not move when focus moves.
+        std::string focusMarker;
+        float markerSpacing = 8.0f;
 
         // The fill behind the focused widget, and the fill behind the
         // selected row of a list that does not have focus.

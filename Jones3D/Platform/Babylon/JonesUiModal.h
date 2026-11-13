@@ -34,13 +34,16 @@
 // are drawn at full brightness, not dimmed. image is registered with the same JonesUiPainter; the
 // caller keeps it alive while the context is held and releases it. draw, when set, runs once each frame inside the scene,
 // before the screen; it takes precedence over image. width and height are the image's pixel size.
-// With neither, the frozen-frame or clear behavior is kept.
+// With neither, the frozen-frame or clear behavior is kept. overlay, when set, runs after the
+// background and its dim layer, before the screen, so a menu can add a shade over the frozen game
+// frame.
 struct JonesUiModalBackground
 {
     babylon::ui::ImageId image = 0;
     float width = 0.0f;
     float height = 0.0f;
     std::function<void()> draw;
+    std::function<void()> overlay;
 };
 
 // Maps the result a screen closed with to the wrapper's original return value.
@@ -69,9 +72,14 @@ int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
 // JonesUiModal_Run with an event handler for screens that need more than one step, such as an
 // overwrite prompt opened after a list row is accepted. handler is called for every Ui event
 // before the loop's own action and close handling; nullptr runs exactly like JonesUiModal_Run.
+// resizeHandler, when set, is called after a window resize has been applied to the Ui; a screen
+// that bakes fonts at the window's pixel scale re-registers them here.
+using JonesUiModalResizeHandler = std::function<void(int width, int height)>;
+
 int JonesUiModal_RunHandled(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
     const JonesUiModalEventHandler& handler,
-    const JonesUiModalBackground& background = JonesUiModalBackground{});
+    const JonesUiModalBackground& background = JonesUiModalBackground{},
+    const JonesUiModalResizeHandler& resizeHandler = nullptr);
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIMODAL_H

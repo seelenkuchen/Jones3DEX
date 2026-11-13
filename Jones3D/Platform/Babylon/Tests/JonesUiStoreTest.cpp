@@ -114,6 +114,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
         void PushKey(platform::Key key)
         {
             m_events.push_back(platform::Event{

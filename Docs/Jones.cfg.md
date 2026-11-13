@@ -163,7 +163,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | --- | --- | --- | --- |
 | `controls.configFile` | string | empty | Selected input preset name. Usually set by the control dialog. |
 | `controls.mouse` | bool | `false` | Enables mouse control. |
-| `controls.controller` | bool | `false` | Enables joystick/controller control. |
+| `engine.input.rumble` | bool | `true` | Gamepad rumble. Presentation only, on by default in both profiles; the Controls screen's Rumble row changes it. |
 | `gameplay.defaultRun` | bool | `false` | Makes running the default movement mode. |
 | `gameplay.startLevel` | string | empty | Developer/startup override. |
 | `gameplay.difficulty` | int | `5` | Difficulty slider value used by the game. |
@@ -172,6 +172,9 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `gameplay.mapRotation` | bool | `false` | Rotates the overlay map with player facing. |
 | `gameplay.lastSaveGame` | string | auto | Last save filename used by the save/load flow. Engine-managed. |
 | `gameplay.bloodSplatter` | bool | `true` | Enables the hit blood-splatter effect. |
+
+A connected gamepad is always on and works alongside the keyboard and mouse. The old
+`controls.controller` key is ignored when present and removed from the file on the next save.
 
 ## Graphics and display options
 
