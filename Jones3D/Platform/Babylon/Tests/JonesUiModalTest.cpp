@@ -109,6 +109,10 @@ extern "C" void J3DAPI JonesHud_PlayMenuSoundCue(int cueIdx)
     ++g_numMenuSoundCues;
 }
 
+extern "C" void JonesHud_InitializeMenuSounds(void)
+{
+}
+
 namespace
 {
     using namespace babylon;

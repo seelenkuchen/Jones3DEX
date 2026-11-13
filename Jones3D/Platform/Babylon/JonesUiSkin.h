@@ -28,4 +28,11 @@ inline constexpr std::uint32_t kJonesUiSoundCueBack   = 3;
 babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
     const babylon::ui::Painter* pPainter);
 
+// Added: the main menu's skin (ADR-0028): an uppercase list in the lower left, no panel or
+// highlight boxes, a bullet before the focused row and a warm light grey for the rest. menuFont
+// is the Cinzel TrueType id when it loaded and the shared rdFont id when it did not; the caller
+// chooses. The row metrics follow the font's line height, like JonesUiSkin_Create.
+babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
+    const babylon::ui::Painter* pPainter);
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISKIN_H

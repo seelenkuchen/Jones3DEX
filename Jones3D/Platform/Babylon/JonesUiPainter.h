@@ -48,8 +48,8 @@ public:
     JonesUiPainter& operator=(const JonesUiPainter&) = delete;
 
     // Registers a TrueType font the painter bakes and draws with. pixelHeight is the size in
-    // canvas units; the painter bakes printable ASCII and Latin-1 (U+0020..U+007E and
-    // U+00A0..U+00FF) once and owns that atlas. The font is copied, so the caller may release it
+    // canvas units; the painter bakes printable ASCII, Latin-1 (U+0020..U+007E and
+    // U+00A0..U+00FF) and the U+2022 bullet once and owns that atlas. The font is copied, so the caller may release it
     // afterwards. Returns an id of at least 1, or 0 with one warning when the bake fails.
     babylon::ui::FontId registerTtfFont(const babylon::font::Font& font, float pixelHeight);
 
@@ -58,8 +58,11 @@ public:
     // with one warning for an empty image.
     babylon::ui::ImageId registerPngImage(const babylon::image::Image& image);
 
-    // Loads <basePath>Data/ui/<relativePath> through the file system and registers it. relativePath
-    // uses '/' and must be relative. A missing or invalid file logs one warning and returns 0.
+    // Loads <basePath>Data/ui/<relativePath> through the file system and registers it. pixelHeight
+    // is the size in canvas units; the atlas is baked at pixelHeight * (back-buffer height / 480)
+    // physical pixels and drawn at pixelHeight canvas units, so re-registering after a resize keeps
+    // it crisp. relativePath uses '/' and must be relative. A missing or invalid file logs one
+    // warning and returns 0.
     babylon::ui::FontId registerTtfFontFile(babylon::files::FileSystem& files,
         std::string_view relativePath, float pixelHeight);
     babylon::ui::ImageId registerPngImageFile(babylon::files::FileSystem& files,
@@ -118,6 +121,10 @@ private:
         std::optional<babylon::font::Font> trueType;
         std::vector<char32_t> codepoints;
         std::vector<babylon::font::Glyph> glyphs;
+        // Size in canvas units, and the atlas pixels per canvas unit, so the
+        // TTF path can convert the baked pixel metrics back to canvas units.
+        float bakePixelHeight = 0.0f;
+        float rasterScale     = 1.0f;
         float ascent          = 0.0f;
         float descent         = 0.0f;
         float lineGap         = 0.0f;
@@ -126,6 +133,8 @@ private:
 
     static std::optional<std::vector<std::byte>> loadUiFile(
         babylon::files::FileSystem& files, std::string_view relativePath);
+    babylon::ui::FontId registerTtfFontScaled(const babylon::font::Font& font,
+        float bakePixelHeight, float rasterScale);
     bool createRgbaMaterial(const std::uint8_t* pRgbaPixels, std::uint32_t width,
         std::uint32_t height, ImageEntry& entry);
     void drawTrueTypeText(const FontEntry& entry, std::string_view text,

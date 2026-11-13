@@ -65,3 +65,64 @@ babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
     skin.backSound   = kJonesUiSoundCueBack;
     return skin;
 }
+
+babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
+    const babylon::ui::Painter* pPainter)
+{
+    babylon::ui::Skin skin;
+
+    // No box behind the main menu: the wallpaper shows through. The panel still lays the rows out,
+    // but a transparent panel and a zero-width border draw nothing.
+    skin.placement   = babylon::ui::PanelPlacement::BottomLeft;
+    skin.panel       = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.panelImage  = 0;
+    skin.panelBorder = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.borderWidth = 0.0f;
+
+    skin.title       = babylon::ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    skin.titleFont   = menuFont;
+
+    // Warm off-white at 90% alpha; the focused row is white and a disabled row fades to 45%. A
+    // black shadow keeps the light labels readable on the light load-screen map.
+    skin.text             = babylon::ui::Color{ 0.92f, 0.88f, 0.80f, 0.90f };
+    skin.textFocused      = babylon::ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    skin.textDisabled     = babylon::ui::Color{ 0.92f, 0.88f, 0.80f, 0.45f };
+    skin.textShadow       = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.85f };
+    skin.textShadowOffset = 1.5f;
+    skin.textFont         = menuFont;
+    skin.rowAlign         = babylon::ui::TextAlign::Left;
+
+    skin.highlight          = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlightUnfocused = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.dim                = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.55f };
+
+    skin.focusMarker   = "\xE2\x80\xA2"; // U+2022 BULLET
+    skin.markerSpacing = 8.0f;
+
+    skin.rowSpacing    = 4.0f;
+    skin.panelPadding  = 0.0f;
+    skin.minPanelWidth = 0.0f;
+    skin.canvasMargin  = 16.0f;
+
+    float lineHeight = 0.0f;
+    if ( pPainter && menuFont != 0 )
+    {
+        lineHeight = pPainter->measureText(menuFont, "").height;
+    }
+
+    if ( lineHeight > 0.0f )
+    {
+        skin.rowHeight   = lineHeight + 8.0f;
+        skin.titleHeight = 0.0f;
+    }
+    else
+    {
+        skin.rowHeight   = 32.0f;
+        skin.titleHeight = 0.0f;
+    }
+
+    skin.focusSound  = kJonesUiSoundCueFocus;
+    skin.acceptSound = kJonesUiSoundCueAccept;
+    skin.backSound   = kJonesUiSoundCueBack;
+    return skin;
+}

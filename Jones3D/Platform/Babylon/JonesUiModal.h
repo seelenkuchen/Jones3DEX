@@ -69,9 +69,14 @@ int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
 // JonesUiModal_Run with an event handler for screens that need more than one step, such as an
 // overwrite prompt opened after a list row is accepted. handler is called for every Ui event
 // before the loop's own action and close handling; nullptr runs exactly like JonesUiModal_Run.
+// resizeHandler, when set, is called after a window resize has been applied to the Ui; a screen
+// that bakes fonts at the window's pixel scale re-registers them here.
+using JonesUiModalResizeHandler = std::function<void(int width, int height)>;
+
 int JonesUiModal_RunHandled(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
     const JonesUiModalEventHandler& handler,
-    const JonesUiModalBackground& background = JonesUiModalBackground{});
+    const JonesUiModalBackground& background = JonesUiModalBackground{},
+    const JonesUiModalResizeHandler& resizeHandler = nullptr);
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIMODAL_H

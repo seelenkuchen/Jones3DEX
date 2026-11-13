@@ -211,7 +211,8 @@ namespace
 
 static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
-    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background)
+    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background,
+    const JonesUiModalResizeHandler& resizeHandler)
 {
     const babylon::ui::ScreenId screenId = ui.push(screen);
     if ( screenId == babylon::ui::kInvalidScreen )
@@ -311,6 +312,10 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
             if ( pResized && (!pWindow || pResized->window == pWindow->id()) )
             {
                 static_cast<void>(ui.setViewport(pResized->size.width, pResized->size.height));
+                if ( resizeHandler )
+                {
+                    resizeHandler(pResized->size.width, pResized->size.height);
+                }
             }
 
             ui.handleEvent(event);
@@ -415,12 +420,14 @@ int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const JonesUiModalBackground& background)
 {
     return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, JonesUiModalEventHandler(),
-        background);
+        background, nullptr);
 }
 
 int JonesUiModal_RunHandled(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
-    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background)
+    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background,
+    const JonesUiModalResizeHandler& resizeHandler)
 {
-    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler, background);
+    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler, background,
+        resizeHandler);
 }

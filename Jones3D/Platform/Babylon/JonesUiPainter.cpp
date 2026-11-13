@@ -196,14 +196,21 @@ babylon::ui::FontId JonesUiPainter::registerFont(rdFont* pFont, float pointSize)
 babylon::ui::FontId JonesUiPainter::registerTtfFont(const babylon::font::Font& font,
     float pixelHeight)
 {
-    if ( !(pixelHeight > 0.0f) || !std::isfinite(pixelHeight) )
+    return registerTtfFontScaled(font, pixelHeight, 1.0f);
+}
+
+babylon::ui::FontId JonesUiPainter::registerTtfFontScaled(const babylon::font::Font& font,
+    float bakePixelHeight, float rasterScale)
+{
+    if ( !(bakePixelHeight > 0.0f) || !std::isfinite(bakePixelHeight)
+        || !(rasterScale > 0.0f) || !std::isfinite(rasterScale) )
     {
         STDLOG_WARNING("JonesUiPainter::registerTtfFont: bad pixel height.\n");
         return 0;
     }
 
     std::vector<char32_t> codepoints;
-    codepoints.reserve(0x7F - 0x20 + 0x100 - 0xA0);
+    codepoints.reserve(0x7F - 0x20 + 0x100 - 0xA0 + 1);
     for ( char32_t codepoint = 0x20; codepoint <= 0x7E; ++codepoint )
     {
         codepoints.push_back(codepoint);
@@ -213,7 +220,10 @@ babylon::ui::FontId JonesUiPainter::registerTtfFont(const babylon::font::Font& f
         codepoints.push_back(codepoint);
     }
 
-    const std::optional<babylon::font::FontAtlas> atlas = font.bake(pixelHeight, codepoints);
+    // The main menu's focus marker.
+    codepoints.push_back(0x2022); // BULLET
+
+    const std::optional<babylon::font::FontAtlas> atlas = font.bake(bakePixelHeight, codepoints);
     if ( !atlas )
     {
         STDLOG_WARNING("JonesUiPainter::registerTtfFont: the font did not bake.\n");
@@ -237,15 +247,17 @@ babylon::ui::FontId JonesUiPainter::registerTtfFont(const babylon::font::Font& f
     }
 
     FontEntry entry;
-    entry.kind       = FontEntry::Kind::TrueType;
-    entry.trueType   = font;
-    entry.pointSize  = pixelHeight;
-    entry.codepoints = std::move(codepoints);
-    entry.glyphs     = atlas->glyphs;
-    entry.ascent     = atlas->ascent;
-    entry.descent    = atlas->descent;
-    entry.lineGap    = atlas->lineGap;
-    entry.atlas      = atlasEntry;
+    entry.kind            = FontEntry::Kind::TrueType;
+    entry.trueType        = font;
+    entry.pointSize       = bakePixelHeight / rasterScale;
+    entry.bakePixelHeight = bakePixelHeight;
+    entry.rasterScale     = rasterScale;
+    entry.codepoints      = std::move(codepoints);
+    entry.glyphs          = atlas->glyphs;
+    entry.ascent          = atlas->ascent;
+    entry.descent         = atlas->descent;
+    entry.lineGap         = atlas->lineGap;
+    entry.atlas           = atlasEntry;
     m_fonts.push_back(std::move(entry));
     return (babylon::ui::FontId)m_fonts.size();
 }
@@ -287,7 +299,17 @@ babylon::ui::FontId JonesUiPainter::registerTtfFontFile(babylon::files::FileSyst
         return 0;
     }
 
-    return registerTtfFont(*font, pixelHeight);
+    // pixelHeight is in canvas units. Bake at the physical pixel height so the
+    // glyphs stay crisp at the window's current size; the draw path divides
+    // the atlas metrics by the same scale to keep the canvas size.
+    float scale       = 1.0f;
+    float canvasWidth = 0.0f;
+    if ( !getCanvasMetrics(canvasWidth, scale) || !(scale > 0.0f) )
+    {
+        scale = 1.0f;
+    }
+
+    return registerTtfFontScaled(*font, pixelHeight * scale, scale);
 }
 
 babylon::ui::ImageId JonesUiPainter::registerPngImageFile(babylon::files::FileSystem& files,
@@ -827,7 +849,9 @@ void JonesUiPainter::drawTrueTypeText(const FontEntry& entry, std::string_view t
         return;
     }
 
-    float lineHeight = entry.ascent - entry.descent + entry.lineGap;
+    // The atlas holds physical pixels; the painter draws in canvas units.
+    const float invScale = 1.0f / entry.rasterScale;
+    float lineHeight = (entry.ascent - entry.descent + entry.lineGap) * invScale;
     if ( !(lineHeight > 0.0f) )
     {
         lineHeight = entry.pointSize;
@@ -847,12 +871,12 @@ void JonesUiPainter::drawTrueTypeText(const FontEntry& entry, std::string_view t
         if ( index > 0 )
         {
             drawnWidth += entry.trueType->kerning(codepoints[index - 1],
-                codepoints[index], entry.pointSize);
+                codepoints[index], entry.bakePixelHeight) * invScale;
         }
         if ( const babylon::font::Glyph* pGlyph =
             findGlyph(entry.codepoints, entry.glyphs, codepoints[index]) )
         {
-            drawnWidth += pGlyph->advance;
+            drawnWidth += pGlyph->advance * invScale;
         }
     }
 
@@ -869,13 +893,13 @@ void JonesUiPainter::drawTrueTypeText(const FontEntry& entry, std::string_view t
 
     const float atlasWidth  = (float)entry.atlas.pMaterial->width;
     const float atlasHeight = (float)entry.atlas.pMaterial->height;
-    const float baseline    = lineTop + entry.ascent;
+    const float baseline    = lineTop + entry.ascent * invScale;
     for ( std::size_t index = 0; index < codepoints.size(); ++index )
     {
         if ( index > 0 )
         {
             penX += entry.trueType->kerning(codepoints[index - 1],
-                codepoints[index], entry.pointSize);
+                codepoints[index], entry.bakePixelHeight) * invScale;
         }
 
         const babylon::font::Glyph* pGlyph =
@@ -887,29 +911,33 @@ void JonesUiPainter::drawTrueTypeText(const FontEntry& entry, std::string_view t
 
         if ( pGlyph->width > 0 && pGlyph->height > 0 )
         {
-            const babylon::ui::Rect destination = { penX + pGlyph->offsetX,
-                baseline + pGlyph->offsetY, (float)pGlyph->width, (float)pGlyph->height };
+            const babylon::ui::Rect destination = { penX + pGlyph->offsetX * invScale,
+                baseline + pGlyph->offsetY * invScale,
+                (float)pGlyph->width * invScale, (float)pGlyph->height * invScale };
             const babylon::ui::Rect clipped = intersect(destination, visible);
             if ( !isEmpty(clipped) )
             {
-                const float u0 = ((float)pGlyph->x + (clipped.x - destination.x)) / atlasWidth;
-                const float v0 = ((float)pGlyph->y + (clipped.y - destination.y)) / atlasHeight;
-                const float u1 = u0 + clipped.width / atlasWidth;
-                const float v1 = v0 + clipped.height / atlasHeight;
+                const float u0 = ((float)pGlyph->x
+                    + (clipped.x - destination.x) * entry.rasterScale) / atlasWidth;
+                const float v0 = ((float)pGlyph->y
+                    + (clipped.y - destination.y) * entry.rasterScale) / atlasHeight;
+                const float u1 = u0 + clipped.width * entry.rasterScale / atlasWidth;
+                const float v1 = v0 + clipped.height * entry.rasterScale / atlasHeight;
                 drawQuad(clipped, entry.atlas.pMaterial, entry.atlas.celNum,
                     u0, v0, u1, v1, color);
             }
         }
 
-        penX += pGlyph->advance;
+        penX += pGlyph->advance * invScale;
     }
 }
 
 babylon::ui::Size JonesUiPainter::measureTrueTypeText(const FontEntry& entry,
     std::string_view text) const
 {
+    const float invScale = 1.0f / entry.rasterScale;
     babylon::ui::Size size;
-    float lineHeight = entry.ascent - entry.descent + entry.lineGap;
+    float lineHeight = (entry.ascent - entry.descent + entry.lineGap) * invScale;
     if ( !(lineHeight > 0.0f) )
     {
         lineHeight = entry.pointSize;
@@ -928,12 +956,12 @@ babylon::ui::Size JonesUiPainter::measureTrueTypeText(const FontEntry& entry,
         if ( index > 0 )
         {
             size.width += entry.trueType->kerning(codepoints[index - 1],
-                codepoints[index], entry.pointSize);
+                codepoints[index], entry.bakePixelHeight) * invScale;
         }
         if ( const babylon::font::Glyph* pGlyph =
             findGlyph(entry.codepoints, entry.glyphs, codepoints[index]) )
         {
-            size.width += pGlyph->advance;
+            size.width += pGlyph->advance * invScale;
         }
     }
 
