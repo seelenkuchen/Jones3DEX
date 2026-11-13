@@ -23,6 +23,10 @@
   - Inventory and HUD fixes from OpenJones3D: the inventory theme stops before gameplay sound resumes instead of
     restarting after the menu closes, held menu keys keep repeating, backpacks keep their item amounts, level
     times above 255 hours are kept, and a failed quick load no longer leaves saving disabled.
+  - Simulation fixes from OpenJones3D: COG functions push their documented results on every path and
+    `SetThingStateChange` takes its arguments in the retail order (thing, type, param); AI listening, turning,
+    firing and mine-car steering, savegame and multiplayer state messages, effects, the overlay map, actors,
+    items, weapons and explosions match the original or have its bugs fixed.
 
 ### M7: Playable
   - Sound plays in the windowed Babylon build through miniaudio, including cutscene sound, and the Sound
