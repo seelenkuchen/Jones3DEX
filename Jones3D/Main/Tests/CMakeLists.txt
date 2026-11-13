@@ -46,7 +46,7 @@ set_tests_properties(Jones3D.Capture PROPERTIES
 # tests only call the pure lookup function, so no platform is started. It ran in the Windows
 # jones3dTests of the DirectX 9 Jones3D.exe until that went (ADR-0011); the capture cases that
 # executable also ran are Jones3D.Capture above.
-file(GLOB JONES3D_MAIN_TEST_PLATFORM_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../../Platform/Null/*.c")
+file(GLOB JONES3D_MAIN_TEST_PLATFORM_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../../Platform/Null/*.c")
 list(FILTER JONES3D_MAIN_TEST_PLATFORM_SOURCES EXCLUDE REGEX "/Platform/Null/main\\.c$")
 
 if (J3D_PLATFORM_BABYLON)

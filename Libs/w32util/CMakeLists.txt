@@ -1,7 +1,7 @@
 project(w32util C)
 
-file(GLOB_RECURSE SOURCES *.c)
-file(GLOB_RECURSE HEADERS *.h)
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS *.c)
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS *.h)
 
 # Altered: only the wuRegistryNull.c stub is left; the Win32 registry version (wuRegistry.c) went
 # with the DirectX game (ADR-0011).

@@ -1,7 +1,7 @@
 project(wkernel C)
 
-file(GLOB_RECURSE SOURCES *.c)
-file(GLOB_RECURSE HEADERS *.h)
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS *.c)
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS *.h)
 
 # Added: The Null platform has no Windows kernel services, so only the wkernelNull.c stub
 # is compiled (the Win32 wkernel.c went with the DirectX game, ADR-0011).
@@ -11,7 +11,7 @@ if(J3D_PLATFORM_BABYLON)
     enable_language(CXX)
     add_library(${PROJECT_NAME} STATIC wkernelBabylon.cpp ${HEADERS})
 else()
-    file(GLOB NULL_SOURCES *Null.c)
+    file(GLOB NULL_SOURCES CONFIGURE_DEPENDS *Null.c)
     add_library(${PROJECT_NAME} STATIC ${NULL_SOURCES} ${HEADERS})
 endif()
 
