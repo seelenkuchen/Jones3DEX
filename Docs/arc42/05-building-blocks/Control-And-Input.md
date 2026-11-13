@@ -2,10 +2,10 @@
 
 This page documents how raw keyboard, mouse, and joystick state becomes gameplay intent inside Jones3D.
 
-Planned: the gamepad becomes always on and `controls.controller` goes away
-([ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)); a Modern control style
-adds camera-relative movement, a free camera, quick-step, target lock and quick-select as an Enhanced option
-([ADR-0029](../09-decisions/ADR-0029-modern-controls.md)).
+The gamepad is always on: a connected pad works alongside the keyboard and mouse, and
+`controls.controller` is ignored and dropped ([ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)).
+A Modern control style adds camera-relative movement, a free camera, quick-step, target lock and
+quick-select as an Enhanced option ([ADR-0029](../09-decisions/ADR-0029-modern-controls.md)).
 
 The input architecture is intentionally layered:
 
@@ -264,7 +264,36 @@ action loop ends there. Each extras line is `"<action>" "<control>"`, where the 
 `MOUSE1`..`MOUSE4`, `Z-`/`Z+` (the left trigger), or `RX-`/`RX+`/`RY-`/`RY+`.
 
 The original default scheme differs from the engine defaults in three ways: activate moves off the
-grave key, `I` opens the HUD menu, and joystick binds are dropped while `controls.controller` is false.
+grave key, `I` opens the HUD menu, and pad bindings are part of the scheme rather than an option.
+Joystick bindings are always applied; the binder no longer removes them when `controls.controller`
+is false, and `JonesControl_Startup` drops that key from the config.
+
+There are four built-in defaults now: the three original schemes and `JONES_STR_DFLTPAD`
+("Keyboard and gamepad"), which a new install uses when `controls.configFile` names no active
+scheme. A remembered active scheme stays as it is. The new scheme keeps the first default's
+keyboard bindings and adds this pad layout inside the classic movement model; Start stays unbound
+because the pause menu reads it directly. The triggers use the original Z and RZ axis ids: LT is
+`Z+` (`JONESCONFIG_JOYAXISKID_GROUND`) and RT is `RZ+` (`JONESCONFIG_JOYAXISKID_TWISTR`).
+
+| Pad | Action |
+|---|---|
+| Left stick | Walk forward/back, turn left/right |
+| A (South) | Jump |
+| X (West) | Activate (grab, pull, push, open; fires with a weapon drawn) |
+| RT | Activate as well (fire) |
+| B (East) | Roll |
+| Y (North) | Toggle weapon |
+| LB / RB | Step left / step right |
+| LT (hold) | Run |
+| L3 | Crawl |
+| R3 | Look |
+| D-pad up / down | Toggle light / Health |
+| D-pad left / right | Previous / next weapon |
+| Back (View) | Interface (inventory) |
+
+A gamepad connected or removed while the game runs is picked up at the next control update: the
+adapter's joystick change counter makes `JonesControl_ProcessControls` register the new axes and
+rebind the active scheme, and a disconnect unbinds the pad while the keyboard bindings stay.
 
 ## Menu And Pause Keys
 

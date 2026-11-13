@@ -30,6 +30,9 @@
   - Gamepads, mouse motion and the mouse wheel work in the Babylon column, and text input fills save names and
     the other text fields. The windowed build loads the player's control scheme from `controls.configFile` and
     binds it; headless runs keep the engine's default bindings.
+  - A connected gamepad is always on and works together with the keyboard and mouse. New installs get a
+    default keyboard-and-gamepad scheme, the Controls screen has no controller toggle, and the old
+    `controls.controller` key is ignored and removed on the next save.
   - In-game menus replace the Win32 dialogs. A main menu at startup (New Game, Load, Settings, Quit) replaces
     the launcher: `startMode` 5 opens it, the windowed build also opens it for a missing value or 2, and values
     1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause

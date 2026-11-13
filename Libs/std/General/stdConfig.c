@@ -61,7 +61,6 @@ void stdConfig_InitRegKeyMappings(void)
     stdConfig_AddRegKeyMapping("gameplay.defaultRun", "Default Run");
     stdConfig_AddRegKeyMapping("controls.configFile", "Configuration");
     stdConfig_AddRegKeyMapping("controls.mouse", "Mouse Control");
-    stdConfig_AddRegKeyMapping("controls.controller", "Joystick Control");
     stdConfig_AddRegKeyMapping("gameplay.showText", "Show Text");
     stdConfig_AddRegKeyMapping("gameplay.showHints", "Show Hints");
     stdConfig_AddRegKeyMapping("gameplay.mapRotation", "Map Rotation");
@@ -215,6 +214,14 @@ bool stdConfig_Contains(const char* pKey)
     STD_ASSERT(pKey);
 
     return stdJSON_HasKey(stdConfig_hJson, pKey);
+}
+
+bool J3DAPI stdConfig_Remove(const char* pKey)
+{
+    STD_ASSERT(stdConfig_bStarted);
+    STD_ASSERT(stdConfig_hJson);
+    STD_ASSERTREL(pKey);
+    return stdJSON_Delete(stdConfig_hJson, pKey);
 }
 
 bool J3DAPI stdConfig_SetBool(const char* pKey, bool value)

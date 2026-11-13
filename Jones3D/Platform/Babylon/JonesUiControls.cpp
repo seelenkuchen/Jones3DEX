@@ -2,14 +2,14 @@
 //
 // Original behavior, from the dialogs in
 // (git show 82b8f607^:Jones3D/Platform/Win32/jonesConfig.c):
-// - jonesConfig_ShowControlOptions (line 4787) loads the three built-in schemes and every .kfg in
+// - jonesConfig_ShowControlOptions (line 4787) loads the built-in schemes and every .kfg in
 //   the key-sets directory, works on a copy, and returns 1 on OK and 2 on cancel or when the load
 //   fails. On OK it writes controls.configFile, binds the selected scheme and applies controls.mouse
 //   (line 4803-4829).
 // - The main dialog's OK (line 5091) removes the schemes queued for deletion, writes every modified
-//   custom scheme from index 3 on (the default schemes are never written), stores controls.mouse and
-//   controls.controller, and, when controller support is on, enables the joystick axes and binds the
-//   active scheme; otherwise it unbinds the joystick axes.
+//   custom scheme past the built-in defaults (the default schemes are never written), stores controls.mouse and
+//   binds the active scheme. The gamepad is always on, so a connected pad's bindings are always
+//   applied and the joystick axes stay enabled.
 // - The New dialog (line 5713-5808) limits the name to 60 characters and rejects an empty name
 //   (JONES_STR_NO_SCHEME), the characters /:\"?<>*|+ (JONES_STR_INVALIDFILE) and a duplicate name
 //   (JONES_STR_DUP_SCHEME). A new scheme starts as a copy of default scheme 0 and is inserted among
@@ -78,9 +78,8 @@ namespace
     constexpr std::size_t kJonesMainNew        = 1;
     constexpr std::size_t kJonesMainDelete     = 2;
     constexpr std::size_t kJonesMainMouse      = 3;
-    constexpr std::size_t kJonesMainController = 4;
-    constexpr std::size_t kJonesMainEdit       = 5;
-    constexpr std::size_t kJonesMainReset      = 6;
+    constexpr std::size_t kJonesMainEdit       = 4;
+    constexpr std::size_t kJonesMainReset      = 5;
 
     // Widget indices of the Edit screen and the assignment screen.
     constexpr std::size_t kJonesEditList = 0;
@@ -97,7 +96,6 @@ namespace
     constexpr const char* kJonesControlsNewText        = "New";               // TODO: [COMPAT]
     constexpr const char* kJonesControlsDeleteText     = "Delete";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsMouseText      = "Mouse";             // TODO: [COMPAT]
-    constexpr const char* kJonesControlsControllerText = "Controller";        // TODO: [COMPAT]
     constexpr const char* kJonesControlsResetText      = "Reset to defaults"; // TODO: [COMPAT]
     constexpr const char* kJonesControlsNameText       = "Name";              // TODO: [COMPAT]
     constexpr const char* kJonesControlsAddText        = "Add binding";       // TODO: [COMPAT]
@@ -177,11 +175,10 @@ namespace
         return pName ? std::string(pName) : std::string();
     }
 
-    // The default scheme for the connected pad, as the original chose it: the 8-button pad scheme
-    // when a pad is present, the keyboard scheme otherwise.
+    // Added: the keyboard-and-gamepad scheme is the default for new installs.
     std::size_t JonesUiControls_DefaultSchemeIndex(void)
     {
-        return stdControl_GetNumJoysticks() ? 2u : 0u;
+        return 3u;
     }
 
     bool FindBinding(const JonesControlsScheme& scheme, std::size_t controlId,
@@ -292,7 +289,7 @@ namespace
     }
 
     babylon::ui::Screen BuildMainScreen(const JonesControlsConfig& config, std::size_t selected,
-        bool bMouse, bool bController)
+        bool bMouse)
     {
         babylon::ui::Screen screen;
         screen.title = ResolveLabel("JONES_STR_CTRL_OPTS", kJonesControlsFallbackTitle);
@@ -306,8 +303,6 @@ namespace
             kJonesControlsDeleteText, kJonesControlsActionDelete, bCustom });
         screen.widgets.emplace_back(babylon::ui::Toggle{
             kJonesControlsMouseText, std::string(), true, bMouse });
-        screen.widgets.emplace_back(babylon::ui::Toggle{
-            kJonesControlsControllerText, std::string(), true, bController });
         screen.widgets.emplace_back(EditButton(config, selected));
         screen.widgets.emplace_back(babylon::ui::Button{
             kJonesControlsResetText, kJonesControlsActionReset, bCustom });
@@ -353,7 +348,7 @@ namespace
     }
 
     // The selection the main screen opens with: the caller's index, else the scheme named by
-    // controls.configFile, else the default scheme for the connected pad (original line 4952-4983).
+    // controls.configFile, else the keyboard-and-gamepad default (original line 4952-4983).
     std::size_t InitialSelection(const JonesControlsConfig& config)
     {
         if ( config.selectedShemeIdx >= 0
@@ -1038,9 +1033,8 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
     working.selectedShemeIdx = (int)selected;
 
     bool bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
-    bool bController = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false);
 
-    const babylon::ui::Screen screen = BuildMainScreen(working, selected, bMouse, bController);
+    const babylon::ui::Screen screen = BuildMainScreen(working, selected, bMouse);
     std::vector<std::string> deleteFiles;
     bool bApply = false;
 
@@ -1138,7 +1132,6 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
                 // Read the unbound toggles while the screen is still open; the modal loop then pops
                 // it with this action's value.
                 static_cast<void>(ReadToggle(uiRef, screenId, kJonesMainMouse, bMouse));
-                static_cast<void>(ReadToggle(uiRef, screenId, kJonesMainController, bController));
                 bApply = true;
                 return false;
             }
@@ -1177,19 +1170,10 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
     }
 
     static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, bMouse));
-    static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, bController));
 
-    if ( bController )
-    {
-        JonesControl_EnableJoystickAxes();
-    }
+    JonesControl_EnableJoystickAxes();
 
     static_cast<void>(JonesControlSchemes_SetActiveScheme(&working.aSchemes[selected]));
-
-    if ( !bController )
-    {
-        sithControl_UnbindJoystickAxes();
-    }
 
     // Adopt the applied list; the caller's old arrays are released and the working copy moved.
     jonesConfig_FreeControlConfigEntry(&config);
@@ -1238,7 +1222,7 @@ void JonesUiControls_AppendScreensForTest(std::vector<babylon::ui::Screen>& scre
     JonesControlsScheme scheme{};
     const JonesControlActions action = (JonesControlActions)0;
 
-    screens.push_back(BuildMainScreen(config, 0, false, false));
+    screens.push_back(BuildMainScreen(config, 0, false));
     screens.push_back(BuildEditScreen(scheme, true));
     screens.push_back(BuildAssignScreen(scheme, action, true));
     screens.push_back(BuildNameScreen());

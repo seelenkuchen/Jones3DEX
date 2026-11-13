@@ -30,6 +30,10 @@ static int stdControl_aKeyPressed[STDCONTROL_MAX_KEYID]     = { 0 };
 static uint32_t stdControl_curReadTime    = 0;
 static uint32_t stdControl_lastReadTime   = 0;
 static uint32_t stdControl_readDeltaTime  = 0;
+// Added: the connected-joystick count the platform adapter last reported and how often it changed.
+static unsigned int stdControl_joystickChangeCount = 0;
+static size_t stdControl_observedJoystickCount     = 0;
+static bool stdControl_bObservedJoystickCount      = false;
 // Added: The read-rate globals stdControlDX9.c carries under the old sithControl_ names.
 static float sithControl_secFPS           = 0.0f;
 static float sithControl_msecFPS          = 0.0f;
@@ -70,6 +74,11 @@ int J3DAPI stdControl_Startup(int bKeyboardForeground)
     memset(stdControl_aKeyPressed, 0, sizeof(stdControl_aKeyPressed));
     memset(stdControl_aAxes, 0, sizeof(stdControl_aAxes));
     memset(stdControl_aAxisStates, 0, sizeof(stdControl_aAxisStates));
+
+    // Added: a new control session starts from a clean hot-plug baseline.
+    stdControl_joystickChangeCount    = 0;
+    stdControl_observedJoystickCount  = 0;
+    stdControl_bObservedJoystickCount = false;
 
 #ifdef STDCONTROL_BABYLON_DEVICES
     // Added: the Babylon column registers the mouse axes at startup, like stdControlDX9.c's
@@ -581,6 +590,29 @@ int J3DAPI stdControl_IsGamePad(int joyNum)
     return 0;
 }
 #endif
+
+// Added: the platform adapter's joystick-count observation. The first count after startup is the
+// baseline; every later difference is one hot-plug change the game can act on.
+void stdControl_ObserveJoystickCount(size_t numJoysticks)
+{
+    if ( !stdControl_bObservedJoystickCount )
+    {
+        stdControl_observedJoystickCount  = numJoysticks;
+        stdControl_bObservedJoystickCount = true;
+        return;
+    }
+
+    if ( stdControl_observedJoystickCount != numJoysticks )
+    {
+        stdControl_observedJoystickCount = numJoysticks;
+        ++stdControl_joystickChangeCount;
+    }
+}
+
+unsigned int J3DAPI stdControl_GetJoystickChangeCount(void)
+{
+    return stdControl_joystickChangeCount;
+}
 
 // Added: writes one axis's raw state; stdControlDX9.c's device reads wrote the array directly.
 void stdControl_SetAxisState(size_t aid, int value)

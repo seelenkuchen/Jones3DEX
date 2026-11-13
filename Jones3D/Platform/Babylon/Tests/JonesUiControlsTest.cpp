@@ -635,7 +635,7 @@ TEST_CASE("editing an action writes the exact file and rebinds on OK")
     ui::Ui ui(painter, testContext.cvars);
 
     // Main: scheme choice -> Edit.
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
     // Edit: pick the Jump row.
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
@@ -691,7 +691,7 @@ TEST_CASE("capturing the right stick and a trigger writes the EXTRAS controls")
     ui::Ui ui(painter, testContext.cvars);
 
     // Main -> Edit -> the Jump row.
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -773,7 +773,7 @@ TEST_CASE("Cancel keeps the scheme file and the active bindings")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -811,7 +811,7 @@ TEST_CASE("a control bound to another action is moved on Yes")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -864,7 +864,7 @@ TEST_CASE("answering No to the reassign prompt leaves the scheme unchanged")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, JONESCONTROL_ACTION_JUMP);
     testContext.platform.PushKey(platform::Key::Enter);
@@ -893,9 +893,8 @@ TEST_CASE("the New flow creates a custom scheme and its name rules hold")
 
     JonesControlsConfig config;
     REQUIRE(LoadConfig(config));
-    REQUIRE(config.numSchemes == 3);
-    // The default-selection path enumerates gamepads, which pumps the platform queue; pin the
-    // choice so the first scripted Down reaches the screen.
+    REQUIRE(config.numSchemes == 4);
+    // Pin the choice so the first scripted Down reaches the screen.
     config.selectedShemeIdx = 0;
 
     ui::NullPainter painter;
@@ -919,7 +918,7 @@ TEST_CASE("the New flow creates a custom scheme and its name rules hold")
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Tab);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 6);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 5);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -949,10 +948,10 @@ TEST_CASE("deleting a custom scheme removes its file only on OK")
     ui::Ui ui(painter, testContext.cvars);
 
     // Choice -> Delete -> the now-disabled Delete moves focus to Mouse. With the remaining
-    // selection a built-in default, Reset is disabled too, so three Down presses reach OK.
+    // selection a built-in default, Reset is disabled too, so two Down presses reach OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 2);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 2);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -986,7 +985,7 @@ TEST_CASE("cancelling after a delete keeps the file")
     CHECK(std::filesystem::exists(testContext.SchemePath("ui-delete")));
 }
 
-TEST_CASE("the mouse and controller toggles write their Jones.cfg keys")
+TEST_CASE("the mouse toggle writes its Jones.cfg key and the controller key is untouched")
 {
     ControlsTestContext testContext;
     testContext.WriteSchemeFile("ui-seed", HandWrittenScheme());
@@ -998,13 +997,14 @@ TEST_CASE("the mouse and controller toggles write their Jones.cfg keys")
     config.selectedShemeIdx = (int)seedIndex;
     testContext.StartControls();
 
+    // A stale controller key in the file must not be read or rewritten by the screen.
+    REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, true));
+
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Choice -> Mouse on, Controller on, then OK.
+    // Choice -> Mouse, turn it on, then Mouse -> Edit -> Reset -> OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
     testContext.platform.PushKey(platform::Key::Enter);

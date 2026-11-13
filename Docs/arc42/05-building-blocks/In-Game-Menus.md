@@ -5,7 +5,9 @@ including the Controls screen. The Null column keeps all of its default-returnin
 
 Planned (M7.6, [ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)): a modern
 style with a new main menu, one tabbed Options screen in place of the separate settings screens, a restyled
-pause menu, the Cinzel and Jost menu fonts and button prompts. The tables below describe the M7 state.
+pause menu, the Cinzel and Jost menu fonts and button prompts. The gamepad is always on: a connected pad
+works alongside the keyboard and mouse, and the Controls screen has no controller toggle. The tables below
+describe the M7 state.
 
 ## Layers
 
@@ -26,7 +28,7 @@ pause menu, the Cinzel and Jost menu fonts and button prompts. The tables below 
 | Save, Load | Pause menu, HUD menu, main menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level display name and date; the thumbnail row is hidden when a save has none; the default save name uses the level display name; overwrite and load warnings |
 | Exit | Pause menu, HUD menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
 | Gameplay settings | Settings | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the enhancements that are runtime keys |
-| Controls | Settings | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, reset to defaults; writes `controls.configFile` and applies the active scheme on OK |
+| Controls | Settings | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, reset to defaults; writes `controls.configFile` and applies the active scheme on OK. The gamepad is always on, so there is no controller toggle |
 | Display | Settings | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in) |
 | Sound | Settings | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
 | Statistics | Pause menu, HUD menu | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | |
@@ -35,6 +37,30 @@ pause menu, the Cinzel and Jost menu fonts and button prompts. The tables below 
 | Message | Errors and notices | [`JonesUiModalMessage.cpp`](../../../Jones3D/Platform/Babylon/JonesUiModalMessage.cpp) | Native message box only when rendering failed at startup |
 
 Dropped: Insert CD (all data is installed; a missing file gets a message screen naming it).
+
+## Default keyboard and gamepad scheme
+
+New installs use the `JONES_STR_DFLTPAD` ("Keyboard and gamepad") default scheme when
+`controls.configFile` names no active scheme; a remembered active scheme stays as it is. It keeps
+the first default's keyboard bindings and adds this pad layout inside the classic movement model.
+Start stays unbound because the pause menu reads it directly. See
+[Control-And-Input.md](Control-And-Input.md#control-scheme-files) for the scheme format.
+
+| Pad | Action |
+|---|---|
+| Left stick | Walk forward/back, turn left/right |
+| A (South) | Jump |
+| X (West) | Activate (grab, pull, push, open; fires with a weapon drawn) |
+| RT | Activate as well (fire) |
+| B (East) | Roll |
+| Y (North) | Toggle weapon |
+| LB / RB | Step left / step right |
+| LT (hold) | Run |
+| L3 | Crawl |
+| R3 | Look |
+| D-pad up / down | Toggle light / Health |
+| D-pad left / right | Previous / next weapon |
+| Back (View) | Interface (inventory) |
 
 ## Rules
 

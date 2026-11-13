@@ -44,7 +44,7 @@ bool JonesUiControls_MapBinding(const babylon::ui::Binding& binding, std::size_t
 
 // Runs the main Controls screen through ui. config is the loaded scheme list; the runner works on a
 // copy. On OK it deletes the schemes marked for removal, writes every modified custom scheme, writes
-// controls.mouse and controls.controller, makes the selected scheme active and rebinds; config then
+// controls.mouse, makes the selected scheme active and rebinds; config then
 // holds the applied list. On back it returns 2 and leaves config, the files and the bindings alone.
 // pPainter may be null, which runs the screen without drawing.
 int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,

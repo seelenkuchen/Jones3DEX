@@ -69,7 +69,7 @@ const char* J3DAPI JonesControlSchemes_GetDirectory(void);
 // trigger axes) instead of the original action lines.
 int J3DAPI JonesControlSchemes_IsExtraControl(size_t controlId);
 
-// Number of built-in default schemes (the original three).
+// Number of built-in default schemes: the original three plus the keyboard-and-gamepad default.
 size_t J3DAPI JonesControlSchemes_GetNumDefaultSchemes(void);
 
 // Name of a built-in default scheme, resolved through the string table with the JONES_STR_ key as
@@ -95,7 +95,7 @@ int J3DAPI JonesControlSchemes_CreateScheme(const char* pName, JonesControlsSche
 // Writes controls.configFile and binds the scheme. Returns 1 on success.
 int J3DAPI JonesControlSchemes_SetActiveScheme(const JonesControlsScheme* pScheme);
 
-// Loads the three defaults, then every .kfg in the key-sets directory. On success pConfig owns
+// Loads the defaults, then every .kfg in the key-sets directory. On success pConfig owns
 // memory that jonesConfig_FreeControlConfigEntry releases.
 int J3DAPI JonesControlSchemes_LoadAllSchemes(JonesControlsConfig* pConfig);
 

@@ -30,5 +30,11 @@ bool stdControl_QueueKeyEvent(int keyId, int bPressed);
 // axis ids are ignored; the value is whatever the backend measured (the caller clamps).
 void stdControl_SetAxisState(size_t aid, int value);
 
+// Added: reports the connected gamepad count observed by the platform adapter. The shared std
+// layer raises stdControl_GetJoystickChangeCount() when it differs from the previous observation;
+// the first observation after startup only establishes the baseline. The Null column never calls
+// it, so its change count stays 0.
+void stdControl_ObserveJoystickCount(size_t numJoysticks);
+
 J3D_EXTERN_C_END
 #endif // STD_STDCONTROLNULL_H
