@@ -9,6 +9,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
+#include <Jones3D/Platform/Babylon/JonesUiOptions.h>
 
 #include <sith/Dss/sithGamesave.h>
 #include <sith/Dss/sithGamesaveSys.h>
@@ -34,14 +35,6 @@ namespace
     // Resume and Back both close; the wrapper always answers the closed value.
     constexpr babylon::ui::ResultCode kJonesPauseClosed = 1;
 
-    constexpr babylon::ui::ActionId kJonesSettingsGamePlay = 11;
-    constexpr babylon::ui::ActionId kJonesSettingsControls = 12;
-    constexpr babylon::ui::ActionId kJonesSettingsDisplay  = 13;
-    constexpr babylon::ui::ActionId kJonesSettingsSound    = 14;
-    constexpr babylon::ui::ActionId kJonesSettingsBack     = 15;
-
-    constexpr babylon::ui::ResultCode kJonesSettingsClosed = 15;
-
     constexpr int kJonesDialogCancel = 2;
 }
 
@@ -58,35 +51,13 @@ babylon::ui::Screen JonesUiPauseMenu_BuildScreen(void)
     screen.widgets.emplace_back(babylon::ui::Button{
         JonesUiContext_ResolveString("JONES_STR_INV_LOAD"), kJonesPauseLoad, true });
     screen.widgets.emplace_back(babylon::ui::Button{
-        "Settings", kJonesPauseSettings, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
+        "OPTIONS", kJonesPauseSettings, true }); // TODO: [COMPAT] JONES_STR_SETTINGS is a format
     screen.widgets.emplace_back(babylon::ui::Button{
         JonesUiContext_ResolveString("JONES_STR_INV_STATS"), kJonesPauseStatistics, true });
     screen.widgets.emplace_back(babylon::ui::Button{
         JonesUiContext_ResolveString("JONES_STR_INV_EXIT"), kJonesPauseExit, true });
 
     screen.backResult   = kJonesPauseClosed;
-    screen.initialFocus = 0;
-    return screen;
-}
-
-babylon::ui::Screen JonesUiPauseMenu_BuildSettingsScreen(void)
-{
-    babylon::ui::Screen screen;
-    // JONES_STR_SETTINGS is "Settings for %s", a format string with no plain title.
-    screen.title = "Settings"; // TODO: [COMPAT] no game key holds a plain "Settings"
-
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_GMPLY_OPTS"), kJonesSettingsGamePlay, true });
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_CTRL_OPTS"), kJonesSettingsControls, true });
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_DPLY_OPTS"), kJonesSettingsDisplay, true });
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_SND_OPTS"), kJonesSettingsSound, true });
-    screen.widgets.emplace_back(babylon::ui::Button{
-        JonesUiContext_ResolveString("JONES_STR_CANCEL"), kJonesSettingsBack, true });
-
-    screen.backResult   = kJonesSettingsClosed;
     screen.initialFocus = 0;
     return screen;
 }
@@ -125,49 +96,9 @@ int JonesUiPauseMenu_RunPauseMenu(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
                 return true;
 
             case kJonesPauseSettings:
-            {
-                const babylon::ui::Screen settings = JonesUiPauseMenu_BuildSettingsScreen();
-                JonesUiModalEventHandler settingsHandler = [](babylon::ui::Ui& settingsUi,
-                    babylon::ui::ScreenId settingsId, const babylon::ui::UiEvent& settingsEvent) -> bool
-                {
-                    const babylon::ui::ActionPressed* pSettingsAction =
-                        std::get_if<babylon::ui::ActionPressed>(&settingsEvent);
-                    if ( !pSettingsAction || pSettingsAction->screen != settingsId )
-                    {
-                        return false;
-                    }
-
-                    switch ( pSettingsAction->action )
-                    {
-                        case kJonesSettingsGamePlay:
-                            static_cast<void>(JonesHud_ShowGamePlaySettings());
-                            return true;
-
-                        case kJonesSettingsControls:
-                            static_cast<void>(JonesHud_ShowControlSettings());
-                            return true;
-
-                        case kJonesSettingsDisplay:
-                            static_cast<void>(JonesHud_ShowDisplaySettings());
-                            return true;
-
-                        case kJonesSettingsSound:
-                            static_cast<void>(JonesHud_ShowSoundSettings());
-                            return true;
-
-                        case kJonesSettingsBack:
-                            static_cast<void>(settingsUi.pop(kJonesSettingsClosed));
-                            return true;
-
-                        default:
-                            return false;
-                    }
-                };
-
-                static_cast<void>(JonesUiModal_RunHandled(uiRef, pPainter, settings,
-                    [](babylon::ui::ResultCode code) { return (int)code; }, settingsHandler));
+                // Added: one tabbed Options screen replaces the Settings hub (ADR-0028).
+                static_cast<void>(JonesUiOptions_Show(nullptr));
                 return true;
-            }
 
             case kJonesPauseStatistics:
                 static_cast<void>(JonesHud_ShowStatistics());

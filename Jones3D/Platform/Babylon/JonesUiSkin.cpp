@@ -126,3 +126,59 @@ babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
     skin.backSound   = kJonesUiSoundCueBack;
     return skin;
 }
+
+babylon::ui::Skin JonesUiSkin_CreateOptions(babylon::ui::FontId tabFont,
+    babylon::ui::FontId rowFont, babylon::ui::FontId helpFont,
+    const babylon::ui::Painter* pPainter)
+{
+    babylon::ui::Skin skin;
+
+    // No box behind the tabbed screen: the darkened menu image shows through. The panel still
+    // lays the tabs, rows and help column out.
+    skin.placement   = babylon::ui::PanelPlacement::Center;
+    skin.panel       = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.panelImage  = 0;
+    skin.panelBorder = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.borderWidth = 0.0f;
+
+    skin.title       = babylon::ui::Color{ 0.92f, 0.88f, 0.80f, 1.0f };
+    skin.titleFont   = tabFont;
+    skin.textFont    = rowFont;
+    skin.helpFont    = helpFont != 0 ? helpFont : rowFont;
+    skin.text        = babylon::ui::Color{ 0.92f, 0.88f, 0.80f, 0.90f };
+    skin.textFocused = babylon::ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    skin.textDisabled = babylon::ui::Color{ 0.92f, 0.88f, 0.80f, 0.45f };
+    skin.textShadow  = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.85f };
+    skin.textShadowOffset = 1.5f;
+    skin.rowAlign    = babylon::ui::TextAlign::Left;
+
+    skin.highlight          = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlightUnfocused = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.dim                = babylon::ui::Color{ 0.0f, 0.0f, 0.0f, 0.55f };
+
+    skin.helpColumnWidth = 0.35f;
+    skin.rowSpacing      = 4.0f;
+    skin.panelPadding    = 12.0f;
+    skin.minPanelWidth   = 320.0f;
+    skin.canvasMargin    = 16.0f;
+
+    float rowLineHeight = 0.0f;
+    if ( pPainter && rowFont != 0 )
+    {
+        rowLineHeight = pPainter->measureText(rowFont, "").height;
+    }
+
+    float tabLineHeight = 0.0f;
+    if ( pPainter && tabFont != 0 )
+    {
+        tabLineHeight = pPainter->measureText(tabFont, "").height;
+    }
+
+    skin.rowHeight   = rowLineHeight > 0.0f ? rowLineHeight + 8.0f : 24.0f;
+    skin.titleHeight = tabLineHeight > 0.0f ? tabLineHeight + 8.0f : 32.0f;
+
+    skin.focusSound  = kJonesUiSoundCueFocus;
+    skin.acceptSound = kJonesUiSoundCueAccept;
+    skin.backSound   = kJonesUiSoundCueBack;
+    return skin;
+}

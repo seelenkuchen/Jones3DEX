@@ -480,45 +480,26 @@ TEST_CASE("a cancelled Load keeps the main menu open")
     CHECK(ui.screenCount() == 0u);
 }
 
-TEST_CASE("the Settings screen calls every settings hook")
+TEST_CASE("OPTIONS opens the tabbed Options screen and returns to the menu")
 {
     MenuTestContext testContext;
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    int gameplay = 0;
-    int controls = 0;
-    int display  = 0;
-    int sound    = 0;
+    // The test has no display, so the Options wrapper answers cancel without blocking; what is
+    // checked here is that the menu accepts OPTIONS and stays usable afterwards.
     JonesUiMainMenuHooks hooks;
-    hooks.gameplay = [&gameplay]() { ++gameplay; };
-    hooks.controls = [&controls]() { ++controls; };
-    hooks.display  = [&display]() { ++display; };
-    hooks.sound    = [&sound]() { ++sound; };
     char aOutLoadPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 };
 
-    // Down three times to OPTIONS, Enter opens it; then accept each row in turn and Back.
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Escape);
+    testContext.platform.PushKey(platform::Key::Enter); // OPTIONS
+    testContext.platform.PushKey(platform::Key::Escape); // back to the main menu
+    testContext.platform.PushKey(platform::Key::Escape); // quit
 
     CHECK(JonesUiMainMenu_Run(ui, &painter, JonesUiModalBackground{}, true, hooks, aOutLoadPath)
         == JonesUiMainMenuAction::Quit);
-    CHECK(gameplay == 1);
-    CHECK(controls == 1);
-    CHECK(display == 1);
-    CHECK(sound == 1);
     CHECK(ui.screenCount() == 0u);
 }
 

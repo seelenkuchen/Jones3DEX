@@ -1,9 +1,11 @@
-// Added: the windowed Babylon build's main menu and nested Settings screen (ADR-0026); see
-// JonesUiMainMenu.h. The menu replaces the launcher. Its background is the load-screen map of the
+// Added: the windowed Babylon build's main menu (ADR-0026, ADR-0028); see JonesUiMainMenu.h.
+// The menu replaces the launcher. Its background is the load-screen map of the
 // last played level when the config remembers a last save, else the first level's; the menu theme
 // is the load screen's own theme call. The Null column and the Babylon headless run never get
 // here: jonesConfig_ResolveStartMode keeps their startMode unchanged.
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
+
+#include <Jones3D/Platform/Babylon/JonesUiOptions.h>
 
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/jonesConfig.h>
@@ -50,11 +52,6 @@ namespace
     constexpr ActionId kQuitAction     = 4;
     constexpr ActionId kContinueAction = 6;
 
-    constexpr ActionId kGameplayAction = 10;
-    constexpr ActionId kControlsAction = 11;
-    constexpr ActionId kDisplayAction  = 12;
-    constexpr ActionId kSoundAction    = 13;
-    constexpr ActionId kBackAction     = 5;
 
     // The modal loop reports the action id that closed the menu; the game's callers get the
     // JONES_MAINMENU_* value instead.
@@ -122,25 +119,6 @@ namespace
         return menu;
     }
 
-    Screen BuildSettingsScreen(void)
-    {
-        Screen screen;
-        // JONES_STR_SETTINGS is "Settings for %s", a format string with no plain title.
-        screen.title = "Settings"; // TODO: [COMPAT] no game key holds a plain "Settings"
-        screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_INV_DFCTLY", "Gameplay Options"), kGameplayAction, true });
-        screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_INV_CONFIG", "Control Options"), kControlsAction, true });
-        screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_INV_DSPLY", "Display Options"), kDisplayAction, true });
-        screen.widgets.emplace_back(Button{
-            MenuLabel("JONES_STR_INV_SND", "Sound Options"), kSoundAction, true });
-        screen.widgets.emplace_back(Button{
-            "Back", kBackAction, true }); // TODO: [COMPAT] JONES_STR_BACK is "BACK SPACE"
-        screen.backResult   = kBackAction;
-        screen.initialFocus = 0;
-        return screen;
-    }
 }
 
 void JonesUiMainMenu_SetFinishedWallpaper(rdWallpaper* pWallpaper)
@@ -158,59 +136,12 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 {
     const Screen menu = BuildMainMenuScreen(bCanLoad);
 
-    // The nested Settings screen keeps the look the Ui had before the main menu skin was applied.
+    // The skin to restore when the menu closes; the nested Options screen manages its own.
     const Skin settingsSkin = ui.skin();
     if ( pMenuSkin )
     {
         static_cast<void>(ui.setSkin(*pMenuSkin));
     }
-
-    // Runs the nested Settings screen and calls the matching hook for every settings button. Back
-    // and Escape close it with kBackAction; the action's return value is ignored deliberately, so
-    // a settings screen that stays a stub for now still behaves like a working button.
-    JonesUiModalEventHandler settingsHandler = [&hooks](Ui& uiRef, ScreenId screenId,
-        const UiEvent& event) -> bool
-    {
-        const ActionPressed* pAction = std::get_if<ActionPressed>(&event);
-        if ( !pAction || pAction->screen != screenId )
-        {
-            return false;
-        }
-
-        switch ( pAction->action )
-        {
-            case kGameplayAction:
-                if ( hooks.gameplay )
-                {
-                    hooks.gameplay();
-                }
-                return true;
-
-            case kControlsAction:
-                if ( hooks.controls )
-                {
-                    hooks.controls();
-                }
-                return true;
-
-            case kDisplayAction:
-                if ( hooks.display )
-                {
-                    hooks.display();
-                }
-                return true;
-
-            case kSoundAction:
-                if ( hooks.sound )
-                {
-                    hooks.sound();
-                }
-                return true;
-
-            default:
-                return false; // Back closes the screen with kBackAction
-        }
-    };
 
     JonesUiModalEventHandler menuHandler = [&](Ui& uiRef, ScreenId screenId,
         const UiEvent& event) -> bool
@@ -223,14 +154,9 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
 
         if ( pAction->action == kSettingsAction )
         {
-            // The Options screen is still the original Settings screen, with its own panel look.
-            static_cast<void>(uiRef.setSkin(settingsSkin));
-            static_cast<void>(JonesUiModal_RunHandled(uiRef, pPainter, BuildSettingsScreen(),
-                [](ResultCode code) { return (int)code; }, settingsHandler, background));
-            if ( pMenuSkin )
-            {
-                static_cast<void>(uiRef.setSkin(*pMenuSkin));
-            }
+            // Added: one tabbed Options screen replaces the Settings hub (ADR-0028). It reuses
+            // this menu's background and restores the menu skin when it closes.
+            static_cast<void>(JonesUiOptions_Show(&background));
             return true;
         }
 
@@ -303,7 +229,6 @@ babylon::ui::Screen JonesUiMainMenu_BuildScreenForTest(bool bCanLoad)
 void JonesUiMainMenu_AppendScreensForTest(std::vector<babylon::ui::Screen>& screens)
 {
     screens.push_back(BuildMainMenuScreen(true));
-    screens.push_back(BuildSettingsScreen());
 }
 #endif
 
@@ -508,25 +433,6 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
             static_cast<void>(pUi->setSkin(menuSkin));
         }
     };
-    hooks.gameplay = []()
-    {
-        static_cast<void>(jonesConfig_ShowGamePlayOptions(NULL));
-    };
-    hooks.controls = []()
-    {
-        static_cast<void>(jonesConfig_ShowControlOptions(NULL));
-    };
-    hooks.display = [pConfig]()
-    {
-        static_cast<void>(jonesConfig_ShowDisplaySettingsDialog(NULL,
-            JonesMain_GetDisplayEnvironment(), &pConfig->displaySettings));
-    };
-    hooks.sound = [pConfig]()
-    {
-        static_cast<void>(jonesConfig_ShowSoundSettingsDialog(NULL,
-            &pConfig->soundSettings));
-    };
-
     const JonesUiMainMenuAction action = JonesUiMainMenu_Run(*pUiContext->pUi, &painter,
         background, bCanLoad, hooks, pOutLoadPath, &menuSkin);
 

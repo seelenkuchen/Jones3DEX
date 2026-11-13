@@ -32,7 +32,9 @@
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
+#include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
+#include <Jones3D/Platform/Babylon/JonesUiOptions.h>
 #include <Jones3D/Platform/Babylon/JonesUiSoundSettings.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 
@@ -360,6 +362,12 @@ namespace
 extern "C" JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
 {
     return &g_windowModeSettings;
+}
+
+// Added: the Options wrapper refreshes the display after applying; this executable does not link
+// the game layer.
+extern "C" void JonesMain_RefreshDisplayDevice(void)
+{
 }
 
 TEST_CASE("the display resolution list is deduplicated by size")
@@ -861,4 +869,160 @@ TEST_CASE("the headless settings wrappers answer the Null stub values")
     CHECK(soundSettings.bReverseSound == soundBefore.bReverseSound);
 
     CHECK(jonesConfig_ShowGamePlayOptions(nullptr) == 2);
+}
+
+
+TEST_CASE("the options tabs expose their rows and Display has no Performance row")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    auto isInteractive = [](const babylon::ui::Widget& widget)
+    {
+        return std::holds_alternative<babylon::ui::Button>(widget)
+            || std::holds_alternative<babylon::ui::Toggle>(widget)
+            || std::holds_alternative<babylon::ui::Slider>(widget)
+            || std::holds_alternative<babylon::ui::Choice>(widget)
+            || std::holds_alternative<babylon::ui::List>(widget)
+            || std::holds_alternative<babylon::ui::BindingCapture>(widget)
+            || std::holds_alternative<babylon::ui::TextEntry>(widget);
+    };
+
+    const char* const aTabs[] = { "Gameplay", "Controls", "Display", "Sound" };
+    bool bHasPerformance = false;
+    for ( std::size_t tab = 0; tab < 4; ++tab )
+    {
+        const babylon::ui::Screen screen = JonesUiOptions_BuildTabScreenForTest(tab, data);
+        REQUIRE(screen.tabs.size() == 4u);
+        CHECK(screen.activeTab == tab);
+        CHECK(screen.title == "Options");
+        for ( std::size_t i = 0; i < screen.tabs.size(); ++i )
+        {
+            CHECK(screen.tabs[i] == aTabs[i]);
+        }
+
+        REQUIRE(screen.help.size() == screen.widgets.size());
+        for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
+        {
+            if ( isInteractive(screen.widgets[i]) )
+            {
+                CHECK_MESSAGE(!screen.help[i].empty(), screen.tabs[tab]);
+            }
+            if ( const babylon::ui::Choice* choice =
+                    std::get_if<babylon::ui::Choice>(&screen.widgets[i]) )
+            {
+                bHasPerformance = bHasPerformance || choice->text == "Performance";
+            }
+        }
+    }
+
+    // ADR-0028: the Display tab drops the row, while the stored level is still read and written.
+    CHECK_FALSE(bHasPerformance);
+    CHECK(bHasPerformance == false);
+}
+
+TEST_CASE("Q and E switch options tabs and keep a changed value")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    sithVoice_ShowText(0);
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Toggle Show Text, leave the tab twice and come back, then accept from the Gameplay tab.
+    testContext.platform.PushKey(platform::Key::Enter); // show text on
+    testContext.platform.PushKey(platform::Key::E);     // Controls
+    testContext.platform.PushKey(platform::Key::E);     // Display
+    testContext.platform.PushKey(platform::Key::Q);     // Controls
+    testContext.platform.PushKey(platform::Key::Q);     // Gameplay
+    testContext.platform.PushKey(platform::Key::Up);    // wrap to Back
+    testContext.platform.PushKey(platform::Key::Up);    // OK
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK(sithVoice_GetShowText() == 1);
+    CHECK(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
+    CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("the options Display tab still writes the stored performance level unchanged")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Display tab: Bit depth, Resolution, Windowed, Filter, Fog, Fog density, Hi-poly, Lit faces,
+    // OK, Back. Turn windowed on and accept.
+    testContext.platform.PushKey(platform::Key::E);
+    testContext.platform.PushKey(platform::Key::E);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // windowed on
+    testContext.platform.PushKey(platform::Key::Up);
+    testContext.platform.PushKey(platform::Key::Up);
+    testContext.platform.PushKey(platform::Key::Up);    // wrap to Back
+    testContext.platform.PushKey(platform::Key::Up);    // OK
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK(display.bWindowMode == 1);
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, -1) == 4);
 }

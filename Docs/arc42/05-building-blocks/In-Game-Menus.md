@@ -3,11 +3,11 @@
 Status: built in the Babylon column on 2026-11-07 ([ADR-0026](../09-decisions/ADR-0026-in-game-menus.md)),
 including the Controls screen. The Null column keeps all of its default-returning stubs.
 
-Planned (M7.6, [ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)): a modern
-style with a new main menu, one tabbed Options screen in place of the separate settings screens, a restyled
-pause menu, the Cinzel and Jost menu fonts and button prompts. The gamepad is always on: a connected pad
-works alongside the keyboard and mouse, and the Controls screen has no controller toggle. The tables below
-describe the M7 state.
+Built in M7.6 ([ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)): a modern
+style with a new main menu, one tabbed Options screen in place of the separate settings screens and the old
+Settings hub, the Cinzel and Jost menu fonts and button prompts. The gamepad is always on: a connected pad
+works alongside the keyboard and mouse, and the Controls tab has no controller toggle. The Display tab drops
+the Performance row; `graphics.performanceLevel` and the level stored in savegames keep working as before.
 
 ## Layers
 
@@ -23,14 +23,15 @@ describe the M7 state.
 
 | Screen | Opened from | Source | Notes |
 |---|---|---|---|
-| Main menu | Startup, unless `startMode` says otherwise | [`JonesUiMainMenu.cpp`](../../../Jones3D/Platform/Babylon/JonesUiMainMenu.cpp) | New Game, Load, Settings, Quit; background is the finished load-screen map of a level, with its title. `startMode` 5; a missing value or 2 opens it in the windowed build, and 1, 3 and 4 defer their screens until display and sound are up |
-| Pause menu | Escape or gamepad Start in game | [`JonesUiPauseMenu.cpp`](../../../Jones3D/Platform/Babylon/JonesUiPauseMenu.cpp) | Resume, Save, Load, Settings, Statistics, Exit |
+| Main menu | Startup, unless `startMode` says otherwise | [`JonesUiMainMenu.cpp`](../../../Jones3D/Platform/Babylon/JonesUiMainMenu.cpp) | Continue, New Game, Load Game, Options, Exit Game; background is the finished load-screen map of a level, with its title. `startMode` 5; a missing value or 2 opens it in the windowed build, and 1, 3 and 4 defer their screens until display and sound are up |
+| Pause menu | Escape or gamepad Start in game | [`JonesUiPauseMenu.cpp`](../../../Jones3D/Platform/Babylon/JonesUiPauseMenu.cpp) | Resume, Save, Load, Options, Statistics, Exit |
+| Options | Main menu and pause menu | [`JonesUiOptions.cpp`](../../../Jones3D/Platform/Babylon/JonesUiOptions.cpp) | One tabbed screen: Gameplay, Controls, Display and Sound. Tabs switch with Q/E, LB/RB or a click; each row is a setting and a help column describes the focused one. The tabs reuse the standalone builders below |
 | Save, Load | Pause menu, HUD menu, main menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level display name and date; the thumbnail row is hidden when a save has none; the default save name uses the level display name; overwrite and load warnings |
 | Exit | Pause menu, HUD menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
-| Gameplay settings | Settings | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the enhancements that are runtime keys |
-| Controls | Settings | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, a Mouse toggle and a Rumble toggle, reset to defaults; writes `controls.configFile`, `controls.mouse` and `engine.input.rumble` and applies the active scheme on OK. The gamepad is always on, so there is no controller toggle |
-| Display | Settings | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in) |
-| Sound | Settings | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
+| Gameplay tab | Options | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the enhancements that are runtime keys |
+| Controls tab | Options | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, a Rumble toggle, reset to defaults; deeper edit and capture screens open from the tab. Writes `controls.configFile`, `controls.mouse` and `engine.input.rumble` and applies the active scheme on OK. The gamepad is always on, so there is no controller toggle |
+| Display tab | Options | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in). No Performance row; the stored `graphics.performanceLevel` is written back unchanged |
+| Sound tab | Options | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
 | Statistics | Pause menu, HUD menu | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | |
 | Level completed, Store | End of level | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp), [`JonesUiStore.cpp`](../../../Jones3D/Platform/Babylon/JonesUiStore.cpp) | Store is a list with quantities |
 | Game over | Death | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | Restart, Load, Quit |
@@ -65,6 +66,8 @@ Start stays unbound because the pause menu reads it directly. See
 ## Rules
 
 - The simulation is paused while any screen is open; the last frame stays behind it, dimmed.
+- The Options screen keeps each tab's changes when the player leaves it and applies them only on OK. Its
+  background is the menu image, darkened; it has no panel box.
 - Every screen opened while a `JonesUiContext` is held reuses that session's frozen frame or
   background and dims it once; a screen never captures the screen before it, nested or sequential.
 - Each modal frame clears the depth buffer before redrawing the background, and the menu quads do

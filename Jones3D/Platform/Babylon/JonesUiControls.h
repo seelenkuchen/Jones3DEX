@@ -42,6 +42,62 @@ JonesUiControlsNameStatus JonesUiControls_ValidateSchemeName(const char* pName,
 // the same one the Babylon input adapter uses, so a captured control is what the game then binds.
 bool JonesUiControls_MapBinding(const babylon::ui::Binding& binding, std::size_t& pControlId);
 
+// The working state of a Controls screen. It owns the scheme list copy,
+// the selected scheme, the settings and the files to delete on OK. Shared by
+// the standalone Controls screen and the tabbed Options screen.
+struct JonesUiControlsModel
+{
+    JonesControlsConfig working{};
+    std::size_t selected = 0;
+    bool bMouse = false;
+    bool bRumble = false;
+    std::vector<std::string> deleteFiles;
+};
+
+// The widget indices of one Controls layout. kNoWidget means the row is not
+// present. The standalone screen has a Mouse row; the Options tab has a bind
+// list instead.
+struct JonesUiControlsLayout
+{
+    std::size_t scheme = 0;
+    std::size_t newScheme = 0;
+    std::size_t deleteScheme = 0;
+    std::size_t list = babylon::ui::kNoWidget;
+    std::size_t mouse = babylon::ui::kNoWidget;
+    std::size_t rumble = 0;
+    std::size_t edit = 0;
+    std::size_t reset = 0;
+    std::size_t ok = babylon::ui::kNoWidget;
+    std::size_t back = babylon::ui::kNoWidget;
+};
+
+// Copies config into a model and reads the current mouse and rumble
+// settings. Returns false when the copy fails.
+bool JonesUiControls_InitModel(JonesUiControlsModel& model, JonesControlsConfig& config);
+
+// Releases the model's scheme list. Safe to call more than once.
+void JonesUiControls_FreeModel(JonesUiControlsModel& model);
+
+// Builds the Options Controls tab: scheme, New, Delete, the bind list,
+// Rumble, Edit and Reset, without OK or Cancel.
+babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsModel& model,
+    JonesUiControlsLayout& layout);
+
+// Handles the New, Delete, Edit and Reset actions, opening the nested
+// screens as the original Controls screen did. Returns false for any other
+// action.
+bool JonesUiControls_HandleAction(babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    babylon::ui::ActionId action, babylon::ui::Painter* pPainter,
+    JonesUiControlsModel& model, const JonesUiControlsLayout& layout);
+
+// Reads the current Rumble and, when present, Mouse rows into model.
+void JonesUiControls_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiControlsLayout& layout, JonesUiControlsModel& model);
+
+// Applies the model on OK and adopts its list into config. Returns 1. On a
+// failed apply it returns 2 and leaves config alone.
+int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& config);
+
 // Runs the main Controls screen through ui. config is the loaded scheme list; the runner works on a
 // copy. On OK it deletes the schemes marked for removal, writes every modified custom scheme, writes
 // controls.mouse, makes the selected scheme active and rebinds; config then

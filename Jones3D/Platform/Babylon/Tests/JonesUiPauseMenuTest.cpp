@@ -284,7 +284,7 @@ TEST_CASE("the pause menu has the original six entries and back closes it")
     // Without a string table the stub returns each key unchanged; the Settings entry has no game
     // key and is the English literal.
     const char* const aExpectedText[] = {
-        "JONES_STR_EXIT3", "JONES_STR_INV_SAVE", "JONES_STR_INV_LOAD", "Settings",
+        "JONES_STR_EXIT3", "JONES_STR_INV_SAVE", "JONES_STR_INV_LOAD", "OPTIONS",
         "JONES_STR_INV_STATS", "JONES_STR_INV_EXIT",
     };
     for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
@@ -412,43 +412,18 @@ TEST_CASE("pause menu exit closes when the exit screen activates and stays on ca
     CHECK(g_exitCalls == 1);
 }
 
-TEST_CASE("the nested settings screen offers every original options entry")
+TEST_CASE("the pause menu offers one Options entry")
 {
     ScreenTestContext testContext;
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    const ui::Screen screen = JonesUiPauseMenu_BuildSettingsScreen();
-    REQUIRE(screen.widgets.size() == 5u);
-    for ( const ui::Widget& widget : screen.widgets )
-    {
-        CHECK(std::get<ui::Button>(widget).text.rfind("JONES_STR_", 0) == 0);
-    }
-
-    for ( int entry = 0; entry < 4; ++entry )
-    {
-        ResetCalls();
-        testContext.platform.PushKey(platform::Key::Down);
-        testContext.platform.PushKey(platform::Key::Down);
-        testContext.platform.PushKey(platform::Key::Down);
-        testContext.platform.PushKey(platform::Key::Enter);
-        for ( int step = 0; step < entry; ++step )
-        {
-            testContext.platform.PushKey(platform::Key::Down);
-        }
-        testContext.platform.PushKey(platform::Key::Enter);
-        testContext.platform.PushKey(platform::Key::Escape);
-        testContext.platform.PushKey(platform::Key::Escape);
-        CHECK(JonesUiPauseMenu_RunPauseMenu(ui, &painter) == 1);
-
-        switch ( entry )
-        {
-            case 0: CHECK(g_gamePlayCalls == 1); break;
-            case 1: CHECK(g_controlCalls == 1); break;
-            case 2: CHECK(g_displayCalls == 1); break;
-            default: CHECK(g_soundCalls == 1); break;
-        }
-    }
+    const ui::Screen screen = JonesUiPauseMenu_BuildScreen();
+    REQUIRE(screen.widgets.size() == 6u);
+    const ui::Button& options = std::get<ui::Button>(screen.widgets[3]);
+    CHECK(options.text == "OPTIONS");
+    CHECK(options.action == 4);
+    CHECK(options.enabled);
 }
 
 TEST_CASE("the pause menu thumbnail captures the frame once and replaces an earlier one")

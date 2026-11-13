@@ -60,6 +60,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiStore.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.h"
 )
 
 # Added: the Babylon column's control scheme files (M7.17a), shared by the headless and windowed

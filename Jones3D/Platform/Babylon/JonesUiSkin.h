@@ -35,4 +35,11 @@ babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId menuFont,
 babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
     const babylon::ui::Painter* pPainter);
 
+// Added: the tabbed Options screen's skin (ADR-0028): Cinzel tabs and title, Jost rows and help,
+// no panel or highlight boxes, and a darkened background behind it. helpFont defaults to rowFont
+// when 0. The metrics follow the row font's line height, like the other skins.
+babylon::ui::Skin JonesUiSkin_CreateOptions(babylon::ui::FontId tabFont,
+    babylon::ui::FontId rowFont, babylon::ui::FontId helpFont,
+    const babylon::ui::Painter* pPainter);
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESUISKIN_H

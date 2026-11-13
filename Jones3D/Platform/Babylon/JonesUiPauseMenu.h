@@ -16,10 +16,7 @@
 // The pause menu before it is pushed.
 babylon::ui::Screen JonesUiPauseMenu_BuildScreen(void);
 
-// The nested Settings screen: Gameplay, Controls, Display, Sound and Back.
-babylon::ui::Screen JonesUiPauseMenu_BuildSettingsScreen(void);
-
-// Runs the pause menu until Resume or Back closes it. Save, Load, Settings, Statistics and Exit
+// Runs the pause menu until Resume or Back closes it. Save, Load, Options, Statistics and Exit
 // call the shared JonesHud functions on the way, exactly as the HUD menu's system items do.
 int JonesUiPauseMenu_RunPauseMenu(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter);
 
