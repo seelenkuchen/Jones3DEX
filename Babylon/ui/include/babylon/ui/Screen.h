@@ -50,6 +50,28 @@ namespace babylon::ui
         // while it has focus; see List.
         std::vector<Widget> widgets;
 
+        // The tab labels of a tabbed screen, in display order. Empty draws
+        // no tab strip, which is the ordinary dialog look. When non-empty,
+        // a strip of labels is drawn above the rows, the tab named by
+        // activeTab is highlighted and underlined, and the previous-tab and
+        // next-tab navigation inputs (or a click on a label) report a
+        // TabChanged event with the new index. The game builds a new screen
+        // for the chosen tab; the module only changes activeTab and reports
+        // the request.
+        std::vector<std::string> tabs;
+
+        // The tab drawn as active and reported by a pointer click. Ignored
+        // when tabs is empty; a value past the end is clamped to the last
+        // tab.
+        std::size_t activeTab = 0;
+
+        // Optional help text for the right-hand column, parallel to widgets:
+        // help[i] describes widgets[i]. An empty string, or a vector shorter
+        // than widgets, means no help for those rows. The help column is
+        // drawn only when at least one row has text and the skin reserves a
+        // positive helpColumnWidth; only the focused row's text is shown.
+        std::vector<std::string> help;
+
         // The result reported when the player presses back or a screen
         // has no explicit way to close. Ignored when a button or text entry
         // closes the screen explicitly.

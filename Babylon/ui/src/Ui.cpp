@@ -38,6 +38,8 @@ namespace
 {
     constexpr float kCanvasHeight = 480.0f;
     constexpr float kColumnGap = 8.0f;
+    constexpr float kTabGap = 18.0f;
+    constexpr float kTabUnderlineHeight = 2.0f;
 
     // The magnitude a gamepad axis must reach to be reported by a binding capture. It is a fixed
     // rule, independent of NavigationMap::axisThreshold: capture accepts every gamepad axis, not
@@ -214,13 +216,22 @@ namespace
         float markerWidth = 0.0f;
     };
 
+    struct LayoutTab
+    {
+        std::size_t index = 0;
+        Rect rect;
+        Rect underline;
+    };
+
     struct Layout
     {
         Rect panel;
         Rect inner;
         Rect title;
         Rect rowsClip;
+        Rect helpColumn;
         std::vector<LayoutRow> rows;
+        std::vector<LayoutTab> tabs;
         float contentHeight = 0.0f;
         float maxScroll = 0.0f;
         float markerWidth = 0.0f;
@@ -355,6 +366,116 @@ struct Ui::State
         return painter.measureText(skin.titleFont, text).width;
     }
 
+    FontId helpFont() const
+    {
+        return skin.helpFont != 0 ? skin.helpFont : skin.textFont;
+    }
+
+    // True when the screen has any help text and the skin reserves a column
+    // for it. A shorter help vector or empty entries simply say nothing for
+    // those rows.
+    bool hasHelp(const ScreenState& state) const
+    {
+        if ( !(skin.helpColumnWidth > 0.0f) )
+        {
+            return false;
+        }
+        for ( const std::string& text : state.screen.help )
+        {
+            if ( !text.empty() )
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    float tabHeight() const
+    {
+        const float lineHeight = painter.measureText(skin.titleFont, "").height;
+        return std::max(skin.rowHeight, lineHeight);
+    }
+
+    // Splits text into lines that fit width, at spaces, in the given font.
+    // A single word wider than the column is kept whole and is clipped by
+    // the painter when drawn.
+    std::vector<std::string> wrapText(FontId font, std::string_view text, float width) const
+    {
+        std::vector<std::string> lines;
+        if ( text.empty() )
+        {
+            return lines;
+        }
+
+        std::string line;
+        std::size_t pos = 0;
+        while ( pos < text.size() )
+        {
+            while ( pos < text.size() && text[pos] == ' ' )
+            {
+                ++pos;
+            }
+            if ( pos >= text.size() )
+            {
+                break;
+            }
+
+            const std::size_t start = pos;
+            while ( pos < text.size() && text[pos] != ' ' )
+            {
+                ++pos;
+            }
+            const std::string_view word = text.substr(start, pos - start);
+            std::string candidate = line.empty()
+                ? std::string(word) : line + " " + std::string(word);
+            if ( line.empty()
+                || painter.measureText(font, candidate).width <= width )
+            {
+                line = std::move(candidate);
+            }
+            else
+            {
+                lines.push_back(std::move(line));
+                line.assign(word);
+            }
+        }
+
+        if ( !line.empty() )
+        {
+            lines.push_back(std::move(line));
+        }
+        return lines;
+    }
+
+    void selectTab(ScreenState& state, std::size_t index)
+    {
+        const std::size_t count = state.screen.tabs.size();
+        if ( count == 0 )
+        {
+            return;
+        }
+        const std::size_t tab = std::min(index, count - 1);
+        if ( tab == state.screen.activeTab )
+        {
+            return;
+        }
+        state.screen.activeTab = tab;
+        events.emplace_back(TabChanged{ state.id, tab });
+    }
+
+    void switchTab(ScreenState& state, int direction)
+    {
+        const std::size_t count = state.screen.tabs.size();
+        if ( count == 0 )
+        {
+            return;
+        }
+        const std::size_t active = std::min(state.screen.activeTab, count - 1);
+        const long delta = direction > 0 ? 1L : -1L;
+        const long next = ((long)active + delta + (long)count) % (long)count;
+        selectTab(state, (std::size_t)next);
+    }
+
     // Rows draw their text twice when a shadow is set: the shadow offsets down
     // and right, then the real text sits on top.
     void drawRowText(FontId font, std::string_view text, const Rect& rect,
@@ -464,9 +585,13 @@ struct Ui::State
             return layout;
         }
 
+        const bool bTabs = !state.screen.tabs.empty();
+        const bool bHelp = hasHelp(state);
+        const float tabsHeight = bTabs ? tabHeight() : 0.0f;
+
         const std::size_t count = state.screen.widgets.size();
         std::vector<float> heights(count, 0.0f);
-        float contentHeight = skin.titleHeight;
+        float contentHeight = skin.titleHeight + tabsHeight;
         float widest = titleWidth(state.screen.title);
         for ( std::size_t i = 0; i < count; ++i )
         {
@@ -478,6 +603,21 @@ struct Ui::State
             }
         }
 
+        // The tab strip is part of the panel width: every label must fit.
+        if ( bTabs )
+        {
+            float tabsWidth = 0.0f;
+            for ( std::size_t i = 0; i < state.screen.tabs.size(); ++i )
+            {
+                tabsWidth += titleWidth(state.screen.tabs[i]);
+                if ( i + 1 < state.screen.tabs.size() )
+                {
+                    tabsWidth += kTabGap;
+                }
+            }
+            widest = std::max(widest, tabsWidth);
+        }
+
         // The focus marker occupies a fixed column on the left of every row,
         // so text keeps its place while focus moves.
         if ( !skin.focusMarker.empty() )
@@ -486,8 +626,19 @@ struct Ui::State
             layout.textInset   = layout.markerWidth + skin.markerSpacing;
         }
 
+        // With a help column the rows get only the rest of the panel, so the
+        // panel grows until they still fit at their natural width. The ratio
+        // is clamped so the rows can never vanish.
+        float rowsNeeded = widest + layout.textInset;
+        float helpRatio = 0.0f;
+        if ( bHelp )
+        {
+            helpRatio = std::min(skin.helpColumnWidth, 0.9f);
+            rowsNeeded /= 1.0f - helpRatio;
+        }
+
         float panelWidth = std::max(skin.minPanelWidth,
-            widest + layout.textInset + 2.0f * skin.panelPadding);
+            rowsNeeded + 2.0f * skin.panelPadding);
         float panelHeight = contentHeight + 2.0f * skin.panelPadding;
         if ( skin.placement == PanelPlacement::BottomLeft )
         {
@@ -515,12 +666,42 @@ struct Ui::State
             std::max(0.0f, layout.panel.height - 2.0f * skin.panelPadding) };
         layout.title = Rect{ layout.inner.x, layout.inner.y, layout.inner.width,
             std::min(skin.titleHeight, layout.inner.height) };
-        layout.rowsClip = Rect{ layout.inner.x, layout.title.y + layout.title.height,
-            layout.inner.width,
-            std::max(0.0f, layout.inner.y + layout.inner.height
-                - (layout.title.y + layout.title.height)) };
 
-        float y = layout.inner.y + skin.titleHeight;
+        // The tab strip sits directly below the title, its labels in a row and
+        // an underline under the active one.
+        float rowsY = layout.inner.y + skin.titleHeight + tabsHeight;
+        if ( bTabs )
+        {
+            float x = layout.inner.x;
+            const float y = layout.inner.y + skin.titleHeight;
+            for ( std::size_t i = 0; i < state.screen.tabs.size(); ++i )
+            {
+                const float width = titleWidth(state.screen.tabs[i]);
+                LayoutTab tab;
+                tab.index = i;
+                tab.rect  = Rect{ x, y, width, tabsHeight };
+                tab.underline = Rect{ x, y + tabsHeight - kTabUnderlineHeight,
+                    width, kTabUnderlineHeight };
+                layout.tabs.push_back(tab);
+                x += width + kTabGap;
+            }
+        }
+
+        const float rowsHeight = std::max(0.0f,
+            layout.inner.y + layout.inner.height - rowsY);
+        float rowsWidth = layout.inner.width;
+        if ( bHelp )
+        {
+            const float helpWidth = std::max(0.0f,
+                layout.inner.width * helpRatio - kColumnGap * 0.5f);
+            const float width = std::min(helpWidth, layout.inner.width);
+            layout.helpColumn = Rect{ layout.inner.x + layout.inner.width - width,
+                rowsY, width, rowsHeight };
+            rowsWidth = std::max(0.0f, layout.inner.width - width - kColumnGap);
+        }
+        layout.rowsClip = Rect{ layout.inner.x, rowsY, rowsWidth, rowsHeight };
+
+        float y = rowsY;
         for ( std::size_t i = 0; i < count; ++i )
         {
             if ( heights[i] <= 0.0f )
@@ -529,7 +710,7 @@ struct Ui::State
             }
             y += skin.rowSpacing;
             layout.rows.push_back(LayoutRow{ i,
-                Rect{ layout.inner.x, y, layout.inner.width, heights[i] }, heights[i],
+                Rect{ layout.inner.x, y, rowsWidth, heights[i] }, heights[i],
                 layout.textInset, layout.markerWidth });
             y += heights[i];
         }
@@ -1310,6 +1491,19 @@ struct Ui::State
             moveFocus(*state, shiftDown ? -1 : 1);
             return;
         }
+        if ( !state->screen.tabs.empty() )
+        {
+            if ( !key.repeat && key.key == navigation.previousTab )
+            {
+                switchTab(*state, -1);
+                return;
+            }
+            if ( !key.repeat && key.key == navigation.nextTab )
+            {
+                switchTab(*state, 1);
+                return;
+            }
+        }
 
         TextEntry* entry = state->focus < state->screen.widgets.size()
             ? get<TextEntry>(state->screen.widgets[state->focus]) : nullptr;
@@ -1465,6 +1659,18 @@ struct Ui::State
         }
 
         const Point point = canvasPoint(mouseX, mouseY);
+        if ( !state->screen.tabs.empty() )
+        {
+            const Layout layout = computeLayout(*state);
+            for ( const LayoutTab& tab : layout.tabs )
+            {
+                if ( tab.rect.contains(point) )
+                {
+                    selectTab(*state, tab.index);
+                    return;
+                }
+            }
+        }
         const Hit hit = hitTest(*state, point);
         if ( hit.widget == kNoWidget )
         {
@@ -1567,6 +1773,16 @@ struct Ui::State
         }
         if ( wasDown )
         {
+            return;
+        }
+        if ( button.button == navigation.previousTabButton )
+        {
+            switchTab(*state, -1);
+            return;
+        }
+        if ( button.button == navigation.nextTabButton )
+        {
+            switchTab(*state, 1);
             return;
         }
         if ( button.button == navigation.acceptButton )
@@ -2022,8 +2238,29 @@ struct Ui::State
             const std::size_t selected = currentChoiceIndex(*choice, state, index);
             if ( selected < choice->options.size() )
             {
-                drawRowText(skin.textFont, choice->options[selected], textRect,
-                    TextAlign::Right, color);
+                // The value sits on the right with a left and a right arrow
+                // around it. The arrows are in the focused color while the
+                // row has focus, so the row still reads as adjustable.
+                constexpr std::string_view kLeftArrow  = "\xE2\x97\x80"; // U+25C0
+                constexpr std::string_view kRightArrow = "\xE2\x96\xB6"; // U+25B6
+                const std::string& option = choice->options[selected];
+                const float valueWidth = textWidth(option);
+                const float arrowWidth = std::max(textWidth(kLeftArrow), textWidth(kRightArrow));
+                const float groupWidth = arrowWidth + kColumnGap + valueWidth + kColumnGap
+                    + arrowWidth;
+                const float startX = textRect.x + std::max(0.0f, textRect.width - groupWidth);
+                const float arrowY = rect.y;
+                const Color arrowColor = focused ? skin.textFocused : color;
+                drawRowText(skin.textFont, kLeftArrow,
+                    Rect{ startX, arrowY, arrowWidth, rect.height },
+                    TextAlign::Left, arrowColor);
+                drawRowText(skin.textFont, option,
+                    Rect{ startX + arrowWidth + kColumnGap, arrowY, valueWidth, rect.height },
+                    TextAlign::Left, color);
+                drawRowText(skin.textFont, kRightArrow,
+                    Rect{ startX + arrowWidth + kColumnGap + valueWidth + kColumnGap,
+                        arrowY, arrowWidth, rect.height },
+                    TextAlign::Left, arrowColor);
             }
             return;
         }
@@ -2043,6 +2280,52 @@ struct Ui::State
             drawRowText(skin.textFont, displayText(state, index), textRect,
                 TextAlign::Right, color);
         }
+    }
+
+    // The right-hand help column: only the focused row's text, wrapped at
+    // spaces, in the help font. The column is clipped to its own rectangle
+    // so a long word cannot run into the rows.
+    void drawHelp(const ScreenState& state, const Layout& layout)
+    {
+        if ( layout.helpColumn.width <= 0.0f || layout.helpColumn.height <= 0.0f
+            || state.focus == kNoWidget || state.focus >= state.screen.help.size() )
+        {
+            return;
+        }
+        const std::string& text = state.screen.help[state.focus];
+        if ( text.empty() )
+        {
+            return;
+        }
+
+        const FontId font = helpFont();
+        const std::vector<std::string> lines = wrapText(font, text,
+            layout.helpColumn.width);
+        if ( lines.empty() )
+        {
+            return;
+        }
+
+        float lineHeight = painter.measureText(font, "").height;
+        if ( !(lineHeight > 0.0f) )
+        {
+            lineHeight = skin.rowHeight;
+        }
+
+        painter.pushClip(layout.helpColumn);
+        float y = layout.helpColumn.y;
+        for ( const std::string& line : lines )
+        {
+            if ( y + lineHeight > layout.helpColumn.y + layout.helpColumn.height )
+            {
+                break;
+            }
+            drawRowText(font, line,
+                Rect{ layout.helpColumn.x, y, layout.helpColumn.width, lineHeight },
+                TextAlign::Left, skin.text);
+            y += lineHeight;
+        }
+        painter.popClip();
     }
 
     float stateClipTop = -std::numeric_limits<float>::infinity();
@@ -2153,6 +2436,16 @@ struct Ui::State
             painter.drawText(skin.titleFont, state->screen.title,
                 layout.title, TextAlign::Center, skin.title);
         }
+        for ( const LayoutTab& tab : layout.tabs )
+        {
+            const bool active = tab.index == state->screen.activeTab;
+            painter.drawText(skin.titleFont, state->screen.tabs[tab.index],
+                tab.rect, TextAlign::Left, active ? skin.textFocused : skin.text);
+            if ( active )
+            {
+                painter.fillRect(tab.underline, skin.textFocused);
+            }
+        }
         painter.pushClip(layout.rowsClip);
         stateClipTop = layout.rowsClip.y;
         stateClipBottom = layout.rowsClip.y + layout.rowsClip.height;
@@ -2163,6 +2456,7 @@ struct Ui::State
         stateClipTop = -std::numeric_limits<float>::infinity();
         stateClipBottom = std::numeric_limits<float>::infinity();
         painter.popClip();
+        drawHelp(*state, layout);
         painter.popClip();
     }
 };
@@ -2254,6 +2548,15 @@ ScreenId Ui::push(Screen screen)
         m_state->nextScreenId = 1;
     }
     state.screen = std::move(screen);
+    if ( !state.screen.tabs.empty() )
+    {
+        state.screen.activeTab = std::min(state.screen.activeTab,
+            state.screen.tabs.size() - 1);
+    }
+    else
+    {
+        state.screen.activeTab = 0;
+    }
     m_state->initLocal(state);
     m_state->resetFocus(state);
     m_state->screens.push_back(std::move(state));

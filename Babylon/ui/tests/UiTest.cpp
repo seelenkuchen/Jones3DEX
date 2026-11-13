@@ -1380,3 +1380,327 @@ TEST_CASE("row text draws a shadow only when textShadow has alpha")
     CHECK(shadowed[0]->rect.x == shadowed[1]->rect.x + 2.0f);
     CHECK(shadowed[0]->rect.y == shadowed[1]->rect.y + 2.0f);
 }
+
+TEST_CASE("a tab strip draws labels and underlines the active tab")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    Skin skin;
+    skin.titleHeight = 0.0f;
+    skin.rowHeight = 20.0f;
+    skin.panelPadding = 10.0f;
+    skin.minPanelWidth = 100.0f;
+    skin.canvasMargin = 8.0f;
+    skin.borderWidth = 0.0f;
+    skin.titleFont = 5;
+    skin.textFont = 5;
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.tabs = { "One", "Two" };
+    screen.widgets = { Button{ "Go", 1, true } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    auto tabText = [&painter](const std::string& value) -> const RecordedDrawText*
+    {
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text == value )
+                {
+                    return text;
+                }
+            }
+        }
+        return nullptr;
+    };
+
+    ui.draw();
+    const RecordedDrawText* one = tabText("One");
+    const RecordedDrawText* two = tabText("Two");
+    REQUIRE(one != nullptr);
+    REQUIRE(two != nullptr);
+    CHECK(one->color == skin.textFocused);
+    CHECK(two->color == skin.text);
+    CHECK(two->rect.x > one->rect.x + one->rect.width);
+
+    const RecordedFillRect* underline = nullptr;
+    for ( const RecordedCall& call : painter.recorded() )
+    {
+        if ( const RecordedFillRect* fill = std::get_if<RecordedFillRect>(&call) )
+        {
+            if ( fill->color == skin.textFocused && fill->rect.height == 2.0f )
+            {
+                underline = fill;
+            }
+        }
+    }
+    REQUIRE(underline != nullptr);
+    CHECK(underline->rect.x == one->rect.x);
+    CHECK(underline->rect.width == one->rect.width);
+    CHECK(underline->rect.y > one->rect.y);
+
+    // Next-tab moves the active underline to the second label.
+    tap(ui, platform::Key::E);
+    painter.clearRecorded();
+    ui.draw();
+    one = tabText("One");
+    two = tabText("Two");
+    REQUIRE(one != nullptr);
+    REQUIRE(two != nullptr);
+    CHECK(one->color == skin.text);
+    CHECK(two->color == skin.textFocused);
+    underline = nullptr;
+    for ( const RecordedCall& call : painter.recorded() )
+    {
+        if ( const RecordedFillRect* fill = std::get_if<RecordedFillRect>(&call) )
+        {
+            if ( fill->color == skin.textFocused && fill->rect.height == 2.0f )
+            {
+                underline = fill;
+            }
+        }
+    }
+    REQUIRE(underline != nullptr);
+    CHECK(underline->rect.x == two->rect.x);
+}
+
+TEST_CASE("Q, E and the shoulder buttons report a tab change and wrap")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Screen screen;
+    screen.tabs = { "One", "Two", "Three" };
+    screen.widgets = { Button{ "Go", 1, true } };
+    const ScreenId id = ui.push(screen);
+    REQUIRE(id != kInvalidScreen);
+
+    tap(ui, platform::Key::E);
+    std::vector<UiEvent> events = drain(ui);
+    const TabChanged* changed = findEvent<TabChanged>(events);
+    REQUIRE(changed != nullptr);
+    CHECK(changed->screen == id);
+    CHECK(changed->tab == 1u);
+
+    tap(ui, platform::Key::Q);
+    events = drain(ui);
+    changed = findEvent<TabChanged>(events);
+    REQUIRE(changed != nullptr);
+    CHECK(changed->tab == 0u);
+
+    // Previous from the first tab wraps to the last.
+    tap(ui, platform::Key::Q);
+    events = drain(ui);
+    changed = findEvent<TabChanged>(events);
+    REQUIRE(changed != nullptr);
+    CHECK(changed->tab == 2u);
+
+    ui.handleEvent(platform::Event(padButtonEvent(
+        platform::GamepadButton::RightShoulder, true)));
+    events = drain(ui);
+    changed = findEvent<TabChanged>(events);
+    REQUIRE(changed != nullptr);
+    CHECK(changed->tab == 0u);
+
+    ui.handleEvent(platform::Event(padButtonEvent(
+        platform::GamepadButton::LeftShoulder, true)));
+    events = drain(ui);
+    changed = findEvent<TabChanged>(events);
+    REQUIRE(changed != nullptr);
+    CHECK(changed->tab == 2u);
+
+    // A screen without tabs ignores the tab inputs.
+    Screen plain;
+    plain.widgets = { Button{ "Go", 1, true } };
+    REQUIRE(ui.push(plain) != kInvalidScreen);
+    tap(ui, platform::Key::E);
+    CHECK_FALSE(findEvent<TabChanged>(drain(ui)) != nullptr);
+}
+
+TEST_CASE("a click on a tab label reports the tab change")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    Skin skin;
+    skin.titleHeight = 0.0f;
+    skin.rowHeight = 20.0f;
+    skin.panelPadding = 10.0f;
+    skin.minPanelWidth = 100.0f;
+    skin.canvasMargin = 8.0f;
+    skin.borderWidth = 0.0f;
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.tabs = { "One", "Two" };
+    screen.widgets = { Button{ "Go", 1, true } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+    ui.draw();
+
+    Rect second;
+    bool found = false;
+    for ( const RecordedCall& call : painter.recorded() )
+    {
+        if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+        {
+            if ( text->text == "Two" )
+            {
+                second = text->rect;
+                found = true;
+            }
+        }
+    }
+    REQUIRE(found);
+
+    ui.handleEvent(platform::Event(canvasMouse(
+        second.x + second.width * 0.5f, second.y + second.height * 0.5f)));
+    ui.handleEvent(platform::Event(mouseButtonEvent(platform::MouseButton::Left, true)));
+    ui.handleEvent(platform::Event(mouseButtonEvent(platform::MouseButton::Left, false)));
+    const std::vector<UiEvent> events = drain(ui);
+    const TabChanged* changed = findEvent<TabChanged>(events);
+    REQUIRE(changed != nullptr);
+    CHECK(changed->tab == 1u);
+}
+
+TEST_CASE("help text is drawn only for the focused row and wraps in its column")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    Skin skin;
+    skin.titleHeight = 0.0f;
+    skin.rowHeight = 20.0f;
+    skin.panelPadding = 10.0f;
+    skin.minPanelWidth = 100.0f;
+    skin.canvasMargin = 8.0f;
+    skin.borderWidth = 0.0f;
+    skin.helpColumnWidth = 0.35f;
+    skin.textFont = 5;
+    skin.helpFont = 9;
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.widgets = { Button{ "A", 1, true }, Button{ "B", 2, true } };
+    screen.help = { "First help.", "Second help." };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    auto helpTexts = [&painter]() -> std::vector<const RecordedDrawText*>
+    {
+        std::vector<const RecordedDrawText*> found;
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->font == 9 )
+                {
+                    found.push_back(text);
+                }
+            }
+        }
+        return found;
+    };
+
+    auto joined = [](const std::vector<const RecordedDrawText*>& lines)
+    {
+        std::string text;
+        for ( const RecordedDrawText* line : lines )
+        {
+            if ( !text.empty() )
+            {
+                text += ' ';
+            }
+            text += line->text;
+        }
+        return text;
+    };
+
+    ui.draw();
+    std::vector<const RecordedDrawText*> texts = helpTexts();
+    REQUIRE(!texts.empty());
+    CHECK(joined(texts) == "First help.");
+
+    tap(ui, platform::Key::Down);
+    painter.clearRecorded();
+    ui.draw();
+    texts = helpTexts();
+    REQUIRE(!texts.empty());
+    CHECK(joined(texts) == "Second help.");
+
+    // A long help string is split at spaces, and every line stays inside
+    // one column: same x and width, all within the canvas.
+    Screen wide;
+    wide.widgets = { Button{ "A", 1, true }, Button{ "B", 2, true },
+        Button{ "C", 3, true }, Button{ "D", 4, true }, Button{ "E", 5, true } };
+    wide.help = { "one two three four five six seven eight nine ten eleven twelve" };
+    REQUIRE(ui.pop() > 0);
+    REQUIRE(ui.push(wide) != kInvalidScreen);
+    painter.clearRecorded();
+    ui.draw();
+    texts = helpTexts();
+    REQUIRE(texts.size() > 1u);
+    const float columnX = texts.front()->rect.x;
+    const float columnWidth = texts.front()->rect.width;
+    float previousY = -1.0f;
+    for ( const RecordedDrawText* text : texts )
+    {
+        CHECK(text->rect.x == columnX);
+        CHECK(text->rect.width == columnWidth);
+        CHECK(text->rect.x >= 0.0f);
+        CHECK(text->rect.x + text->rect.width <= 640.0f);
+        CHECK(text->rect.y > previousY);
+        previousY = text->rect.y;
+    }
+}
+
+TEST_CASE("choice rows draw arrows around the value and highlight them on focus")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    Skin skin;
+    skin.textFont = 5;
+    skin.titleHeight = 0.0f;
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.widgets = { Choice{ "Quality", std::string(), { "Low", "High" }, true, 0 } };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+    ui.draw();
+
+    const RecordedDrawText* leftArrow = nullptr;
+    const RecordedDrawText* rightArrow = nullptr;
+    const RecordedDrawText* value = nullptr;
+    for ( const RecordedCall& call : painter.recorded() )
+    {
+        if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+        {
+            if ( text->text == "\xE2\x97\x80" )
+            {
+                leftArrow = text;
+            }
+            else if ( text->text == "\xE2\x96\xB6" )
+            {
+                rightArrow = text;
+            }
+            else if ( text->text == "Low" )
+            {
+                value = text;
+            }
+        }
+    }
+    REQUIRE(leftArrow != nullptr);
+    REQUIRE(rightArrow != nullptr);
+    REQUIRE(value != nullptr);
+    CHECK(leftArrow->color == skin.textFocused);
+    CHECK(rightArrow->color == skin.textFocused);
+    CHECK(leftArrow->rect.x < value->rect.x);
+    CHECK(rightArrow->rect.x > value->rect.x);
+}

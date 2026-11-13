@@ -62,6 +62,17 @@ namespace babylon::ui
         Color textDisabled = { 0.45f, 0.45f, 0.45f, 1.0f };
         FontId textFont = 0;
 
+        // The font of a tabbed screen's right-hand help column. Defaults to
+        // the row font when the skin is default-constructed; a skin that
+        // wants a different face sets it explicitly.
+        FontId helpFont = textFont;
+
+        // The share of the panel's inner width given to the help column of a
+        // tabbed screen, 0..1. 0 disables the column; the default leaves
+        // about a third for help. When a screen has help text, the rows use
+        // the remaining width.
+        float helpColumnWidth = 0.35f;
+
         // How a row's own text is aligned inside its line box. Left keeps
         // the original dialog look; a bottom-left menu also uses Left.
         TextAlign rowAlign = TextAlign::Left;
