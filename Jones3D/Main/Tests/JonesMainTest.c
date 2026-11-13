@@ -7,9 +7,12 @@
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
+#include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Play/jonesCog.h>
+#include <Jones3D/Play/jonesInventory.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
+#include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithWorld.h>
 #include <std/General/stdUtil.h>
 #include <std/types.h>
@@ -403,6 +406,36 @@ TEST(JonesMain, TestPauseMenuStaysClosedForDeadOrDyingPlayer)
     TEST_ASSERT_EQUAL_INT(0, JonesMain_CanOpenPauseMenu());
 }
 
+TEST(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255)
+{
+    SithLevelStatistic stats;
+    memset(&stats, 0, sizeof(stats));
+    stats.elapsedTime = 300u << 8; // 300 hours, 0 minutes
+
+    jonesInventory_UpdateLevelStatisticTime(0, &stats, 0, 0);
+
+    // Fixed: the original truncated the stored and total hours to 8 bits.
+    TEST_ASSERT_EQUAL_UINT(300, stats.elapsedTime >> 8);
+    TEST_ASSERT_EQUAL_UINT(0, stats.elapsedTime & 0xFF);
+}
+
+TEST(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime)
+{
+    sithTime_g_msecGameTime = 12000;
+    JonesMainSys_StartQuickSaveTimer(NULL);
+
+    // Not before one second of game time has passed.
+    sithTime_g_msecGameTime = 12999;
+    TEST_ASSERT_FALSE(JonesMainSys_TakeQuickSaveTimerExpired());
+
+    // At one second the timer reports the expiry and disarms itself.
+    sithTime_g_msecGameTime = 13000;
+    TEST_ASSERT_TRUE(JonesMainSys_TakeQuickSaveTimerExpired());
+
+    // It reports exactly once; later frames do not clear the flag again.
+    TEST_ASSERT_FALSE(JonesMainSys_TakeQuickSaveTimerExpired());
+}
+
 TEST_GROUP_RUNNER(JonesMain)
 {
     RUN_TEST_CASE(JonesMain, TestExactMatchAtRequestedRateAfterOtherRate);
@@ -425,4 +458,6 @@ TEST_GROUP_RUNNER(JonesMain)
     RUN_TEST_CASE(JonesMain, TestPauseMenuStaysClosedInEachBlockingState);
     RUN_TEST_CASE(JonesMain, TestNullPauseMenuAnswersAtOnce);
     RUN_TEST_CASE(JonesMain, TestPauseMenuStaysClosedForDeadOrDyingPlayer);
+    RUN_TEST_CASE(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255);
+    RUN_TEST_CASE(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime);
 }

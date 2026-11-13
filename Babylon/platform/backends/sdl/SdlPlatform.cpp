@@ -22,7 +22,9 @@
 #include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_video.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -318,6 +320,15 @@ namespace
                 }
                 if ( std::optional<Event> event = sdl::translateEvent(sdlEvent); event.has_value() )
                 {
+                    // SDL knows a pad's family before it is opened, so the
+                    // connect event carries it and the game can pick prompts
+                    // without opening a device of its own.
+                    if ( GamepadConnected* pConnected =
+                            std::get_if<GamepadConnected>(&*event) )
+                    {
+                        pConnected->type = sdl::translateGamepadType(
+                            SDL_GetGamepadTypeForID(sdlEvent.gdevice.which));
+                    }
                     return event;
                 }
                 // Everything translateEvent() does not deliver (display
@@ -341,6 +352,26 @@ namespace
                 return false;
             }
             return true;
+        }
+
+        bool rumbleGamepad(GamepadId gamepad, float lowFrequency,
+            float highFrequency, std::uint32_t durationMs) override
+        {
+            const auto found = m_gamepads.find(gamepad);
+            if ( found == m_gamepads.end() )
+            {
+                return false;   // unknown gamepad or one that failed to open
+            }
+
+            // SDL takes the motor strengths as 16-bit values and caps the
+            // duration itself; clamp here so every backend sees the same
+            // inputs. SDL returns false when the pad has no rumble support.
+            const Uint16 low = static_cast<Uint16>(std::lround(
+                clampRumbleIntensity(lowFrequency) * 65535.0f));
+            const Uint16 high = static_cast<Uint16>(std::lround(
+                clampRumbleIntensity(highFrequency) * 65535.0f));
+            return SDL_RumbleGamepad(found->second, low, high,
+                std::min(durationMs, kMaxRumbleDurationMs));
         }
 
     private:

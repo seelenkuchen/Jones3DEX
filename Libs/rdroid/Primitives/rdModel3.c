@@ -62,8 +62,10 @@ static rdLight* apMeshLights[RDCAMERA_MAX_LIGHTS] = { 0 };
 rdVector3 aLocalLightPos[RDCAMERA_MAX_LIGHTS]     = { 0 };
 
 static rdFaceFlags extraFaceFlags = 0;
+static rdFaceFlags drawFaceFlags = 0;
 
 void J3DAPI rdModel3_LoadPostProcess(rdModel3* pModel3); // Added
+static int J3DAPI rdModel3_DrawModel(rdThing* pThing, const rdMatrix34* pPlacement);
 
 void rdModel3_ResetGlobals(void)
 {
@@ -1514,7 +1516,9 @@ int J3DAPI rdModel3_SwapMesh(rdModel3* pModel1, unsigned int meshNum1, rdModel3*
     rdModel3Mesh mesh1;
     memcpy(&mesh1, &pModel1->aGeos[0].aMeshes[meshNum1], sizeof(mesh1));
 
-    if ( rdModel3_ReplaceMesh(pModel1, 0, meshNum1, pMesh2) || rdModel3_ReplaceMesh(pModel2, 0, meshNum2, &mesh1) )
+    int bFailed1 = rdModel3_ReplaceMesh(pModel1, 0, meshNum1, pMesh2);
+    int bFailed2 = rdModel3_ReplaceMesh(pModel2, 0, meshNum2, &mesh1);
+    if ( bFailed1 || bFailed2 )
     {
         RDLOG_ERROR("Error: SwapMesh for models '%s and %s'.\n", pModel1->aName, pModel2->aName);
         return 1;
@@ -1619,6 +1623,21 @@ void J3DAPI rdModel3_SetNodeColorForNonAmputatedJoints(const rdThing* prdThing, 
 }
 
 int J3DAPI rdModel3_Draw(rdThing* pThing, const rdMatrix34* pPlacement)
+{
+    return rdModel3_DrawWithFlags(pThing, pPlacement, 0);
+}
+
+int J3DAPI rdModel3_DrawWithFlags(rdThing* pThing, const rdMatrix34* pPlacement, rdFaceFlags flags)
+{
+    // Added: Copy per-draw flags into deferred faces without changing shared assets.
+    rdFaceFlags previousFlags = drawFaceFlags;
+    drawFaceFlags = flags;
+    int result = rdModel3_DrawModel(pThing, pPlacement);
+    drawFaceFlags = previousFlags;
+    return result;
+}
+
+static int J3DAPI rdModel3_DrawModel(rdThing* pThing, const rdMatrix34* pPlacement)
 {
     RD_ASSERTREL(rdCamera_g_pCurCamera != NULL);
     RD_ASSERTREL(pThing != NULL);
@@ -1934,7 +1953,7 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
         }
     }
 
-    pPoly->flags     = pFace->flags | extraFaceFlags;
+    pPoly->flags     = pFace->flags | extraFaceFlags | drawFaceFlags;
     pPoly->matCelNum = pFace->matCelNum;
     pPoly->pMaterial = pFace->pMaterial;
 

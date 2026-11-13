@@ -46,3 +46,19 @@ TEST_CASE("sdlWindowOf gives the SDL window of SDL windows and nullptr for other
     CHECK(babylon::platform::sdlWindowOf(*nullWindow) == nullptr);
     CHECK(sink.records().empty());
 }
+
+TEST_CASE("the SDL platform refuses rumble for a gamepad it has not opened")
+{
+    babylon::log::CaptureSink sink;
+    const std::unique_ptr<babylon::platform::Platform> platform =
+        babylon::platform::createSdlPlatform();
+    if ( platform == nullptr )
+    {
+        FAIL("createSdlPlatform() returned nullptr: run this test with "
+            "the offscreen or dummy video driver");
+    }
+
+    // No gamepad is connected in the headless test, so any id is unknown.
+    CHECK_FALSE(platform->rumbleGamepad(4242, 0.5f, 0.5f, 100));
+    CHECK(sink.records().empty());
+}

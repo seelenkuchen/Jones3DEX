@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,74 @@ struct JonesUiDisplayVideoMode
 // missing, and leaves modes empty.
 bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int displayDeviceNum,
     std::vector<JonesUiDisplayVideoMode>& modes);
+
+// The values a Display screen edits and the widget indices its OK handler
+// reads. Shared by the standalone Display screen and the tabbed Options
+// screen.
+struct JonesUiDisplayValues
+{
+    bool bBitDepth = false;
+    std::size_t bitDepth = 0;
+    bool bResolution = false;
+    std::size_t resolution = 0;
+    bool bWindowed = false;
+    std::size_t filter = 0;
+    bool bFog = false;
+    double fogDensity = 1.0;
+    std::size_t performance = 0;
+    bool bHiPoly = false;
+    bool bLitFaces = false;
+};
+
+struct JonesUiDisplayLayout
+{
+    std::optional<std::size_t> bitDepth;
+    std::optional<std::size_t> resolution;
+    std::size_t windowed = 0;
+    std::size_t filter = 0;
+    std::size_t fog = 0;
+    std::size_t fogDensity = 0;
+    std::size_t performance = 0;
+    std::size_t hiPoly = 0;
+    std::size_t litFaces = 0;
+    std::size_t ok = 0;
+    std::size_t back = 0;
+};
+
+// Everything the screen needs from the game and the display environment,
+// captured when it opens.
+struct JonesUiDisplayModel
+{
+    const StdDisplayEnvironment* pDisplayEnv = nullptr;
+    JonesDisplaySettings* pSettings = nullptr;
+    std::vector<JonesUiDisplayVideoMode> modes;
+    std::vector<int> bitDepths;
+    bool bHasCurMode = false;
+    std::size_t curModeNum = 0;
+    int curBpp = 0;
+    std::size_t curBitDepth = 0;
+    std::size_t curResolution = 0;
+    int perfLevel = 4;
+    bool bHiPoly = false;
+    bool bLitFaces = false;
+};
+
+// Reads the environment and settings into a model and the initial values.
+JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDisplayEnv,
+    JonesDisplaySettings* pSettings, JonesUiDisplayValues& values);
+
+// Builds the rows from values. bShowPerformance is false for the Options
+// Display tab, which drops the Performance row while the apply path still
+// writes the stored level unchanged.
+babylon::ui::Screen JonesUiDisplay_BuildScreen(const JonesUiDisplayModel& model,
+    const JonesUiDisplayValues& values, JonesUiDisplayLayout& layout, bool bShowPerformance);
+
+// Reads the current widget values while screen is open.
+void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiDisplayLayout& layout, JonesUiDisplayValues& values);
+
+// Applies values exactly as the original OK handlers did. Returns 1.
+int JonesUiDisplay_Apply(const JonesUiDisplayModel& model, const JonesUiDisplayValues& values);
 
 // Runs the Display screen through ui. On OK it writes the display settings the original dialogs
 // wrote (video mode, size, window mode, fog, mipmap filter, buffering) and their Jones.cfg keys,

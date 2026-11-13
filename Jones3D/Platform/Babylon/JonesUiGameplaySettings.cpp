@@ -84,37 +84,6 @@ namespace
     constexpr const char* kJonesGameplayExternalKeyframesText =
         "External CND keyframes"; // TODO: [COMPAT]
 
-    struct JonesUiGameplayLayout
-    {
-        std::size_t showText = 0;
-        std::size_t showHints = 0;
-        std::size_t rotateMap = 0;
-        std::size_t difficulty = 0;
-        std::size_t defaultRun = 0;
-        std::size_t reticle = 0;
-        std::size_t blood = 0;
-        std::size_t profile = 0;
-        std::size_t fireFlash = 0;
-        std::size_t externalMaterials = 0;
-        std::size_t externalKeyframes = 0;
-        std::size_t ok = 0;
-        std::size_t back = 0;
-    };
-
-    struct JonesUiGameplayValues
-    {
-        bool bShowText = false;
-        bool bShowHints = false;
-        bool bRotateMap = false;
-        std::size_t difficulty = 0;
-        bool bDefaultRun = false;
-        bool bReticle = false;
-        bool bBlood = false;
-        bool bFireFlash = false;
-        bool bExternalMaterials = false;
-        bool bExternalKeyframes = false;
-    };
-
     bool JonesUiGameplay_ReadToggle(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
         std::size_t index, bool& value)
     {
@@ -178,7 +147,7 @@ namespace
         return text;
     }
 
-    babylon::ui::Screen JonesUiGameplay_BuildScreen(bool bEnhancedProfile,
+    babylon::ui::Screen BuildGameplayScreen(bool bEnhancedProfile,
         const JonesUiGameplayValues& values, JonesUiGameplayLayout& layout)
     {
         babylon::ui::Screen screen;
@@ -271,8 +240,7 @@ namespace
     }
 }
 
-int JonesUiGameplay_RunGameplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    bool bEnhancedProfile)
+JonesUiGameplayValues JonesUiGameplay_LoadValues(bool bEnhancedProfile)
 {
     const int maxDifficulty = (int)jonesInventory_GetMaxDifficultyLevel();
     const int currentDifficulty = std::clamp(sithGetGameDifficulty(), 0, maxDifficulty);
@@ -292,55 +260,43 @@ int JonesUiGameplay_RunGameplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter*
         SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true);
     values.bExternalKeyframes = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
         SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true);
+    return values;
+}
 
-    JonesUiGameplayLayout layout;
-    const babylon::ui::Screen screen = JonesUiGameplay_BuildScreen(bEnhancedProfile, values,
-        layout);
+babylon::ui::Screen JonesUiGameplay_BuildScreen(bool bEnhancedProfile,
+    const JonesUiGameplayValues& values, JonesUiGameplayLayout& layout)
+{
+    return BuildGameplayScreen(bEnhancedProfile, values, layout);
+}
 
-    bool bApply = false;
-    const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
-        babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
-    {
-        const babylon::ui::ActionPressed* pAction =
-            std::get_if<babylon::ui::ActionPressed>(&event);
-        if ( !pAction || pAction->screen != screenId || pAction->action != kJonesGameplayActionOk )
-        {
-            return false;
-        }
+void JonesUiGameplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiGameplayLayout& layout, JonesUiGameplayValues& values)
+{
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.showText,
+        values.bShowText));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.showHints,
+        values.bShowHints));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.rotateMap,
+        values.bRotateMap));
+    static_cast<void>(JonesUiGameplay_ReadChoice(ui, screen, layout.difficulty,
+        values.difficulty));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.defaultRun,
+        values.bDefaultRun));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.reticle,
+        values.bReticle));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.blood,
+        values.bBlood));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.fireFlash,
+        values.bFireFlash));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.externalMaterials,
+        values.bExternalMaterials));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.externalKeyframes,
+        values.bExternalKeyframes));
+}
 
-        // Read the unbound widget values while the screen is still open; accepting the OK button
-        // pops it right after this handler returns.
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.showText,
-            values.bShowText));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.showHints,
-            values.bShowHints));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.rotateMap,
-            values.bRotateMap));
-        static_cast<void>(JonesUiGameplay_ReadChoice(uiRef, screenId, layout.difficulty,
-            values.difficulty));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.defaultRun,
-            values.bDefaultRun));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.reticle,
-            values.bReticle));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.blood,
-            values.bBlood));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.fireFlash,
-            values.bFireFlash));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.externalMaterials,
-            values.bExternalMaterials));
-        static_cast<void>(JonesUiGameplay_ReadToggle(uiRef, screenId, layout.externalKeyframes,
-            values.bExternalKeyframes));
-
-        bApply = true;
-        return false;
-    };
-
-    const int result = JonesUiModal_RunHandled(ui, pPainter, screen,
-        [](babylon::ui::ResultCode code) { return (int)code; }, handler);
-    if ( result != kJonesDialogOk || !bApply )
-    {
-        return result;
-    }
+int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedProfile)
+{
+    const int maxDifficulty = (int)jonesInventory_GetMaxDifficultyLevel();
 
     // The original OK handler, in its order: show text, map rotation, hints, difficulty and the
     // Default To Run control option.
@@ -385,6 +341,43 @@ int JonesUiGameplay_RunGameplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter*
         values.bExternalKeyframes);
 
     return kJonesDialogOk;
+}
+
+int JonesUiGameplay_RunGameplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    bool bEnhancedProfile)
+{
+    JonesUiGameplayValues values = JonesUiGameplay_LoadValues(bEnhancedProfile);
+
+    JonesUiGameplayLayout layout;
+    const babylon::ui::Screen screen = JonesUiGameplay_BuildScreen(bEnhancedProfile, values,
+        layout);
+
+    bool bApply = false;
+    const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
+        babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
+    {
+        const babylon::ui::ActionPressed* pAction =
+            std::get_if<babylon::ui::ActionPressed>(&event);
+        if ( !pAction || pAction->screen != screenId || pAction->action != kJonesGameplayActionOk )
+        {
+            return false;
+        }
+
+        // Read the unbound widget values while the screen is still open; accepting the OK button
+        // pops it right after this handler returns.
+        JonesUiGameplay_ReadValues(uiRef, screenId, layout, values);
+        bApply = true;
+        return false;
+    };
+
+    const int result = JonesUiModal_RunHandled(ui, pPainter, screen,
+        [](babylon::ui::ResultCode code) { return (int)code; }, handler);
+    if ( result != kJonesDialogOk || !bApply )
+    {
+        return result;
+    }
+
+    return JonesUiGameplay_Apply(values, bEnhancedProfile);
 }
 
 extern "C" int J3DAPI jonesConfig_ShowGamePlayOptions(tSysWindow hWnd)

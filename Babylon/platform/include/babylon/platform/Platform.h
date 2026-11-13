@@ -5,8 +5,10 @@
 
 #pragma once
 
+#include <babylon/platform/Event.h>
 #include <babylon/platform/Window.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -47,6 +49,33 @@ namespace babylon::platform
         // rendering works.
         [[nodiscard]] virtual bool showMessageBox(std::string_view title,
             std::string_view text) = 0;
+
+        // Starts a rumble effect on one gamepad. lowFrequency and highFrequency
+        // are the two motors, each clamped to 0..1 (0 stops it); durationMs is
+        // capped at kMaxRumbleDurationMs. Returns false when the gamepad is
+        // unknown, is not open, or cannot rumble; a backend that cannot rumble
+        // at all returns false without logging. Rumble is output only: it never
+        // changes the game state, and the call does not block.
+        virtual bool rumbleGamepad(GamepadId gamepad, float lowFrequency,
+            float highFrequency, std::uint32_t durationMs) = 0;
     };
+
+    // The longest rumble a caller may ask for; longer durations are capped.
+    inline constexpr std::uint32_t kMaxRumbleDurationMs = 5000;
+
+    // Clamps one rumble motor's intensity to the 0..1 range the interface
+    // expects. Backends apply it before handing the value to their device.
+    inline float clampRumbleIntensity(float intensity)
+    {
+        if ( intensity < 0.0f )
+        {
+            return 0.0f;
+        }
+        if ( intensity > 1.0f )
+        {
+            return 1.0f;
+        }
+        return intensity;
+    }
 
 }

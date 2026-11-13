@@ -41,3 +41,6 @@ set_tests_properties(rdroid.Math PROPERTIES
     LABELS "unit;rdroid;math"
     TIMEOUT 60
 )
+
+# Added: the model draw-flags tests compile rdModel3.c under their own host and entry point.
+add_subdirectory(../Primitives/Tests Primitives)

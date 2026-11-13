@@ -128,6 +128,22 @@ TEST(stdConfig, TestSetGetPrimitivesAndContains)
     TEST_ASSERT_FALSE(stdConfig_Contains("missing.key"));
 }
 
+TEST(stdConfig, TestRemoveDropsAKeyAndPersists)
+{
+    stdConfigTest_StartupConfig();
+
+    TEST_ASSERT_TRUE(stdConfig_SetBool("controls.controller", true));
+    TEST_ASSERT_TRUE(stdConfig_Contains("controls.controller"));
+
+    TEST_ASSERT_TRUE(stdConfig_Remove("controls.controller"));
+    TEST_ASSERT_FALSE(stdConfig_Contains("controls.controller"));
+    TEST_ASSERT_FALSE(stdConfig_Remove("controls.controller"));
+
+    stdConfig_Shutdown();
+    TEST_ASSERT_TRUE(stdConfig_Startup(stdConfigTest_pPath));
+    TEST_ASSERT_FALSE(stdConfig_Contains("controls.controller"));
+}
+
 TEST(stdConfig, TestRegistryFallbacksAreMappedAndCachedIntoJson)
 {
     char aText[64];
@@ -300,6 +316,7 @@ TEST_GROUP_RUNNER(stdConfig)
     RUN_TEST_CASE(stdConfig, TestStartupLoadsExistingVectorConfig);
     RUN_TEST_CASE(stdConfig, TestStartupRejectsMalformedConfigAndCanRetry);
     RUN_TEST_CASE(stdConfig, TestSetGetPrimitivesAndContains);
+    RUN_TEST_CASE(stdConfig, TestRemoveDropsAKeyAndPersists);
     RUN_TEST_CASE(stdConfig, TestRegistryFallbacksAreMappedAndCachedIntoJson);
     RUN_TEST_CASE(stdConfig, TestColorRoundTripAndAcceptedFormats);
     RUN_TEST_CASE(stdConfig, TestValuesPersistAcrossRestart);

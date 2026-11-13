@@ -27,11 +27,13 @@ namespace
     using babylon::platform::GamepadAxis;
     using babylon::platform::GamepadButton;
     using babylon::platform::GamepadId;
+    using babylon::platform::GamepadType;
     using babylon::platform::Key;
     using babylon::platform::MouseButton;
     using babylon::platform::Size;
     using babylon::platform::WindowId;
     using babylon::platform::sdl::translateEvent;
+    using babylon::platform::sdl::translateGamepadType;
     using babylon::platform::sdl::translateScancode;
 
     // The delivered event of one kind, or nullptr when translateEvent()
@@ -342,4 +344,27 @@ TEST_CASE("Every SDL scancode translates, and every key exactly once")
         CHECK(producers.count(value) == 1);
     }
     CHECK(producers.size() == static_cast<std::size_t>(static_cast<int>(Key::Count)) - 1);
+}
+
+TEST_CASE("SDL gamepad types map onto the Babylon families")
+{
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_XBOX360) == GamepadType::Xbox);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_XBOXONE) == GamepadType::Xbox);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_PS3) == GamepadType::PlayStation);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_PS4) == GamepadType::PlayStation);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_PS5) == GamepadType::PlayStation);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO) == GamepadType::Nintendo);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT)
+        == GamepadType::Nintendo);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT)
+        == GamepadType::Nintendo);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR)
+        == GamepadType::Nintendo);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_STEAM) == GamepadType::SteamDeck);
+
+    // Everything the game does not name, including a standard pad and
+    // SDL's GameCube type, stays Unknown; the game shows Xbox prompts.
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_UNKNOWN) == GamepadType::Unknown);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_STANDARD) == GamepadType::Unknown);
+    CHECK(translateGamepadType(SDL_GAMEPAD_TYPE_GAMECUBE) == GamepadType::Unknown);
 }

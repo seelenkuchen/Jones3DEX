@@ -17,9 +17,22 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace babylon::ui
 {
+
+    // One entry of the prompt bar: the icon of the input that triggers an
+    // action and its label, such as the accept button and "Select". icon 0
+    // draws the label alone, for an icon the game could not load. The game
+    // fills the bar every frame; the bar belongs to the top screen and goes
+    // away with it.
+    struct Prompt
+    {
+        ImageId icon = 0;
+        std::string label;
+    };
 
     // The screen stack and everything that runs it. A game declares each
     // screen as a Screen value, pushes it, and then once per frame feeds
@@ -91,9 +104,10 @@ namespace babylon::ui
         // Replaces the copied look and sound. Returns false and changes
         // nothing, with one log warning, for a skin whose rowHeight is not
         // positive, titleHeight is negative, rowSpacing, panelPadding,
-        // minPanelWidth or canvasMargin is negative, or borderWidth is
-        // negative. May be called at any time; a pushed screen keeps its
-        // state and is laid out with the new metrics on the next draw.
+        // minPanelWidth, canvasMargin, topMargin, borderWidth or
+        // markerSpacing is negative, or fixedPanelWidth is outside 0..1.
+        // May be called at any time; a pushed screen keeps its state and is
+        // laid out with the new metrics on the next draw.
         [[nodiscard]] bool setSkin(const Skin& skin);
 
         // The current skin. The reference is valid until the next setSkin()
@@ -213,6 +227,23 @@ namespace babylon::ui
         // take focus. A focused List uses this index even while its own
         // selection moves.
         std::size_t focusedWidget() const;
+
+        // True when the focused widget changes a value with left and right:
+        // a Choice, Slider or Toggle. The game uses it to add the Change
+        // prompt. False when the stack is empty or the focus is on another
+        // kind or no widget.
+        bool focusedWidgetChangesValue() const;
+
+        // Replaces the prompt bar entries the top screen draws. An empty
+        // list draws nothing. The list belongs to the top screen; pushing a
+        // screen starts it empty and closing a screen drops its list. The
+        // game sets it every frame because the entries follow the focused
+        // widget and the last used device.
+        void setPrompts(std::vector<Prompt> prompts);
+
+        // The top screen's prompt bar entries, or an empty list when the
+        // stack is empty.
+        const std::vector<Prompt>& prompts() const;
 
         // The current value of the Toggle, Slider, Choice or TextEntry at
         // index of an open screen, bound or unbound, as described at

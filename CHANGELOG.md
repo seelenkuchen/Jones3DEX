@@ -16,6 +16,18 @@
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
 
+### Upstream fixes (OpenJones3D develop)
+  - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on
+    faces, safer render batches (16-bit index limits, faces with an invalid depth sort last), and fading
+    inventory icons no longer hide overlapping icons.
+  - Inventory and HUD fixes from OpenJones3D: the inventory theme stops before gameplay sound resumes instead of
+    restarting after the menu closes, held menu keys keep repeating, backpacks keep their item amounts, level
+    times above 255 hours are kept, and a failed quick load no longer leaves saving disabled.
+  - Simulation fixes from OpenJones3D: COG functions push their documented results on every path and
+    `SetThingStateChange` takes its arguments in the retail order (thing, type, param); AI listening, turning,
+    firing and mine-car steering, savegame and multiplayer state messages, effects, the overlay map, actors,
+    items, weapons and explosions match the original or have its bugs fixed.
+
 ### M7: Playable
   - Sound plays in the windowed Babylon build through miniaudio, including cutscene sound, and the Sound
     settings screen chooses the output device (stored in `engine.audio.outputDevice`). Headless runs use the
@@ -30,18 +42,34 @@
   - Gamepads, mouse motion and the mouse wheel work in the Babylon column, and text input fills save names and
     the other text fields. The windowed build loads the player's control scheme from `controls.configFile` and
     binds it; headless runs keep the engine's default bindings.
-  - In-game menus replace the Win32 dialogs. A main menu at startup (New Game, Load, Settings, Quit) replaces
+  - A connected gamepad is always on and works together with the keyboard and mouse. New installs get a
+    default keyboard-and-gamepad scheme, the Controls screen has no controller toggle, and the old
+    `controls.controller` key is ignored and removed on the next save.
+  - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
+    default in both profiles, is presentation only, and the Controls screen has a Rumble row
+    (`engine.input.rumble`) to turn it off.
+  - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
+    Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
+    help column for the focused row, and the Display tab drops the Performance row while the stored
+    `graphics.performanceLevel` and the level in savegames keep working.
+  - In-game menus replace the Win32 dialogs. A main menu at startup (Continue, New Game, Load Game, Options, Exit Game) replaces
     the launcher: `startMode` 5 opens it, the windowed build also opens it for a missing value or 2, and values
     1, 3 and 4 run their screens after display and sound start, while `--load` still loads directly. The pause
-    menu on Escape or gamepad Start offers Resume, Save, Load, Settings, Statistics and Exit; the HUD menu
+    menu on Escape or gamepad Start offers Resume, Save, Load, Options, Statistics and Exit; the HUD menu
     opens on the active control scheme's interface key, with Tab and gamepad Back as a fallback while a scheme
-    binds none. `engine.ui.hud.systemIcons` can hide the HUD menu's system items.
+    binds none. The HUD menu's system items (Statistics, Save, Load, Settings and Exit) are off by default
+    because the pause menu on Escape or gamepad Start replaces them; `engine.ui.hud.systemIcons` true brings
+    them back.
   - The Gameplay, Display and Sound settings screens keep their original options and effects, and Statistics,
     Level Completed, Store and Game Over are in-game screens too. New labels are English for now.
   - The main menu's Quit button and the in-game Exit now end the game, as closing the window does.
+    Quitting from the main menu exits with status 0 instead of reporting a startup failure.
+  - The quicksave text now hides after one second of game time in the windowed build.
   - Fullscreen works from the Display screen and with Alt+Enter, which also writes `graphics.window`.
   - The Controls screen rebinds keys and gamepad buttons: a scheme picker, one rebind list for keys
     and gamepad controls, and a reset to the defaults.
+  - Player physics always runs at the original 50 Hz (20 ms) step. This fixes ledge grabs that broke at the
+    old 150 Hz default, and the `engine.physics.fixedTimestep` setting is ignored.
 
 ### M6: The Babylon renderer
   - The Babylon column renders the game through SDL3 GPU on Vulkan, Direct3D 12 or Metal, whichever the system
@@ -229,7 +257,6 @@
   - Fixed skipping expired/empty slots and clearing correct part of pending subtitle array in `sithVoice_PurgeDrawnSubtitles` (693cbcf)  
     This resolves issues with drawing pending subtitles when `sithVoice_curSubtitleDrawIndex` < `sithVoice_numSubtitleInfos`
   - Fixed removing subtitle when stopping currently played thing voice sound in `sithVoice_PlayVoice` (4d5f54a)
-  - [QOL] Changed physics fixed timestep to 150 fps and added option to configure timestep (0eaa4eb)
   - Fixed incorrect handling of default control set (4b3ea73)
   - Fixed assigning default control set when loading control set from `kfg` file fails (d6c774c)
   - Fixed not to sync MineCar engine animation to savegame file (a6c5978)  

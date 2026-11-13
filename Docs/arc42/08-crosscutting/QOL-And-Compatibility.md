@@ -64,7 +64,7 @@ The following are some of the most important architecture-level or runtime-level
 | Off-screen thing/light traversal | Legacy DFS-like traversal | BFS traversal available and enabled by default under `QOL` |
 | Thing/light collection distance | 8.0 / 8.0 default | 18.0 / 18.0 default under `QOL` |
 | Timer source | `timeGetTime()` | `QueryPerformanceCounter()` under `QOL`; the Win32 timer branches went with the Win32 backend in M6.3, and the Null and Babylon columns use a monotonic clock |
-| Player fixed-step physics | legacy-tuned 50 Hz behavior | configurable fixed-step rate, default 150 Hz under `QOL` |
+| Player fixed-step physics | legacy-tuned 50 Hz behavior | unchanged: fixed 50 Hz in every build; the obsolete rate setting is ignored |
 | Sound channels | small legacy limit | much larger simultaneous channel budget |
 | SW mixer falloff default | linear | logarithmic under `QOL` |
 | CND external materials/keyframes | disabled by default | enabled by default under `QOL` |

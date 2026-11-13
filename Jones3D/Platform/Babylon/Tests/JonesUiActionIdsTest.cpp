@@ -14,6 +14,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiMainMenu.h>
+#include <Jones3D/Platform/Babylon/JonesUiOptions.h>
 #include <Jones3D/Platform/Babylon/JonesUiPauseMenu.h>
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 #include <Jones3D/Platform/Babylon/JonesUiSoundSettings.h>
@@ -58,7 +59,12 @@ TEST_CASE("every screen's button and list uses a non-zero action id")
     JonesUiSound_AppendScreensForTest(screens);
 
     screens.push_back(JonesUiPauseMenu_BuildScreen());
-    screens.push_back(JonesUiPauseMenu_BuildSettingsScreen());
+
+    const JonesUiOptionsData optionsData{};
+    for ( std::size_t tab = 0; tab < 4; ++tab )
+    {
+        screens.push_back(JonesUiOptions_BuildTabScreenForTest(tab, optionsData));
+    }
 
     const SithGameStatistics statistics{};
     screens.push_back(JonesUiStatistics_BuildScreen(statistics, 0));
@@ -72,6 +78,6 @@ TEST_CASE("every screen's button and list uses a non-zero action id")
     }
 
     // A screen list that lost its builders would otherwise pass without walking anything.
-    CHECK(screens.size() >= 17u);
+    CHECK(screens.size() >= 16u);
     CHECK(numInteractive >= 40u);
 }

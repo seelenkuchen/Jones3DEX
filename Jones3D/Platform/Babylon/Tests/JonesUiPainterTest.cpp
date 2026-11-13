@@ -503,6 +503,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
     private:
         int m_emptyPolls  = 1;
         bool m_sendClose  = true;
@@ -545,6 +550,11 @@ namespace
         }
 
         bool showMessageBox(std::string_view, std::string_view) override
+        {
+            return false;
+        }
+
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
         {
             return false;
         }
@@ -630,7 +640,8 @@ TEST_CASE("the Jones painter draws a settings screen")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -779,7 +790,8 @@ TEST_CASE("the modal loop draws the message over the frozen frame")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -902,7 +914,8 @@ TEST_CASE("a nested modal reuses the outermost frozen background")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1046,7 +1059,8 @@ TEST_CASE("a nested modal reuses the outermost background callback")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1178,7 +1192,8 @@ TEST_CASE("a screen after another closes draws over the session background")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1284,7 +1299,11 @@ TEST_CASE("a modal frame clears the previous screen's panel from the background"
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    // Content-sized and centered: this test is about the modal frame, not the menu layout.
+    skin.placement = PanelPlacement::Center;
+    skin.fixedPanelWidth = 0.0f;
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1397,7 +1416,8 @@ TEST_CASE("the main menu draws the level map behind its panel")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1543,7 +1563,8 @@ TEST_CASE("the Jones save screen draws thumbnails and the save list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1655,7 +1676,8 @@ TEST_CASE("the Jones level completed screen draws its statistics")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1763,7 +1785,8 @@ TEST_CASE("the Jones store screen draws its item list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -1882,7 +1905,8 @@ TEST_CASE("the Jones display screen draws the settings list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2016,7 +2040,8 @@ TEST_CASE("the Jones controls screen draws the action list")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2096,7 +2121,8 @@ TEST_CASE("the scripted tour drives a modal screen by present count")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2230,7 +2256,10 @@ TEST_CASE("the painter draws labels taller than the old skin row")
     REQUIRE(lineHeight > 24.0f);
 
     // The old skin metrics, kept to prove the painter no longer drops a line that does not fit.
-    Skin oldSkin = JonesUiSkin_Create(tallFont, &painter);
+    Skin oldSkin = JonesUiSkin_Create(tallFont, tallFont, &painter);
+    // Content-sized and centered: the row bands below use that layout.
+    oldSkin.placement = PanelPlacement::Center;
+    oldSkin.fixedPanelWidth = 0.0f;
     oldSkin.rowHeight   = 24.0f;
     oldSkin.titleHeight = 32.0f;
 
@@ -2281,7 +2310,7 @@ TEST_CASE("the painter draws labels taller than the old skin row")
     }
 
     // The new skin makes the rows tall enough for the font.
-    const Skin newSkin = JonesUiSkin_Create(tallFont, &painter);
+    const Skin newSkin = JonesUiSkin_Create(tallFont, tallFont, &painter);
     CHECK(newSkin.rowHeight >= lineHeight);
     CHECK(newSkin.titleHeight >= lineHeight);
 
@@ -2341,14 +2370,19 @@ TEST_CASE("the painter measures the width it draws")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 20.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    // Content-sized and centered: this test checks that the measured width is the drawn width, not
+    // the fixed menu layout.
+    skin.placement = PanelPlacement::Center;
+    skin.fixedPanelWidth = 0.0f;
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
 
     // No widgets and this title as the widest content: the panel's text area is exactly the
     // measured title width, so a width mismatch drops the first and last glyphs.
-    const std::string title = std::string("M") + std::string(50, 'i');
+    const std::string title = std::string("M") + std::string(100, 'i');
     Screen screen;
     screen.title = title;
     screen.backResult = 2;
@@ -2443,7 +2477,8 @@ TEST_CASE("the modal loop calls the background callback before the screen")
     const FontId menuFont = painter.registerFont(&syntheticFont.font, 14.0f);
     REQUIRE(menuFont != 0);
 
-    const Skin skin = JonesUiSkin_Create(menuFont, &painter);
+    Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
     REQUIRE(ui.setViewport(640, 480));
@@ -2490,6 +2525,134 @@ TEST_CASE("the modal loop calls the background callback before the screen")
         panelColor) > 1000u);
 
     std3D_ClearSystemTexture(&syntheticFont.texture);
+    std3D_Shutdown();
+    stdDisplay_Shutdown();
+    rdClose();
+    rdShutdown();
+    stdShutdown();
+    stdBabylon_SetContext(nullptr);
+}
+
+TEST_CASE("the painter draws a TrueType font and a PNG from Data/ui")
+{
+    std::unique_ptr<render::Device> pDevice = render::createSdlGpuDevice(nullptr);
+    if ( !pDevice )
+    {
+        if ( GpuRequired() )
+        {
+            FAIL("no SDL GPU device although BABYLON_REQUIRE_GPU=1");
+        }
+
+        MESSAGE("no SDL GPU device, skipping the TTF and PNG images");
+        return;
+    }
+
+    std::unique_ptr<files::FileSystem> pFileSystem = files::createSdlFileSystem();
+    std::unique_ptr<time::Clock> pClock = time::createSdlClock();
+    time::NullClock virtualClock;
+    platform::NullPlatform platform;
+    cvars::Registry cvars;
+
+    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform,
+        &platform, nullptr, &cvars, pDevice.get() };
+    stdBabylon_SetContext(&context);
+    SetupHostServices();
+
+    rdStartup();
+    REQUIRE(rdOpen() == 1);
+
+    REQUIRE(stdDisplay_Startup() == 1);
+    REQUIRE(stdDisplay_Open(0u) == 1);
+    stdDisplay_SetDefaultResolution(640u, 480u);
+    REQUIRE(stdDisplay_SetMode(0u, 0, 1u) == 0);
+    REQUIRE(std3D_Startup() == 1);
+    REQUIRE(std3D_Open(0u) == 1);
+
+    {
+        JonesUiPainter painter;
+        const FontId font = painter.registerTtfFontFile(*pFileSystem,
+            "fonts/Jost[wght].ttf", 32.0f);
+        REQUIRE(font != 0);
+        const ImageId prompt = painter.registerPngImageFile(*pFileSystem,
+            "prompts/xbox/XboxSeriesX_A.png");
+        REQUIRE(prompt != 0);
+
+        const std::string text = "Indiana";
+        const babylon::ui::Size textSize = painter.measureText(font, text);
+        REQUIRE(textSize.width > 0.0f);
+        REQUIRE(textSize.height > 0.0f);
+
+        REQUIRE(std3D_StartScene() == 0);
+        const babylon::ui::Color black{ 0.0f, 0.0f, 0.0f, 1.0f };
+        const babylon::ui::Color white{ 1.0f, 1.0f, 1.0f, 1.0f };
+        painter.fillRect(babylon::ui::Rect{ 0.0f, 0.0f, 640.0f, 480.0f }, black);
+
+        const babylon::ui::Rect imageRect{ 400.0f, 20.0f, 100.0f, 100.0f };
+        painter.drawImage(prompt, imageRect);
+
+        // The same text and rectangle at all three alignments: if the measured width were not the
+        // advance the painter draws, the center and right copies would start at another x.
+        const babylon::ui::Rect leftRect{ 40.0f, 100.0f, textSize.width, textSize.height };
+        const babylon::ui::Rect centerRect{ 40.0f, 200.0f, textSize.width, textSize.height };
+        const babylon::ui::Rect rightRect{ 40.0f, 300.0f, textSize.width, textSize.height };
+        painter.drawText(font, text, leftRect, babylon::ui::TextAlign::Left, white);
+        painter.drawText(font, text, centerRect, babylon::ui::TextAlign::Center, white);
+        painter.drawText(font, text, rightRect, babylon::ui::TextAlign::Right, white);
+        std3D_EndScene();
+        REQUIRE(stdDisplay_Update() == 0);
+
+        std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
+        std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();
+        REQUIRE(width == 640u);
+        REQUIRE(height == 480u);
+
+        std::vector<std::uint8_t> pixels((size_t)width * height * 4u);
+        REQUIRE(stdRenderBabylon_ReadBackBuffer(pixels.data(), &width, &height));
+
+        const auto inkBounds = [&pixels, width](float y0, float y1,
+            float& minX, float& maxX, size_t& count)
+        {
+            minX = 1.0e9f;
+            maxX = -1.0f;
+            count = 0;
+            for ( std::uint32_t y = (std::uint32_t)y0; y < (std::uint32_t)y1; ++y )
+            {
+                for ( std::uint32_t x = 0; x < 300u; ++x )
+                {
+                    if ( IsBrightText(PixelAt(pixels, width, x, y)) )
+                    {
+                        minX = std::min(minX, (float)x);
+                        maxX = std::max(maxX, (float)x);
+                        ++count;
+                    }
+                }
+            }
+        };
+
+        float leftMin = 0.0f, leftMax = 0.0f, centerMin = 0.0f, centerMax = 0.0f;
+        float rightMin = 0.0f, rightMax = 0.0f;
+        size_t leftCount = 0, centerCount = 0, rightCount = 0;
+        inkBounds(100.0f, 100.0f + textSize.height, leftMin, leftMax, leftCount);
+        inkBounds(200.0f, 200.0f + textSize.height, centerMin, centerMax, centerCount);
+        inkBounds(300.0f, 300.0f + textSize.height, rightMin, rightMax, rightCount);
+
+        REQUIRE(leftCount > 0);
+        REQUIRE(centerCount > 0);
+        REQUIRE(rightCount > 0);
+        CHECK(std::abs(centerMin - leftMin) <= 1.0f);
+        CHECK(std::abs(rightMin - leftMin) <= 1.0f);
+        CHECK(std::abs(centerMax - leftMax) <= 1.0f);
+        CHECK(std::abs(rightMax - leftMax) <= 1.0f);
+
+        // The prompt's green A is drawn inside its rectangle and nowhere in the empty strip
+        // beside it.
+        const Rgb promptGreen{ 135, 214, 56 };
+        CHECK(CountColor(pixels, width, height, 400.0f, 20.0f, 500.0f, 120.0f,
+            promptGreen, 16) > 0u);
+        CHECK(CountColor(pixels, width, height, 510.0f, 20.0f, 610.0f, 120.0f,
+            promptGreen, 16) == 0u);
+    }
+
     std3D_Shutdown();
     stdDisplay_Shutdown();
     rdClose();

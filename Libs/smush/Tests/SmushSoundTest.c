@@ -308,7 +308,7 @@ typedef struct SstFeed
     int volume;
     int pan;
     int format;
-    uint8_t head[8];
+    uint8_t head[512]; // Complete payloads of the VOC boundary cases; larger existing stream cases compare their prefix.
 } SstFeed;
 
 static SstFeed SstFeeds[SST_MAX_FEEDS];
@@ -326,7 +326,7 @@ static void SstFeedFn(void* pSrc, int offset, int n, int bytes, int a5, int volu
         pFeed->volume = volume;
         pFeed->pan = pan;
         pFeed->format = format;
-        memcpy(pFeed->head, pSrc, bytes < 8 ? (size_t)bytes : 8);
+        memcpy(pFeed->head, pSrc, bytes < (int)sizeof(pFeed->head) ? (size_t)bytes : sizeof(pFeed->head));
     }
 
     SstNumFeeds++;
@@ -394,22 +394,42 @@ static void SstPutBE16(uint8_t* p, uint32_t v)
     p[1] = (uint8_t)v;
 }
 
-// Builds a `Crea` block whose sample data follows its header. The retail code reads the 24-bit block length from the byte at +1
-// three times, so the only non-zero length a caller can express is lenByte * 0x010101 (65793 samples for 1), or 0.
+// Builds a type-1 Creative VOC block: the little-endian length includes the rate and codec bytes before the PCM.
+// The end block and padding have distinct bytes so they cannot be mistaken for samples. SstMakeVoc builds
+// lenByte * 0x010101 samples (65793 samples for 1), or 0.
 #define SST_VOC_OFFSET 0x1A
 #define SST_VOC_LEN    0x010101
-static uint8_t* SstMakeVoc(int lenByte, int* pNumSamples)
+static uint8_t* SstMakeVocLen(int numSamples)
 {
-    int numSamples = lenByte * 0x010101;
-    uint8_t* pData = calloc(1, 0x40 + (size_t)numSamples);
-    memcpy(pData, "Crea", 4);
+    uint8_t* pData = calloc(1, SST_VOC_OFFSET + 6 + (size_t)numSamples + 3);
+    memcpy(pData, "Creative Voice File\x1A", 20);
     pData[0x14] = SST_VOC_OFFSET;
     pData[0x15] = 0;
-    pData[SST_VOC_OFFSET + 1] = (uint8_t)lenByte;
+    pData[0x16] = 0x14; // Version 1.20 and its check word
+    pData[0x17] = 0x01;
+    pData[0x18] = 0x1F;
+    pData[0x19] = 0x11;
+    pData[SST_VOC_OFFSET] = 1;
+    int blockLength = numSamples + 2;
+    pData[SST_VOC_OFFSET + 1] = (uint8_t)blockLength;
+    pData[SST_VOC_OFFSET + 2] = (uint8_t)(blockLength >> 8);
+    pData[SST_VOC_OFFSET + 3] = (uint8_t)(blockLength >> 16);
+    pData[SST_VOC_OFFSET + 4] = 166;
+    pData[SST_VOC_OFFSET + 5] = 0; // Unsigned 8-bit PCM
+    pData[SST_VOC_OFFSET + 6 + numSamples] = 0; // End block
+    pData[SST_VOC_OFFSET + 7 + numSamples] = 0xE1;
+    pData[SST_VOC_OFFSET + 8 + numSamples] = 0xA5;
     for ( int i = 0; i < numSamples; i++ ) {
         pData[SST_VOC_OFFSET + 6 + i] = (uint8_t)(i * 7 + 3);
     }
 
+    return pData;
+}
+
+static uint8_t* SstMakeVoc(int lenByte, int* pNumSamples)
+{
+    int numSamples = lenByte * 0x010101;
+    uint8_t* pData = SstMakeVocLen(numSamples);
     *pNumSamples = numSamples;
     return pData;
 }
@@ -635,6 +655,60 @@ TEST(SmushSoundEngine, PlayVocFeedsSamplesToMixer)
     sound_Callback(100, SstFeedFn);
     TEST_ASSERT_EQUAL_INT(3, SstNumFeeds);
     free(pVoc);
+}
+
+TEST(SmushSoundEngine, PlayVocUses24BitLength_Fixed)
+{
+    TEST_ASSERT_EQUAL_INT(0, SstEngineStartup());
+
+    // The block length is 302 (2E 01 00): two format bytes and 300 PCM samples. Neither the format bytes nor the
+    // following end block/padding may be fed. Checking every payload byte catches a wrong starting pointer too.
+    uint8_t* pVoc = SstMakeVocLen(300);
+    SstSnd->Play(pVoc, 5, 100, 0, 0);
+    sound_Callback(1000, SstFeedFn);
+    TEST_ASSERT_EQUAL_INT(1, SstNumFeeds);
+    TEST_ASSERT_EQUAL_INT(300, SstFeeds[0].bytes);
+    TEST_ASSERT_EQUAL_INT(300, SstFeeds[0].n);
+    TEST_ASSERT_EQUAL_MEMORY(pVoc + SST_VOC_OFFSET + 6, SstFeeds[0].head, 300);
+    sound_Callback(1000, SstFeedFn); // All samples were fed: the track ends
+    TEST_ASSERT_EQUAL_INT(1, SstNumFeeds);
+    TEST_ASSERT_EQUAL_INT(-1, sound_GetVolume(5));
+    free(pVoc);
+}
+
+TEST(SmushSoundEngine, SingleSampleVocFeedsOnlyItsPayload)
+{
+    TEST_ASSERT_EQUAL_INT(0, SstEngineStartup());
+    uint8_t* pVoc = SstMakeVocLen(1);
+    SstSnd->Play(pVoc, 5, 100, 0, 0);
+    sound_Callback(100, SstFeedFn);
+    free(pVoc);
+
+    TEST_ASSERT_EQUAL_INT(1, SstNumFeeds);
+    TEST_ASSERT_EQUAL_INT(1, SstFeeds[0].bytes);
+    TEST_ASSERT_EQUAL_INT(1, SstFeeds[0].n);
+    TEST_ASSERT_EQUAL_UINT8(3, SstFeeds[0].head[0]);
+    sound_Callback(100, SstFeedFn);
+    TEST_ASSERT_EQUAL_INT(1, SstNumFeeds);
+    TEST_ASSERT_EQUAL_INT(-1, sound_GetVolume(5));
+}
+
+TEST(SmushSoundEngine, PlayVocRejectsMissingFormatBytes)
+{
+    TEST_ASSERT_EQUAL_INT(0, SstEngineStartup());
+    for ( int blockLength = 0; blockLength < 2; ++blockLength )
+    {
+        uint8_t* pVoc = SstMakeVocLen(1);
+        pVoc[SST_VOC_OFFSET + 1] = (uint8_t)blockLength;
+        pVoc[SST_VOC_OFFSET + 2] = 0;
+        pVoc[SST_VOC_OFFSET + 3] = 0;
+        SstSnd->Play(pVoc, 9, 100, 0, 0);
+        free(pVoc);
+
+        TEST_ASSERT_EQUAL_INT(-1, sound_GetVolume(9));
+        sound_Callback(100, SstFeedFn);
+        TEST_ASSERT_EQUAL_INT(0, SstNumFeeds);
+    }
 }
 
 TEST(SmushSoundEngine, EmptyVocStopsTheTrack)
@@ -976,6 +1050,9 @@ TEST_GROUP_RUNNER(SmushSoundEngine)
     RUN_TEST_CASE(SmushSoundEngine, CallbackAdvancesTimerBySampleCount);
     RUN_TEST_CASE(SmushSoundEngine, SyncTimerCompensatesForClockDrift);
     RUN_TEST_CASE(SmushSoundEngine, PlayVocFeedsSamplesToMixer);
+    RUN_TEST_CASE(SmushSoundEngine, PlayVocUses24BitLength_Fixed);
+    RUN_TEST_CASE(SmushSoundEngine, SingleSampleVocFeedsOnlyItsPayload);
+    RUN_TEST_CASE(SmushSoundEngine, PlayVocRejectsMissingFormatBytes);
     RUN_TEST_CASE(SmushSoundEngine, EmptyVocStopsTheTrack);
     RUN_TEST_CASE(SmushSoundEngine, PlayIgnoredWhenDriverDidNotStart);
     RUN_TEST_CASE(SmushSoundEngine, PlayIgnoresUnknownTag);
@@ -1075,8 +1152,8 @@ static void SstExpect(SstKind kind, const uint8_t* pSrc, int count, int n, int l
     uint32_t step = ((uint32_t)count << 16) / (uint32_t)n;
     if ( step == 0x8000 )
     {
-        // Doubling: each source sample is followed by the mean with its neighbour; the mono kernels take the sample two ahead
-        // instead of the next one (TODO: [BUG] preserved from the original), the last sample is repeated.
+        // Doubling: each source sample is followed by the mean with its neighbour; the original's mono kernels take the sample two
+        // ahead instead of the next one (the QOL build takes the next one), the last sample is repeated.
         for ( int f = 0; f < n; f++ )
         {
             int k = f / 2;
@@ -1084,7 +1161,7 @@ static void SstExpect(SstKind kind, const uint8_t* pSrc, int count, int n, int l
             for ( int c = 0; c < (stereo ? 2 : 1); c++ )
             {
                 int idx = stereo ? 2 * k + c : k;
-                int idxNext = stereo ? 2 * k + 2 + c : k + 2;
+                int idxNext = stereo ? 2 * k + 2 + c : k + J3D_QOL_VALUE(1, 2);
                 int v;
                 if ( !bMean ) {
                     v = SstRef(kind, pSrc, idx);
@@ -1331,11 +1408,41 @@ TEST(SmushSoundMixer, StereoU16Ratios)
 
 TEST(SmushSoundMixer, MonoSwap16Ratios)
 {
-    // The doubling path of the swapped kernels converts through a signed 16-bit value and is not modelled here
+    // The doubling path has independently specified expectations below; other ratios preserve the original.
     SstCheckKernel(SST_MSW, 8, 8);
     SstCheckKernel(SST_MSW, 16, 8);
     SstCheckKernel(SST_MSW, 5, 8);
     SstCheckKernel(SST_MSW, 7, 3);
+}
+
+TEST(SmushSoundMixer, MonoSwap16DoublingUsesSignedAdjacentSamples)
+{
+    // Big-endian PCM 255, 257, -2, -32768, followed by a guard sample 0x1234 required only by the legacy look-ahead.
+    // 255 and 257 cross a byte boundary: averaging swapped words before decoding gives a different result.
+    int16_t aSource[5] = { (int16_t)0xFF00, 0x0101, (int16_t)0xFEFF, 0x0080, 0x3412 };
+#ifdef J3D_QOL_IMPROVEMENTS
+    static const int16_t aExpected[8] = { 255, 256, 257, 127, -2, -16385, -32768, -32768 };
+#else
+    // Preserved original output, including unsigned contributions and averaging the swapped sample two ahead.
+    static const int16_t aExpected[8] = { 255, -2, 257, -16384, 32767, -30695, -32768, -32768 };
+#endif
+    mixer_Begin(8);
+    mixer_MonoSwap16(aSource, 4, 8, 0, 128, 128);
+    TEST_ASSERT_EQUAL_INT(0, mixer_Mix(SstMixOut, 8));
+    for ( int i = 0; i < 8; ++i )
+    {
+        TEST_ASSERT_EQUAL_INT16(aExpected[i], SstMixOut[2 * i]);
+        TEST_ASSERT_EQUAL_INT16(aExpected[i], SstMixOut[2 * i + 1]);
+    }
+    TEST_ASSERT_EQUAL_HEX16(0x5555, SstMixOut[16]);
+
+    // One source sample is repeated twice without reading a neighbour.
+    int16_t single = 0x7FFF; // Big-endian -129
+    mixer_Begin(2);
+    mixer_MonoSwap16(&single, 1, 2, 0, 128, 128);
+    TEST_ASSERT_EQUAL_INT(0, mixer_Mix(SstMixOut, 2));
+    static const int16_t aSingleExpected[4] = { -129, -129, -129, -129 };
+    TEST_ASSERT_EQUAL_MEMORY(aSingleExpected, SstMixOut, sizeof(aSingleExpected));
 }
 
 TEST(SmushSoundMixer, StereoSwap16Ratios)
@@ -1419,6 +1526,7 @@ TEST_GROUP_RUNNER(SmushSoundMixer)
     RUN_TEST_CASE(SmushSoundMixer, MonoU16Ratios);
     RUN_TEST_CASE(SmushSoundMixer, StereoU16Ratios);
     RUN_TEST_CASE(SmushSoundMixer, MonoSwap16Ratios);
+    RUN_TEST_CASE(SmushSoundMixer, MonoSwap16DoublingUsesSignedAdjacentSamples);
     RUN_TEST_CASE(SmushSoundMixer, StereoSwap16Ratios);
     RUN_TEST_CASE(SmushSoundMixer, StereoSwap16UnitRatioReadsFirstSampleOnly);
     RUN_TEST_CASE(SmushSoundMixer, AddIgnoresEmptyInput);

@@ -26,6 +26,7 @@
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
+#include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Platform/Babylon/JonesUiStore.h>
 #include <Jones3D/Play/jonesInventory.h>
 
@@ -36,6 +37,7 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonPath.h>
+#include <std/General/std.h>
 #include <std/General/stdFnames.h>
 
 #include <babylon/files/FileSystem.h>
@@ -152,7 +154,7 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Label{
             JonesUiContext_ResolveString("JONES_STR_DFCLTYDROP"), row.difficultyDrop });
         screen.widgets.emplace_back(babylon::ui::Label{
-            JonesUiContext_ResolveString("JONES_STR_IQ"), row.iqPoints });
+            JonesUiContext_ResolveString("JONES_STR_LEVELIQ"), row.iqPoints });
     }
 
     void JonesUiEndScreens_SetStatisticsRow(babylon::ui::Ui& ui,
@@ -176,7 +178,7 @@ namespace
             babylon::ui::Label{ JonesUiContext_ResolveString("JONES_STR_DFCLTYDROP"),
                 row.difficultyDrop }));
         static_cast<void>(ui.setWidget(screen, kJonesStatisticsIQIndex,
-            babylon::ui::Label{ JonesUiContext_ResolveString("JONES_STR_IQ"), row.iqPoints }));
+            babylon::ui::Label{ JonesUiContext_ResolveString("JONES_STR_LEVELIQ"), row.iqPoints }));
     }
 
     void JonesUiEndScreens_CopyString(char* pDest, std::size_t destSize, const char* pSrc)
@@ -235,6 +237,37 @@ namespace
         }
 
         return path;
+    }
+
+    // The end screens share one look (ADR-0028): a Cinzel title and Jost rows at 16 canvas units,
+    // in the boxless Options layout without tabs or help.
+    babylon::ui::Skin JonesUiEndScreens_CreateSkin(JonesUiContext& rUiContext,
+        StdBabylonContext& rContext)
+    {
+        constexpr const char* kTitleFontFile = "fonts/Cinzel[wght].ttf";
+        constexpr const char* kRowFontFile   = "fonts/Jost[wght].ttf";
+        constexpr float kTitleFontSize       = 22.0f;
+        constexpr float kRowFontSize         = 16.0f;
+
+        babylon::ui::FontId titleFont = rUiContext.painter.registerTtfFontFile(
+            *rContext.pFileSystem, kTitleFontFile, kTitleFontSize);
+        if ( titleFont == 0 )
+        {
+            STDLOG_WARNING("End screen: '%s' unavailable, using the rdFont fallback.\n",
+                kTitleFontFile);
+            titleFont = rUiContext.font;
+        }
+
+        babylon::ui::FontId rowFont = rUiContext.painter.registerTtfFontFile(
+            *rContext.pFileSystem, kRowFontFile, kRowFontSize);
+        if ( rowFont == 0 )
+        {
+            STDLOG_WARNING("End screen: '%s' unavailable, using the rdFont fallback.\n",
+                kRowFontFile);
+            rowFont = rUiContext.font;
+        }
+
+        return JonesUiSkin_CreateEndScreen(titleFont, rowFont, &rUiContext.painter);
     }
 }
 
@@ -307,8 +340,9 @@ babylon::ui::Screen JonesUiStatistics_BuildScreen(const SithGameStatistics& stat
 
     babylon::ui::Screen screen;
     screen.title = JonesUiContext_ResolveString("JONES_STR_IQ");
+    // No game string key holds a plain "Level" or "Chapter" label for this row.
     screen.widgets.emplace_back(babylon::ui::Choice{
-        std::string(), std::string(), std::move(options), true });
+        "Chapter", std::string(), std::move(options), true }); // TODO: [COMPAT] no JONES_STR key
     JonesUiEndScreens_AppendStatisticsRow(screen, rows.front());
     screen.widgets.emplace_back(babylon::ui::Button{
         JonesUiContext_ResolveString("JONES_STR_CLOSE"), kJonesStatisticsActionClose, true });
@@ -368,7 +402,8 @@ babylon::ui::Screen JonesUiLevelCompleted_BuildScreen(int elapsedTime, int iqPoi
         JonesUiContext_ResolveString("JONES_STR_ALLWORTH"),
         JonesUiEndScreens_Number(totalTreasureValue) });
     screen.widgets.emplace_back(babylon::ui::Label{
-        JonesUiContext_ResolveString("JONES_STR_IQ"), JonesUiEndScreens_Number(iqPoints) });
+        JonesUiContext_ResolveString("JONES_STR_LEVELIQ"),
+        JonesUiEndScreens_Number(iqPoints) });
     screen.widgets.emplace_back(babylon::ui::Button{
         JonesUiContext_ResolveString("JONES_STR_CLOSE"), kJonesDialogClose, true });
 
@@ -566,8 +601,14 @@ extern "C" int J3DAPI jonesConfig_ShowStatisticsDialog(tSysWindow hWnd,
         return kJonesDialogCancel;
     }
 
+    const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
+    static_cast<void>(pUiContext->pUi->setSkin(
+        JonesUiEndScreens_CreateSkin(*pUiContext, *pContext)));
+
     const int result = JonesUiStatistics_RunStatisticsScreen(*pUiContext->pUi,
         &pUiContext->painter, *pStatistics, jonesInventory_GetTotalIQPoints());
+
+    static_cast<void>(pUiContext->pUi->setSkin(previousSkin));
     JonesUiContext_Release(pUiContext);
     return result;
 }
@@ -603,9 +644,15 @@ extern "C" int J3DAPI jonesConfig_ShowLevelCompletedDialog(tSysWindow hWnd, int*
         return kJonesDialogCancel;
     }
 
+    const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
+    static_cast<void>(pUiContext->pUi->setSkin(
+        JonesUiEndScreens_CreateSkin(*pUiContext, *pContext)));
+
     const int result = JonesUiLevelCompleted_RunLevelCompletedScreen(*pUiContext->pUi,
         &pUiContext->painter, *pStatistics, elapsedTime, qiPoints, numFoundTrasures,
         foundTrasureValue, totalTreasureValue, pBalance, apItemsState, a4);
+
+    static_cast<void>(pUiContext->pUi->setSkin(previousSkin));
     sithGamesave_UnlockGameStatistics();
     return result;
 }
@@ -637,9 +684,15 @@ extern "C" int J3DAPI jonesConfig_ShowGameOverDialog(tSysWindow hWnd, char* pRes
         return kJonesDialogCancel;
     }
 
+    const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
+    static_cast<void>(pUiContext->pUi->setSkin(
+        JonesUiEndScreens_CreateSkin(*pUiContext, *pContext)));
+
     const int result = JonesUiGameOver_RunGameOverScreen(*pUiContext->pUi,
         &pUiContext->painter, autoSavePath.c_str(), !autoSavePath.empty(), hSndGameOVerMus,
         pSndChnlMus, pRestoreFilename);
+
+    static_cast<void>(pUiContext->pUi->setSkin(previousSkin));
     JonesUiContext_Release(pUiContext);
     return result;
 }

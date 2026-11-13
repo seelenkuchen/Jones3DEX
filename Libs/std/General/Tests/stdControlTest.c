@@ -22,6 +22,7 @@
 
 // The Null backend's test seam (stdControlNull.c); no header declares it.
 void stdControl_TestResetInputState(void);
+static void stdControlTest_OpenNullControls(void);
 
 TEST_GROUP(stdControl);
 
@@ -382,6 +383,40 @@ TEST(stdControl, TestAxisRegistrationAndFlags)
     TEST_ASSERT_EQUAL_INT(0, stdControl_ReadAxisRaw(axis));
 }
 
+// The original never updates the num pressed state when reading an axis as key, QOL builds count the axis as a key press.
+// The press is added to the presses of the other bindings of the key function.
+TEST(stdControl, TestReadAxisAsKeyAddsPresses)
+{
+    stdControlTest_OpenNullControls();
+    size_t axis = STDCONTROL_GET_JOYSTICK_AXIS_X(0u);
+    stdControl_RegisterAxis(axis, -100, 100, 0.0f);
+    TEST_ASSERT_EQUAL_INT(1, stdControl_EnableAxis((int)axis));
+    TEST_ASSERT_EQUAL_INT(0, stdControl_SetActivation(1));
+
+    stdControl_SetAxisState(axis, 80);
+    int pressed = 0;
+    TEST_ASSERT_EQUAL_INT(1, stdControl_ReadAxisAsKey(axis | STDCONTROL_AID_LOW_SENSITIVITY | STDCONTROL_AID_POSITIVE_AXIS, &pressed));
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(1, 0), pressed);
+
+    stdControl_SetAxisState(axis, -80);
+    pressed = 0;
+    TEST_ASSERT_EQUAL_INT(1, stdControl_ReadAxisAsKey(axis | STDCONTROL_AID_LOW_SENSITIVITY | STDCONTROL_AID_NEGATIVE_AXIS, &pressed));
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(1, 0), pressed);
+
+    pressed = 2;
+    TEST_ASSERT_EQUAL_INT(1, stdControl_ReadAxisAsKey(axis | STDCONTROL_AID_LOW_SENSITIVITY | STDCONTROL_AID_NEGATIVE_AXIS, &pressed));
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(3, 2), pressed);
+
+    // Axis below the threshold is not a key press
+    stdControl_SetAxisState(axis, 10);
+    pressed = 2;
+    TEST_ASSERT_EQUAL_INT(0, stdControl_ReadAxisAsKey(axis | STDCONTROL_AID_LOW_SENSITIVITY | STDCONTROL_AID_POSITIVE_AXIS, &pressed));
+    TEST_ASSERT_EQUAL_INT(2, pressed);
+
+    stdControl_SetAxisState(axis, 0);
+    stdControl_SetActivation(0);
+}
+
 #ifdef J3D_RUNTIME_GUARDS
 TEST(stdControl, TestRuntimeGuardsRejectOutOfRangeInputs)
 {
@@ -528,6 +563,7 @@ TEST_GROUP_RUNNER(stdControl)
     RUN_TEST_CASE(stdControl, TestNoDeviceLifecycleAndReadDefaults);
     RUN_TEST_CASE(stdControl, TestMouseAndSensitivityState);
     RUN_TEST_CASE(stdControl, TestAxisRegistrationAndFlags);
+    RUN_TEST_CASE(stdControl, TestReadAxisAsKeyAddsPresses);
 #ifdef J3D_RUNTIME_GUARDS
     RUN_TEST_CASE(stdControl, TestRuntimeGuardsRejectOutOfRangeInputs);
 #endif

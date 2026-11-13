@@ -155,6 +155,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
         void PushKey(platform::Key key)
         {
             m_events.push_back(platform::Event{ platform::KeyChanged{ 1, key, true, false } });
@@ -893,9 +898,8 @@ TEST_CASE("the New flow creates a custom scheme and its name rules hold")
 
     JonesControlsConfig config;
     REQUIRE(LoadConfig(config));
-    REQUIRE(config.numSchemes == 3);
-    // The default-selection path enumerates gamepads, which pumps the platform queue; pin the
-    // choice so the first scripted Down reaches the screen.
+    REQUIRE(config.numSchemes == 4);
+    // Pin the choice so the first scripted Down reaches the screen.
     config.selectedShemeIdx = 0;
 
     ui::NullPainter painter;
@@ -949,7 +953,7 @@ TEST_CASE("deleting a custom scheme removes its file only on OK")
     ui::Ui ui(painter, testContext.cvars);
 
     // Choice -> Delete -> the now-disabled Delete moves focus to Mouse. With the remaining
-    // selection a built-in default, Reset is disabled too, so three Down presses reach OK.
+    // selection a built-in default, Reset is disabled too, so two Down presses reach OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 2);
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
@@ -986,7 +990,7 @@ TEST_CASE("cancelling after a delete keeps the file")
     CHECK(std::filesystem::exists(testContext.SchemePath("ui-delete")));
 }
 
-TEST_CASE("the mouse and controller toggles write their Jones.cfg keys")
+TEST_CASE("the mouse toggle writes its Jones.cfg key and the controller key is untouched")
 {
     ControlsTestContext testContext;
     testContext.WriteSchemeFile("ui-seed", HandWrittenScheme());
@@ -998,15 +1002,16 @@ TEST_CASE("the mouse and controller toggles write their Jones.cfg keys")
     config.selectedShemeIdx = (int)seedIndex;
     testContext.StartControls();
 
+    // A stale controller key in the file must not be read or rewritten by the screen.
+    REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, true));
+
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Choice -> Mouse on, Controller on, then OK.
+    // Choice -> Mouse, turn it on, then Mouse -> Rumble -> Edit -> Reset -> OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -1014,6 +1019,43 @@ TEST_CASE("the mouse and controller toggles write their Jones.cfg keys")
 
     CHECK(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false));
     CHECK(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false));
+}
+
+TEST_CASE("the rumble row switches the setting and the adapter at once")
+{
+    ControlsTestContext testContext;
+    testContext.WriteSchemeFile("ui-seed", HandWrittenScheme());
+
+    JonesControlsConfig config;
+    REQUIRE(LoadConfig(config));
+    const std::size_t seedIndex = FindScheme(config, "ui-seed");
+    REQUIRE(seedIndex < config.numSchemes);
+    config.selectedShemeIdx = (int)seedIndex;
+    testContext.StartControls();
+
+    // Rumble is on by default.
+    stdControl_EnableRumble(true);
+    REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true));
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Choice -> Rumble, turn it off. The row applies and stores it immediately.
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    // Rumble -> Edit -> Reset -> OK confirms the screen.
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
+    jonesConfig_FreeControlConfigEntry(&config);
+
+    CHECK_FALSE(stdConfig_GetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true));
+    CHECK_FALSE(stdControl_IsRumbleEnabled());
+
+    // Leave the shared flag at its default for any case that runs next.
+    stdControl_EnableRumble(true);
 }
 
 TEST_CASE("the headless wrapper answers cancel without blocking")

@@ -664,6 +664,6 @@ The practical changes in and around this subsystem are more modest:
 
 - correctness and validation fixes in collision helpers and callers
 - small gameplay-query tuning changes where collision data is consumed
-- higher-frequency player-physics stepping under `J3D_QOL_IMPROVEMENTS`, which increases how often the same collision API is exercised without changing the collision architecture itself
+- the original 50 Hz player-physics step, which keeps exercising the same collision API without changing the collision architecture itself
 
 So the important `QOL` point for this subsystem is not a new collision algorithm. It is that the same original collision core is now exercised by a somewhat cleaner, safer, and in some gameplay paths more frequently updated runtime.

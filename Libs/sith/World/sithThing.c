@@ -52,6 +52,7 @@
 #include <sound/Sound.h>
 
 #include <std/General/stdConfig.h>
+#include <std/General/stdControl.h>
 #include <std/General/stdHashtbl.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -2101,6 +2102,14 @@ float J3DAPI sithThing_DamageThing(SithThing* pThing, const SithThing* pDamageTh
         return 0.0f;
     }
 
+    // Added: a hit on the local player rumbles the gamepad (presentation only, ADR-0028). The
+    // strength grows with the incoming damage and never drops below a light bump.
+    if ( pThing == sithPlayer_g_pLocalPlayerThing && damage > 0.0f )
+    {
+        const float rumbleStrength = STDMATH_CLAMP(damage / 40.0f, 0.25f, 1.0f);
+        stdControl_Rumble(rumbleStrength, rumbleStrength, 180);
+    }
+
     float retDamage = (float)(unsigned int)sithCog_ThingSendMessageEx(pThing, pDamageThing, SITHCOG_MSG_DAMAGED, (int32_t)damage, hitType, 0, 0);
     if ( retDamage > 0.0f )
     {
@@ -2258,10 +2267,10 @@ float J3DAPI sithThing_ScaleCombatDamage(const SithThing* pThing, SithThing* pHi
 
             if ( dist <= (double)maxAimDist )
             {
-                return damage * sithGetCombatDamageScalar() * 0.9f;
+                return damage * (sithGetCombatDamageScalar() * 0.9f);
             }
 
-            return damage * sithGetCombatDamageScalar() * 0.8f;
+            return damage * (sithGetCombatDamageScalar() * 0.8f);
         }
     }
 
@@ -2331,7 +2340,7 @@ void J3DAPI sithThing_PlayCogDamageSound(SithThing* pThing, SithDamageType hitTy
 
     if ( hSnd )
     {
-        sithSoundMixer_PlaySoundThing(hSnd, pThing, 1.0f, 0.15f, 5.8f, (SoundPlayFlag)0);
+        sithSoundMixer_PlaySoundThing(hSnd, pThing, 1.0f, J3D_QOL_VALUE(0.15f, 0.5f), J3D_QOL_VALUE(5.8f, 2.5f), (SoundPlayFlag)0); // Altered: Sound radii are 0.15 and 5.8, the original uses 0.5 and 2.5
     }
 }
 
@@ -3680,7 +3689,10 @@ int J3DAPI sithThing_ValidateThingMeshAttach(const SithThing* pAttachThing)
 
 void J3DAPI sithThing_DetachThing(SithThing* pThing)
 {
-    SITH_ASSERTREL(sithThing_ValidateThingPointer(sithWorld_g_pCurrentWorld, pThing));
+    if ( sithWorld_g_pCurrentWorld )
+    {
+        SITH_ASSERTREL(sithThing_ValidateThingPointer(sithWorld_g_pCurrentWorld, pThing));
+    }
 
     if ( (pThing->attach.flags & (SITH_ATTACH_THING | SITH_ATTACH_THINGFACE)) != 0 )
     {
@@ -3793,7 +3805,7 @@ void J3DAPI sithThing_PurgeGarbageThings(SithWorld* pWorld)
             sithThing_RemoveThing(pWorld, pThing);
         }
 
-        if ( ++count > SITHTHING_MAXTHINGSTOPURGE )
+        if ( count++ > SITHTHING_MAXTHINGSTOPURGE )
         {
             break;
         }
@@ -3993,13 +4005,14 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
         }
         case SITHTHING_ARG_COLLIDE:
         {
-            SithCollideType coltype = strtoul(pArg->argValue, NULL, 10); // Changed: use strtoul instead atoi
-            if ( coltype > SITH_COLLIDE_FACE || (errno == ERANGE) )      // Added: Conversion range error check
+            // Altered: Check the signed range while preserving atoi-style decimal prefix parsing.
+            long coltype = STD_STRTOL(pArg->argValue, 10);
+            if ( coltype < SITH_COLLIDE_NONE || coltype > SITH_COLLIDE_FACE || STD_STRCONV_RANGE_ERROR() )
             {
                 goto syntax_error;
             }
 
-            pThing->collide.type = coltype;
+            pThing->collide.type = (SithCollideType)coltype;
             return SITHTHING_PARSEARG_PARSED;
         }
         case SITHTHING_ARG_MOVE:
@@ -4027,8 +4040,9 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
         }
         case SITHTHING_ARG_SIZE:
         {
-            float size = strtof(pArg->argValue, NULL); // Changed: use strtof instead atof
-            if ( size < 0.0f || (errno == ERANGE) )    // Added: Conversion range error check
+            float size = STD_STRTOF(pArg->argValue); // Changed: use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( size < 0.0f || (STD_STRCONV_RANGE_ERROR() && fabsf(size) > 1.0f) )    // Added: Conversion range error check
             {
                 goto syntax_error;
             }
@@ -4050,8 +4064,9 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
         }
         case SITHTHING_ARG_TIMER:
         {
-            float secLifeLeft = strtof(pArg->argValue, NULL); // Changed: use strtof instead atof
-            if ( secLifeLeft < 0.0f || (errno == ERANGE) )    // Added: Conversion range error check
+            float secLifeLeft = STD_STRTOF(pArg->argValue); // Changed: use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( secLifeLeft < 0.0f || (STD_STRCONV_RANGE_ERROR() && fabsf(secLifeLeft) > 1.0f) )    // Added: Conversion range error check
             {
                 goto syntax_error;
             }
@@ -4203,8 +4218,9 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
                 return SITHTHING_PARSEARG_PARSED;
             }
 
-            float movesize = strtof(pArg->argValue, NULL); // Changed: use strtof instead atof
-            if ( movesize < 0.0f || (errno == ERANGE) )    // Added: Conversion range error check
+            float movesize = STD_STRTOF(pArg->argValue); // Changed: use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( movesize < 0.0f || (STD_STRCONV_RANGE_ERROR() && fabsf(movesize) > 1.0f) )    // Added: Conversion range error check
             {
                 goto syntax_error;
             }
@@ -4230,8 +4246,9 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
         }
         case SITHTHING_ARG_USERVAL:
         {
-            float userval = strtof(pArg->argValue, NULL); // Changed: use strtof instead atof
-            if ( userval < 0.0f || (errno == ERANGE) )    // Added: Conversion range error check
+            float userval = STD_STRTOF(pArg->argValue); // Changed: use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( userval < 0.0f || (STD_STRCONV_RANGE_ERROR() && fabsf(userval) > 1.0f) )    // Added: Conversion range error check
             {
                 goto syntax_error;
             }
@@ -4241,8 +4258,9 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
         }
         case SITHTHING_ARG_COLLHEIGHT:
         {
-            float height = strtof(pArg->argValue, NULL); // Changed: use strtof instead atof
-            if ( height < 0.0f || (errno == ERANGE) )    // Added: Conversion range error check
+            float height = STD_STRTOF(pArg->argValue); // Changed: use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( height < 0.0f || (STD_STRCONV_RANGE_ERROR() && fabsf(height) > 1.0f) )    // Added: Conversion range error check
             {
                 goto syntax_error;
             }
@@ -4253,8 +4271,9 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
         }
         case SITHTHING_ARG_COLLWIDTH:
         {
-            float width = strtof(pArg->argValue, NULL); // Changed: use strtof instead atof
-            if ( width < 0.0f || (errno == ERANGE) )    // Added: Conversion range error check
+            float width = STD_STRTOF(pArg->argValue); // Changed: use strtof instead atof
+            // Only reject overflow, (float)atof of the original accepted underflowing values
+            if ( width < 0.0f || (STD_STRCONV_RANGE_ERROR() && fabsf(width) > 1.0f) )    // Added: Conversion range error check
             {
                 goto syntax_error;
             }
@@ -4278,7 +4297,7 @@ int J3DAPI sithThing_ParseThingArg(const StdConffileArg* pArg, SithWorld* pWorld
     }
 
 syntax_error:
-    SITHLOG_ERROR("Bad argument %s=%s, line %d in %s.\n", pArg->argName, pArg->argValue, stdConffile_GetFilename(), stdConffile_GetLineNumber());
+    SITHLOG_ERROR("Bad argument %s=%s, line %d in %s.\n", pArg->argName, pArg->argValue, stdConffile_GetLineNumber(), stdConffile_GetFilename());
     return SITHTHING_PARSEARG_BADSYNTAX;
 }
 

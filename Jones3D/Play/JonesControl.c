@@ -12,13 +12,24 @@
 #include <std/General/stdControl.h>
 
 static bool JonesControl_bStartup = false; // Added: Init to false
+static unsigned int JonesControl_joystickChangeCount = 0; // Added: last hot-plug change acted on
 
 void JonesControl_ResetGlobals(void)
-{}
+{
+    JonesControl_joystickChangeCount = 0; // Added
+}
 
 int JonesControl_Startup(void)
 {
     int bMouseControl = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: rumble is on unless the player turned it off; a missing key is written with its
+    // default so the next save carries it (presentation only, ADR-0028).
+    bool bRumble = stdConfig_GetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true);
+    if ( !stdConfig_Contains(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE) )
+    {
+        (void)stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, bRumble);
+    }
+    stdControl_EnableRumble(bRumble);
     JonesDisplaySettings* pSettings = JonesMain_GetDisplaySettings();
 
     if ( JonesControl_bStartup )
@@ -53,14 +64,15 @@ int JonesControl_Startup(void)
         sithControl_RegisterAxisFunction((SithControlFunction)functionId, SITHCONTROLFUNCTION_KEY);
     }
 
-    int bJoystickControl = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false);
-    if ( bJoystickControl == 1 && stdControl_GetNumJoysticks() )
+    // Altered: a connected pad is always on; controls.controller is ignored on read and dropped
+    // from the config so the next save removes it.
+    if ( stdControl_GetNumJoysticks() )
     {
         JonesControl_EnableJoystickAxes();
         sithControl_UnbindJoystickAxes();
     }
 
-    stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, bJoystickControl);
+    stdConfig_Remove(JONESCONTROL_CFG_CONTROLS_CONTROLLER);
 
     if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_INEDITOR) == 0 && (!pSettings->bWindowMode || bMouseControl) )
     {
@@ -72,6 +84,9 @@ int JonesControl_Startup(void)
     // HUD startup; this is a no-op in the Null column.
     jonesConfig_BindActiveControlScheme();
 
+    // Added: ignore joystick count changes the startup already accounted for.
+    JonesControl_joystickChangeCount = stdControl_GetJoystickChangeCount();
+
     JonesControl_bStartup = true;
     return 0;
 }
@@ -82,9 +97,33 @@ void JonesControl_Shutdown(void)
     JonesControl_bStartup = false;
 }
 
+// Added: rebuilds the pad bindings when the connected joystick count changes. The per-frame control
+// callback calls this at a safe point, never the platform event handler mid-frame.
+static void JonesControl_UpdateJoystickBindings(void)
+{
+    unsigned int changeCount = stdControl_GetJoystickChangeCount();
+    if ( changeCount == JonesControl_joystickChangeCount )
+    {
+        return;
+    }
+
+    JonesControl_joystickChangeCount = changeCount;
+
+    if ( stdControl_GetNumJoysticks() )
+    {
+        JonesControl_EnableJoystickAxes();
+    }
+
+    sithControl_UnbindJoystickAxes();
+    jonesConfig_BindActiveControlScheme();
+}
+
 int J3DAPI JonesControl_ProcessControls(SithThing* pPlayer, float secDeltaTime)
 {
     J3D_UNUSED(secDeltaTime);
+
+    // Added: gamepads added or removed after startup take effect at the next control update.
+    JonesControl_UpdateJoystickBindings();
 
     if ( (pPlayer->thingInfo.actorInfo.flags & SITH_AF_CONTROLSDISABLED) != 0 || JonesConsole_g_bVisible )
     {

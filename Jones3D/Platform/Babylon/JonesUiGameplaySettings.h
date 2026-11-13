@@ -16,6 +16,54 @@
 
 #include <vector>
 
+// The values a Gameplay screen edits, and the widget indices its OK handler reads. They are shared
+// with the tabbed Options screen so both use the same rows and apply logic.
+struct JonesUiGameplayValues
+{
+    bool bShowText = false;
+    bool bShowHints = false;
+    bool bRotateMap = false;
+    std::size_t difficulty = 0;
+    bool bDefaultRun = false;
+    bool bReticle = false;
+    bool bBlood = false;
+    bool bFireFlash = false;
+    bool bExternalMaterials = false;
+    bool bExternalKeyframes = false;
+};
+
+struct JonesUiGameplayLayout
+{
+    std::size_t showText = 0;
+    std::size_t showHints = 0;
+    std::size_t rotateMap = 0;
+    std::size_t difficulty = 0;
+    std::size_t defaultRun = 0;
+    std::size_t reticle = 0;
+    std::size_t blood = 0;
+    std::size_t profile = 0;
+    std::size_t fireFlash = 0;
+    std::size_t externalMaterials = 0;
+    std::size_t externalKeyframes = 0;
+    std::size_t ok = 0;
+    std::size_t back = 0;
+};
+
+// Fills values from the running game and the config.
+JonesUiGameplayValues JonesUiGameplay_LoadValues(bool bEnhancedProfile);
+
+// Builds the rows, including the OK and Cancel buttons, from values.
+babylon::ui::Screen JonesUiGameplay_BuildScreen(bool bEnhancedProfile,
+    const JonesUiGameplayValues& values, JonesUiGameplayLayout& layout);
+
+// Reads the current widget values while screen is open into values. A widget
+// that is absent or of another kind keeps its previous value.
+void JonesUiGameplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiGameplayLayout& layout, JonesUiGameplayValues& values);
+
+// Applies values exactly as the original OK handler did. Returns kJonesDialogOk (1).
+int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedProfile);
+
 // Runs the Gameplay screen through ui. bEnhancedProfile is the run's game.profile: true for
 // Enhanced, false for Retail. On OK it applies the original options, writes their Jones.cfg keys,
 // writes the enhancement keys and returns 1. The profile itself is fixed by the build, so its row

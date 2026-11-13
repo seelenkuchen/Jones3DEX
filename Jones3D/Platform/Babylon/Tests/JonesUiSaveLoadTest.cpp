@@ -188,6 +188,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
         void PushKey(platform::Key key)
         {
             m_events.push_back(platform::Event{
@@ -356,6 +361,7 @@ TEST_CASE("a save without a thumbnail reserves no image row")
     const babylon::ui::Image shown = JonesUiSave_ThumbnailImage(7);
     CHECK(shown.image == 7u);
     CHECK(shown.size == babylon::ui::Size{ 96.0f, 72.0f });
+    CHECK(shown.align == babylon::ui::TextAlign::Left);
 }
 
 TEST_CASE("the save screen writes the default path without typing")

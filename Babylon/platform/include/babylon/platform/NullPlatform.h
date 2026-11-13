@@ -34,16 +34,45 @@ namespace babylon::platform
         // pollEvent() hands back a copy of the event.
         void pushEvent(const Event& event);
 
+        // The type connectGamepad() reports. Tests set it to model pads of
+        // different families without building the event themselves.
+        void setGamepadType(GamepadType type);
+        GamepadType gamepadType() const;
+
+        // Appends a GamepadConnected event for gamepad with the configured
+        // type. A test then feeds button and axis events for the same id.
+        void connectGamepad(GamepadId gamepad);
+
         // There is no native window system here, so the title and text go to
         // one babylon::log::warning line and nothing blocks.
         [[nodiscard]] bool showMessageBox(std::string_view title,
             std::string_view text) override;
+
+        // There is no device to vibrate: the call is recorded (with its
+        // intensities clamped and its duration capped, as the interface
+        // promises) and always returns false.
+        bool rumbleGamepad(GamepadId gamepad, float lowFrequency,
+            float highFrequency, std::uint32_t durationMs) override;
+
+        // One rumble request as this backend recorded it.
+        struct RumbleCall
+        {
+            GamepadId gamepad;
+            float lowFrequency;
+            float highFrequency;
+            std::uint32_t durationMs;
+        };
+
+        // The last rumble request, or nullopt if none was made.
+        std::optional<RumbleCall> lastRumble() const;
 
     private:
         // The id the next created window gets. 0 is never handed out, as the
         // interface requires.
         WindowId m_nextId = 1;
         std::deque<Event> m_events;
+        std::optional<RumbleCall> m_lastRumble;
+        GamepadType m_gamepadType = GamepadType::Unknown;
     };
 
 }

@@ -563,7 +563,12 @@ int J3DAPI sithAIInstinct_Listen(SithAIControlBlock* pLocal, SithAIInstinct* pIn
             {
                 bHunt = true;
 
+#ifdef J3D_QOL_IMPROVEMENTS
+                // Fixed: Use the loudness of the heard sound like the other paths, the original never sets it here.
+                loudness = pSectorInfo->aLevelAtTransmittingPos[SITHAIAWARENESS_NOISE];
+#else
                 // TODO: [BUG] The original never sets loudness on this path, but it is read below
+#endif
             }
             else if ( thingVis == SITHAI_SIGHT_VISIBLE )
             {
@@ -1185,6 +1190,10 @@ int J3DAPI sithAIInstinct_RandomTurn(SithAIControlBlock* pLocal, SithAIInstinct*
     if ( sightState == SITHAI_SIGHT_VISIBLE )
     {
         sithAIMove_AISetLookPosEyeLevel(pLocal, &lookPos);
+
+        // Fixed: Report the event as handled; the original has no return statement here and returns the nonzero eax left over
+        //        from AISetLookPosEyeLevel (see below).
+        return 1;
     }
 
     // TODO: [BUG] The original has no return statement at the end of the function and returns whatever eax holds:
@@ -1473,7 +1482,11 @@ int J3DAPI sithAIInstinct_PrimaryFire(SithAIControlBlock* pLocal, SithAIInstinct
 
     if ( (pLocal->mode & SITHAI_MODE_BERSERK) != 0 )
     {
-        curBurstNum *= rand() % (6 - abs(curBurstNum)) + abs(curBurstNum);
+        // Fixed: Skip the randomization for a burst count of 6, the original takes rand() modulo 6 - abs(curBurstNum) which is a division by zero.
+        if ( abs(curBurstNum) != 6 )
+        {
+            curBurstNum *= rand() % (6 - abs(curBurstNum)) + abs(curBurstNum);
+        }
     }
     else if ( curBurstNum < 0 )
     {
@@ -3574,8 +3587,13 @@ int J3DAPI sithAIInstinct_SnakeMungeTestCheck(SithAIControlBlock* pLocal, rdVect
         return 0;
     }
 
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Fixed: Start the path check flags from zero, the original never initializes them before ORing the flags into them.
+    SithAIUtilPathFlags pathFlags = 0;
+#else
     // TODO: [BUG] The original never initializes the path flags before ORing the flags into them
     SithAIUtilPathFlags pathFlags;
+#endif
     pathFlags |= SITHAIUTIL_PATHFLAG_IGNOREPLAYER | SITHAIUTIL_PATHFLAG_IGNORETHINGS | SITHAIUTIL_PATHFLAG_GOALVISIBLE | SITHAIUTIL_PATHFLAG_STRAIGHT;
 
     rdVector3 curHitPos;

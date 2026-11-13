@@ -67,6 +67,15 @@ void stdShutdown(void)
 {
     if ( bStdStartup )
     {
+        short tmp = word_183962C;
+#if defined(_MSC_VER) && defined(_M_IX86)
+        __asm fldcw word ptr[tmp];
+#elif defined(__i386__) || defined(__x86_64__)
+        __asm__ __volatile__("fldcw %0" : : "m"(tmp)); // Altered: GCC/MinGW inline assembler syntax for the same instruction
+#else
+        J3D_UNUSED(tmp); // Added: fldcw is an x87 instruction, so there is nothing to restore on other architectures
+#endif
+
         stdJSON_Shutdown();
         stdMemory_Close();
         stdMemory_Shutdown();

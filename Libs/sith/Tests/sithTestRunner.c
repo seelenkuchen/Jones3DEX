@@ -4,19 +4,23 @@
 
 void TEST_sithTemplate_GROUP_RUNNER(void);
 void TEST_sithThingBinary_GROUP_RUNNER(void);
+void TEST_sithThingParseArg_GROUP_RUNNER(void);
 void TEST_sithVoice_GROUP_RUNNER(void);
 void TEST_sithCog_GROUP_RUNNER(void);
 void TEST_sithGamesave_GROUP_RUNNER(void);
 void TEST_sithCamera_GROUP_RUNNER(void);
+void TEST_sithPhysics_GROUP_RUNNER(void);
 
 static void SithTest_RunAllTests(void)
 {
     TEST_sithThingBinary_GROUP_RUNNER();
+    TEST_sithThingParseArg_GROUP_RUNNER();
     TEST_sithTemplate_GROUP_RUNNER();
     TEST_sithVoice_GROUP_RUNNER();
     TEST_sithCog_GROUP_RUNNER();
     TEST_sithGamesave_GROUP_RUNNER();
     TEST_sithCamera_GROUP_RUNNER();
+    TEST_sithPhysics_GROUP_RUNNER();
 }
 
 // Added: the entry name is overridable so the Babylon column's test main can call this runner

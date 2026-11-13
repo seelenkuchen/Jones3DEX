@@ -360,6 +360,28 @@ TEST(stdBabylonPath, DrivePathsAreAbsoluteOnlyOnWindows)
 #endif
 }
 
+#ifndef _WIN32
+TEST(stdBabylonPath, ResolvesWineZDriveAsUnixRoot)
+{
+    TEST_ASSERT_TRUE(pFileSystem->addFile("/tmp/WineDir/File.TXT", Bytes("text")));
+
+    std::string out;
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(*pFileSystem, "Z:\\tmp\\winedir\\file.txt", out));
+    TEST_ASSERT_EQUAL_STRING("/tmp/WineDir/File.TXT", out.c_str());
+
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(*pFileSystem, "z:/tmp/WINEDIR/FILE.txt", out));
+    TEST_ASSERT_EQUAL_STRING("/tmp/WineDir/File.TXT", out.c_str());
+
+    // Other drive letters, "Z:" alone and "Z:x" stay relative.
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(*pFileSystem, "C:\\x", out));
+    TEST_ASSERT_EQUAL_STRING("/C:/x", out.c_str());
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(*pFileSystem, "Z:", out));
+    TEST_ASSERT_EQUAL_STRING("/Z:", out.c_str());
+    TEST_ASSERT_TRUE(stdBabylonPath_Resolve(*pFileSystem, "Z:x", out));
+    TEST_ASSERT_EQUAL_STRING("/Z:x", out.c_str());
+}
+#endif
+
 TEST_GROUP_RUNNER(stdBabylonPath)
 {
     RUN_TEST_CASE(stdBabylonPath, ResolvesExistingEntriesCaseInsensitively);
@@ -368,6 +390,9 @@ TEST_GROUP_RUNNER(stdBabylonPath)
     RUN_TEST_CASE(stdBabylonPath, TrustsTheCurrentPathSegments);
     RUN_TEST_CASE(stdBabylonPath, KeepsTheDriveRootOfTheCurrentPath);
     RUN_TEST_CASE(stdBabylonPath, DrivePathsAreAbsoluteOnlyOnWindows);
+#ifndef _WIN32
+    RUN_TEST_CASE(stdBabylonPath, ResolvesWineZDriveAsUnixRoot);
+#endif
 }
 
 TEST_SETUP(stdFileBabylon)

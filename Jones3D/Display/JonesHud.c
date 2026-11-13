@@ -90,7 +90,7 @@ static int JonesHud_bShowMenu;
 static int JonesHud_bMenuEnabled;
 static int JonesHud_bMapOpen;
 static bool JonesHud_bMenuMusicEnabled       = true; // Added
-static bool JonesHud_bSystemIconsEnabled     = true; // Added: engine.ui.hud.systemIcons
+static bool JonesHud_bSystemIconsEnabled     = false; // Altered: engine.ui.hud.systemIcons, default off since the pause menu
 static char JonesHud_aMenuMusicFilename[64]  = "mus_gen_maploadloop.wav"; // Added
 static float JonesHud_menuMusicVolume        = 0.55f; // Added
 static float JonesHud_menuMusicFadeDuratuion = 0.75f; // Added
@@ -291,6 +291,8 @@ int J3DAPI JonesHud_SetCanvasSize(int width, int height);
 void JonesHud_UpdateSinCosTable(void);
 void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height);
 
+static void JonesHud_UpdateMenuMusic(void);
+static void JonesHud_StopMenuMusic(void);
 void JonesHud_MenuOpen(void);
 void JonesHud_MenuClose(void);
 
@@ -391,6 +393,9 @@ void JonesHud_Shutdown(void)
         return;
     }
 
+    // Fixed: Release menu-owned audio during HUD teardown.
+    JonesHud_StopMenuMusic();
+
     //nullsub_2(); // Called empty jonesInventory function
     JonesHud_pHealthIndBaseMat             = NULL;
     JonesHud_pHealthIndOverlayMat          = NULL;
@@ -427,6 +432,24 @@ void JonesHud_Shutdown(void)
     JonesHud_bCutsceneStart    = 0;
     JonesHud_bInterfaceEnabled = 0;
     JonesHud_bStartup          = false;
+}
+
+bool JonesHud_LoadSystemIconsConfig(void)
+{
+    // Added: presentation only (both profiles). Default false: the pause menu on Escape/Start
+    // replaces the system items; true brings them back into the HUD menu.
+    JonesHud_bSystemIconsEnabled = stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, false);
+    if ( !stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS) )
+    {
+        stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
+    }
+
+    return JonesHud_bSystemIconsEnabled;
+}
+
+int JonesHud_SystemMenuItemID(int selectedMenuItemID)
+{
+    return JonesHud_bSystemIconsEnabled ? selectedMenuItemID : -1;
 }
 
 int JonesHud_Open(void)
@@ -502,12 +525,7 @@ int JonesHud_Open(void)
         stdConfig_SetFloat(JONESHUD_CFG_MENU_FADEDURATION, JonesHud_menuMusicFadeDuratuion);
     }
 
-    // Added: presentation only (both profiles). Default true keeps the HUD menu as it is.
-    JonesHud_bSystemIconsEnabled = stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
-    if ( !stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS) )
-    {
-        stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, JonesHud_bSystemIconsEnabled);
-    }
+    JonesHud_LoadSystemIconsConfig(); // Added: engine.ui.hud.systemIcons
 
     // Menu item config
     JonesHud_menuItemScale = stdConfig_GetFloat(JONESHUD_CFG_MENU_ITEM_SCALE, JonesHud_menuItemScale);
@@ -918,6 +936,9 @@ error:
 
 void JonesHud_Close(void)
 {
+    // Fixed: Release menu-owned audio during HUD teardown.
+    JonesHud_StopMenuMusic();
+
     // Added
     JonesReticle_Close();
 
@@ -1144,7 +1165,7 @@ void JonesHud_Process(void) // maybe this function should be called something el
                     {
                         healthState = (300.0f * sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.health / maxHealth);
                     }
-                    JonesHud_RenderHealthIndicatorHit(roundf(healthState));
+                    JonesHud_RenderHealthIndicatorHit((float)(int)healthState); // Fixed: Truncate like the original instead of rounding
                 }
 
                 // DRAW endurance indicator
@@ -1403,6 +1424,27 @@ void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height)
     JonesHud_invMenuMinZ = adjustedZ + offset;
 }
 
+static void JonesHud_UpdateMenuMusic(void)
+{
+    // Fixed: A closing menu must not restart a theme that has finished fading.
+    if ( (JonesHud_hudState & 0x04) == 0
+        && JonesHud_bMenuMusicEnabled && JonesHud_aSoundFxHandles[0]
+        && (Sound_GetChannelFlags(JonesHud_hSndChannelMusic) & SOUND_CHANNEL_PLAYING) == 0 )
+    {
+        // The game sound is paused, so repeat one-shots instead of using a loop.
+        JonesHud_hSndChannelMusic = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[0], JonesHud_menuMusicVolume, 0.0f, SOUNDPLAY_PLAYONCE);
+    }
+}
+
+static void JonesHud_StopMenuMusic(void)
+{
+    if ( JonesHud_hSndChannelMusic != SOUND_INVALIDHANDLE )
+    {
+        sithSoundMixer_StopSound(JonesHud_hSndChannelMusic);
+        JonesHud_hSndChannelMusic = SOUND_INVALIDHANDLE;
+    }
+}
+
 void JonesHud_MenuOpen(void)
 {
     if ( sithPlayer_g_pLocalPlayerThing && (!JonesHud_pMenuItemLinkedList || (JonesHud_hudState & 0x01) == 0) )
@@ -1418,12 +1460,8 @@ void JonesHud_MenuOpen(void)
             }
         }
 
-        // Added: Play menu theme music if not already playing
-        if ( JonesHud_bMenuMusicEnabled && JonesHud_aSoundFxHandles[0] )
-        {
-             // Note, must use playonce flag as loop play won't work due to sound module is stopped at this point
-            JonesHud_hSndChannelMusic = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[0], JonesHud_menuMusicVolume, 0.0f, SOUNDPLAY_PLAYONCE);
-        }
+        // Fixed: Release any closing theme before starting another menu session.
+        JonesHud_StopMenuMusic();
 
         JonesHud_selectedTreasuresMenuItemID = JONESHUD_MENU_TREASURE_CHEST;
         JonesHud_selectedItemsMenuItemID     = JONESHUD_MENU_INVITEM_ZIPPO;
@@ -1435,6 +1473,8 @@ void JonesHud_MenuOpen(void)
 
         if ( JonesHud_pMenuItemLinkedList )
         {
+            JonesHud_UpdateMenuMusic();
+
             if ( JonesHud_aSoundFxHandles[3] )  // inv_expand.wav
             {
                 JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[3], 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
@@ -1466,7 +1506,7 @@ void JonesHud_MenuClose(void)
                 || (JonesHud_apMenuItems[pItem->nextUpItemId]->flags & 0x20) != 0) )
         {
             //(JonesHud_item_flag_state_55514C & 0xFF) = (1 << i) | JonesHud_item_flag_state_55514C;
-            JonesHud_item_flag_state_55514C = (JonesHud_item_flag_state_55514C & ~0xFF) | (1 << i);
+            JonesHud_item_flag_state_55514C |= (1 << i); // Fixed: OR the column flag, the original does not clear the other bits
             if ( JonesHud_aSoundFxHandles[3] )  // inv_expand.wav
             {
                 JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[3], 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
@@ -1534,7 +1574,7 @@ void JonesHud_MenuClose(void)
     if ( JonesHud_hSndChannelMusic != SOUND_INVALIDHANDLE )
     {
         sithSoundMixer_FadeVolume(JonesHud_hSndChannelMusic, 0.0f, JonesHud_menuMusicFadeDuratuion);
-        JonesHud_hSndChannelMusic = SOUND_INVALIDHANDLE;
+        // Fixed: Keep ownership until the close animation stops it before sound resumes.
     }
 
     JonesHud_hudState |= 0x04; // Closing menu
@@ -2176,15 +2216,7 @@ void J3DAPI JonesHud_Draw(const rdMaterial* pMaterial, const JonesHudRect* rect,
 
 void JonesHud_ProcessInventoryMenu(void)
 {
-    // Added: Re start playing menu theme music if not already playing
-    if ( JonesHud_bMenuMusicEnabled && JonesHud_aSoundFxHandles[0] )
-    {
-        if ( JonesHud_hSndChannelMusic != SOUND_INVALIDHANDLE && (Sound_GetChannelFlags(JonesHud_hSndChannelMusic) & SOUND_CHANNEL_PLAYING) == 0 )
-        {
-            // Note, must use playonce flag as loop play won't work due to sound module is stopped at this point
-            JonesHud_hSndChannelMusic = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[0], JonesHud_menuMusicVolume, 0.0f, SOUNDPLAY_PLAYONCE);
-        }
-    }
+    JonesHud_UpdateMenuMusic();
 
     int bActivateKeyPressed;
     JonesHud_UpdateItem(JonesHud_pMenuItemLinkedList);
@@ -2569,7 +2601,6 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
         return 0;
     }
 
-    JonesHud_msecMenuItemMoveCurDuration = JonesHud_msecMenuItemMoveDuration;
     if ( keyId == JonesHud_curKeyId )
     {
         if ( JonesHud_msecMenuItemMoveCurDuration < JonesHud_msecMenuItemMoveDuration
@@ -2585,6 +2616,10 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
                 JonesHud_msecMenuItemMoveCurDuration = 75;
             }
         }
+    }
+    else
+    {
+        JonesHud_msecMenuItemMoveCurDuration = JonesHud_msecMenuItemMoveDuration; // Fixed: Reset the repeat delay only for a new key
     }
 
     JonesHud_msecLastKeyPressTime = JonesHud_msecTime;
@@ -2647,14 +2682,41 @@ void JonesHud_InitializeMenuSounds(void)
     // Altered: Changed start idx to 1 as 0 is reserved for ambient music
     for ( size_t i = 1; i < STD_ARRAYLEN(JonesHud_aSoundFxIdxs); ++i )
     {
-        if ( JonesHud_aSoundFxIdxs[i] > -1 )
+        if ( JonesHud_aSoundFxIdxs[i] <= -1 )
         {
-            int sndIdx = SITHWORLD_STATICINDEX(JonesHud_aSoundFxIdxs[i]);
+            continue;
+        }
+
+        const int sndIdx = SITHWORLD_STATICINDEX(JonesHud_aSoundFxIdxs[i]);
+        if ( sithWorld_g_pStaticWorld )
+        {
+            // The static bank is loaded and is the reference, including after a save imports it.
             JonesHud_aSoundFxHandles[i] = Sound_GetSoundHandle(sndIdx);
+            continue;
+        }
+
+        // Added: the main menu runs before the static world opens, so the two cues it uses are
+        // loaded from their sound files directly to keep it from being silent. Later, once the
+        // static world exists, the branch above replaces them with the bank's own handles.
+        const char* pFile = NULL;
+        if ( i == 2 )
+        {
+            pFile = "sound\\inv_move.wav";
+        }
+        else if ( i == 3 )
+        {
+            pFile = "sound\\inv_expand.wav";
+        }
+
+        if ( pFile && !JonesHud_aSoundFxHandles[i] )
+        {
+            uint32_t loadIdx = (uint32_t)sndIdx;
+            JonesHud_aSoundFxHandles[i] = Sound_LoadStatic(pFile, &loadIdx);
         }
     }
 
-    if ( JonesHud_bMenuMusicEnabled && JonesHud_aMenuMusicFilename[0] )
+    if ( sithWorld_g_pStaticWorld && JonesHud_bMenuMusicEnabled
+        && JonesHud_aMenuMusicFilename[0] && !JonesHud_aSoundFxHandles[0] )
     {
         JonesHud_aSoundFxHandles[0] = sithSound_Load(sithWorld_g_pStaticWorld, JonesHud_aMenuMusicFilename);
     }
@@ -2838,6 +2900,8 @@ void J3DAPI JonesHud_UpdateItem(JonesHudMenuItem* pItem)
                             JonesHud_pCloseMenuItem = NULL;
 
                             sithGamesave_CloseRestore();
+                            // Fixed: Stop the menu-owned fade before resuming the paused sound clock.
+                            JonesHud_StopMenuMusic();
                             JonesMain_ResumeGame();
                             JonesReticle_Resume();
 
@@ -3106,6 +3170,7 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
         rdModel3_GetThingColor(pItem->prdIcon, &color);
         float oalpha = color.alpha;
         color.alpha  = pItem->alpha;
+        rdFaceFlags faceFlags = 0; // Added: per-draw face flags
 
         if ( (pItem->flags & 0x08) == 0
             && ((pItem->flags & 0x10) != 0
@@ -3180,6 +3245,13 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
                     color.alpha  = 0.0f;
                 }
             }
+
+            // Fixed: Fading icons must not occlude overlapping icons through depth writes.
+            const float visibleAlpha = bDisabled ? 0.40000001f : 0.94999999f;
+            if ( color.alpha < visibleAlpha )
+            {
+                faceFlags |= RD_FF_ZWRITE_DISABLED;
+            }
         }
         else
         {
@@ -3202,7 +3274,7 @@ void J3DAPI JonesHud_RenderMenuItem(JonesHudMenuItem* pItem)
         rdModel3_SetThingColor(pItem->prdIcon, &color);
         bool bLitFaces = rdGetLitFaces(); // Added: HUD models stay classic (option A, ADR-0023)
         rdSetLitFaces(false);
-        rdModel3_Draw(pItem->prdIcon, &placement);
+        rdModel3_DrawWithFlags(pItem->prdIcon, &placement, faceFlags); // Fixed: Disable depth writes on a fading icon
         rdSetLitFaces(bLitFaces);
 
         pItem->alpha = color.alpha;
@@ -3565,10 +3637,7 @@ void JonesHud_ResetMenuItems(void)
 
     // Added: engine.ui.hud.systemIcons false hides the system column. The items stay allocated
     // (their models are loaded with the rest) but leave the menu ring and its navigation.
-    if ( !JonesHud_bSystemIconsEnabled )
-    {
-        JonesHud_selectedSystemMenuItemID = -1;
-    }
+    JonesHud_selectedSystemMenuItemID = JonesHud_SystemMenuItemID(JonesHud_selectedSystemMenuItemID);
 
     JonesHudMenuItem* pFirstSelectedItem = NULL;
     JonesHudMenuItem* pLastSelectedItem  = NULL;

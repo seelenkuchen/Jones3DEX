@@ -262,7 +262,7 @@ int J3DAPI sithPathMove_ParseArg(const StdConffileArg* pArg, SithThing* pThing, 
         }
         case SITHTHING_ARG_NUMFRAMES:
         {
-            size_t sizeFrames;
+            int sizeFrames; // Fixed: Parse as signed so a negative count is rejected instead of wrapping to a huge allocation
             if ( pThing->moveInfo.pathMovement.sizeFrames || (sizeFrames = atoi(pArg->argValue), sizeFrames < 1) )
             {
                 SITHLOG_ERROR("Bad argument %s=%s line %d.\n", pArg->argName, pArg->argValue, stdConffile_GetLineNumber());
@@ -271,14 +271,14 @@ int J3DAPI sithPathMove_ParseArg(const StdConffileArg* pArg, SithThing* pThing, 
 
             SITH_ASSERTREL(pThing->moveInfo.pathMovement.aFrames == NULL);
 
-            pThing->moveInfo.pathMovement.aFrames = (SithPathFrame*)STDMALLOC(sizeof(SithPathFrame) * sizeFrames);
+            pThing->moveInfo.pathMovement.aFrames = (SithPathFrame*)STDMALLOC(sizeof(SithPathFrame) * (size_t)sizeFrames);
             if ( !pThing->moveInfo.pathMovement.aFrames )
             {
                 SITHLOG_ERROR("Memory allocation error, line %d.\n", stdConffile_GetLineNumber());
                 return 0;
             }
 
-            memset(pThing->moveInfo.pathMovement.aFrames, 0, sizeof(SithPathFrame) * sizeFrames);
+            STD_ZEROMEM(pThing->moveInfo.pathMovement.aFrames, sizeof(SithPathFrame) * (size_t)sizeFrames);
             pThing->moveInfo.pathMovement.sizeFrames = sizeFrames;
             pThing->moveInfo.pathMovement.numFrames  = 0;
             return 1;
@@ -396,18 +396,15 @@ void J3DAPI sithPathMove_UpdateRotate(SithThing* pThing, float simTime)
 
     float deltaTime = pPath->rotDeltaTime * simTime;
     float rotDelta  = pPath->rotDelta + deltaTime;
-    if ( rotDelta <= 1.0f )
-    {
-        if ( rotDelta < -1.0f )
-        {
-            deltaTime = -1.0f - pPath->rotDelta;
-            rotDelta = -1.0f;
-        }
-    }
-    else
+    if ( rotDelta > 1.0f )
     {
         deltaTime = 1.0f - pPath->rotDelta;
         rotDelta = 1.0f;
+    }
+    else if ( !(rotDelta >= -1.0f) ) // Fixed: A NaN rotation step is clamped to -1 too, like in the original
+    {
+        deltaTime = -1.0f - pPath->rotDelta;
+        rotDelta = -1.0f;
     }
 
     rdVector3 deltaPYR;

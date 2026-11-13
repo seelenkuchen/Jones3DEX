@@ -20,6 +20,8 @@ static bool stdControl_bControlsActive = false;
 static bool stdControl_bControlsIdle   = false;
 static bool stdControl_bReadMouse      = false;
 static bool stdControl_bMouseSensitivityEnabled = false;
+// Added: rumble output is on by default; the game applies engine.input.rumble after reading it.
+static bool stdControl_bRumbleEnabled  = true;
 
 static StdControlAxis stdControl_aAxes[STDCONTROL_MAX_AXES] = { 0 };
 static int stdControl_aAxisStates[STDCONTROL_MAX_AXES]      = { 0 };
@@ -30,6 +32,10 @@ static int stdControl_aKeyPressed[STDCONTROL_MAX_KEYID]     = { 0 };
 static uint32_t stdControl_curReadTime    = 0;
 static uint32_t stdControl_lastReadTime   = 0;
 static uint32_t stdControl_readDeltaTime  = 0;
+// Added: the connected-joystick count the platform adapter last reported and how often it changed.
+static unsigned int stdControl_joystickChangeCount = 0;
+static size_t stdControl_observedJoystickCount     = 0;
+static bool stdControl_bObservedJoystickCount      = false;
 // Added: The read-rate globals stdControlDX9.c carries under the old sithControl_ names.
 static float sithControl_secFPS           = 0.0f;
 static float sithControl_msecFPS          = 0.0f;
@@ -70,6 +76,11 @@ int J3DAPI stdControl_Startup(int bKeyboardForeground)
     memset(stdControl_aKeyPressed, 0, sizeof(stdControl_aKeyPressed));
     memset(stdControl_aAxes, 0, sizeof(stdControl_aAxes));
     memset(stdControl_aAxisStates, 0, sizeof(stdControl_aAxisStates));
+
+    // Added: a new control session starts from a clean hot-plug baseline.
+    stdControl_joystickChangeCount    = 0;
+    stdControl_observedJoystickCount  = 0;
+    stdControl_bObservedJoystickCount = false;
 
 #ifdef STDCONTROL_BABYLON_DEVICES
     // Added: the Babylon column registers the mouse axes at startup, like stdControlDX9.c's
@@ -206,8 +217,7 @@ void J3DAPI stdControl_RegisterAxis(size_t aid, int min, int max, float deadzone
     stdControl_aAxes[aid].max        = max;
     stdControl_aAxes[aid].center     = (max - min + 1) / 2 + min;
     stdControl_aAxes[aid].scale      = 1.0f / (float)(max - stdControl_aAxes[aid].center);
-    stdControl_aAxes[aid].deadzoneThreshold =
-        (int)lroundf((float)(max - stdControl_aAxes[aid].center) * deadzoneScale);
+    stdControl_aAxes[aid].deadzoneThreshold = (int)trunc((double)deadzoneScale * (double)(max - stdControl_aAxes[aid].center));
 }
 
 void J3DAPI stdControl_RegisterMouseAxesXY(float xrange, float yrange)
@@ -336,6 +346,20 @@ float J3DAPI stdControl_ReadKeyAsAxis(size_t keyId)
     return 0.0f;
 }
 
+static inline void stdControl_AddAxisKeyPressed(int* pbPressed)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Altered: Axes bound to key functions (e.g. gamepad triggers) count as a key press in the num pressed state, the original never updates it when reading an axis as key.
+    //          Fixed: Increment the state by 1, it was set to 1 which dropped the presses of other bindings of the key function.
+    if ( pbPressed )
+    {
+        *pbPressed += 1;
+    }
+#else
+    J3D_UNUSED(pbPressed);
+#endif
+}
+
 int J3DAPI stdControl_ReadAxisAsKeyEx(size_t axis, int* pbPressed, float lowValue)
 {
     float pos = stdControl_ReadAxis(axis);
@@ -346,28 +370,19 @@ int J3DAPI stdControl_ReadAxisAsKeyEx(size_t axis, int* pbPressed, float lowValu
         int axisFlag = (int)(axis & STDCONTROL_AID_NEGATIVE_AXIS);
         if ( axisFlag == (int)STDCONTROL_AID_POSITIVE_AXIS && pos > (double)lowValue )
         {
-            if ( pbPressed )
-            {
-                *pbPressed = 1;
-            }
+            stdControl_AddAxisKeyPressed(pbPressed);
             return 1;
         }
 
         if ( axisFlag == (int)STDCONTROL_AID_NEGATIVE_AXIS && -lowValue > pos )
         {
-            if ( pbPressed )
-            {
-                *pbPressed = 1;
-            }
+            stdControl_AddAxisKeyPressed(pbPressed);
             return 1;
         }
     }
     else if ( fabsf(pos) > lowValue )
     {
-        if ( pbPressed )
-        {
-            *pbPressed = 1;
-        }
+        stdControl_AddAxisKeyPressed(pbPressed);
         return 1;
     }
 
@@ -493,6 +508,28 @@ void J3DAPI stdControl_EnableMouseSensitivity(int bEnable)
     stdControl_bMouseSensitivityEnabled = bEnable != 0;
 }
 
+// Added: gamepad rumble (presentation only, ADR-0028). The enabled flag is kept in the shared
+// column so both backends agree; only the device side differs.
+void stdControl_EnableRumble(bool bEnable)
+{
+    stdControl_bRumbleEnabled = bEnable;
+}
+
+bool stdControl_IsRumbleEnabled(void)
+{
+    return stdControl_bRumbleEnabled;
+}
+
+void J3DAPI stdControl_Rumble(float lowFrequency, float highFrequency, uint32_t durationMs)
+{
+    if ( !stdControl_bRumbleEnabled )
+    {
+        return;
+    }
+
+    stdControl_RumbleDevices(lowFrequency, highFrequency, durationMs);
+}
+
 void J3DAPI stdControl_SetMouseSensitivity(float xSensitivity, float ySensitivity)
 {
     stdControl_xSensitivity = xSensitivity;
@@ -581,6 +618,29 @@ int J3DAPI stdControl_IsGamePad(int joyNum)
     return 0;
 }
 #endif
+
+// Added: the platform adapter's joystick-count observation. The first count after startup is the
+// baseline; every later difference is one hot-plug change the game can act on.
+void stdControl_ObserveJoystickCount(size_t numJoysticks)
+{
+    if ( !stdControl_bObservedJoystickCount )
+    {
+        stdControl_observedJoystickCount  = numJoysticks;
+        stdControl_bObservedJoystickCount = true;
+        return;
+    }
+
+    if ( stdControl_observedJoystickCount != numJoysticks )
+    {
+        stdControl_observedJoystickCount = numJoysticks;
+        ++stdControl_joystickChangeCount;
+    }
+}
+
+unsigned int J3DAPI stdControl_GetJoystickChangeCount(void)
+{
+    return stdControl_joystickChangeCount;
+}
 
 // Added: writes one axis's raw state; stdControlDX9.c's device reads wrote the array directly.
 void stdControl_SetAxisState(size_t aid, int value)

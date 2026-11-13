@@ -20,8 +20,12 @@
 #include <std/General/stdRenderCapture.h>
 #include <std/General/stdUtil.h>
 
+#include <float.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+extern int J3DAPI rdCache_ProcFaceDistanceCompare(const rdCacheProcEntry* pEntry1, const rdCacheProcEntry* pEntry2);
 
 // RCAP record ids (stdRenderCaptureIds.h): DrawRenderList, DrawRenderListLit.
 #define RDCACHETEST_ID_DRAW    14u
@@ -30,8 +34,9 @@
 // What every face here draws with: nearest filtering keeps the QOL filter choice out of the state.
 #define RDCACHETEST_RDFLAGS (STD3D_RS_SUBPIXEL_CORRECTION | STD3D_RS_UNKNOWN_2 | STD3D_RS_UNKNOWN_1)
 
-// The capture file, in memory.
-static uint8_t rdCacheTest_aFile[16384];
+// The capture file, in memory. The batch tests below feed up to 65,535 vertices in one draw.
+#define RDCACHETEST_FILESIZE (8u * 1024u * 1024u)
+static uint8_t rdCacheTest_aFile[RDCACHETEST_FILESIZE];
 static size_t rdCacheTest_fileSize;
 static bool rdCacheTest_bFileOverflow;
 
@@ -100,6 +105,24 @@ typedef struct sRdCacheTestDraw
 
 static RdCacheTestDraw rdCacheTest_aDraws[8];
 static size_t rdCacheTest_numDraws;
+
+// Added: upstream's face batching and alpha depth tests feed rdCache directly and read the draws
+// back from the same render capture.
+#define RDCACHETEST_MAX_FACES 4096
+
+static rdVector4 rdCacheTest_aBatchVertexColors[RDCACHE_MAXFACEVERTICES];
+static rdMaterial rdCacheTest_batchMaterial;
+static tSystemTexture rdCacheTest_batchTexture;
+static rdCacheProcEntry* rdCacheTest_pBatchFaces;
+static StdVertexTL* rdCacheTest_pBatchVertices;
+static uint64_t rdCacheTest_aBatchSeenVertices[RDCACHETEST_MAX_FACES];
+static size_t rdCacheTest_aBatchDrawVertices[RDCACHETEST_MAX_FACES];
+static size_t rdCacheTest_aBatchFaceOrder[RDCACHETEST_MAX_FACES];
+static size_t rdCacheTest_batchNumFaces;
+static size_t rdCacheTest_batchFaceVertices;
+static size_t rdCacheTest_batchDraws;
+static size_t rdCacheTest_batchTriangles;
+static size_t rdCacheTest_batchNumSeenFaces;
 
 static uint32_t rdCacheTest_U32(const uint8_t* p)
 {
@@ -316,6 +339,10 @@ static void rdCacheTest_RestoreModelCamera(void);
 TEST_TEAR_DOWN(rdCache)
 {
     rdCacheTest_RestoreModelCamera();
+    free(rdCacheTest_pBatchFaces);
+    free(rdCacheTest_pBatchVertices);
+    rdCacheTest_pBatchFaces    = NULL;
+    rdCacheTest_pBatchVertices = NULL;
     stdRenderCapture_ResetGlobals();
     rdCache_AdvanceFrame();
     rdroid_g_curGeometryMode = rdCacheTest_savedGeometryMode;
@@ -723,6 +750,293 @@ TEST(rdCache, ModelFacesStayClassicWithLitFacesOff)
     TEST_ASSERT_FALSE(rdGetLitFaces());
 }
 
+// Added: upstream's face batching and alpha depth tests. Each face encodes its number in the first
+// vertex component and the local vertex in the second, so a draw's vertices tell which face they
+// came from. Altered: read the draws from the render capture (as the lit tests do) and use the
+// fork's StdVertexTL.
+static void rdCacheTest_InitBatchMaterial(void)
+{
+    rdCacheTest_batchMaterial = (rdMaterial){ 0 };
+    rdCacheTest_batchTexture  = (tSystemTexture){ 0 };
+    rdCacheTest_batchMaterial.numCels    = 1;
+    rdCacheTest_batchMaterial.aTextures  = &rdCacheTest_batchTexture;
+    rdCacheTest_batchMaterial.formatType = STDCOLOR_FORMAT_RGB;
+    for ( size_t i = 0; i < STD_ARRAYLEN(rdCacheTest_aBatchVertexColors); ++i )
+    {
+        rdCacheTest_aBatchVertexColors[i] = (rdVector4){ 1.0f, 1.0f, 1.0f, 0.5f };
+    }
+}
+
+static void rdCacheTest_InitBatchFace(rdCacheProcEntry* pFace, StdVertexTL* pVertices, rdVector4* pColors, size_t face)
+{
+    *pFace                  = (rdCacheProcEntry){ 0 };
+    pFace->aVertices        = pVertices;
+    pFace->aVertIntensities = pColors;
+    pFace->numVertices      = rdCacheTest_batchFaceVertices;
+    pFace->lightingMode     = RD_LIGHTING_GOURAUD;
+    pFace->extraLight.alpha = 1.0f;
+    pFace->pMaterial        = &rdCacheTest_batchMaterial;
+    pFace->matCelNum        = -1;
+    pFace->flags            = RD_FF_TEX_TRANSLUCENT;
+    pFace->distance         = 1.0f - (float)face / 8192.0f;
+    for ( size_t j = 0; j < rdCacheTest_batchFaceVertices; ++j )
+    {
+        pVertices[j]      = (StdVertexTL){ 0 };
+        pVertices[j].sx   = (float)face;
+        pVertices[j].sy   = (float)j;
+        pVertices[j].sz   = pFace->distance;
+        pVertices[j].rhw  = 1.0f;
+    }
+}
+
+static void rdCacheTest_MakeFaces(size_t numFaces, size_t numVertices)
+{
+    // The index budget the batch tests assume: the 16-bit vertex cap is the binding limit.
+    std3D_g_maxVertices = 0x00ffffff;
+
+    rdCacheTest_InitBatchMaterial();
+    rdCacheTest_batchNumFaces     = numFaces;
+    rdCacheTest_batchFaceVertices = numVertices;
+    free(rdCacheTest_pBatchFaces);
+    free(rdCacheTest_pBatchVertices);
+    rdCacheTest_pBatchFaces    = calloc(numFaces, sizeof(*rdCacheTest_pBatchFaces));
+    rdCacheTest_pBatchVertices = calloc(numFaces * numVertices, sizeof(*rdCacheTest_pBatchVertices));
+    TEST_ASSERT_NOT_NULL(rdCacheTest_pBatchFaces);
+    TEST_ASSERT_NOT_NULL(rdCacheTest_pBatchVertices);
+    for ( size_t i = 0; i < numFaces; ++i )
+    {
+        rdCacheTest_InitBatchFace(&rdCacheTest_pBatchFaces[i], &rdCacheTest_pBatchVertices[i * numVertices],
+            rdCacheTest_aBatchVertexColors, i);
+    }
+}
+
+// Reads the classic draw records of the capture in memory, tracking each draw's size, every face
+// and local vertex that was submitted, and the order the faces first appear in.
+static void rdCacheTest_ParseBatchDraws(void)
+{
+    TEST_ASSERT_FALSE(rdCacheTest_bFileOverflow);
+    TEST_ASSERT_TRUE(rdCacheTest_fileSize >= 20u);
+    TEST_ASSERT_EQUAL_MEMORY("J3DRCAP", rdCacheTest_aFile, 8u);
+
+    rdCacheTest_batchDraws = rdCacheTest_batchTriangles = rdCacheTest_batchNumSeenFaces = 0;
+    memset(rdCacheTest_aBatchSeenVertices, 0, sizeof(rdCacheTest_aBatchSeenVertices));
+    memset(rdCacheTest_aBatchDrawVertices, 0, sizeof(rdCacheTest_aBatchDrawVertices));
+
+    size_t pos = 16u + rdCacheTest_U32(&rdCacheTest_aFile[12]);
+    while ( pos < rdCacheTest_fileSize )
+    {
+        TEST_ASSERT_TRUE(pos + 8u <= rdCacheTest_fileSize);
+        const uint16_t id    = (uint16_t)(rdCacheTest_aFile[pos] | (rdCacheTest_aFile[pos + 1u] << 8));
+        const uint32_t size  = rdCacheTest_U32(&rdCacheTest_aFile[pos + 4u]);
+        const uint8_t* pData = &rdCacheTest_aFile[pos + 8u];
+        TEST_ASSERT_TRUE(pos + 8u + size <= rdCacheTest_fileSize);
+        pos += 8u + size;
+        if ( id != RDCACHETEST_ID_DRAW )
+        {
+            continue;
+        }
+
+        const size_t numVerts = rdCacheTest_U32(pData + 8u);
+        TEST_ASSERT_TRUE(numVerts <= UINT16_MAX);
+        TEST_ASSERT_TRUE(numVerts <= std3D_g_maxVertices);
+        TEST_ASSERT_TRUE(rdCacheTest_batchDraws < STD_ARRAYLEN(rdCacheTest_aBatchDrawVertices));
+        rdCacheTest_aBatchDrawVertices[rdCacheTest_batchDraws++] = numVerts;
+
+        const uint8_t* pVert     = pData + 12u;
+        const uint8_t* pIndices  = pVert + numVerts * 32u;
+        const size_t numIndices  = rdCacheTest_U32(pIndices);
+        TEST_ASSERT_EQUAL_size_t(0, numIndices % 3);
+        TEST_ASSERT_EQUAL_size_t(12u + numVerts * 32u + 4u + 2u * numIndices, size);
+
+        for ( size_t i = 0; i < numIndices; i += 3 )
+        {
+            uint16_t aIndex[3];
+            for ( size_t j = 0; j < 3u; ++j )
+            {
+                aIndex[j] = (uint16_t)(pIndices[4u + 2u * (i + j)] | (pIndices[5u + 2u * (i + j)] << 8));
+                TEST_ASSERT_TRUE(aIndex[j] < numVerts);
+            }
+            TEST_ASSERT_NOT_EQUAL(aIndex[0], aIndex[1]);
+            TEST_ASSERT_NOT_EQUAL(aIndex[0], aIndex[2]);
+            TEST_ASSERT_NOT_EQUAL(aIndex[1], aIndex[2]);
+
+            const size_t face = (size_t)rdCacheTest_F32(pVert + aIndex[0] * 32u);
+            TEST_ASSERT_TRUE(face < rdCacheTest_batchNumFaces);
+            if ( rdCacheTest_aBatchSeenVertices[face] == 0 )
+            {
+                TEST_ASSERT_TRUE(rdCacheTest_batchNumSeenFaces < STD_ARRAYLEN(rdCacheTest_aBatchFaceOrder));
+                rdCacheTest_aBatchFaceOrder[rdCacheTest_batchNumSeenFaces++] = face;
+            }
+
+            for ( size_t j = 0; j < 3u; ++j )
+            {
+                const uint8_t* pVertex = pVert + aIndex[j] * 32u;
+                TEST_ASSERT_EQUAL_FLOAT((float)face, rdCacheTest_F32(pVertex));
+                const size_t localVertex = (size_t)rdCacheTest_F32(pVertex + 4u);
+                TEST_ASSERT_TRUE(localVertex < rdCacheTest_batchFaceVertices);
+                rdCacheTest_aBatchSeenVertices[face] |= UINT64_C(1) << localVertex;
+            }
+            ++rdCacheTest_batchTriangles;
+        }
+    }
+}
+
+static void rdCacheTest_AssertBatchCoverage(void)
+{
+    const uint64_t expected = rdCacheTest_batchFaceVertices == 64u
+        ? UINT64_MAX
+        : (UINT64_C(1) << rdCacheTest_batchFaceVertices) - 1;
+    size_t submittedVertices = 0;
+    for ( size_t i = 0; i < rdCacheTest_batchDraws; ++i )
+    {
+        submittedVertices += rdCacheTest_aBatchDrawVertices[i];
+    }
+    TEST_ASSERT_EQUAL_size_t(rdCacheTest_batchNumFaces * rdCacheTest_batchFaceVertices, submittedVertices);
+    TEST_ASSERT_EQUAL_size_t(rdCacheTest_batchNumFaces, rdCacheTest_batchNumSeenFaces);
+    TEST_ASSERT_EQUAL_size_t(rdCacheTest_batchNumFaces * (rdCacheTest_batchFaceVertices - 2), rdCacheTest_batchTriangles);
+    for ( size_t i = 0; i < rdCacheTest_batchNumFaces; ++i )
+    {
+        TEST_ASSERT_EQUAL_HEX32((uint32_t)expected, (uint32_t)rdCacheTest_aBatchSeenVertices[i]);
+        TEST_ASSERT_EQUAL_HEX32((uint32_t)(expected >> 32), (uint32_t)(rdCacheTest_aBatchSeenVertices[i] >> 32));
+    }
+}
+
+static void rdCacheTest_SendBatchFaces(rdCacheSortFunc pfSort)
+{
+    TEST_ASSERT_TRUE(stdRenderCapture_Open("rdCacheTest.rcap", "null"));
+    rdCache_SendFaceListToHardware(rdCacheTest_batchNumFaces, rdCacheTest_pBatchFaces, pfSort);
+    stdRenderCapture_Close();
+    rdCacheTest_ParseBatchDraws();
+}
+
+TEST(rdCache, DistanceComparatorHandlesEqualDepthsAndSignedZero)
+{
+    rdCacheProcEntry a = { 0 }, b = { 0 };
+    a.distance = b.distance = 0.25f;
+    TEST_ASSERT_EQUAL_INT(0, rdCache_ProcFaceDistanceCompare(&a, &a));
+    TEST_ASSERT_EQUAL_INT(0, rdCache_ProcFaceDistanceCompare(&a, &b));
+    TEST_ASSERT_EQUAL_INT(0, rdCache_ProcFaceDistanceCompare(&b, &a));
+    a.distance = -0.0f;
+    b.distance = 0.0f;
+    TEST_ASSERT_EQUAL_INT(0, rdCache_ProcFaceDistanceCompare(&a, &b));
+}
+
+TEST(rdCache, DistanceComparatorProvidesConsistentOrdering)
+{
+    const float depths[] = { INFINITY, FLT_MAX, 1.0f, 0.0f, -0.0f, -1.0f, -INFINITY, NAN, -NAN };
+    for ( size_t i = 0; i < STD_ARRAYLEN(depths); ++i )
+    {
+        for ( size_t j = 0; j < STD_ARRAYLEN(depths); ++j )
+        {
+            rdCacheProcEntry a = { 0 }, b = { 0 };
+            a.distance = depths[i];
+            b.distance = depths[j];
+            const int ab = rdCache_ProcFaceDistanceCompare(&a, &b);
+            const int ba = rdCache_ProcFaceDistanceCompare(&b, &a);
+            TEST_ASSERT_EQUAL_INT(-ab, ba);
+            if ( i < j ) TEST_ASSERT_TRUE(ab <= 0);
+            if ( i == j ) TEST_ASSERT_EQUAL_INT(0, ab);
+        }
+    }
+}
+
+TEST(rdCache, MaximumSizeFacesSplitBeforeIndexWrap)
+{
+    rdCacheTest_MakeFaces(1025, 64);
+    rdCacheTest_SendBatchFaces(NULL);
+    TEST_ASSERT_EQUAL_size_t(2, rdCacheTest_batchDraws);
+    TEST_ASSERT_EQUAL_size_t(65472, rdCacheTest_aBatchDrawVertices[0]);
+    TEST_ASSERT_EQUAL_size_t(128, rdCacheTest_aBatchDrawVertices[1]);
+    rdCacheTest_AssertBatchCoverage();
+}
+
+TEST(rdCache, ExactVertexLimitFitsAndNextFaceStartsNewBatch)
+{
+    rdCacheTest_MakeFaces(3856, 17);
+    rdCacheTest_SendBatchFaces(NULL);
+    TEST_ASSERT_EQUAL_size_t(2, rdCacheTest_batchDraws);
+    TEST_ASSERT_EQUAL_size_t(65535, rdCacheTest_aBatchDrawVertices[0]);
+    TEST_ASSERT_EQUAL_size_t(17, rdCacheTest_aBatchDrawVertices[1]);
+    rdCacheTest_AssertBatchCoverage();
+}
+
+TEST(rdCache, StockSizedFacesRemainInOneBatch)
+{
+    rdCacheTest_MakeFaces(4096, 12);
+    rdCacheTest_SendBatchFaces(NULL);
+    TEST_ASSERT_EQUAL_size_t(1, rdCacheTest_batchDraws);
+    rdCacheTest_AssertBatchCoverage();
+}
+
+TEST(rdCache, ExistingBackendIndexBudgetStillSplitsBatches)
+{
+    rdCacheTest_MakeFaces(3, 64);
+    std3D_g_maxVertices = 372;
+    rdCacheTest_SendBatchFaces(NULL);
+    TEST_ASSERT_EQUAL_size_t(3, rdCacheTest_batchDraws);
+    rdCacheTest_AssertBatchCoverage();
+}
+
+TEST(rdCache, AlphaQueuePreservesFacesAndOrderAcrossVertexSplit)
+{
+    std3D_g_maxVertices = 0x00ffffff;
+    rdCacheTest_InitBatchMaterial();
+    rdCacheTest_batchNumFaces     = 1025;
+    rdCacheTest_batchFaceVertices = 64;
+    for ( size_t i = 0; i < rdCacheTest_batchNumFaces; ++i )
+    {
+        rdCacheProcEntry* pFace = rdCache_GetAlphaProcEntry();
+        TEST_ASSERT_NOT_NULL(pFace);
+        StdVertexTL* pVertices  = pFace->aVertices;
+        rdVector4* pColors      = pFace->aVertIntensities;
+        memcpy(pColors, rdCacheTest_aBatchVertexColors, sizeof(rdCacheTest_aBatchVertexColors));
+        rdCacheTest_InitBatchFace(pFace, pVertices, pColors, i);
+        rdCache_AddAlphaProcFace(rdCacheTest_batchFaceVertices);
+    }
+
+    TEST_ASSERT_TRUE(stdRenderCapture_Open("rdCacheTest.rcap", "null"));
+    rdCache_FlushAlpha();
+    stdRenderCapture_Close();
+    rdCacheTest_ParseBatchDraws();
+
+    TEST_ASSERT_EQUAL_size_t(2, rdCacheTest_batchDraws);
+    rdCacheTest_AssertBatchCoverage();
+    for ( size_t i = 0; i < rdCacheTest_batchNumFaces; ++i )
+    {
+        TEST_ASSERT_EQUAL_size_t(i, rdCacheTest_aBatchFaceOrder[i]);
+    }
+
+    rdCache_FlushAlpha();
+    TEST_ASSERT_EQUAL_size_t(2, rdCacheTest_batchDraws);
+}
+
+TEST(rdCache, AlphaSortOrdersFiniteDepthsBeforeNaNsWithoutLosingFaces)
+{
+    rdCacheTest_MakeFaces(5, 3);
+    const float depths[] = { NAN, -INFINITY, 0.5f, INFINITY, 1.0f };
+    const size_t order[] = { 3, 4, 2, 1, 0 };
+    for ( size_t i = 0; i < STD_ARRAYLEN(depths); ++i )
+    {
+        rdCacheTest_pBatchFaces[i].distance = depths[i];
+    }
+    rdCacheTest_SendBatchFaces(rdCache_ProcFaceDistanceCompare);
+    TEST_ASSERT_EQUAL_size_t(1, rdCacheTest_batchDraws);
+    rdCacheTest_AssertBatchCoverage();
+    for ( size_t i = 0; i < STD_ARRAYLEN(order); ++i )
+    {
+        TEST_ASSERT_EQUAL_size_t(order[i], rdCacheTest_aBatchFaceOrder[i]);
+    }
+}
+
+TEST(rdCache, EmptyFaceListDoesNotDraw)
+{
+    TEST_ASSERT_TRUE(stdRenderCapture_Open("rdCacheTest.rcap", "null"));
+    rdCache_SendFaceListToHardware(0, NULL, NULL);
+    stdRenderCapture_Close();
+    rdCacheTest_ParseBatchDraws();
+    TEST_ASSERT_EQUAL_size_t(0, rdCacheTest_batchDraws);
+}
+
 TEST_GROUP_RUNNER(rdCache)
 {
     RUN_TEST_CASE(rdCache, LitFacesAreDrawnLitAndApartFromClassicOnes);
@@ -734,4 +1048,13 @@ TEST_GROUP_RUNNER(rdCache)
     RUN_TEST_CASE(rdCache, BackFacesOfModelsCarryNegatedNormals);
     RUN_TEST_CASE(rdCache, TranslucentModelFacesAreDrawnLitFromTheAlphaList);
     RUN_TEST_CASE(rdCache, ModelFacesStayClassicWithLitFacesOff);
+    RUN_TEST_CASE(rdCache, DistanceComparatorHandlesEqualDepthsAndSignedZero);
+    RUN_TEST_CASE(rdCache, DistanceComparatorProvidesConsistentOrdering);
+    RUN_TEST_CASE(rdCache, MaximumSizeFacesSplitBeforeIndexWrap);
+    RUN_TEST_CASE(rdCache, ExactVertexLimitFitsAndNextFaceStartsNewBatch);
+    RUN_TEST_CASE(rdCache, StockSizedFacesRemainInOneBatch);
+    RUN_TEST_CASE(rdCache, ExistingBackendIndexBudgetStillSplitsBatches);
+    RUN_TEST_CASE(rdCache, AlphaQueuePreservesFacesAndOrderAcrossVertexSplit);
+    RUN_TEST_CASE(rdCache, AlphaSortOrdersFiniteDepthsBeforeNaNsWithoutLosingFaces);
+    RUN_TEST_CASE(rdCache, EmptyFaceListDoesNotDraw);
 }

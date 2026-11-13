@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -17,6 +18,7 @@
 
 #include <babylon/cvars/Registry.h>
 #include <babylon/files/SdlFileSystem.h>
+#include <babylon/platform/Event.h>
 #include <babylon/platform/NullPlatform.h>
 #include <babylon/time/NullClock.h>
 
@@ -211,6 +213,7 @@ namespace
         {
             sithControl_Close();
         }
+        JonesControl_Shutdown();
         jonesConfig_Shutdown();
         sithControl_Shutdown();
         sithControl_ResetGlobals();
@@ -230,6 +233,19 @@ namespace
     {
         int pressed = 0;
         return sithControl_GetKey(function, &pressed) != 0;
+    }
+
+    void ExpectBindings(const JonesControlsScheme& scheme, JonesControlActions action,
+        std::initializer_list<size_t> expected)
+    {
+        TEST_ASSERT_EQUAL_size_t(expected.size(),
+            JONESCONTROL_ACTION_GETNUMBINDS(scheme.aActions[action]));
+        size_t index = 1;
+        for ( size_t controlId : expected )
+        {
+            TEST_ASSERT_EQUAL_size_t(controlId, scheme.aActions[action][index]);
+            ++index;
+        }
     }
 }
 
@@ -415,7 +431,7 @@ TEST(JonesControlSchemes, TestRoundTripKeepsExtraBindings)
 
 TEST(JonesControlSchemes, TestDefaultSchemes)
 {
-    TEST_ASSERT_EQUAL_size_t(3, JonesControlSchemes_GetNumDefaultSchemes());
+    TEST_ASSERT_EQUAL_size_t(4, JonesControlSchemes_GetNumDefaultSchemes());
 
     JonesControlsScheme scheme;
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 0));
@@ -423,14 +439,62 @@ TEST(JonesControlSchemes, TestDefaultSchemes)
     TEST_ASSERT_EQUAL_size_t(2, JONESCONTROL_ACTION_GETNUMBINDS(scheme.aActions[JONESCONTROL_ACTION_WALKFORWARD]));
     TEST_ASSERT_EQUAL_size_t(STDKEY_UP, scheme.aActions[JONESCONTROL_ACTION_WALKFORWARD][1]);
     TEST_ASSERT_EQUAL_size_t(JONESCONFIG_JOYAXISKID_UP, scheme.aActions[JONESCONTROL_ACTION_WALKFORWARD][2]);
+    ExpectBindings(scheme, JONESCONTROL_ACTION_JUMP, {
+        STDKEY_X, STDKEY_LMENU, STDKEY_RMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_ACTIVATE, {
+        STDKEY_LCONTROL, STDKEY_RCONTROL, STDCONTROL_JOYSTICK_GETBUTTON(0, 0) });
 
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 1));
     TEST_ASSERT_EQUAL_STRING("JONES_STR_DFLT2A4B", scheme.aName);
     TEST_ASSERT_EQUAL_size_t(2, JONESCONTROL_ACTION_GETNUMBINDS(scheme.aActions[JONESCONTROL_ACTION_CRAWL]));
+    TEST_ASSERT_EQUAL_size_t(STDKEY_C, scheme.aActions[JONESCONTROL_ACTION_CRAWL][1]);
+    TEST_ASSERT_EQUAL_size_t(STDCONTROL_JOYSTICK_GETBUTTON(0, 2), scheme.aActions[JONESCONTROL_ACTION_CRAWL][2]);
 
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 2));
     TEST_ASSERT_EQUAL_STRING("JONES_STR_DFLT2A8B", scheme.aName);
     TEST_ASSERT_EQUAL_size_t(2, JONESCONTROL_ACTION_GETNUMBINDS(scheme.aActions[JONESCONTROL_ACTION_ROLL]));
+    TEST_ASSERT_EQUAL_size_t(STDKEY_CAPITAL, scheme.aActions[JONESCONTROL_ACTION_ROLL][1]);
+    TEST_ASSERT_EQUAL_size_t(STDCONTROL_JOYSTICK_GETBUTTON(0, 4), scheme.aActions[JONESCONTROL_ACTION_ROLL][2]);
+
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_STRING("Keyboard and gamepad", scheme.aName);
+    ExpectBindings(scheme, JONESCONTROL_ACTION_WALKFORWARD, {
+        STDKEY_UP, JONESCONFIG_JOYAXISKID_UP });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_WALKBACK, {
+        STDKEY_DOWN, JONESCONFIG_JOYAXISKID_DOWN });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TURNLEFT, {
+        STDKEY_LEFT, JONESCONFIG_JOYAXISKID_LEFT });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TURNRIGHT, {
+        STDKEY_RIGHT, JONESCONFIG_JOYAXISKID_RIGHT });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPLEFT, {
+        STDKEY_A, STDCONTROL_JOYSTICK_GETBUTTON(0, 4) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPRIGHT, {
+        STDKEY_S, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_CRAWL, {
+        STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_RUN, {
+        STDKEY_LSHIFT, STDKEY_RSHIFT, JONESCONFIG_JOYAXISKID_GROUND });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_ROLL, {
+        STDKEY_Z, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_JUMP, {
+        STDKEY_X, STDKEY_LMENU, STDKEY_RMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_LOOK, {
+        STDKEY_INSERT, STDKEY_NUMPAD0, STDCONTROL_JOYSTICK_GETBUTTON(0, 9) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_ACTIVATE, {
+        STDKEY_LCONTROL, STDKEY_RCONTROL, STDCONTROL_JOYSTICK_GETBUTTON(0, 2),
+        JONESCONFIG_JOYAXISKID_TWISTR });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TOGGLEWEAPON, {
+        STDKEY_SPACE, STDCONTROL_JOYSTICK_GETBUTTON(0, 3) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_PREVWEAPON, {
+        STDKEY_COMMA, STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_NEXTWEAPON, {
+        STDKEY_PERIOD, STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TOGGLELIGHT, {
+        STDKEY_L, STDCONTROL_JOYSTICK_GETPOVUP(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_INTERFACE, {
+        STDKEY_I, STDCONTROL_JOYSTICK_GETBUTTON(0, 6) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_HEALTH, {
+        STDKEY_H, STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0) });
 }
 
 TEST(JonesControlSchemes, TestControlNamesRoundTrip)
@@ -506,7 +570,124 @@ TEST(JonesControlSchemes, TestWindowedFirstRunPicksDefaultAfterControlStartup)
     char aConfigured[128] = { 0 };
     TEST_ASSERT_TRUE(stdConfig_GetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE, aConfigured,
         sizeof(aConfigured), ""));
-    TEST_ASSERT_EQUAL_STRING(JonesControlSchemes_GetDefaultSchemeName(0), aConfigured);
+    TEST_ASSERT_EQUAL_STRING(JonesControlSchemes_GetDefaultSchemeName(3), aConfigured);
+}
+
+TEST(JonesControlSchemes, TestRememberedActiveSchemeIsKept)
+{
+    g_bTestWindowed = true;
+    StartControls();
+
+    TEST_ASSERT_TRUE(stdConfig_SetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE, "JONES_STR_DFLTKEY"));
+
+    TEST_ASSERT_EQUAL_INT(1, jonesConfig_Startup());
+    JonesControlSchemes_BindActive();
+
+    const JonesControlsScheme* pActive = JonesControlSchemes_GetActiveScheme();
+    TEST_ASSERT_NOT_NULL(pActive);
+    TEST_ASSERT_EQUAL_STRING("JONES_STR_DFLTKEY", pActive->aName);
+}
+
+TEST(JonesControlSchemes, TestBinderKeepsJoystickBindingsWithControllerFalse)
+{
+    TEST_ASSERT_FALSE(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, true));
+
+    // A connected pad registers its axes and becomes joystick zero.
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 0));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+    TEST_ASSERT_TRUE(stdControl_TestAxisFlag(STDCONTROL_GET_JOYSTICK_AXIS_Y(0),
+        STDCONTROL_AXIS_REGISTERED) != 0);
+    TEST_ASSERT_TRUE(stdControl_TestAxisFlag(STDCONTROL_GET_JOYSTICK_AXIS_Y(0),
+        STDCONTROL_AXIS_ENABLED) != 0);
+
+    // The original scheme's joystick button binding survives the disabled option.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::East, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_JUMP));
+
+    // Its left-stick axis binding survives too: forward is bound to Y negative.
+    g_platform.pushEvent(babylon::platform::GamepadAxisMoved{ 1,
+        babylon::platform::GamepadAxis::LeftY, -1.0f });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_FORWARD));
+
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
+TEST(JonesControlSchemes, TestStartupDropsControllerKey)
+{
+    TEST_ASSERT_TRUE(stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_CONTROLLER));
+
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_CONTROLLER));
+
+    // Shutdown saves the config; the removed key does not come back.
+    stdConfig_Shutdown();
+    TEST_ASSERT_TRUE(stdConfig_Startup(g_configPath.string().c_str()));
+    TEST_ASSERT_FALSE(stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_CONTROLLER));
+
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
+TEST(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard)
+{
+    g_bTestWindowed = true;
+    StartControls();
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 0));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // No pad yet: the keyboard binding still works.
+    TEST_ASSERT_EQUAL_size_t(0, stdControl_GetNumJoysticks());
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_X, 1));
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_JUMP));
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_X, 0));
+    stdControl_ReadControls();
+
+    // Connect a pad: the next control read observes it and the per-frame callback rebinds.
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    stdControl_ReadControls();
+    SithThing player = {};
+    JonesControl_ProcessControls(&player, 0.0f);
+
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+    TEST_ASSERT_TRUE(stdControl_TestAxisFlag(STDCONTROL_GET_JOYSTICK_AXIS_Y(0),
+        STDCONTROL_AXIS_REGISTERED) != 0);
+    TEST_ASSERT_TRUE(stdControl_TestAxisFlag(STDCONTROL_GET_JOYSTICK_AXIS_Y(0),
+        STDCONTROL_AXIS_ENABLED) != 0);
+
+    // Default scheme 0 binds Jump to the East pad button.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::East, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_JUMP));
+
+    // Disconnect: the next frame unbinds the pad, does not crash, and keeps the keyboard binding.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::East, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_ReadControls();
+    JonesControl_ProcessControls(&player, 0.0f);
+
+    TEST_ASSERT_EQUAL_size_t(0, stdControl_GetNumJoysticks());
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_X, 1));
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_JUMP));
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_X, 0));
+    stdControl_ReadControls();
 }
 
 TEST(JonesControlSchemes, TestHeadlessStartupDoesNothing)
@@ -577,6 +758,24 @@ TEST(JonesControlSchemes, TestHudMenuUsesSchemeBinds)
     TEST_ASSERT_EQUAL_INT(1, jonesCog_g_bMenuVisible);
 }
 
+TEST(JonesControlSchemes, TestHudSystemIconsDefaultHidesThem)
+{
+    // A config without the key takes the default and writes it back as false.
+    TEST_ASSERT_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS));
+    TEST_ASSERT_FALSE(JonesHud_LoadSystemIconsConfig());
+    TEST_ASSERT_TRUE(stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS));
+    TEST_ASSERT_FALSE(stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, true));
+    TEST_ASSERT_EQUAL_INT(-1, JonesHud_SystemMenuItemID(JONESHUD_MENU_IQ));
+}
+
+TEST(JonesControlSchemes, TestHudSystemIconsTrueShowsThem)
+{
+    TEST_ASSERT_TRUE(stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, true));
+    TEST_ASSERT_TRUE(JonesHud_LoadSystemIconsConfig());
+    TEST_ASSERT_TRUE(stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, false));
+    TEST_ASSERT_EQUAL_INT(JONESHUD_MENU_IQ, JonesHud_SystemMenuItemID(JONESHUD_MENU_IQ));
+}
+
 TEST(JonesControlSchemes, TestChangeBindingUpdatesCounts)
 {
     JonesControlsScheme scheme;
@@ -606,7 +805,7 @@ TEST(JonesControlSchemes, TestCreateDeleteAndLoadAll)
 
     JonesControlsConfig config;
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_LoadAllSchemes(&config));
-    TEST_ASSERT_EQUAL_size_t(5, config.numSchemes); // 3 defaults + 2 files
+    TEST_ASSERT_EQUAL_size_t(6, config.numSchemes); // 4 defaults + 2 files
 
     bool bFoundOne = false;
     bool bFoundTwo = false;
@@ -638,9 +837,15 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestControlNamesRoundTrip);
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedStartupLoadsAndBinds);
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksDefaultAfterControlStartup);
+    RUN_TEST_CASE(JonesControlSchemes, TestRememberedActiveSchemeIsKept);
+    RUN_TEST_CASE(JonesControlSchemes, TestBinderKeepsJoystickBindingsWithControllerFalse);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
+    RUN_TEST_CASE(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard);
     RUN_TEST_CASE(JonesControlSchemes, TestHeadlessStartupDoesNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuFallbackWhenSchemeBindsNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuUsesSchemeBinds);
+    RUN_TEST_CASE(JonesControlSchemes, TestHudSystemIconsDefaultHidesThem);
+    RUN_TEST_CASE(JonesControlSchemes, TestHudSystemIconsTrueShowsThem);
     RUN_TEST_CASE(JonesControlSchemes, TestChangeBindingUpdatesCounts);
     RUN_TEST_CASE(JonesControlSchemes, TestCreateDeleteAndLoadAll);
 }

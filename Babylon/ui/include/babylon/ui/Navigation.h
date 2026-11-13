@@ -31,6 +31,11 @@ namespace babylon::ui
         platform::Key back = platform::Key::Escape;
         platform::Key focusNext = platform::Key::Tab;
 
+        // Previous and next tab of a tabbed screen, edge-triggered like
+        // accept and back. They do nothing on a screen without tabs.
+        platform::Key previousTab = platform::Key::Q;
+        platform::Key nextTab = platform::Key::E;
+
         // Gamepad d-pad and face buttons. South is the conventional A and
         // East the conventional B position, independent of their labels.
         platform::GamepadButton upButton = platform::GamepadButton::DpadUp;
@@ -39,6 +44,10 @@ namespace babylon::ui
         platform::GamepadButton rightButton = platform::GamepadButton::DpadRight;
         platform::GamepadButton acceptButton = platform::GamepadButton::South;
         platform::GamepadButton backButton = platform::GamepadButton::East;
+
+        // Previous and next tab of a tabbed screen.
+        platform::GamepadButton previousTabButton = platform::GamepadButton::LeftShoulder;
+        platform::GamepadButton nextTabButton = platform::GamepadButton::RightShoulder;
 
         // The left stick by default. Values with an absolute magnitude of
         // at least axisThreshold count as a direction; the axis is then

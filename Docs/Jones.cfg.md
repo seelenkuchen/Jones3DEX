@@ -150,7 +150,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `version` | string | `1.0.0` | Written automatically when a new config file is created. |
-| `installPath` | string | empty | Installation path. Usually engine-managed. |
+| `installPath` | string | empty | Installation path. Usually engine-managed. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
 | `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |
@@ -163,7 +163,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | --- | --- | --- | --- |
 | `controls.configFile` | string | empty | Selected input preset name. Usually set by the control dialog. |
 | `controls.mouse` | bool | `false` | Enables mouse control. |
-| `controls.controller` | bool | `false` | Enables joystick/controller control. |
+| `engine.input.rumble` | bool | `true` | Gamepad rumble. Presentation only, on by default in both profiles; the Controls screen's Rumble row changes it. |
 | `gameplay.defaultRun` | bool | `false` | Makes running the default movement mode. |
 | `gameplay.startLevel` | string | empty | Developer/startup override. |
 | `gameplay.difficulty` | int | `5` | Difficulty slider value used by the game. |
@@ -172,6 +172,9 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `gameplay.mapRotation` | bool | `false` | Rotates the overlay map with player facing. |
 | `gameplay.lastSaveGame` | string | auto | Last save filename used by the save/load flow. Engine-managed. |
 | `gameplay.bloodSplatter` | bool | `true` | Enables the hit blood-splatter effect. |
+
+A connected gamepad is always on and works alongside the keyboard and mouse. The old
+`controls.controller` key is ignored when present and removed from the file on the next save.
 
 ## Graphics and display options
 
@@ -210,7 +213,6 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `engine.renderer.litFaces.enabled` | bool | `true` | Presentation only, in every build and both profiles. On: world surfaces and models reach the renderer as lit faces, with view-space positions and normals (smoothed across level edges under 45 degrees), which fill the normal target for later per-pixel passes; the colour is the same as off. Off: the classic path, exactly as before (classic draws only). Sky, sprites, particles, polylines, shadows and the HUD are always classic. Read when the display opens. |
 | `engine.renderer.vfx.weapon.fireFlash.enabled` | bool | `true` | Default build value. Legacy/QOL-off builds use `false`. |
 | `engine.renderer.vfx.weapon.fireFlash.ambientThreshold` | float | `0.65` | Ambient-light threshold for projectile fire flash effects. |
-| `engine.physics.fixedTimestep` | float | `150.0` | QOL builds only. Expressed as FPS. |
 | `engine.world.static.materials.extraCapacity` | int | `32` | Extra buffer space for static world materials. |
 | `engine.world.cnd.materials.loadExternal` | bool | `true` | If enabled, the engine first tries to load a matching external material from `mat\\<name>` instead of using the material data embedded in the CND. Falls back to the CND copy if no external file is found or loading fails. |
 | `engine.world.cnd.keyframes.loadExternal` | bool | `true` | If enabled, the engine first tries to load a matching external keyframe from `3do\\key\\<name>` instead of using the keyframe data embedded in the CND. Falls back to the CND copy if no external file is found or loading fails. |
@@ -218,6 +220,8 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `engine.world.static.sprites.extraCapacity` | int | `128` | QOL builds only. Extra buffer space for static world sprites. |
 
 For these CND `*.loadExternal` options, `external` means loose files on disk that override the matching data packed into the world CND. This is mainly useful for modding, testing, or replacing materials and animation keyframes without rebuilding the CND itself.
+
+Player physics always runs at the original 50 Hz step. The obsolete `engine.physics.fixedTimestep` key is ignored if present.
 
 ## Audio options
 
@@ -274,7 +278,7 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 | `ui.menu.music.music` | string | `mus_gen_maploadloop.wav` | Menu music filename. Exact key name is legacy. |
 | `ui.menu.music.file` | float | `0.55` | Menu music volume. Exact key name is legacy. |
 | `ui.menu.music.fade` | float | `0.75` | Menu music fade duration in seconds. |
-| `engine.ui.hud.systemIcons` | bool | `true` | Presentation only, both profiles. False hides the HUD menu's Statistics, Save, Load, Settings and Exit items; the pause menu still offers all of them. |
+| `engine.ui.hud.systemIcons` | bool | `false` | Presentation only, both profiles. False (the default) hides the HUD menu's Statistics, Save, Load, Settings and Exit items: the pause menu on Escape or gamepad Start replaces them and still offers all of them. True brings the system items back into the HUD menu. |
 | `ui.hud.itemChanged.showDuration` | int | `2000` | Item-change popup duration in milliseconds. |
 | `ui.hud.itemChanged.slideEaseInRate` | float | `4000.0` | Slide ease-in rate. |
 | `ui.hud.itemChanged.slideSpeedRate` | int | `3` | Slide speed multiplier. |

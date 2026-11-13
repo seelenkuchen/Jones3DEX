@@ -30,6 +30,46 @@ struct JonesUiSoundOutputDevice
 // driver order. A driver that reports no outputs leaves the default as the only entry.
 void JonesUiSound_CollectOutputDevices(std::vector<JonesUiSoundOutputDevice>& devices);
 
+// The values a Sound screen edits and the widget indices its OK handler reads.
+struct JonesUiSoundValues
+{
+    double volume = 1.0;
+    bool bReverse = false;
+    std::size_t outputDevice = 0;
+};
+
+struct JonesUiSoundLayout
+{
+    std::size_t volume = 0;
+    std::size_t reverse = 0;
+    std::size_t outputDevice = 0;
+    std::size_t ok = 0;
+    std::size_t back = 0;
+};
+
+// Everything the screen needs from the sound driver, captured when it opens.
+struct JonesUiSoundModel
+{
+    JonesSoundSettings* pData = nullptr;
+    std::vector<JonesUiSoundOutputDevice> devices;
+    std::size_t curDevice = 0;
+};
+
+// Reads the sound state and output list into a model and the initial values.
+JonesUiSoundModel JonesUiSound_LoadModel(JonesSoundSettings* pData,
+    JonesUiSoundValues& values);
+
+// Builds the rows from values.
+babylon::ui::Screen JonesUiSound_BuildScreen(const JonesUiSoundModel& model,
+    const JonesUiSoundValues& values, JonesUiSoundLayout& layout);
+
+// Reads the current widget values while screen is open.
+void JonesUiSound_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiSoundLayout& layout, JonesUiSoundValues& values);
+
+// Applies values exactly as the original OK handler did. Returns 1.
+int JonesUiSound_Apply(const JonesUiSoundModel& model, const JonesUiSoundValues& values);
+
 // Runs the Sound screen through ui. On OK it writes pData->maxSoundVolume and
 // pData->bReverseSound and their Jones.cfg keys, switches to the chosen output device with
 // SoundDriver_SetOutputDevice and stores its id in engine.audio.outputDevice (empty for the

@@ -133,6 +133,11 @@ namespace
             return false;
         }
 
+        bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
+        {
+            return false;
+        }
+
         void PushKey(platform::Key key)
         {
             m_events.push_back(platform::Event{
@@ -261,6 +266,17 @@ extern "C" int JonesHud_ShowExitGame(void)
     return g_exitResult;
 }
 
+TEST_CASE("the pause menu prompts use the prompt font, not the menu font")
+{
+    ui::NullPainter painter;
+    const ui::FontId menuFont   = 7;
+    const ui::FontId promptFont = 9;
+
+    const ui::Skin skin = JonesUiPauseMenu_CreateSkin(menuFont, &painter, promptFont);
+    CHECK(skin.textFont == menuFont);
+    CHECK(skin.promptFont == promptFont);
+}
+
 TEST_CASE("the pause menu has the original six entries and back closes it")
 {
     ScreenTestContext testContext;
@@ -276,15 +292,22 @@ TEST_CASE("the pause menu has the original six entries and back closes it")
     CHECK(std::get<ui::Button>(screen.widgets[4]).action == 5);
     CHECK(std::get<ui::Button>(screen.widgets[5]).action == 6);
 
-    // Without a string table the stub returns each key unchanged; the Settings entry has no game
-    // key and is the English literal.
+    CHECK(screen.title.empty());
+
+    // The main menu style's uppercase list, in the ADR-0028 order. Without a string table the
+    // fallbacks are used.
     const char* const aExpectedText[] = {
-        "JONES_STR_EXIT3", "JONES_STR_INV_SAVE", "JONES_STR_INV_LOAD", "Settings",
-        "JONES_STR_INV_STATS", "JONES_STR_INV_EXIT",
+        "RESUME", "SAVE GAME", "LOAD GAME", "OPTIONS", "STATISTICS", "EXIT GAME",
     };
     for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
     {
-        CHECK(std::get<ui::Button>(screen.widgets[i]).text == aExpectedText[i]);
+        const std::string& text = std::get<ui::Button>(screen.widgets[i]).text;
+        CHECK(text == aExpectedText[i]);
+        for ( char chr : text )
+        {
+            const bool lower = chr >= 'a' && chr <= 'z';
+            CHECK_FALSE(lower);
+        }
     }
 
     {
@@ -407,43 +430,18 @@ TEST_CASE("pause menu exit closes when the exit screen activates and stays on ca
     CHECK(g_exitCalls == 1);
 }
 
-TEST_CASE("the nested settings screen offers every original options entry")
+TEST_CASE("the pause menu offers one Options entry")
 {
     ScreenTestContext testContext;
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    const ui::Screen screen = JonesUiPauseMenu_BuildSettingsScreen();
-    REQUIRE(screen.widgets.size() == 5u);
-    for ( const ui::Widget& widget : screen.widgets )
-    {
-        CHECK(std::get<ui::Button>(widget).text.rfind("JONES_STR_", 0) == 0);
-    }
-
-    for ( int entry = 0; entry < 4; ++entry )
-    {
-        ResetCalls();
-        testContext.platform.PushKey(platform::Key::Down);
-        testContext.platform.PushKey(platform::Key::Down);
-        testContext.platform.PushKey(platform::Key::Down);
-        testContext.platform.PushKey(platform::Key::Enter);
-        for ( int step = 0; step < entry; ++step )
-        {
-            testContext.platform.PushKey(platform::Key::Down);
-        }
-        testContext.platform.PushKey(platform::Key::Enter);
-        testContext.platform.PushKey(platform::Key::Escape);
-        testContext.platform.PushKey(platform::Key::Escape);
-        CHECK(JonesUiPauseMenu_RunPauseMenu(ui, &painter) == 1);
-
-        switch ( entry )
-        {
-            case 0: CHECK(g_gamePlayCalls == 1); break;
-            case 1: CHECK(g_controlCalls == 1); break;
-            case 2: CHECK(g_displayCalls == 1); break;
-            default: CHECK(g_soundCalls == 1); break;
-        }
-    }
+    const ui::Screen screen = JonesUiPauseMenu_BuildScreen();
+    REQUIRE(screen.widgets.size() == 6u);
+    const ui::Button& options = std::get<ui::Button>(screen.widgets[3]);
+    CHECK(options.text == "OPTIONS");
+    CHECK(options.action == 4);
+    CHECK(options.enabled);
 }
 
 TEST_CASE("the pause menu thumbnail captures the frame once and replaces an earlier one")

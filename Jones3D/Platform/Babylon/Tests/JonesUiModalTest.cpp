@@ -34,6 +34,8 @@
 #include <std/Babylon/stdBabylonEvents.h>
 
 #include <cstring>
+#include <string>
+#include <vector>
 
 // The wrapper's string lookup, stubbed so this executable need not link the game layer. The
 // string-key cases fall back to the readable text JonesUiModalMessage.cpp supplies. A case may
@@ -109,6 +111,10 @@ extern "C" void J3DAPI JonesHud_PlayMenuSoundCue(int cueIdx)
     ++g_numMenuSoundCues;
 }
 
+extern "C" void JonesHud_InitializeMenuSounds(void)
+{
+}
+
 namespace
 {
     using namespace babylon;
@@ -163,6 +169,16 @@ namespace
     {
         return (int)code;
     }
+
+    std::vector<std::string> PromptLabels(const ui::Ui& ui)
+    {
+        std::vector<std::string> labels;
+        for ( const ui::Prompt& prompt : ui.prompts() )
+        {
+            labels.push_back(prompt.label);
+        }
+        return labels;
+    }
 }
 
 TEST_CASE("the modal loop maps OK and back")
@@ -186,7 +202,7 @@ TEST_CASE("the modal loop maps OK and back")
 
 TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
 {
-    const ui::Skin skin = JonesUiSkin_Create(0, nullptr);
+    const ui::Skin skin = JonesUiSkin_Create(0, 0, nullptr);
 
     // Focus is slot 2 (inv_move.wav); accepting and going back are slot 3 (inv_expand.wav), the
     // sounds the HUD item menu plays when it opens, selects and closes.
@@ -199,6 +215,33 @@ TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
     // With no font the default metrics are kept.
     CHECK(skin.rowHeight == 24.0f);
     CHECK(skin.titleHeight == 32.0f);
+    // ADR-0028: the default is the fixed-width, top-anchored boxless Options look, not the old
+    // gold-bordered HUD box with the red focus bar. No panel or border is drawn; the background is
+    // only dimmed.
+    CHECK(skin.placement == ui::PanelPlacement::Top);
+    CHECK(skin.fixedPanelWidth > 0.0f);
+    CHECK(skin.borderWidth == 0.0f);
+    CHECK(skin.panelBorder.a == 0.0f);
+    CHECK(skin.panel.a == 0.0f);
+    CHECK(skin.helpColumnWidth > 0.0f);
+    CHECK(skin.highlight.a == 0.0f);
+    CHECK(skin.highlightUnfocused.a > 0.0f);
+    CHECK(skin.highlightUnfocused.a <= 0.12f);
+    CHECK(skin.focusMarker == "\xE2\x80\xA2");
+    CHECK(skin.textShadow.a > 0.0f);
+    CHECK(skin.textShadowOffset > 0.0f);
+}
+
+TEST_CASE("the default skin uses the given Cinzel and Jost ids and the prompt font")
+{
+    const ui::Skin skin = JonesUiSkin_Create(3, 4, nullptr, 5);
+
+    CHECK(skin.titleFont == 3);
+    CHECK(skin.textFont == 4);
+    CHECK(skin.promptFont == 5);
+    CHECK(skin.title.a > 0.0f);
+    CHECK(skin.text.a > 0.0f);
+    CHECK(skin.textFocused == ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
 TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
@@ -208,7 +251,7 @@ TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
 
     cvars::Registry cvars;
     ui::Ui ui(painter, cvars);
-    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, &painter)));
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
 
     ui::Screen screen;
     screen.title   = "Cues";
@@ -319,4 +362,153 @@ TEST_CASE("the message dialogs answer the Null value headless")
     CHECK(jonesConfig_ShowMessageDialog(NULL, "Title", "Text", 0) == 2);
     CHECK(jonesConfig_ShowDialogInsertCD(NULL, 2) == 2);
     CHECK(jonesConfig_ShowDialogInsertCD(NULL, 1) == 2);
+}
+
+TEST_CASE("the modal loop sets Select and Back for a plain menu")
+{
+    TestContext testContext;
+    ui::NullPainter painter;
+
+    cvars::Registry cvars;
+    ui::Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
+
+    ui::Screen screen;
+    screen.title   = "Plain";
+    screen.widgets = {
+        ui::Button{ "One", 1, true },
+        ui::Button{ "Two", 2, true },
+    };
+    screen.backResult = 2;
+
+    std::vector<std::string> labels;
+    const JonesUiModalEventHandler handler = [&](ui::Ui& uiRef, ui::ScreenId,
+        const ui::UiEvent&) -> bool
+    {
+        if ( labels.empty() )
+        {
+            labels = PromptLabels(uiRef);
+            // Close on the next frame so the loop has already filled the bar.
+            testContext.platform.pushEvent(
+                platform::KeyChanged{ 1, platform::Key::Escape, true, false });
+        }
+        return false;
+    };
+
+    testContext.platform.pushEvent(
+        platform::KeyChanged{ 1, platform::Key::Down, true, false });
+    CHECK(JonesUiModal_RunHandled(ui, &painter, screen, Identity, handler) == 2);
+    CHECK(labels == std::vector<std::string>{ "Select", "Back" });
+}
+
+TEST_CASE("the modal loop adds Change for a focused Choice row")
+{
+    TestContext testContext;
+    ui::NullPainter painter;
+
+    cvars::Registry cvars;
+    ui::Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
+
+    ui::Screen screen;
+    screen.title   = "Choice";
+    screen.widgets = {
+        ui::Button{ "One", 1, true },
+        ui::Choice{ "Mode", "", { "First", "Second" }, true, 0 },
+    };
+    screen.backResult   = 2;
+    screen.initialFocus = 1;
+
+    std::vector<std::string> labels;
+    const JonesUiModalEventHandler handler = [&](ui::Ui& uiRef, ui::ScreenId,
+        const ui::UiEvent&) -> bool
+    {
+        if ( labels.empty() )
+        {
+            labels = PromptLabels(uiRef);
+            testContext.platform.pushEvent(
+                platform::KeyChanged{ 1, platform::Key::Escape, true, false });
+        }
+        return false;
+    };
+
+    // Right on the Choice changes its value and reports an event, so the
+    // handler runs with the Change prompt already in the bar.
+    testContext.platform.pushEvent(
+        platform::KeyChanged{ 1, platform::Key::Right, true, false });
+    CHECK(JonesUiModal_RunHandled(ui, &painter, screen, Identity, handler) == 2);
+    CHECK(labels == std::vector<std::string>{ "Select", "Back", "Change" });
+}
+
+TEST_CASE("the modal loop adds Tabs for a tabbed screen")
+{
+    TestContext testContext;
+    ui::NullPainter painter;
+
+    cvars::Registry cvars;
+    ui::Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
+
+    ui::Screen screen;
+    screen.title   = "Tabbed";
+    screen.tabs    = { "Gameplay", "Sound" };
+    screen.widgets = {
+        ui::Button{ "One", 1, true },
+        ui::Button{ "Two", 2, true },
+    };
+    screen.backResult = 2;
+
+    std::vector<std::string> labels;
+    const JonesUiModalEventHandler handler = [&](ui::Ui& uiRef, ui::ScreenId,
+        const ui::UiEvent&) -> bool
+    {
+        if ( labels.empty() )
+        {
+            labels = PromptLabels(uiRef);
+            testContext.platform.pushEvent(
+                platform::KeyChanged{ 1, platform::Key::Escape, true, false });
+        }
+        return false;
+    };
+
+    testContext.platform.pushEvent(
+        platform::KeyChanged{ 1, platform::Key::Down, true, false });
+    CHECK(JonesUiModal_RunHandled(ui, &painter, screen, Identity, handler) == 2);
+    CHECK(labels == std::vector<std::string>{ "Select", "Back", "Tabs" });
+}
+
+TEST_CASE("the modal loop omits Back when the screen has no back result")
+{
+    TestContext testContext;
+    ui::NullPainter painter;
+
+    cvars::Registry cvars;
+    ui::Ui ui(painter, cvars);
+    REQUIRE(ui.setSkin(JonesUiSkin_Create(0, 0, &painter)));
+
+    ui::Screen screen;
+    screen.title   = "No Back";
+    screen.widgets = {
+        ui::Button{ "One", 1, true },
+        ui::Button{ "Two", 2, true },
+    };
+    screen.backResult = 0;
+
+    std::vector<std::string> labels;
+    const JonesUiModalEventHandler handler = [&](ui::Ui& uiRef, ui::ScreenId,
+        const ui::UiEvent&) -> bool
+    {
+        if ( labels.empty() )
+        {
+            labels = PromptLabels(uiRef);
+            testContext.platform.pushEvent(
+                platform::KeyChanged{ 1, platform::Key::Escape, true, false });
+        }
+        return false;
+    };
+
+    testContext.platform.pushEvent(
+        platform::KeyChanged{ 1, platform::Key::Down, true, false });
+    CHECK(JonesUiModal_RunHandled(ui, &painter, screen, Identity, handler) == 0);
+    CHECK(labels == std::vector<std::string>{ "Select" });
 }

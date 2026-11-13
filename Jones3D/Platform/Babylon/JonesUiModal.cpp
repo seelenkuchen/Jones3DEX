@@ -4,6 +4,7 @@
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
+#include <Jones3D/Platform/Babylon/JonesUiPrompts.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 
 #include <babylon/platform/Event.h>
@@ -175,6 +176,11 @@ namespace
                 painter.fillRect(full, ui.skin().dim);
             }
 
+            if ( background.overlay )
+            {
+                background.overlay();
+            }
+
             ui.draw();
 
             std3D_EndScene();
@@ -211,7 +217,8 @@ namespace
 
 static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
-    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background)
+    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background,
+    const JonesUiModalResizeHandler& resizeHandler)
 {
     const babylon::ui::ScreenId screenId = ui.push(screen);
     if ( screenId == babylon::ui::kInvalidScreen )
@@ -294,6 +301,13 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     bool bClosed = false;
     uint32_t lastMsec = stdPlatform_GetTimeMsec();
 
+    // Added: the prompt bar follows the last used device and the focused widget. The icon sets
+    // belong to the shared context; a loop outside one draws the labels alone.
+    const JonesUiPromptAssets emptyPromptAssets;
+    const JonesUiPromptAssets& promptAssets = pUiContext ? pUiContext->prompts
+                                                         : emptyPromptAssets;
+    const bool bHasBack = screen.backResult != 0;
+
     while ( !bClosed )
     {
         const std::size_t numEvents = stdBabylonEvents_Pump();
@@ -311,6 +325,10 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
             if ( pResized && (!pWindow || pResized->window == pWindow->id()) )
             {
                 static_cast<void>(ui.setViewport(pResized->size.width, pResized->size.height));
+                if ( resizeHandler )
+                {
+                    resizeHandler(pResized->size.width, pResized->size.height);
+                }
             }
 
             ui.handleEvent(event);
@@ -330,6 +348,12 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
         const uint32_t elapsedMsec = nowMsec - lastMsec;
         lastMsec = nowMsec;
         ui.update((double)elapsedMsec / 1000.0);
+
+        // Added: fill the bar after the frame's input so the Change entry follows a focus that
+        // just moved, and before the events drain so a handler sees the same bar the player does.
+        ui.setPrompts(JonesUiPrompts_Build(promptAssets,
+            stdBabylonEvents_InputState().lastDevice(), bHasBack,
+            ui.focusedWidgetChangesValue(), !screen.tabs.empty()));
 
         while ( const std::optional<babylon::ui::UiEvent> pEvent = ui.pollEvent() )
         {
@@ -415,12 +439,14 @@ int JonesUiModal_Run(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const JonesUiModalBackground& background)
 {
     return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, JonesUiModalEventHandler(),
-        background);
+        background, nullptr);
 }
 
 int JonesUiModal_RunHandled(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     const babylon::ui::Screen& screen, const JonesUiModalResultMapper& mapResult,
-    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background)
+    const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background,
+    const JonesUiModalResizeHandler& resizeHandler)
 {
-    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler, background);
+    return JonesUiModal_RunInternal(ui, pPainter, screen, mapResult, handler, background,
+        resizeHandler);
 }

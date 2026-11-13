@@ -13,6 +13,7 @@
 #include <babylon/platform/Keys.h>
 
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_gamepad.h>
 #include <SDL3/SDL_scancode.h>
 
 #include <optional>
@@ -31,5 +32,10 @@ namespace babylon::platform::sdl
     // layout. A scancode the Key table does not name gives Key::Unknown, so
     // every value in SDL's range translates.
     Key translateScancode(SDL_Scancode scancode);
+
+    // The family of an SDL gamepad type: Xbox 360 and One are Xbox, PS3 to
+    // PS5 are PlayStation, the Switch Pro and Joy-Cons are Nintendo, and
+    // SDL's Steam type is the Steam Deck. Every other type is Unknown.
+    GamepadType translateGamepadType(SDL_GamepadType type);
 
 }

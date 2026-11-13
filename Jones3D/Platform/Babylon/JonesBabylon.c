@@ -86,11 +86,18 @@ int JonesBabylon_Run(int argc, char** argv)
     wkernel_SetActivateCallback(JonesBabylon_OnActivate);
 
     // wkernel_Run: the Startup callback (the WinMain.c Startup wrapper's logic).
-    if ( JonesMain_Startup(aCmdLine) )
+    int startupResult = JonesMain_Startup(aCmdLine);
+    if ( startupResult )
     {
+        // Altered: a quit from the main menu is a normal exit, only a real startup failure is an
+        // error. The mapping tells the main menu's own result from the recovered failure result.
+        const int startupExitCode = JonesBabylon_StartupExitCode(startupResult);
         JonesMain_Shutdown();
-        fprintf(stderr, "ERROR: Jones3D: JonesMain_Startup failed, exiting nonzero!\n");
-        return 1;
+        if ( startupExitCode )
+        {
+            fprintf(stderr, "ERROR: Jones3D: JonesMain_Startup failed, exiting nonzero!\n");
+        }
+        return startupExitCode;
     }
 
     // wkernel_Run: the main loop until JonesMain_Process() answers, with its result handling and

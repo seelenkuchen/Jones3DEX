@@ -2,14 +2,14 @@
 //
 // Original behavior, from the dialogs in
 // (git show 82b8f607^:Jones3D/Platform/Win32/jonesConfig.c):
-// - jonesConfig_ShowControlOptions (line 4787) loads the three built-in schemes and every .kfg in
+// - jonesConfig_ShowControlOptions (line 4787) loads the built-in schemes and every .kfg in
 //   the key-sets directory, works on a copy, and returns 1 on OK and 2 on cancel or when the load
 //   fails. On OK it writes controls.configFile, binds the selected scheme and applies controls.mouse
 //   (line 4803-4829).
 // - The main dialog's OK (line 5091) removes the schemes queued for deletion, writes every modified
-//   custom scheme from index 3 on (the default schemes are never written), stores controls.mouse and
-//   controls.controller, and, when controller support is on, enables the joystick axes and binds the
-//   active scheme; otherwise it unbinds the joystick axes.
+//   custom scheme past the built-in defaults (the default schemes are never written), stores controls.mouse and
+//   binds the active scheme. The gamepad is always on, so a connected pad's bindings are always
+//   applied and the joystick axes stay enabled.
 // - The New dialog (line 5713-5808) limits the name to 60 characters and rejects an empty name
 //   (JONES_STR_NO_SCHEME), the characters /:\"?<>*|+ (JONES_STR_INVALIDFILE) and a duplicate name
 //   (JONES_STR_DUP_SCHEME). A new scheme starts as a copy of default scheme 0 and is inserted among
@@ -78,7 +78,7 @@ namespace
     constexpr std::size_t kJonesMainNew        = 1;
     constexpr std::size_t kJonesMainDelete     = 2;
     constexpr std::size_t kJonesMainMouse      = 3;
-    constexpr std::size_t kJonesMainController = 4;
+    constexpr std::size_t kJonesMainRumble     = 4;
     constexpr std::size_t kJonesMainEdit       = 5;
     constexpr std::size_t kJonesMainReset      = 6;
 
@@ -97,7 +97,7 @@ namespace
     constexpr const char* kJonesControlsNewText        = "New";               // TODO: [COMPAT]
     constexpr const char* kJonesControlsDeleteText     = "Delete";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsMouseText      = "Mouse";             // TODO: [COMPAT]
-    constexpr const char* kJonesControlsControllerText = "Controller";        // TODO: [COMPAT]
+    constexpr const char* kJonesControlsRumbleText     = "Rumble";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsResetText      = "Reset to defaults"; // TODO: [COMPAT]
     constexpr const char* kJonesControlsNameText       = "Name";              // TODO: [COMPAT]
     constexpr const char* kJonesControlsAddText        = "Add binding";       // TODO: [COMPAT]
@@ -177,11 +177,10 @@ namespace
         return pName ? std::string(pName) : std::string();
     }
 
-    // The default scheme for the connected pad, as the original chose it: the 8-button pad scheme
-    // when a pad is present, the keyboard scheme otherwise.
+    // Added: the keyboard-and-gamepad scheme is the default for new installs.
     std::size_t JonesUiControls_DefaultSchemeIndex(void)
     {
-        return stdControl_GetNumJoysticks() ? 2u : 0u;
+        return 3u;
     }
 
     bool FindBinding(const JonesControlsScheme& scheme, std::size_t controlId,
@@ -270,7 +269,7 @@ namespace
         if ( options.empty() )
         {
             // Ui::push rejects a Choice without options; a loaded list always has the defaults.
-            options.emplace_back(std::string());
+            options.emplace_back("Default"); // TODO: [COMPAT]
         }
 
         return babylon::ui::Choice{ kJonesControlsSchemeText, std::string(), std::move(options),
@@ -292,7 +291,7 @@ namespace
     }
 
     babylon::ui::Screen BuildMainScreen(const JonesControlsConfig& config, std::size_t selected,
-        bool bMouse, bool bController)
+        bool bMouse, bool bRumble)
     {
         babylon::ui::Screen screen;
         screen.title = ResolveLabel("JONES_STR_CTRL_OPTS", kJonesControlsFallbackTitle);
@@ -307,7 +306,7 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Toggle{
             kJonesControlsMouseText, std::string(), true, bMouse });
         screen.widgets.emplace_back(babylon::ui::Toggle{
-            kJonesControlsControllerText, std::string(), true, bController });
+            kJonesControlsRumbleText, std::string(), true, bRumble });
         screen.widgets.emplace_back(EditButton(config, selected));
         screen.widgets.emplace_back(babylon::ui::Button{
             kJonesControlsResetText, kJonesControlsActionReset, bCustom });
@@ -321,22 +320,58 @@ namespace
         return screen;
     }
 
-    // Rewrites the main screen's scheme-dependent widgets after a scheme was added or removed. The
-    // Choice is replaced through a Label first because setWidget keeps an unbound value of the same
-    // kind; this makes it start from the new selection.
-    void UpdateMainWidgets(babylon::ui::Ui& ui, babylon::ui::ScreenId screenId,
-        const JonesControlsConfig& config, std::size_t selected)
+    babylon::ui::List BuildBindList(const JonesControlsConfig& config, std::size_t selected)
     {
+        std::vector<babylon::ui::ListItem> items;
+        if ( selected < config.numSchemes )
+        {
+            items = BuildActionItems(config.aSchemes[selected]);
+        }
+
+        return babylon::ui::List{
+            ResolveLabel("JONES_STR_FCTN", "Function"), std::move(items), 0,
+            kJonesControlsActionEdit, selected < config.numSchemes };
+    }
+
+    // Rewrites the scheme-dependent widgets after a scheme was added or removed. The
+    // Choice and the bind list are replaced through a Label first because setWidget keeps an
+    // unbound value of the same kind; this makes them start from the new selection.
+    void UpdateScreenWidgets(babylon::ui::Ui& ui, babylon::ui::ScreenId screenId,
+        const JonesUiControlsModel& model, const JonesUiControlsLayout& layout)
+    {
+        const JonesControlsConfig& config = model.working;
+        const std::size_t selected = model.selected;
         const bool bCustom = IsCustomScheme(config, selected);
 
-        static_cast<void>(ui.setWidget(screenId, kJonesMainChoice, babylon::ui::Label{}));
-        static_cast<void>(ui.setWidget(screenId, kJonesMainChoice,
+        static_cast<void>(ui.setWidget(screenId, layout.scheme, babylon::ui::Label{}));
+        static_cast<void>(ui.setWidget(screenId, layout.scheme,
             BuildSchemeChoice(config, selected)));
-        static_cast<void>(ui.setWidget(screenId, kJonesMainDelete, babylon::ui::Button{
+        static_cast<void>(ui.setWidget(screenId, layout.deleteScheme, babylon::ui::Button{
             kJonesControlsDeleteText, kJonesControlsActionDelete, bCustom }));
-        static_cast<void>(ui.setWidget(screenId, kJonesMainEdit, EditButton(config, selected)));
-        static_cast<void>(ui.setWidget(screenId, kJonesMainReset, babylon::ui::Button{
+        if ( layout.list != babylon::ui::kNoWidget )
+        {
+            static_cast<void>(ui.setWidget(screenId, layout.list, babylon::ui::Label{}));
+            static_cast<void>(ui.setWidget(screenId, layout.list,
+                BuildBindList(config, selected)));
+        }
+        static_cast<void>(ui.setWidget(screenId, layout.edit, EditButton(config, selected)));
+        static_cast<void>(ui.setWidget(screenId, layout.reset, babylon::ui::Button{
             kJonesControlsResetText, kJonesControlsActionReset, bCustom }));
+    }
+
+    JonesUiControlsLayout MainScreenLayout()
+    {
+        JonesUiControlsLayout layout;
+        layout.scheme       = kJonesMainChoice;
+        layout.newScheme    = kJonesMainNew;
+        layout.deleteScheme = kJonesMainDelete;
+        layout.mouse        = kJonesMainMouse;
+        layout.rumble       = kJonesMainRumble;
+        layout.edit         = kJonesMainEdit;
+        layout.reset        = kJonesMainReset;
+        layout.ok           = kJonesMainReset + 1;
+        layout.back         = kJonesMainReset + 2;
+        return layout;
     }
 
     bool ReadToggle(const babylon::ui::Ui& ui, babylon::ui::ScreenId screenId,
@@ -353,7 +388,7 @@ namespace
     }
 
     // The selection the main screen opens with: the caller's index, else the scheme named by
-    // controls.configFile, else the default scheme for the connected pad (original line 4952-4983).
+    // controls.configFile, else the keyboard-and-gamepad default (original line 4952-4983).
     std::size_t InitialSelection(const JonesControlsConfig& config)
     {
         if ( config.selectedShemeIdx >= 0
@@ -1009,6 +1044,218 @@ bool JonesUiControls_MapBinding(const babylon::ui::Binding& binding, std::size_t
     return true;
 }
 
+bool JonesUiControls_InitModel(JonesUiControlsModel& model, JonesControlsConfig& config)
+{
+    model = JonesUiControlsModel{};
+    if ( !jonesConfig_CopyControlConfig(&config, &model.working) )
+    {
+        jonesConfig_FreeControlConfigEntry(&model.working);
+        return false;
+    }
+
+    // The original main init cleared every loaded scheme's modified flag (line 4992).
+    for ( std::size_t cur = 0; cur < model.working.numSchemes; ++cur )
+    {
+        model.working.aSchemes[cur].bModified = 0;
+    }
+
+    model.selected = InitialSelection(model.working);
+    model.working.selectedShemeIdx = (int)model.selected;
+    model.bMouse   = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    model.bRumble  = stdControl_IsRumbleEnabled();
+    return true;
+}
+
+void JonesUiControls_FreeModel(JonesUiControlsModel& model)
+{
+    jonesConfig_FreeControlConfigEntry(&model.working);
+    model.deleteFiles.clear();
+}
+
+babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsModel& model,
+    JonesUiControlsLayout& layout)
+{
+    babylon::ui::Screen screen;
+    screen.title = ResolveLabel("JONES_STR_CTRL_OPTS", kJonesControlsFallbackTitle);
+
+    const JonesControlsConfig& config = model.working;
+    const std::size_t selected = model.selected;
+    const bool bCustom = IsCustomScheme(config, selected);
+
+    layout = JonesUiControlsLayout{};
+    layout.scheme = screen.widgets.size();
+    screen.widgets.emplace_back(BuildSchemeChoice(config, selected));
+
+    layout.newScheme = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Button{
+        kJonesControlsNewText, kJonesControlsActionNew, true });
+
+    layout.deleteScheme = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Button{
+        kJonesControlsDeleteText, kJonesControlsActionDelete, bCustom });
+
+    layout.list = screen.widgets.size();
+    screen.widgets.emplace_back(BuildBindList(config, selected));
+
+    layout.rumble = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Toggle{
+        kJonesControlsRumbleText, std::string(), true, model.bRumble });
+
+    layout.edit = screen.widgets.size();
+    screen.widgets.emplace_back(EditButton(config, selected));
+
+    layout.reset = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Button{
+        kJonesControlsResetText, kJonesControlsActionReset, bCustom });
+
+    screen.initialFocus = layout.scheme;
+    return screen;
+}
+
+bool JonesUiControls_HandleAction(babylon::ui::Ui& ui, babylon::ui::ScreenId screenId,
+    babylon::ui::ActionId action, babylon::ui::Painter* pPainter,
+    JonesUiControlsModel& model, const JonesUiControlsLayout& layout)
+{
+    switch ( action )
+    {
+        case kJonesControlsActionNew:
+        {
+            std::string name;
+            if ( !RunNameScreen(ui, pPainter, model.working, name) )
+            {
+                return true;
+            }
+
+            JonesControlsScheme scheme;
+            memset(&scheme, 0, sizeof(scheme));
+            if ( !JonesControlSchemes_CreateScheme(name.c_str(), &scheme) )
+            {
+                ShowMessage(ResolveLabel("JONES_STR_NO_MEM_SCHEME", kJonesControlsNoMemText));
+                return true;
+            }
+
+            // A new scheme is custom, so its index (one past the list) enables editing.
+            if ( JonesUiControls_RunEditScreen(ui, pPainter, scheme,
+                    model.working.numSchemes) != kJonesDialogOk )
+            {
+                return true;
+            }
+
+            std::size_t inserted = 0;
+            if ( InsertScheme(model.working, scheme, inserted) )
+            {
+                model.selected = inserted;
+                model.working.selectedShemeIdx = (int)model.selected;
+                UpdateScreenWidgets(ui, screenId, model, layout);
+            }
+            else
+            {
+                ShowMessage(ResolveLabel("JONES_STR_NO_MEM_SCHEME", kJonesControlsNoMemText));
+            }
+            return true;
+        }
+
+        case kJonesControlsActionDelete:
+        {
+            if ( DeleteSchemeAt(model.working, model.selected, model.deleteFiles) )
+            {
+                if ( model.selected >= model.working.numSchemes )
+                {
+                    model.selected = model.working.numSchemes
+                        ? model.working.numSchemes - 1 : 0;
+                }
+                model.working.selectedShemeIdx = (int)model.selected;
+                UpdateScreenWidgets(ui, screenId, model, layout);
+            }
+            return true;
+        }
+
+        case kJonesControlsActionEdit:
+        {
+            if ( model.selected >= model.working.numSchemes )
+            {
+                return true;
+            }
+
+            JonesControlsScheme scheme = model.working.aSchemes[model.selected];
+            if ( JonesUiControls_RunEditScreen(ui, pPainter, scheme,
+                    model.selected) == kJonesDialogOk )
+            {
+                scheme.bModified = 1;
+                model.working.aSchemes[model.selected] = scheme;
+            }
+            return true;
+        }
+
+        case kJonesControlsActionReset:
+        {
+            if ( IsCustomScheme(model.working, model.selected) )
+            {
+                JonesControlSchemes_ResetToDefault(&model.working.aSchemes[model.selected],
+                    JonesUiControls_DefaultSchemeIndex());
+                model.working.aSchemes[model.selected].bModified = 1;
+            }
+            return true;
+        }
+
+        default:
+            return false;
+    }
+}
+
+void JonesUiControls_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
+    const JonesUiControlsLayout& layout, JonesUiControlsModel& model)
+{
+    static_cast<void>(ReadToggle(ui, screen, layout.rumble, model.bRumble));
+    if ( layout.mouse != babylon::ui::kNoWidget )
+    {
+        static_cast<void>(ReadToggle(ui, screen, layout.mouse, model.bMouse));
+    }
+}
+
+int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& config)
+{
+    // The main dialog's OK (line 5091-5161).
+    for ( const std::string& name : model.deleteFiles )
+    {
+        static_cast<void>(JonesControlSchemes_DeleteScheme(name.c_str()));
+    }
+
+    const std::size_t numDefaults = JonesControlSchemes_GetNumDefaultSchemes();
+    for ( std::size_t cur = numDefaults; cur < model.working.numSchemes; ++cur )
+    {
+        if ( model.working.aSchemes[cur].bModified == 1
+            && !jonesConfig_ControlOptions_WriteScheme(&model.working.aSchemes[cur]) )
+        {
+            ShowMessage(ResolveLabel("JONES_STR_NO_MEM_SCHEME", kJonesControlsNoMemText));
+        }
+    }
+
+    if ( model.selected >= model.working.numSchemes )
+    {
+        model.selected = 0;
+    }
+
+    static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, model.bMouse));
+    static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, model.bRumble));
+    stdControl_EnableRumble(model.bRumble);
+
+    JonesControl_EnableJoystickAxes();
+
+    if ( model.working.numSchemes > 0 && model.selected < model.working.numSchemes )
+    {
+        static_cast<void>(JonesControlSchemes_SetActiveScheme(
+            &model.working.aSchemes[model.selected]));
+    }
+
+    // Adopt the applied list; the caller's old arrays are released and the working copy moved.
+    jonesConfig_FreeControlConfigEntry(&config);
+    config = model.working;
+    memset(&model.working, 0, sizeof(model.working));
+    model.deleteFiles.clear();
+    return kJonesDialogOk;
+}
+
 int JonesUiControls_RunEditScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     JonesControlsScheme& scheme, std::size_t schemeIndex)
 {
@@ -1018,35 +1265,36 @@ int JonesUiControls_RunEditScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
 int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
     JonesControlsConfig& config)
 {
-    JonesControlsConfig working;
-    memset(&working, 0, sizeof(working));
-    working.selectedShemeIdx = -1;
-
-    if ( !jonesConfig_CopyControlConfig(&config, &working) )
+    JonesUiControlsModel model;
+    if ( !JonesUiControls_InitModel(model, config) )
     {
-        jonesConfig_FreeControlConfigEntry(&working);
         return kJonesDialogCancel;
     }
 
-    // The original main init cleared every loaded scheme's modified flag (line 4992).
-    for ( std::size_t cur = 0; cur < working.numSchemes; ++cur )
-    {
-        working.aSchemes[cur].bModified = 0;
-    }
-
-    std::size_t selected = InitialSelection(working);
-    working.selectedShemeIdx = (int)selected;
-
-    bool bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
-    bool bController = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false);
-
-    const babylon::ui::Screen screen = BuildMainScreen(working, selected, bMouse, bController);
-    std::vector<std::string> deleteFiles;
+    const JonesUiControlsLayout layout = MainScreenLayout();
+    const babylon::ui::Screen screen = BuildMainScreen(model.working, model.selected,
+        model.bMouse, model.bRumble);
     bool bApply = false;
 
     const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
         babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
     {
+        // Added: the Rumble row takes effect and is stored as soon as it is toggled; the OK path
+        // repeats the write from the final value, like the screen's other settings.
+        if ( const babylon::ui::ValueChanged* pChanged =
+                std::get_if<babylon::ui::ValueChanged>(&event) )
+        {
+            if ( pChanged->screen == screenId && pChanged->widget == layout.rumble
+                && std::holds_alternative<bool>(pChanged->value) )
+            {
+                model.bRumble = std::get<bool>(pChanged->value);
+                stdControl_EnableRumble(model.bRumble);
+                static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE,
+                    model.bRumble));
+            }
+            return false;
+        }
+
         const babylon::ui::ActionPressed* pAction =
             std::get_if<babylon::ui::ActionPressed>(&event);
         if ( !pAction || pAction->screen != screenId )
@@ -1054,148 +1302,29 @@ int JonesUiControls_RunControlOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Pa
             return false;
         }
 
-        switch ( pAction->action )
+        if ( pAction->action == kJonesDialogOk )
         {
-            case kJonesControlsActionNew:
-            {
-                std::string name;
-                if ( !RunNameScreen(uiRef, pPainter, working, name) )
-                {
-                    return true;
-                }
-
-                JonesControlsScheme scheme;
-                memset(&scheme, 0, sizeof(scheme));
-                if ( !JonesControlSchemes_CreateScheme(name.c_str(), &scheme) )
-                {
-                    ShowMessage(ResolveLabel("JONES_STR_NO_MEM_SCHEME", kJonesControlsNoMemText));
-                    return true;
-                }
-
-                // A new scheme is custom, so its index (one past the list) enables editing.
-                if ( RunEditScreen(uiRef, pPainter, scheme, working.numSchemes) != kJonesDialogOk )
-                {
-                    return true;
-                }
-
-                std::size_t inserted = 0;
-                if ( InsertScheme(working, scheme, inserted) )
-                {
-                    selected = inserted;
-                    working.selectedShemeIdx = (int)selected;
-                    UpdateMainWidgets(uiRef, screenId, working, selected);
-                }
-                else
-                {
-                    ShowMessage(ResolveLabel("JONES_STR_NO_MEM_SCHEME", kJonesControlsNoMemText));
-                }
-                return true;
-            }
-
-            case kJonesControlsActionDelete:
-            {
-                if ( DeleteSchemeAt(working, selected, deleteFiles) )
-                {
-                    if ( selected >= working.numSchemes )
-                    {
-                        selected = working.numSchemes ? working.numSchemes - 1 : 0;
-                    }
-                    working.selectedShemeIdx = (int)selected;
-                    UpdateMainWidgets(uiRef, screenId, working, selected);
-                }
-                return true;
-            }
-
-            case kJonesControlsActionEdit:
-            {
-                if ( selected >= working.numSchemes )
-                {
-                    return true;
-                }
-
-                JonesControlsScheme scheme = working.aSchemes[selected];
-                if ( RunEditScreen(uiRef, pPainter, scheme, selected) == kJonesDialogOk )
-                {
-                    scheme.bModified = 1;
-                    working.aSchemes[selected] = scheme;
-                }
-                return true;
-            }
-
-            case kJonesControlsActionReset:
-            {
-                if ( IsCustomScheme(working, selected) )
-                {
-                    JonesControlSchemes_ResetToDefault(&working.aSchemes[selected],
-                        JonesUiControls_DefaultSchemeIndex());
-                    working.aSchemes[selected].bModified = 1;
-                }
-                return true;
-            }
-
-            case kJonesDialogOk:
-            {
-                // Read the unbound toggles while the screen is still open; the modal loop then pops
-                // it with this action's value.
-                static_cast<void>(ReadToggle(uiRef, screenId, kJonesMainMouse, bMouse));
-                static_cast<void>(ReadToggle(uiRef, screenId, kJonesMainController, bController));
-                bApply = true;
-                return false;
-            }
-
-            default:
-                return false;
+            // Read the unbound toggles while the screen is still open; the modal loop then pops
+            // it with this action's value.
+            JonesUiControls_ReadValues(uiRef, screenId, layout, model);
+            bApply = true;
+            return false;
         }
+
+        return JonesUiControls_HandleAction(uiRef, screenId, pAction->action, pPainter, model,
+            layout);
     };
 
     const int result = JonesUiModal_RunHandled(ui, pPainter, screen, Identity, handler);
     if ( result != kJonesDialogOk || !bApply )
     {
-        jonesConfig_FreeControlConfigEntry(&working);
+        JonesUiControls_FreeModel(model);
         return kJonesDialogCancel;
     }
 
-    // The main dialog's OK (line 5091-5161).
-    for ( const std::string& name : deleteFiles )
-    {
-        static_cast<void>(JonesControlSchemes_DeleteScheme(name.c_str()));
-    }
-
-    const std::size_t numDefaults = JonesControlSchemes_GetNumDefaultSchemes();
-    for ( std::size_t cur = numDefaults; cur < working.numSchemes; ++cur )
-    {
-        if ( working.aSchemes[cur].bModified == 1
-            && !jonesConfig_ControlOptions_WriteScheme(&working.aSchemes[cur]) )
-        {
-            ShowMessage(ResolveLabel("JONES_STR_NO_MEM_SCHEME", kJonesControlsNoMemText));
-        }
-    }
-
-    if ( selected >= working.numSchemes )
-    {
-        selected = 0;
-    }
-
-    static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, bMouse));
-    static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, bController));
-
-    if ( bController )
-    {
-        JonesControl_EnableJoystickAxes();
-    }
-
-    static_cast<void>(JonesControlSchemes_SetActiveScheme(&working.aSchemes[selected]));
-
-    if ( !bController )
-    {
-        sithControl_UnbindJoystickAxes();
-    }
-
-    // Adopt the applied list; the caller's old arrays are released and the working copy moved.
-    jonesConfig_FreeControlConfigEntry(&config);
-    config = working;
-    memset(&working, 0, sizeof(working));
-    return kJonesDialogOk;
+    const int applyResult = JonesUiControls_Apply(model, config);
+    JonesUiControls_FreeModel(model);
+    return applyResult;
 }
 
 extern "C" int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
@@ -1238,7 +1367,7 @@ void JonesUiControls_AppendScreensForTest(std::vector<babylon::ui::Screen>& scre
     JonesControlsScheme scheme{};
     const JonesControlActions action = (JonesControlActions)0;
 
-    screens.push_back(BuildMainScreen(config, 0, false, false));
+    screens.push_back(BuildMainScreen(config, 0, false, true));
     screens.push_back(BuildEditScreen(scheme, true));
     screens.push_back(BuildAssignScreen(scheme, action, true));
     screens.push_back(BuildNameScreen());

@@ -35,6 +35,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPrompts.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPrompts.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesWindowMode.cpp"
@@ -60,6 +62,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiStore.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.h"
 )
 
 # Added: the Babylon column's control scheme files (M7.17a), shared by the headless and windowed
@@ -201,7 +205,8 @@ if (NOT APPLE AND NOT WIN32)
 endif()
 
 if (J3D_PLATFORM_BABYLON)
-    target_link_libraries(Jones3D-headless PRIVATE babylon::ui)
+    # Added: the painter's TrueType and PNG support (ADR-0031).
+    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::font babylon::image)
 endif()
 
 # Added: the windowed Jones3D of the Babylon column: the Platform/Babylon composition root
@@ -256,12 +261,32 @@ if (J3D_PLATFORM_BABYLON)
         target_link_libraries(Jones3D PRIVATE m)
     endif()
 
-    target_link_libraries(Jones3D PRIVATE babylon::ui)
+    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image)
 endif()
 
 if (JONES3D_BUILD_TESTS)
     add_subdirectory(Main/Tests)
+    add_subdirectory(Display/Tests)
     if (J3D_PLATFORM_BABYLON)
         add_subdirectory(Platform/Babylon/Tests)
     endif()
+endif()
+
+# Added: the committed UI assets (fonts, prompt PNGs, licenses) sit next to
+# the Babylon-column executables and the same tree installs next to them
+# (ADR-0031). The game finds it below FileSystem::basePath(), so a checkout
+# run needs no configuration path.
+if (J3D_PLATFORM_BABYLON)
+    set(JONES3D_UI_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
+    foreach (JONES3D_BABYLON_EXECUTABLE Jones3D-headless Jones3D)
+        if (TARGET ${JONES3D_BABYLON_EXECUTABLE})
+            add_custom_command(TARGET ${JONES3D_BABYLON_EXECUTABLE} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${JONES3D_UI_DATA_DIR}" "$<TARGET_FILE_DIR:${JONES3D_BABYLON_EXECUTABLE}>/Data"
+                COMMENT "Copying Data/ next to ${JONES3D_BABYLON_EXECUTABLE}")
+        endif()
+    endforeach()
+
+    install(TARGETS Jones3D-headless Jones3D RUNTIME DESTINATION ".")
+    install(DIRECTORY "${JONES3D_UI_DATA_DIR}" DESTINATION ".")
 endif()

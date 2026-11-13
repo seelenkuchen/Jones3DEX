@@ -158,20 +158,21 @@ int J3DAPI dsnd_Start(int rate, int a2, void (*pfnFill)(int, SoundFeed))
         rate = DSND_DEFAULT_RATE;
     }
 
-    if ( dsnd_Init() )
-    {
-        return -1;
-    }
-
-    if ( mixer_Init(dsnd_pMixerTable, DSND_MIXER_HEADROOM, DSND_MIXER_SIZE, 0, 1, 1) )
-    {
-        return -1;
-    }
+    // Fixed: Do not report a running stream when device, mixer or timer setup fails.
+    if ( dsnd_Init() ) goto error;
+    if ( mixer_Init(dsnd_pMixerTable, DSND_MIXER_HEADROOM, DSND_MIXER_SIZE, 0, 1, 1) ) goto error;
 
     dsnd_pfnFill = pfnFill;
     dsnd_rate    = rate;
     dsnd_hTimer  = dsnd_pTimer->Alloc(dsnd_Callback, DSND_TICKRATE / (rate / DSND_TIMERBLOCKFRAMES), TIMER_FLAG_ONESHOT, 0);
+    if ( dsnd_hTimer == 0 ) goto error;
     return 0;
+
+error:
+    mixer_Done(dsnd_pMixerTable);
+    dsnd_Release();
+    dsnd_pfnFill = NULL;
+    return -1;
 }
 
 void dsnd_Stop(void)
@@ -182,6 +183,7 @@ void dsnd_Stop(void)
     }
 
     dsnd_hTimer = 0;
+    dsnd_pfnFill = NULL;
     mixer_Done(dsnd_pMixerTable);
     dsnd_Release();
 }
@@ -208,6 +210,9 @@ void J3DAPI dsnd_Callback(int index, intptr_t param)
     J3D_UNUSED(index);
     J3D_UNUSED(param);
 
+    if ( dsnd_hTimer == 0 ) return;
+    if ( !dsnd_pfnFill ) goto rearm;
+
     int cur = dsnd_GetPlayPos();
     if ( cur != -1 )
     {
@@ -227,6 +232,7 @@ void J3DAPI dsnd_Callback(int index, intptr_t param)
         }
     }
 
+rearm:
     dsnd_pTimer->SetInterval(dsnd_hTimer, DSND_TICKRATE / (dsnd_rate / DSND_TIMERBLOCKFRAMES));
 }
 
