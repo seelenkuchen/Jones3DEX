@@ -19,13 +19,13 @@ including the Controls screen. The Null column keeps all of its default-returnin
 |---|---|---|---|
 | Main menu | Startup, unless `startMode` says otherwise | [`JonesUiMainMenu.cpp`](../../../Jones3D/Platform/Babylon/JonesUiMainMenu.cpp) | New Game, Load, Settings, Quit; background is the finished load-screen map of a level, with its title. `startMode` 5; a missing value or 2 opens it in the windowed build, and 1, 3 and 4 defer their screens until display and sound are up |
 | Pause menu | Escape or gamepad Start in game | [`JonesUiPauseMenu.cpp`](../../../Jones3D/Platform/Babylon/JonesUiPauseMenu.cpp) | Resume, Save, Load, Settings, Statistics, Exit |
-| Save, Load | Pause menu, HUD menu, main menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level display name and date; the thumbnail row is hidden when a save has none; the default save name uses the level display name; overwrite and load warnings |
-| Exit | Pause menu, HUD menu | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
+| Save, Load | Pause menu, main menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level display name and date; the thumbnail row is hidden when a save has none; the default save name uses the level display name; overwrite and load warnings |
+| Exit | Pause menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
 | Gameplay settings | Settings | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the enhancements that are runtime keys |
 | Controls | Settings | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, reset to defaults; writes `controls.configFile` and applies the active scheme on OK |
 | Display | Settings | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in) |
 | Sound | Settings | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
-| Statistics | Pause menu, HUD menu | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | |
+| Statistics | Pause menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | |
 | Level completed, Store | End of level | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp), [`JonesUiStore.cpp`](../../../Jones3D/Platform/Babylon/JonesUiStore.cpp) | Store is a list with quantities |
 | Game over | Death | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | Restart, Load, Quit |
 | Message | Errors and notices | [`JonesUiModalMessage.cpp`](../../../Jones3D/Platform/Babylon/JonesUiModalMessage.cpp) | Native message box only when rendering failed at startup |

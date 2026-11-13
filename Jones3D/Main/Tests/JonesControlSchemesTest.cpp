@@ -577,6 +577,24 @@ TEST(JonesControlSchemes, TestHudMenuUsesSchemeBinds)
     TEST_ASSERT_EQUAL_INT(1, jonesCog_g_bMenuVisible);
 }
 
+TEST(JonesControlSchemes, TestHudSystemIconsDefaultHidesThem)
+{
+    // A config without the key takes the default and writes it back as false.
+    TEST_ASSERT_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS));
+    TEST_ASSERT_FALSE(JonesHud_LoadSystemIconsConfig());
+    TEST_ASSERT_TRUE(stdConfig_Contains(JONESHUD_CFG_HUD_SYSTEMICONS));
+    TEST_ASSERT_FALSE(stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, true));
+    TEST_ASSERT_EQUAL_INT(-1, JonesHud_SystemMenuItemID(JONESHUD_MENU_IQ));
+}
+
+TEST(JonesControlSchemes, TestHudSystemIconsTrueShowsThem)
+{
+    TEST_ASSERT_TRUE(stdConfig_SetBool(JONESHUD_CFG_HUD_SYSTEMICONS, true));
+    TEST_ASSERT_TRUE(JonesHud_LoadSystemIconsConfig());
+    TEST_ASSERT_TRUE(stdConfig_GetBool(JONESHUD_CFG_HUD_SYSTEMICONS, false));
+    TEST_ASSERT_EQUAL_INT(JONESHUD_MENU_IQ, JonesHud_SystemMenuItemID(JONESHUD_MENU_IQ));
+}
+
 TEST(JonesControlSchemes, TestChangeBindingUpdatesCounts)
 {
     JonesControlsScheme scheme;
@@ -641,6 +659,8 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestHeadlessStartupDoesNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuFallbackWhenSchemeBindsNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuUsesSchemeBinds);
+    RUN_TEST_CASE(JonesControlSchemes, TestHudSystemIconsDefaultHidesThem);
+    RUN_TEST_CASE(JonesControlSchemes, TestHudSystemIconsTrueShowsThem);
     RUN_TEST_CASE(JonesControlSchemes, TestChangeBindingUpdatesCounts);
     RUN_TEST_CASE(JonesControlSchemes, TestCreateDeleteAndLoadAll);
 }

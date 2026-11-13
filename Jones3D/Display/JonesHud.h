@@ -28,8 +28,8 @@ J3D_EXTERN_C_START
 #define JONESHUD_CFG_MENU_MUSICEVOLUME                  "ui.menu.music.file"
 #define JONESHUD_CFG_MENU_FADEDURATION                  "ui.menu.music.fade"
 
-// Added: presentation only (both profiles). False hides the HUD menu's system items; the pause
-// menu still opens every one of them.
+// Added: presentation only (both profiles). Defaults to false: the pause menu on Escape/Start
+// replaces the HUD menu's system items and still opens every one of them; true brings them back.
 #define JONESHUD_CFG_HUD_SYSTEMICONS                    "engine.ui.hud.systemIcons"
 
 #define JONESHUD_CFG_ITEM_CHANGED_SHOW_DURATION         "ui.hud.itemChanged.showDuration"
@@ -71,6 +71,15 @@ void JonesHud_Close(void);
 void JonesHud_ToggleMenu(void);
 void J3DAPI JonesHud_EnableMenu(int bEnable);
 int JonesHud_IsMenuEnabled(void);
+
+// Added: reads engine.ui.hud.systemIcons, writes the default (false) when the key is absent, and
+// returns whether the HUD menu should show its system items. JonesHud_Open calls it; tests call it
+// without loading the HUD's assets.
+bool JonesHud_LoadSystemIconsConfig(void);
+
+// Added: the HUD menu's system-column item id after engine.ui.hud.systemIcons is applied. -1
+// hides the column, which is what JonesHud_ResetMenuItems uses to leave it out of the menu ring.
+int JonesHud_SystemMenuItemID(int selectedMenuItemID);
 
 // Added: the bodies of the HUD menu's system items, shared with the pause menu so both take the
 // same path and handle their results the same way. Each returns the original dialog's answer.

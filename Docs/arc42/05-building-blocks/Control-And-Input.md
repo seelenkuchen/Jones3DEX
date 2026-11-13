@@ -267,7 +267,9 @@ grave key, `I` opens the HUD menu, and joystick binds are dropped while `control
 gamepad Start (button 7). It does so only when the player is alive and no cutscene, load, HUD menu,
 console or pause owns the frame (`JonesMain_CanOpenPauseMenu`), and it uses the same game-time and
 sound pause pair as the HUD menu. The pause menu's entries run the HUD menu's system-item functions
-([In-Game-Menus.md](In-Game-Menus.md)).
+([In-Game-Menus.md](In-Game-Menus.md)). Those system items (Statistics, Save, Load, Settings and Exit)
+are off by default because the pause menu replaces them; `engine.ui.hud.systemIcons` true brings them
+back into the HUD menu.
 
 Escape no longer opens the HUD item menu. The HUD menu opens on the active control scheme's
 interface action, which the default scheme binds to `I`. The original also bound it to a key and a
