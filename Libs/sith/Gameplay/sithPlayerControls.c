@@ -4284,6 +4284,12 @@ bool J3DAPI sithPlayerControls_TryMountClimbWall(SithThing* pThing, bool bQuickM
     return false;
 }
 
+// Added: Modern swim steering keeps the original underwater code's pitch limit.
+float J3DAPI sithPlayerControls_GetSwimMaxPitchAngle(void)
+{
+    return sithPlayerControls_swimMaxPitchAngle;
+}
+
 // Added: reach the walk or run state the original stand-to-walk/run transition would have
 // finished in, in the same update. The original transition is skipped only for Modern
 // camera-relative states; Classic always uses the transition code.

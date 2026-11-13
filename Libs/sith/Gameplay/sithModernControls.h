@@ -13,6 +13,7 @@ typedef enum eSithModernControlMode
     SITHMODERNCONTROL_MODE_CAMERA_RELATIVE = 0,
     SITHMODERNCONTROL_MODE_RELATIVE        = 1,
     SITHMODERNCONTROL_MODE_NONE            = 2,
+    SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM = 3, // Added: underwater, steered in 3D.
 } SithModernControlMode;
 
 // Added: one frame of already-gathered input. x is right and y is forward on screen, each -1..1.
@@ -21,6 +22,7 @@ typedef struct sSithModernInput
     float x;
     float y;
     float cameraYaw; // Degrees, 0 faces +Y and positive turns left.
+    float cameraPitch; // Added: degrees, positive looks up.
     float playerYaw; // Degrees, in the same convention as cameraYaw.
     SithModernControlMode mode;
     bool bRunKey; // The real RUN binding, which keeps its Classic meaning.
@@ -44,13 +46,16 @@ typedef struct sSithModernOutput
     SithModernKey run;
     SithModernKey strafeLeft; // Added: locked-sideways input, held as the original STPLEFT key.
     SithModernKey strafeRight; // Added: the same for STPRIGHT.
+    SithModernKey swimForward; // Added: held as the original JUMP key, which swims underwater.
     bool bTurnTowardTarget; // Added: the caller rotates the player's facing to targetYaw.
     float targetYaw; // Added: desired facing in the same convention as cameraYaw.
+    float targetPitch; // Added: desired swim pitch, positive is up.
 } SithModernOutput;
 
 // Added: the one classifier shared by movement and the free camera. Relative is the original
-// tank-style set (climbing, pushing, vehicles, slides); None leaves the real keys alone; every
-// other state on a floor or in water is camera-relative.
+// tank-style set (climbing, pushing, vehicles, slides); None leaves the real keys alone; surface
+// swimming is camera-relative, underwater swimming is camera-relative in 3D, and every other
+// state on a floor is camera-relative.
 SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer);
 
 // Added: true when the Modern style owns this state, so the original stand/walk/run transition

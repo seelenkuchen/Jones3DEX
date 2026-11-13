@@ -23,6 +23,7 @@
 #include <std/General/stdUtil.h>
 #include <std/Null/stdControlNull.h>
 
+#include <rdroid/Math/rdMatrix.h>
 #include <rdroid/Math/rdVector.h>
 
 TEST_GROUP(sithModernControls);
@@ -143,6 +144,27 @@ static float sithModernControlsTest_PlayerYaw(void)
     return STDMATH_TODEGREESF(atan2f(-pLvec->x, pLvec->y));
 }
 
+static float sithModernControlsTest_PlayerPitch(void)
+{
+    rdVector3 pyr;
+    rdMatrix_ExtractAngles34(&sithModernControlsTest_player.orient, &pyr);
+    return pyr.pitch;
+}
+
+static SithModernOutput sithModernControlsTest_ComputeSwim(float x, float y, float cameraYaw, float cameraPitch)
+{
+    SithModernInput in = { 0 };
+    in.x           = x;
+    in.y           = y;
+    in.cameraYaw   = cameraYaw;
+    in.cameraPitch = cameraPitch;
+    in.mode        = SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM;
+
+    SithModernOutput out;
+    sithModernControls_Compute(&in, &out);
+    return out;
+}
+
 static SithModernControlMode sithModernControlsTest_ModeForStatus(SithThingMoveStatus moveStatus)
 {
     sithModernControlsTest_player.moveStatus  = moveStatus;
@@ -179,6 +201,7 @@ TEST_SETUP(sithModernControls)
     sithControl_RegisterAxisFunction(SITHCONTROL_BACK, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_TURNLEFT, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_TURNRIGHT, SITHCONTROLFUNCTION_KEY);
+    sithControl_RegisterAxisFunction(SITHCONTROL_JUMP, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_RUNFWD, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_ACT1, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_TARGETLOCK, SITHCONTROLFUNCTION_KEY);
@@ -193,6 +216,7 @@ TEST_SETUP(sithModernControls)
     sithControl_BindControl(SITHCONTROL_BACK, STDKEY_DOWN, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_TURNLEFT, STDKEY_LEFT, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_TURNRIGHT, STDKEY_RIGHT, (SithControlBindFlag)0);
+    sithControl_BindControl(SITHCONTROL_JUMP, STDKEY_X, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_RUNFWD, STDKEY_LSHIFT, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_ACT1, STDKEY_SPACE, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDKEY_F, (SithControlBindFlag)0);
@@ -332,6 +356,58 @@ TEST(sithModernControls, ComputeWalkAndRunFromMagnitude)
         SITHMODERNCONTROL_MODE_CAMERA_RELATIVE, false);
 
     TEST_ASSERT_TRUE(out.run.bPressed);
+}
+
+TEST(sithModernControls, ComputeSwimUsesCameraPitchAndSwimForward)
+{
+    // The camera looks 30 degrees down, so stick up dives 30 degrees, not straight ahead.
+    SithModernOutput out = sithModernControlsTest_ComputeSwim(0.0f, 1.0f, 0.0f, -30.0f);
+
+    TEST_ASSERT_TRUE(out.swimForward.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.swimForward.amount);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, out.targetYaw);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, -30.0f, out.targetPitch);
+    TEST_ASSERT_FALSE(out.forward.bPressed);
+    TEST_ASSERT_FALSE(out.back.bPressed);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
+    TEST_ASSERT_FALSE(out.run.bPressed);
+
+    // Stick right stays horizontal: it uses the camera's right vector and no pitch.
+    out = sithModernControlsTest_ComputeSwim(1.0f, 0.0f, 0.0f, -30.0f);
+    TEST_ASSERT_TRUE(out.swimForward.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, -90.0f, out.targetYaw);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 0.0f, out.targetPitch);
+
+    // The camera yaw rotates the whole direction; camera pitch -30 still dives 30.
+    out = sithModernControlsTest_ComputeSwim(0.0f, 1.0f, 90.0f, -30.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 90.0f, out.targetYaw);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, -30.0f, out.targetPitch);
+}
+
+TEST(sithModernControls, ComputeSwimClampsPitchToTheSwimLimit)
+{
+    SithModernOutput out = sithModernControlsTest_ComputeSwim(0.0f, 1.0f, 0.0f, -89.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, -75.0f, out.targetPitch);
+    TEST_ASSERT_TRUE(out.swimForward.bPressed);
+
+    out = sithModernControlsTest_ComputeSwim(0.0f, 1.0f, 0.0f, 89.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.05f, 75.0f, out.targetPitch);
+}
+
+TEST(sithModernControls, ComputeSwimNeutralSetsNothing)
+{
+    SithModernOutput out = sithModernControlsTest_ComputeSwim(0.0f, 0.0f, 0.0f, -30.0f);
+
+    TEST_ASSERT_FALSE(out.swimForward.bPressed);
+    TEST_ASSERT_FALSE(out.forward.bPressed);
+    TEST_ASSERT_FALSE(out.back.bPressed);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
+    TEST_ASSERT_FALSE(out.run.bPressed);
+    TEST_ASSERT_FALSE(out.bTurnTowardTarget);
 }
 
 TEST(sithModernControls, ComputeRelativeModeMapsAxesLikeClassic)
@@ -509,6 +585,120 @@ TEST(sithModernControls, UpdateAppliesOverridesWhenModern)
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
 
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
+}
+
+TEST(sithModernControls, UpdateSwimUsesCameraPitchAndSwimForward)
+{
+    sithControl_SetModernControlStyle(true);
+    sithModernCamera_ResetGlobals();
+    sithModernCamera_SetYawPitch(0.0f, -30.0f);
+    sithModernControlsTest_camera.type = SITHCAMERA_EXTERNAL;
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    for ( int i = 0; i < 200; ++i )
+    {
+        sithModernControls_Update(&sithModernControlsTest_player, 0.02f);
+    }
+
+    // The original forward/turn keys are suppressed and the JUMP override swims.
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
+
+    // Stick up with the camera looking 30 degrees down settles at that dive, without overshoot.
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, sithModernControlsTest_PlayerYaw());
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, -30.0f, sithModernControlsTest_PlayerPitch());
+    TEST_ASSERT_TRUE(sithModernControlsTest_PlayerPitch() >= -30.0f - 0.1f);
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+}
+
+TEST(sithModernControls, UpdateSwimRespectsTheOriginalPitchClamp)
+{
+    sithControl_SetModernControlStyle(true);
+
+    // The original camera (not the free one) looks 80 degrees down; the swim limit keeps Indy
+    // from following it past 75.
+    rdVector3 cameraPYR = { -80.0f, 0.0f, 0.0f };
+    sithModernControlsTest_camera.type = SITHCAMERA_INTERNAL;
+    rdMatrix_BuildRotate34(&sithModernControlsTest_camera.orient, &cameraPYR);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+
+    float lowestPitch = 0.0f;
+    for ( int i = 0; i < 200; ++i )
+    {
+        sithModernControls_Update(&sithModernControlsTest_player, 0.02f);
+        float pitch = sithModernControlsTest_PlayerPitch();
+        if ( pitch < lowestPitch )
+        {
+            lowestPitch = pitch;
+        }
+    }
+
+    TEST_ASSERT_TRUE(lowestPitch >= -75.0f - 0.01f);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, -75.0f, sithModernControlsTest_PlayerPitch());
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+}
+
+TEST(sithModernControls, UpdateSwimNeutralLeavesRealKeys)
+{
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+
+    // With no movement input the real JUMP and RUN keys reach the original swim code unchanged.
+    sithModernControlsTest_ReadKey(STDKEY_X, 1);
+    sithModernControlsTest_ReadKey(STDKEY_LSHIFT, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_RUNFWD, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithModernControlsTest_PlayerPitch());
+
+    sithModernControlsTest_ReadKey(STDKEY_X, 0);
+    sithModernControlsTest_ReadKey(STDKEY_LSHIFT, 0);
+}
+
+TEST(sithModernControls, UpdateSurfaceSwimKeepsJumpForTheLedgeGrab)
+{
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+    sithModernControlsTest_player.moveInfo.physics.flags = SITH_PF_ONWATERSURFACE;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+}
+
+TEST(sithModernControls, UpdateSwimLeavesClassicUnchanged)
+{
+    int pressed = -1;
+
+    sithControl_SetModernControlStyle(false);
+    sithModernControlsTest_player.moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.05f);
+
+    // Classic keeps the real forward key and never presses JUMP or turns Indy itself.
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, &pressed));
+    TEST_ASSERT_TRUE(pressed != 0);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithModernControlsTest_PlayerPitch());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, sithModernControlsTest_PlayerYaw());
+
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
 }
 
 TEST(sithModernControls, UpdateStartSnapsFacingAtOnce)
@@ -953,7 +1143,6 @@ TEST(sithModernControls, ClassifierMakesTransitionsAndUnknownsCameraRelative)
         SITHPLAYERMOVE_WALKING,
         SITHPLAYERMOVE_RUNNING,
         SITHPLAYERMOVE_CRAWLIDLE,
-        SITHPLAYERMOVE_SWIMIDLE,
 
         SITHPLAYERMOVE_UNKNOWN_4,
         SITHPLAYERMOVE_UNKNOWN_5,
@@ -1007,16 +1196,33 @@ TEST(sithModernControls, ClassifierUsesWaterAndFloorFallback)
     sithModernControlsTest_player.pInSector    = &sithModernControlsTest_sector;
 
     sithModernControlsTest_sector.flags = SITH_SECTOR_UNDERWATER;
-    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE,
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM,
         sithModernControls_GetMode(&sithModernControlsTest_player));
 
     sithModernControlsTest_sector.flags = SITH_SECTOR_AETHERIUM;
-    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE,
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM,
         sithModernControls_GetMode(&sithModernControlsTest_player));
 
     // Airborne and not swimming keeps the real keys.
     sithModernControlsTest_sector.flags = 0;
     TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_NONE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+}
+
+TEST(sithModernControls, ClassifierKeepsSurfaceSwimmingCameraRelative)
+{
+    sithModernControlsTest_player.moveStatus  = SITHPLAYERMOVE_SWIMIDLE;
+    sithModernControlsTest_player.attach.flags = 0;
+    sithModernControlsTest_player.pInSector    = &sithModernControlsTest_sector;
+    sithModernControlsTest_player.moveInfo.physics.flags = SITH_PF_ONWATERSURFACE;
+
+    sithModernControlsTest_sector.flags = SITH_SECTOR_UNDERWATER;
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE,
+        sithModernControls_GetMode(&sithModernControlsTest_player));
+
+    // Below the surface the same state becomes 3D camera-relative.
+    sithModernControlsTest_player.moveInfo.physics.flags = 0;
+    TEST_ASSERT_EQUAL_INT(SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM,
         sithModernControls_GetMode(&sithModernControlsTest_player));
 }
 
@@ -1304,12 +1510,16 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, ComputeCameraYawRotatesWorldDirection);
     RUN_TEST_CASE(sithModernControls, ComputeUsesHeadingForAnyStickAngle);
     RUN_TEST_CASE(sithModernControls, ComputeWalkAndRunFromMagnitude);
+    RUN_TEST_CASE(sithModernControls, ComputeSwimUsesCameraPitchAndSwimForward);
+    RUN_TEST_CASE(sithModernControls, ComputeSwimClampsPitchToTheSwimLimit);
+    RUN_TEST_CASE(sithModernControls, ComputeSwimNeutralSetsNothing);
     RUN_TEST_CASE(sithModernControls, ComputeRelativeModeMapsAxesLikeClassic);
     RUN_TEST_CASE(sithModernControls, ComputeNoneSetsNothing);
     RUN_TEST_CASE(sithModernControls, ClassifierKeepsOriginalCameraStatesRelative);
     RUN_TEST_CASE(sithModernControls, ClassifierLeavesJumpAndForcedStatesToRealKeys);
     RUN_TEST_CASE(sithModernControls, ClassifierMakesTransitionsAndUnknownsCameraRelative);
     RUN_TEST_CASE(sithModernControls, ClassifierUsesWaterAndFloorFallback);
+    RUN_TEST_CASE(sithModernControls, ClassifierKeepsSurfaceSwimmingCameraRelative);
     RUN_TEST_CASE(sithModernControls, SelectLockTargetPrefersTheCameraDirection);
     RUN_TEST_CASE(sithModernControls, SelectLockTargetRejectsOutsideCone);
     RUN_TEST_CASE(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys);
@@ -1321,6 +1531,11 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, LockedSidestepDropsFinishedStepForChaining);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
+    RUN_TEST_CASE(sithModernControls, UpdateSwimUsesCameraPitchAndSwimForward);
+    RUN_TEST_CASE(sithModernControls, UpdateSwimRespectsTheOriginalPitchClamp);
+    RUN_TEST_CASE(sithModernControls, UpdateSwimNeutralLeavesRealKeys);
+    RUN_TEST_CASE(sithModernControls, UpdateSurfaceSwimKeepsJumpForTheLedgeGrab);
+    RUN_TEST_CASE(sithModernControls, UpdateSwimLeavesClassicUnchanged);
     RUN_TEST_CASE(sithModernControls, UpdateStartSnapsFacingAtOnce);
     RUN_TEST_CASE(sithModernControls, UpdateRotatesSmallChangesAt1080);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesRealKeysWhenClassic);

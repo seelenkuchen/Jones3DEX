@@ -69,7 +69,8 @@ so a cutscene or a transition cannot inherit them.
 
 One move-status classifier (`sithModernControls_GetMode`) is shared by movement and the free camera. It
 returns the original tank-style states (climbing, pushing, vehicles, slides) as relative, leaves jump and
-forced-move states to the real keys, and makes every other grounded or swimming state camera-relative. The
+forced-move states to the real keys, makes surface swimming and every other grounded state camera-relative,
+and makes underwater swimming camera-relative in 3D. The
 free camera is world-anchored: its yaw and pitch live in the camera module rather than in Indy's
 orientation, right-stick and mouse input orbit it, and the original camera collision is kept. A camera set
 by a COG script or a cutscene overrides it for the duration.
@@ -94,4 +95,8 @@ locked sidestep rate, and moved the lock's line of sight to the camera. The thir
 horizontal momentum with the facing and shortens the start to the original walk or run speed in
 about 0.15 s, both only on Modern ground moves; release still stops at once. Deferred: favourite
 weapons for D-pad left/right (they remain previous and next owned weapon, with a TODO at the
-scheme).
+scheme). The fourth steers underwater swimming through the free camera's yaw and pitch: the stick's
+direction becomes a 3D target, the facing turns toward it at 360 degrees per second in yaw and 180 in
+pitch (eased near the target, pitch limited to the original 75 degrees), and the original swim thrust
+runs from an override of its JUMP key. On the surface the original camera-relative thrust and ledge
+grab stay as they were.

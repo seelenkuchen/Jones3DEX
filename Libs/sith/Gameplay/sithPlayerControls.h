@@ -42,6 +42,9 @@ SithThing* sithPlayerControls_GetTargetThing(void);
 bool J3DAPI sithPlayerControls_StartModernMove(SithThing* pThing, bool bRun, float moveFactor);
 void J3DAPI sithPlayerControls_StopModernMove(SithThing* pThing);
 
+// Added: the original underwater swim code's pitch limit, shared with Modern swim steering.
+float J3DAPI sithPlayerControls_GetSwimMaxPitchAngle(void);
+
 // Added: target lock for the Modern control style (ADR-0029). These reuse the auto-aim
 // filters and acquisition cone. The pure selector takes candidate things and the free camera's
 // world yaw so tests need no collision world; FindLockTarget gathers the same candidates the

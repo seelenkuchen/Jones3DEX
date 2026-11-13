@@ -29,6 +29,10 @@
 #define SITHMODERNCONTROL_LOCK_LOST_SECONDS   0.5f
 #define SITHMODERNCONTROL_ACCEL_TIME          0.15f  // seconds from rest to the original target speed
 #define SITHMODERNCONTROL_GROUND_THRUST_SCALE 0.30000001f // the player physics' ground thrust scale
+#define SITHMODERNCONTROL_SWIM_YAW_SPEED      360.0f // degrees per second toward the camera direction
+#define SITHMODERNCONTROL_SWIM_PITCH_SPEED    180.0f // degrees per second toward the camera direction
+#define SITHMODERNCONTROL_SWIM_EASE_ANGLE     10.0f  // ease the last degrees of a swim turn
+#define SITHMODERNCONTROL_SWIM_SNAP_ANGLE     1.0f   // finish the last degree instead of a blind spot
 
 static SithThing* sithModernControls_pLockedTarget;
 static bool sithModernControls_bLockHeld;
@@ -86,6 +90,75 @@ static void sithModernControls_TurnToYaw(SithThing* pPlayer, float targetYaw, fl
 
     rdVector3 turn = { 0.0f, delta > 0.0f ? step : -step, 0.0f };
     rdMatrix_PreRotate34(&pPlayer->orient, &turn);
+    rdMatrix_Normalize34(&pPlayer->orient);
+}
+
+// Added: underwater swim steering. The target is a 3D direction, so the call rotates yaw about
+// the world up and pitch about the local right axis the way the original swim code does. The
+// pitch limit is the original swim code's, and short angles ease so the facing settles.
+static void sithModernControls_TurnToDirection(SithThing* pPlayer, float targetYaw, float targetPitch, float secDeltaTime)
+{
+    if ( !pPlayer || secDeltaTime <= 0.0f )
+    {
+        return;
+    }
+
+    rdVector3 pyr;
+    rdMatrix_ExtractAngles34(&pPlayer->orient, &pyr);
+
+    float maxPitch = sithPlayerControls_GetSwimMaxPitchAngle();
+    targetPitch    = STDMATH_CLAMP(targetPitch, -maxPitch, maxPitch);
+
+    float yawDelta = stdMath_NormalizeAngleAcute(targetYaw - pyr.yaw);
+    float yawAngle = fabsf(yawDelta);
+    if ( yawAngle > SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        float step = SITHMODERNCONTROL_SWIM_YAW_SPEED * secDeltaTime;
+        if ( step > yawAngle )
+        {
+            step = yawAngle;
+        }
+
+        if ( yawAngle < SITHMODERNCONTROL_SWIM_EASE_ANGLE )
+        {
+            step *= yawAngle / SITHMODERNCONTROL_SWIM_EASE_ANGLE;
+        }
+
+        // Added: the sine table cannot represent a step this close to 360 degrees, so the last
+        // degree finishes instead of leaving a sub-degree residual.
+        if ( yawAngle < SITHMODERNCONTROL_SWIM_SNAP_ANGLE )
+        {
+            step = yawAngle;
+        }
+
+        rdVector3 turn = { 0.0f, yawDelta > 0.0f ? step : -step, 0.0f };
+        rdMatrix_PostRotate34(&pPlayer->orient, &turn);
+    }
+
+    float pitchDelta = targetPitch - pyr.pitch;
+    float pitchAngle = fabsf(pitchDelta);
+    if ( pitchAngle > SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        float step = SITHMODERNCONTROL_SWIM_PITCH_SPEED * secDeltaTime;
+        if ( step > pitchAngle )
+        {
+            step = pitchAngle;
+        }
+
+        if ( pitchAngle < SITHMODERNCONTROL_SWIM_EASE_ANGLE )
+        {
+            step *= pitchAngle / SITHMODERNCONTROL_SWIM_EASE_ANGLE;
+        }
+
+        if ( pitchAngle < SITHMODERNCONTROL_SWIM_SNAP_ANGLE )
+        {
+            step = pitchAngle;
+        }
+
+        rdVector3 turn = { pitchDelta > 0.0f ? step : -step, 0.0f, 0.0f };
+        rdMatrix_PreRotate34(&pPlayer->orient, &turn);
+    }
+
     rdMatrix_Normalize34(&pPlayer->orient);
 }
 
@@ -348,7 +421,14 @@ SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer
 
     if ( sithModernControls_IsSwimming(pPlayer) )
     {
-        return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
+        // Added: on the surface the original thrust and ledge grab stay camera-relative. Below
+        // it the stick steers in 3D and the original swim thrust comes from a JUMP override.
+        if ( (pPlayer->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0 )
+        {
+            return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
+        }
+
+        return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM;
     }
 
     // Added: everything else on a floor is camera-relative. An unrecognized airborne state
@@ -364,8 +444,14 @@ SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer
 // Added: the transition skip applies only when the Modern style actually owns the state.
 bool J3DAPI sithModernControls_IsCameraRelative(const SithThing* pPlayer)
 {
-    return sithControl_IsModernControlStyle()
-        && sithModernControls_GetMode(pPlayer) == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
+    if ( !sithControl_IsModernControlStyle() )
+    {
+        return false;
+    }
+
+    SithModernControlMode mode = sithModernControls_GetMode(pPlayer);
+    return mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE
+        || mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM;
 }
 
 static void sithModernControls_ApplyMovementKey(SithControlFunction functionId, const SithModernKey* pKey)
@@ -417,6 +503,49 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
     }
 
     float magnitude = sqrtf(pIn->x * pIn->x + pIn->y * pIn->y);
+
+    if ( pIn->mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM )
+    {
+        // Added: a neutral stick underwater leaves every real key alone, so Classic's JUMP swim
+        // and pitch/turn keys still work.
+        if ( magnitude < SITHMODERNCONTROL_ZERO_EPSILON )
+        {
+            return;
+        }
+
+        float sinCameraYaw, cosCameraYaw;
+        stdMath_SinCos(pIn->cameraYaw, &sinCameraYaw, &cosCameraYaw);
+
+        float sinCameraPitch, cosCameraPitch;
+        stdMath_SinCos(pIn->cameraPitch, &sinCameraPitch, &cosCameraPitch);
+
+        // Added: the camera's forward includes its pitch, so stick up dives or rises with the
+        // view; its right stays horizontal. Positive pitch is up in both.
+        float forwardX = -sinCameraYaw * cosCameraPitch;
+        float forwardY = cosCameraYaw * cosCameraPitch;
+        float forwardZ = sinCameraPitch;
+        float rightX   = cosCameraYaw;
+        float rightY   = sinCameraYaw;
+
+        float targetX = rightX * pIn->x + forwardX * pIn->y;
+        float targetY = rightY * pIn->x + forwardY * pIn->y;
+        float targetZ = forwardZ * pIn->y;
+
+        float horizontal = sqrtf(targetX * targetX + targetY * targetY);
+        float targetPitch = horizontal > SITHMODERNCONTROL_ZERO_EPSILON
+            ? STDMATH_TODEGREESF(atan2f(targetZ, horizontal))
+            : (targetZ >= 0.0f ? 90.0f : -90.0f);
+
+        float maxPitch = sithPlayerControls_GetSwimMaxPitchAngle();
+        pOut->targetPitch = STDMATH_CLAMP(targetPitch, -maxPitch, maxPitch);
+
+        pOut->swimForward.bPressed = true;
+        pOut->swimForward.amount   = 1.0f;
+        pOut->bTurnTowardTarget    = true;
+        pOut->targetYaw            = STDMATH_TODEGREESF(atan2f(-targetX, targetY));
+        return;
+    }
+
     bool bRun       = pIn->bRunKey || magnitude >= SITHMODERNCONTROL_RUN_THRESHOLD;
     pOut->run.bPressed = bRun;
     pOut->run.amount   = bRun ? 1.0f : 0.0f;
@@ -549,19 +678,24 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 
     SithModernControlMode mode = sithModernControls_GetMode(pPlayer);
 
-    float playerYaw = sithModernControls_GetYaw(&pPlayer->orient);
-    float cameraYaw = playerYaw;
+    float playerYaw   = sithModernControls_GetYaw(&pPlayer->orient);
+    float cameraYaw   = playerYaw;
+    float cameraPitch = 0.0f;
 
-    // Added: the free camera's orbit yaw is authoritative while it is active; the camera
-    // orientation lags behind by the interpolation. Fall back to the orientation only when the
-    // original camera owns the view.
+    // Added: the free camera's orbit yaw and pitch are authoritative while it is active; the
+    // camera orientation lags behind by the interpolation. Fall back to the orientation only
+    // when the original camera owns the view.
     if ( sithModernCamera_IsActive(sithCamera_g_pCurCamera, pPlayer) )
     {
-        cameraYaw = sithModernCamera_GetYaw();
+        cameraYaw   = sithModernCamera_GetYaw();
+        cameraPitch = sithModernCamera_GetPitch();
     }
     else if ( sithCamera_g_pCurCamera )
     {
-        cameraYaw = sithModernControls_GetYaw(&sithCamera_g_pCurCamera->orient);
+        rdVector3 cameraPYR;
+        rdMatrix_ExtractAngles34(&sithCamera_g_pCurCamera->orient, &cameraPYR);
+        cameraYaw   = sithModernControls_GetYaw(&sithCamera_g_pCurCamera->orient);
+        cameraPitch = cameraPYR.pitch;
     }
 
     // Added: the target lock is read in every move state; only camera-relative states apply it.
@@ -620,6 +754,7 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     }
 
     in.cameraYaw      = cameraYaw;
+    in.cameraPitch    = cameraPitch;
     in.playerYaw      = playerYaw;
     in.mode           = mode;
     in.bRunKey        = bRunKey;
@@ -630,6 +765,13 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         in.lockTargetYaw = sithModernControls_GetDirectionYaw(&pPlayer->pos, &sithModernControls_pLockedTarget->pos);
     }
 
+    // Added: a neutral underwater input sets no overrides, so the real keys stay Classic.
+    if ( mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM
+        && sqrtf(in.x * in.x + in.y * in.y) < SITHMODERNCONTROL_ZERO_EPSILON )
+    {
+        return;
+    }
+
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
 
@@ -637,7 +779,20 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     sithModernControls_ApplyMovementKey(SITHCONTROL_BACK, &out.back);
     sithModernControls_ApplyMovementKey(SITHCONTROL_TURNLEFT, &out.turnLeft);
     sithModernControls_ApplyMovementKey(SITHCONTROL_TURNRIGHT, &out.turnRight);
-    sithModernControls_ApplyMovementKey(SITHCONTROL_RUNFWD, &out.run);
+
+    // Added: underwater the real RUN binding still starts the original swim boost, so the swim
+    // mode does not turn the stick's magnitude into a virtual run key.
+    if ( mode != SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM )
+    {
+        sithModernControls_ApplyMovementKey(SITHCONTROL_RUNFWD, &out.run);
+    }
+
+    // Added: underwater the original JUMP path is the swim thrust (and keeps its boost logic);
+    // on the surface JUMP stays the real key and still grabs ledges.
+    if ( out.swimForward.bPressed )
+    {
+        sithModernControls_ApplyMovementKey(SITHCONTROL_JUMP, &out.swimForward);
+    }
 
     // Added: only a lock's sideways stick holds a sidestep key, leaving the physical quick-step
     // key alone otherwise.
@@ -655,18 +810,27 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     // large change the facing snaps; smaller changes rotate at the Modern turn speed.
     if ( out.bTurnTowardTarget )
     {
-        float delta = fabsf(stdMath_NormalizeAngleAcute(out.targetYaw - sithModernControls_GetYaw(&pPlayer->orient)));
-        bool bSnap  = pPlayer->moveStatus == SITHPLAYERMOVE_STILL
-            || delta > SITHMODERNCONTROL_TURN_SNAP_ANGLE;
-        sithModernControls_TurnToYaw(pPlayer, out.targetYaw, secDeltaTime, bSnap);
-
-        // Added: the horizontal momentum turns with the facing, so a direction change bends the
-        // path at once instead of letting the old velocity carry across it.
-        if ( sithModernControls_IsGroundStatus(pPlayer->moveStatus) )
+        // Added: swimming steers both yaw and pitch smoothly and never snaps; the water momentum
+        // stays untouched.
+        if ( mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM )
         {
-            float yawDelta = stdMath_NormalizeAngleAcute(
-                sithModernControls_GetYaw(&pPlayer->orient) - playerYaw);
-            sithModernControls_RotateVelocityToFacing(pPlayer, yawDelta);
+            sithModernControls_TurnToDirection(pPlayer, out.targetYaw, out.targetPitch, secDeltaTime);
+        }
+        else
+        {
+            float delta = fabsf(stdMath_NormalizeAngleAcute(out.targetYaw - sithModernControls_GetYaw(&pPlayer->orient)));
+            bool bSnap  = pPlayer->moveStatus == SITHPLAYERMOVE_STILL
+                || delta > SITHMODERNCONTROL_TURN_SNAP_ANGLE;
+            sithModernControls_TurnToYaw(pPlayer, out.targetYaw, secDeltaTime, bSnap);
+
+            // Added: the horizontal momentum turns with the facing, so a direction change bends
+            // the path at once instead of letting the old velocity carry across it.
+            if ( sithModernControls_IsGroundStatus(pPlayer->moveStatus) )
+            {
+                float yawDelta = stdMath_NormalizeAngleAcute(
+                    sithModernControls_GetYaw(&pPlayer->orient) - playerYaw);
+                sithModernControls_RotateVelocityToFacing(pPlayer, yawDelta);
+            }
         }
     }
 }

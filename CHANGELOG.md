@@ -57,7 +57,9 @@
      camera); Classic keeps the original tank controls and the "Keyboard and gamepad" scheme. A
      remembered scheme is never replaced. Starting, stopping and reversing move at once without the
      original transition animations; locked sidesteps play twice as fast at the same distance, and
-     the lock only needs the camera, not Indy, to see the target.
+     the lock only needs the camera, not Indy, to see the target. Underwater, the left stick steers
+     Indy through the camera's yaw and pitch and swims forward along that direction; on the surface
+     the original camera-relative swim and ledge grab stay unchanged.
   - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
     Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
     help column for the focused row, and the Display tab drops the Performance row while the stored
