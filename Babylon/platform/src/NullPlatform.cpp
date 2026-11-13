@@ -10,6 +10,8 @@
 #include <babylon/platform/Platform.h>
 #include <babylon/platform/Window.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -128,6 +130,20 @@ namespace
     {
         log::warning("{}: {}", title, text);
         return false;
+    }
+
+    bool NullPlatform::rumbleGamepad(GamepadId gamepad, float lowFrequency,
+        float highFrequency, std::uint32_t durationMs)
+    {
+        m_lastRumble = RumbleCall{ gamepad, clampRumbleIntensity(lowFrequency),
+            clampRumbleIntensity(highFrequency),
+            std::min(durationMs, kMaxRumbleDurationMs) };
+        return false;   // no device to vibrate
+    }
+
+    std::optional<NullPlatform::RumbleCall> NullPlatform::lastRumble() const
+    {
+        return m_lastRumble;
     }
 
     std::optional<Event> NullPlatform::pollEvent()

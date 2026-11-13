@@ -39,11 +39,30 @@ namespace babylon::platform
         [[nodiscard]] bool showMessageBox(std::string_view title,
             std::string_view text) override;
 
+        // There is no device to vibrate: the call is recorded (with its
+        // intensities clamped and its duration capped, as the interface
+        // promises) and always returns false.
+        bool rumbleGamepad(GamepadId gamepad, float lowFrequency,
+            float highFrequency, std::uint32_t durationMs) override;
+
+        // One rumble request as this backend recorded it.
+        struct RumbleCall
+        {
+            GamepadId gamepad;
+            float lowFrequency;
+            float highFrequency;
+            std::uint32_t durationMs;
+        };
+
+        // The last rumble request, or nullopt if none was made.
+        std::optional<RumbleCall> lastRumble() const;
+
     private:
         // The id the next created window gets. 0 is never handed out, as the
         // interface requires.
         WindowId m_nextId = 1;
         std::deque<Event> m_events;
+        std::optional<RumbleCall> m_lastRumble;
     };
 
 }
