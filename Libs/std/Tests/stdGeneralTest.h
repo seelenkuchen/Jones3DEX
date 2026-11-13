@@ -26,6 +26,8 @@ void StdGeneralTest_ClearFileFailures(void);
 
 void StdGeneralTest_ResetDebugOutput(void);
 const char* StdGeneralTest_GetDebugOutput(void);
+// Asserts that the debug output is "<pExpectedFile>(<any line>): <pExpectedMessage>", i.e. ignores the source line number of the log call
+void StdGeneralTest_AssertDebugOutputMessage(const char* pExpectedFile, const char* pExpectedMessage);
 
 // Copies pSrc to pDst with every ".c(<digits>)" replaced by ".c(N)", so a test can compare logged
 // STDLOG text without depending on the line number the logger took from __LINE__. The normalized
