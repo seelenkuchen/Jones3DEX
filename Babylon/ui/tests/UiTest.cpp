@@ -1659,6 +1659,117 @@ TEST_CASE("help text is drawn only for the focused row and wraps in its column")
     }
 }
 
+TEST_CASE("a top panel keeps the title and row column fixed across screens and help")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Skin skin;
+    skin.placement = PanelPlacement::Top;
+    skin.fixedPanelWidth = 0.5f;
+    skin.topMargin = 12.0f;
+    skin.titleHeight = 24.0f;
+    skin.rowHeight = 20.0f;
+    skin.rowSpacing = 4.0f;
+    skin.panelPadding = 10.0f;
+    skin.minPanelWidth = 80.0f;
+    skin.canvasMargin = 8.0f;
+    skin.borderWidth = 0.0f;
+    skin.helpColumnWidth = 0.35f;
+    skin.panel = Color{ 0.1f, 0.2f, 0.3f, 1.0f };
+    skin.panelBorder = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlightUnfocused = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    REQUIRE(ui.setSkin(skin));
+    REQUIRE(ui.setViewport(640, 480));
+
+    struct Placement
+    {
+        Rect panel;
+        Rect title;
+        Rect label;
+        Rect value;
+    };
+
+    auto draw = [&painter, &ui, &skin](const Screen& screen,
+        const char* pTitle, const char* pLabel, const char* pValue)
+    {
+        REQUIRE(ui.push(screen) != kInvalidScreen);
+        painter.clearRecorded();
+        ui.draw();
+
+        Placement placement{};
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedFillRect* fill = std::get_if<RecordedFillRect>(&call) )
+            {
+                if ( fill->color == skin.panel )
+                {
+                    placement.panel = fill->rect;
+                }
+            }
+            else if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text == pTitle )
+                {
+                    placement.title = text->rect;
+                }
+                else if ( text->text == pLabel )
+                {
+                    placement.label = text->rect;
+                }
+                else if ( text->text == pValue )
+                {
+                    placement.value = text->rect;
+                }
+            }
+        }
+
+        REQUIRE(ui.pop() > 0);
+        return placement;
+    };
+
+    Screen shortScreen;
+    shortScreen.title = "One";
+    shortScreen.widgets = { Label{ "Alpha", "11" } };
+
+    Screen longScreen;
+    longScreen.title = "Two";
+    longScreen.widgets = {
+        Label{ "A much longer label", "222" },
+        Button{ "Next", 1, true },
+    };
+
+    Screen helpScreen;
+    helpScreen.title = "Help";
+    helpScreen.widgets = { Label{ "Alpha", "11" } };
+    helpScreen.help = { "Some help text." };
+
+    const Placement shortPlacement = draw(shortScreen, "One", "Alpha", "11");
+    const Placement longPlacement = draw(longScreen, "Two", "A much longer label", "222");
+    const Placement helpPlacement = draw(helpScreen, "Help", "Alpha", "11");
+
+    // The fixed width is the same fraction of the canvas whatever the content, and the panel is
+    // centered and anchored at topMargin.
+    for ( const Placement* pPlacement :
+        { &shortPlacement, &longPlacement, &helpPlacement } )
+    {
+        CHECK(pPlacement->panel.width == 320.0f);
+        CHECK(pPlacement->panel.x == 160.0f);
+        CHECK(pPlacement->panel.y == 12.0f);
+        CHECK(pPlacement->title.y == 22.0f);
+        CHECK(pPlacement->label.x == 170.0f);
+        CHECK(pPlacement->value.x + pPlacement->value.width == 361.0f);
+    }
+    CHECK(shortPlacement.label.x == helpPlacement.label.x);
+    CHECK(shortPlacement.value.x + shortPlacement.value.width
+        == helpPlacement.value.x + helpPlacement.value.width);
+    CHECK(longPlacement.label.x == shortPlacement.label.x);
+    CHECK(longPlacement.value.x + longPlacement.value.width
+        == shortPlacement.value.x + shortPlacement.value.width);
+}
+
 TEST_CASE("choice rows draw arrows around the value and highlight them on focus")
 {
     NullPainter painter;

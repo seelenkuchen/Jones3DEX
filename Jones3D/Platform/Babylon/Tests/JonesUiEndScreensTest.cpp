@@ -4,6 +4,8 @@
 // SithGameStatistics. The drawing sample lives in JonesUiPainterTest.cpp.
 #include <doctest.h>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -334,26 +336,124 @@ namespace
     }
 }
 
-TEST_CASE("the end screens share a centered table skin with a Cinzel title and Jost rows")
+TEST_CASE("the end screens share the boxless Options skin with a Cinzel title and Jost rows")
 {
     ui::NullPainter painter;
     const ui::Skin skin = JonesUiSkin_CreateEndScreen(3, 4, &painter, 6);
 
-    CHECK(skin.placement == ui::PanelPlacement::Center);
+    CHECK(skin.placement == ui::PanelPlacement::Top);
+    CHECK(skin.fixedPanelWidth > 0.0f);
+    CHECK(skin.fixedPanelWidth <= 1.0f);
+    CHECK(skin.topMargin >= 0.0f);
     CHECK(skin.titleFont == 3);
     CHECK(skin.textFont == 4);
     CHECK(skin.promptFont == 6);
+    CHECK(skin.helpColumnWidth > 0.0f);
     CHECK(skin.highlightUnfocused.a > 0.0f);
-    CHECK(skin.highlightUnfocused.a <= 0.15f);
-    CHECK(skin.panel.a > 0.0f);
-    CHECK(skin.panel.a < 1.0f);
-    CHECK(skin.borderWidth == 0.0f);
+    CHECK(skin.highlightUnfocused.a <= 0.12f);
+    CHECK(skin.panel.a == 0.0f);
     CHECK(skin.panelBorder.a == 0.0f);
+    CHECK(skin.borderWidth == 0.0f);
     CHECK(skin.highlight.a == 0.0f);
     CHECK(skin.textShadow.a > 0.0f);
     CHECK(skin.textShadowOffset > 0.0f);
     CHECK(skin.rowHeight > 0.0f);
     CHECK(skin.titleHeight > 0.0f);
+}
+
+TEST_CASE("the default and end-screen skins are boxless with the Options column placement")
+{
+    ui::NullPainter painter;
+    const ui::Skin defaultSkin = JonesUiSkin_Create(3, 4, &painter, 6);
+    const ui::Skin endSkin = JonesUiSkin_CreateEndScreen(3, 4, &painter, 6);
+    const ui::Skin optionsSkin = JonesUiSkin_CreateOptions(3, 4, 4, &painter);
+
+    // The two standalone skins are the same fixed-width, top-anchored Options look.
+    for ( const ui::Skin* pSkin : { &defaultSkin, &endSkin } )
+    {
+        CHECK(pSkin->panel.a == 0.0f);
+        CHECK(pSkin->panelBorder.a == 0.0f);
+        CHECK(pSkin->borderWidth == 0.0f);
+        CHECK(pSkin->placement == ui::PanelPlacement::Top);
+        CHECK(pSkin->fixedPanelWidth == optionsSkin.fixedPanelWidth);
+        CHECK(pSkin->topMargin == optionsSkin.topMargin);
+        CHECK(pSkin->helpColumnWidth == optionsSkin.helpColumnWidth);
+        CHECK(pSkin->rowHeight == optionsSkin.rowHeight);
+        CHECK(pSkin->titleHeight == optionsSkin.titleHeight);
+        CHECK(pSkin->rowSpacing == optionsSkin.rowSpacing);
+        CHECK(pSkin->panelPadding == optionsSkin.panelPadding);
+        CHECK(pSkin->minPanelWidth == optionsSkin.minPanelWidth);
+        CHECK(pSkin->canvasMargin == optionsSkin.canvasMargin);
+        CHECK(pSkin->focusMarker == optionsSkin.focusMarker);
+        CHECK(pSkin->markerSpacing == optionsSkin.markerSpacing);
+    }
+
+    // The same screen on each skin: no box is filled and the title and rows sit on the fixed
+    // Options column, with a reserved help column even when the screen has no help text.
+    auto drawScreen = [&painter](const ui::Skin& skin)
+    {
+        cvars::Registry cvars;
+        ui::Ui ui(painter, cvars);
+        REQUIRE(ui.setSkin(skin));
+        REQUIRE(ui.setViewport(640, 480));
+
+        ui::Screen screen;
+        screen.title = "Layout";
+        screen.widgets = {
+            ui::Button{ "Alpha", 1, true },
+            ui::Label{ "Beta", "Gamma" },
+        };
+        screen.backResult = 2;
+        REQUIRE(ui.push(screen) != ui::kInvalidScreen);
+
+        painter.clearRecorded();
+        ui.draw();
+
+        std::array<ui::Rect, 4> rects{};
+        const char* const aTexts[] = { "Layout", "Alpha", "Beta", "Gamma" };
+        for ( const ui::RecordedCall& call : painter.recorded() )
+        {
+            const ui::RecordedDrawText* pText = std::get_if<ui::RecordedDrawText>(&call);
+            if ( !pText )
+            {
+                continue;
+            }
+            for ( std::size_t i = 0; i < rects.size(); ++i )
+            {
+                if ( pText->text == aTexts[i] )
+                {
+                    rects[i] = pText->rect;
+                }
+            }
+        }
+
+        std::size_t fills = 0;
+        for ( const ui::RecordedCall& call : painter.recorded() )
+        {
+            if ( const ui::RecordedFillRect* pFill = std::get_if<ui::RecordedFillRect>(&call) )
+            {
+                if ( pFill->color.a > 0.0f )
+                {
+                    ++fills;
+                }
+            }
+        }
+        CHECK(fills == 0u);
+        return rects;
+    };
+
+    const std::array<ui::Rect, 4> options = drawScreen(optionsSkin);
+    const std::array<ui::Rect, 4> fromDefault = drawScreen(defaultSkin);
+    const std::array<ui::Rect, 4> fromEnd = drawScreen(endSkin);
+    for ( std::size_t i = 0; i < options.size(); ++i )
+    {
+        CHECK(fromDefault[i].x == options[i].x);
+        CHECK(fromDefault[i].y == options[i].y);
+        CHECK(fromDefault[i].width == options[i].width);
+        CHECK(fromEnd[i].x == options[i].x);
+        CHECK(fromEnd[i].y == options[i].y);
+        CHECK(fromEnd[i].width == options[i].width);
+    }
 }
 
 TEST_CASE("statistics time keeps the original hours and minutes format")

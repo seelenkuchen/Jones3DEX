@@ -215,16 +215,18 @@ TEST_CASE("the Jones skin uses the HUD item menu's sound cues")
     // With no font the default metrics are kept.
     CHECK(skin.rowHeight == 24.0f);
     CHECK(skin.titleHeight == 32.0f);
-    // ADR-0028: the default is the centered, boxless end-screen table, not the old gold-bordered
-    // HUD box with the red focus bar.
-    CHECK(skin.placement == ui::PanelPlacement::Center);
+    // ADR-0028: the default is the fixed-width, top-anchored boxless Options look, not the old
+    // gold-bordered HUD box with the red focus bar. No panel or border is drawn; the background is
+    // only dimmed.
+    CHECK(skin.placement == ui::PanelPlacement::Top);
+    CHECK(skin.fixedPanelWidth > 0.0f);
     CHECK(skin.borderWidth == 0.0f);
     CHECK(skin.panelBorder.a == 0.0f);
-    CHECK(skin.panel.a > 0.0f);
-    CHECK(skin.panel.a < 1.0f);
+    CHECK(skin.panel.a == 0.0f);
+    CHECK(skin.helpColumnWidth > 0.0f);
     CHECK(skin.highlight.a == 0.0f);
     CHECK(skin.highlightUnfocused.a > 0.0f);
-    CHECK(skin.highlightUnfocused.a <= 0.15f);
+    CHECK(skin.highlightUnfocused.a <= 0.12f);
     CHECK(skin.focusMarker == "\xE2\x80\xA2");
     CHECK(skin.textShadow.a > 0.0f);
     CHECK(skin.textShadowOffset > 0.0f);

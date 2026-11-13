@@ -69,7 +69,9 @@ namespace babylon::ui
         // help[i] describes widgets[i]. An empty string, or a vector shorter
         // than widgets, means no help for those rows. The help column is
         // drawn only when at least one row has text and the skin reserves a
-        // positive helpColumnWidth; only the focused row's text is shown.
+        // positive helpColumnWidth; only the focused row's text is shown. A
+        // Top skin reserves the column even without text, so the rows keep
+        // one width on every screen of a set.
         std::vector<std::string> help;
 
         // The result reported when the player presses back or a screen

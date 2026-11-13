@@ -16,11 +16,13 @@ namespace babylon::ui
 
     // Where the panel sits on the canvas. Center is the original layout for
     // dialogs; BottomLeft is the main-menu layout, whose rows read as a list
-    // stacked in the lower left corner.
+    // stacked in the lower left corner. Top anchors the panel at topMargin
+    // and keeps its width fixed, so every screen of a set lines up.
     enum class PanelPlacement : std::uint8_t
     {
         Center,
-        BottomLeft
+        BottomLeft,
+        Top
     };
 
     // The look and sound of every screen: colors, fonts, row metrics and
@@ -43,9 +45,21 @@ namespace babylon::ui
         // Where the panel sits. Center keeps the dialog layout. BottomLeft
         // puts the panel's left edge at canvasMargin * 4 from the left and
         // its bottom at canvasMargin * 4 from the bottom, with the rows left
-        // aligned in it. A panel whose panel color has alpha 0 draws no fill;
-        // a borderWidth of 0 draws no border.
+        // aligned in it. Top puts the panel at topMargin, centered
+        // horizontally, with its width from fixedPanelWidth; the title and
+        // first row then sit at the same place on every screen. A panel whose
+        // panel color has alpha 0 draws no fill; a borderWidth of 0 draws no
+        // border.
         PanelPlacement placement = PanelPlacement::Center;
+
+        // The width of a Top panel as a fraction of the canvas width, 0..1.
+        // 0 keeps the content-sized width of the other placements. The width
+        // is clamped to the canvas minus canvasMargin on each side.
+        float fixedPanelWidth = 0.0f;
+
+        // Distance from the top of the canvas to the top of a Top panel, in
+        // canvas units. Ignored by the other placements.
+        float topMargin = 16.0f;
 
         // The panel border, drawn as a rectangle outline of borderWidth
         // inside the panel's rectangle. A borderWidth of 0 draws none.
@@ -70,7 +84,9 @@ namespace babylon::ui
         // The share of the panel's inner width given to the help column of a
         // tabbed screen, 0..1. 0 disables the column; the default leaves
         // about a third for help. When a screen has help text, the rows use
-        // the remaining width.
+        // the remaining width. A Top panel reserves the column even when no
+        // row has help text, so rows and their values keep the same width
+        // whether or not help is shown.
         float helpColumnWidth = 0.35f;
 
         // The prompt bar at the bottom left: the font its labels use (0

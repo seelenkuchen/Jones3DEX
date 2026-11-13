@@ -389,14 +389,19 @@ struct Ui::State
         return skin.helpFont != 0 ? skin.helpFont : skin.textFont;
     }
 
-    // True when the screen has any help text and the skin reserves a column
-    // for it. A shorter help vector or empty entries simply say nothing for
-    // those rows.
+    // True when the skin reserves a help column and the screen draws into it.
+    // A shorter help vector or empty entries simply say nothing for those
+    // rows. A Top panel always reserves the column, with or without text, so
+    // its rows and the values in them keep the same width on every screen.
     bool hasHelp(const ScreenState& state) const
     {
         if ( !(skin.helpColumnWidth > 0.0f) )
         {
             return false;
+        }
+        if ( skin.placement == PanelPlacement::Top )
+        {
+            return true;
         }
         for ( const std::string& text : state.screen.help )
         {
@@ -697,7 +702,29 @@ struct Ui::State
             rowsNeeded + 2.0f * skin.panelPadding);
         float panelHeight = contentHeight + 2.0f * skin.panelPadding;
         const float bottomLimit = lowerLimit(state);
-        if ( skin.placement == PanelPlacement::BottomLeft )
+        if ( skin.placement == PanelPlacement::Top )
+        {
+            // A fixed width keeps the title, the rows and their values at the
+            // same place on every screen of a set, whatever the content. The
+            // panel starts at topMargin and only grows downward; the row clip
+            // then ends at the prompt bar.
+            const float availableWidth = std::max(0.0f,
+                canvas - 2.0f * skin.canvasMargin);
+            if ( skin.fixedPanelWidth > 0.0f )
+            {
+                panelWidth = std::min(canvas * skin.fixedPanelWidth, availableWidth);
+            }
+            else
+            {
+                panelWidth = std::min(panelWidth, availableWidth);
+            }
+            const float top = std::min(skin.topMargin, bottomLimit);
+            const float availableHeight = std::max(0.0f, bottomLimit - top);
+            panelHeight = std::min(panelHeight, availableHeight);
+            layout.panel = Rect{ (canvas - panelWidth) * 0.5f, top,
+                panelWidth, panelHeight };
+        }
+        else if ( skin.placement == PanelPlacement::BottomLeft )
         {
             const float left   = skin.canvasMargin * 4.0f;
             const float bottom = skin.canvasMargin * 4.0f;
@@ -751,8 +778,11 @@ struct Ui::State
             }
         }
 
-        const float rowsBottom = std::min(layout.inner.y + layout.inner.height,
-            bottomLimit);
+        // A Top panel's rows run from below the title to the prompt bar; the panel's bottom
+        // padding is not a clip edge. The other placements clip at the panel's inner bottom.
+        const float rowsBottom = skin.placement == PanelPlacement::Top
+            ? bottomLimit
+            : std::min(layout.inner.y + layout.inner.height, bottomLimit);
         const float rowsHeight = std::max(0.0f, rowsBottom - rowsY);
         float rowsWidth = layout.inner.width;
         if ( bHelp )
@@ -780,8 +810,12 @@ struct Ui::State
             y += heights[i];
         }
         layout.contentHeight = contentHeight;
+        // A Top panel starts at topMargin, so its last row reaches the prompt bar one bottom
+        // padding earlier than a panel whose clip ends at its inner bottom.
+        const float bottomPadding = skin.placement == PanelPlacement::Top
+            ? skin.panelPadding : 2.0f * skin.panelPadding;
         layout.maxScroll = std::max(0.0f,
-            contentHeight + 2.0f * skin.panelPadding - panelHeight);
+            contentHeight + bottomPadding - panelHeight);
         return layout;
     }
 
@@ -2637,6 +2671,8 @@ bool Ui::setSkin(const Skin& skin)
     if ( !(skin.rowHeight > 0.0f) || skin.titleHeight < 0.0f
         || skin.rowSpacing < 0.0f || skin.panelPadding < 0.0f
         || skin.minPanelWidth < 0.0f || skin.canvasMargin < 0.0f
+        || skin.fixedPanelWidth < 0.0f || skin.fixedPanelWidth > 1.0f
+        || skin.topMargin < 0.0f
         || skin.borderWidth < 0.0f || skin.markerSpacing < 0.0f
         || skin.promptHeight < 0.0f )
     {

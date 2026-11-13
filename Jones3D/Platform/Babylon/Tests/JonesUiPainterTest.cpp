@@ -1300,6 +1300,9 @@ TEST_CASE("a modal frame clears the previous screen's panel from the background"
     REQUIRE(menuFont != 0);
 
     Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    // Content-sized and centered: this test is about the modal frame, not the menu layout.
+    skin.placement = PanelPlacement::Center;
+    skin.fixedPanelWidth = 0.0f;
     skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
@@ -2254,6 +2257,9 @@ TEST_CASE("the painter draws labels taller than the old skin row")
 
     // The old skin metrics, kept to prove the painter no longer drops a line that does not fit.
     Skin oldSkin = JonesUiSkin_Create(tallFont, tallFont, &painter);
+    // Content-sized and centered: the row bands below use that layout.
+    oldSkin.placement = PanelPlacement::Center;
+    oldSkin.fixedPanelWidth = 0.0f;
     oldSkin.rowHeight   = 24.0f;
     oldSkin.titleHeight = 32.0f;
 
@@ -2365,6 +2371,10 @@ TEST_CASE("the painter measures the width it draws")
     REQUIRE(menuFont != 0);
 
     Skin skin = JonesUiSkin_Create(menuFont, menuFont, &painter);
+    // Content-sized and centered: this test checks that the measured width is the drawn width, not
+    // the fixed menu layout.
+    skin.placement = PanelPlacement::Center;
+    skin.fixedPanelWidth = 0.0f;
     skin.panel = Color{ 0.05f, 0.06f, 0.09f, 1.0f }; // opaque and distinct from the clear black
     Ui ui(painter, cvars);
     REQUIRE(ui.setSkin(skin));
@@ -2372,7 +2382,7 @@ TEST_CASE("the painter measures the width it draws")
 
     // No widgets and this title as the widest content: the panel's text area is exactly the
     // measured title width, so a width mismatch drops the first and last glyphs.
-    const std::string title = std::string("M") + std::string(50, 'i');
+    const std::string title = std::string("M") + std::string(100, 'i');
     Screen screen;
     screen.title = title;
     screen.backResult = 2;

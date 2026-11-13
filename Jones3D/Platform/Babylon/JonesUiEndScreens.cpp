@@ -240,7 +240,7 @@ namespace
     }
 
     // The end screens share one look (ADR-0028): a Cinzel title and Jost rows at 16 canvas units,
-    // both over the dark, boxless table skin.
+    // in the boxless Options layout without tabs or help.
     babylon::ui::Skin JonesUiEndScreens_CreateSkin(JonesUiContext& rUiContext,
         StdBabylonContext& rContext)
     {
