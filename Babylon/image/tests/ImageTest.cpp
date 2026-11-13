@@ -9,7 +9,7 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <fstream>
+#include <cstdio>
 #include <optional>
 #include <vector>
 
@@ -22,17 +22,25 @@ namespace
 
     std::vector<std::byte> readPng()
     {
-        std::ifstream file(BABYLON_IMAGE_TEST_PNG, std::ios::binary | std::ios::ate);
-        REQUIRE(file);
-        const std::streamsize size = file.tellg();
+        // fopen_s on MSVC (fopen is deprecated there and warnings are errors), fopen elsewhere.
+        std::FILE* pFile = nullptr;
+#ifdef _MSC_VER
+        REQUIRE(fopen_s(&pFile, BABYLON_IMAGE_TEST_PNG, "rb") == 0);
+#else
+        pFile = std::fopen(BABYLON_IMAGE_TEST_PNG, "rb");
+#endif
+        REQUIRE(pFile);
+        REQUIRE(std::fseek(pFile, 0, SEEK_END) == 0);
+        const long size = std::ftell(pFile);
         REQUIRE(size >= 0);
-        file.seekg(0, std::ios::beg);
+        REQUIRE(std::fseek(pFile, 0, SEEK_SET) == 0);
 
         std::vector<std::byte> data((std::size_t)size);
         if ( !data.empty() )
         {
-            REQUIRE(file.read(reinterpret_cast<char*>(data.data()), size));
+            REQUIRE(std::fread(data.data(), 1, data.size(), pFile) == data.size());
         }
+        std::fclose(pFile);
         return data;
     }
 
