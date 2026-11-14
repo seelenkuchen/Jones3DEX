@@ -2602,7 +2602,9 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
     pConfig->displaySettings.geoMode   = stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_GEOMETRYMODE, RD_GEOMETRY_FULL);
     pConfig->displaySettings.lightMode = stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTINGMODE, RD_LIGHTING_GOURAUD);
 
-    int bHiPoly = stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, true); // Changed: Enable by default, was disabled
+    // Altered: off by default again, as in the original; the high-poly Indy model opens gaps at the elbows
+    // during the backward step. Options > Display turns it on.
+    int bHiPoly = stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, false);
     sithModel_EnableHiPoly(bHiPoly); // Added
 
     JonesMain_pStartupDisplayEnv = pDisplayEnv;
