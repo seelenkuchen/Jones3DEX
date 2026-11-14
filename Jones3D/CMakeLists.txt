@@ -288,6 +288,23 @@ if (JONES3D_BUILD_TESTS)
             LABELS "unit;Jones3D"
             PASS_REGULAR_EXPRESSION "${JONES3D_VERSION_REGEX}"
         )
+
+        # Added: the windowed data tools must not need SDL video. This runs --hash-data over an
+        # empty folder with no DISPLAY/WAYLAND_DISPLAY and expects the tool's exit 1 and message,
+        # never the SDL platform error.
+        add_test(NAME Jones3D.HashDataWithoutDisplay
+            COMMAND ${CMAKE_COMMAND}
+                "-DTOOL=$<TARGET_FILE:Jones3D>"
+                "-DHASH_DIR=${CMAKE_CURRENT_BINARY_DIR}/hash-data-empty"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/Tests/RunHashDataTool.cmake"
+        )
+        set_tests_properties(Jones3D.HashDataWithoutDisplay PROPERTIES
+            LABELS "unit;Jones3D"
+            ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY="
+            PASS_REGULAR_EXPRESSION "no game data found"
+            FAIL_REGULAR_EXPRESSION "could not create the SDL platform"
+            TIMEOUT 60
+        )
     endif()
 endif()
 

@@ -32,6 +32,10 @@
 #include <std/Babylon/stdBabylonCvars.h>
 #include <std/Babylon/stdBabylonTour.h>
 
+#include <std/General/stdUserDir.h>
+
+#include <Jones3D/Main/JonesDataLocate.h>
+#include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
 
 namespace
@@ -74,6 +78,59 @@ namespace
         for ( int i = 1; i < *pArgc; ++i )
         {
             if ( strcmp(argv[i], "--user-dir") == 0 )
+            {
+                ++i;
+                continue;
+            }
+
+            argv[numKept++] = argv[i];
+        }
+
+        *pArgc = numKept;
+        return true;
+    }
+
+    // Added: the data tools run without a display, so their options are taken out before the tour
+    // parser and before any SDL platform, window, audio or render device exists.
+    bool TakeDataToolOptions(int* pArgc, char** argv, std::string& rHashDir, bool& rHasHash,
+        std::string& rInstallDir, bool& rHasInstall, std::string& rError)
+    {
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--hash-data") == 0 )
+            {
+                if ( i + 1 >= *pArgc )
+                {
+                    rError = "--hash-data needs a value";
+                    return false;
+                }
+
+                rHashDir = argv[++i];
+                rHasHash = true;
+            }
+            else if ( strcmp(argv[i], "--install-data") == 0 )
+            {
+                if ( i + 1 >= *pArgc )
+                {
+                    rError = "--install-data needs a value";
+                    return false;
+                }
+
+                rInstallDir = argv[++i];
+                rHasInstall = true;
+            }
+        }
+
+        if ( rHasHash && rHasInstall )
+        {
+            rError = "--hash-data and --install-data are exclusive";
+            return false;
+        }
+
+        int numKept = 1;
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--hash-data") == 0 || strcmp(argv[i], "--install-data") == 0 )
             {
                 ++i;
                 continue;
@@ -152,6 +209,56 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Added: --hash-data and --install-data are tools. They are taken out before the tour parser
+    // and run before any SDL platform, window, audio or render device is created, so they work over
+    // SSH with no display.
+    std::string hashDataDir;
+    std::string installDataDir;
+    bool bHasHashData    = false;
+    bool bHasInstallData = false;
+    std::string dataToolError;
+    if ( !TakeDataToolOptions(&argc, argv, hashDataDir, bHasHashData, installDataDir,
+            bHasInstallData, dataToolError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: %s\n", dataToolError.c_str());
+        PrintUsage(argv[0]);
+        return 1;
+    }
+
+    // Added: the file system is all the data tools need, and ResolveUserDir needs it too. It is
+    // created before the platform so the tools never reach SDL video.
+    std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
+    if ( !pFileSystem )
+    {
+        fprintf(stderr, "ERROR: Jones3D: could not create the SDL file system!\n");
+        return 1;
+    }
+
+    const std::string userDirPath = ResolveUserDir(*pFileSystem, bHasUserDir, userDir);
+    if ( bHasHashData || bHasInstallData )
+    {
+        // Added: JonesDataLocate's tools only need the file system (stdUserDir_Set reaches the file
+        // utilities through it). No platform, window, audio or render device is created.
+        StdBabylonContext toolContext = {};
+        toolContext.pFileSystem = pFileSystem.get();
+        stdBabylon_SetContext(&toolContext);
+
+        Jones3D_ResetAllGlobals();
+        if ( !stdUserDir_Set(userDirPath.c_str()) )
+        {
+            fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
+                STDUSERDIR_MAXPATH - 1);
+            stdBabylon_SetContext(nullptr);
+            return 1;
+        }
+
+        const int toolExitCode = bHasHashData
+            ? JonesDataLocate_HashData(hashDataDir.c_str())
+            : JonesDataLocate_InstallData(installDataDir.c_str());
+        stdBabylon_SetContext(nullptr);
+        return toolExitCode;
+    }
+
     // Added: the scripted tour's options are taken out before the game command line is built, so
     // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad
     // option exits before any engine code runs, like the headless runner's --input.
@@ -188,9 +295,6 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
-    // Added: the user directory decision needs the file system (portable.txt, base path, user path).
-    const std::string userDirPath = ResolveUserDir(*pFileSystem, bHasUserDir, userDir);
     std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
     babylon::time::NullClock virtualClock;
     // Added: the run's cvars (ADR-0020), registered before finishStartup() like in the headless root,
