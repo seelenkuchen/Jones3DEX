@@ -798,6 +798,23 @@ TEST(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit)
     TEST_ASSERT_EQUAL_HEX32(0x03, JonesHud_item_flag_state_55514C & 0xFF);
 }
 
+// The Modern and pad schemes bind Activate to the right trigger, a scheme axis id (0x8005) outside
+// the key range. The inventory reads every Activate binding through JonesHud_GetKey, which used to
+// pass it to stdControl_ReadKey and hit its key-range assert when the inventory opened.
+TEST(JonesHud, GetKeyIgnoresIdsOutsideTheKeyRange)
+{
+    JonesHud_bKeyStateUpdated = 0;
+    JonesHud_curKeyId = STDKEY_RETURN;
+    JonesHud_msecMenuItemMoveCurDuration = 200;
+    JonesHud_msecLastKeyPressTime = 1000;
+    JonesHud_msecTime = 1050;
+
+    TEST_ASSERT_EQUAL_INT(0, JonesHud_GetKey(STDCONTROL_MAX_KEYID));
+    TEST_ASSERT_EQUAL_INT(0, JonesHud_GetKey(0x8005u));
+    TEST_ASSERT_EQUAL_INT(STDKEY_RETURN, JonesHud_curKeyId);
+    TEST_ASSERT_EQUAL_UINT(200, JonesHud_msecMenuItemMoveCurDuration);
+}
+
 TEST(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey)
 {
     JonesHud_bKeyStateUpdated = 0;
@@ -828,6 +845,7 @@ TEST_GROUP_RUNNER(JonesHud)
     RUN_TEST_CASE(JonesHud, ShutdownReleasesThemeAndClearsItsOwnership);
     RUN_TEST_CASE(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit);
     RUN_TEST_CASE(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey);
+    RUN_TEST_CASE(JonesHud, GetKeyIgnoresIdsOutsideTheKeyRange);
 }
 
 static void JonesHudTest_RunAllTests(void)

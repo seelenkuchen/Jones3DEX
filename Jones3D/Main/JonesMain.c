@@ -1236,8 +1236,11 @@ void JonesMain_ProcessMenu(void)
     int bSchemeToggleBound = JonesMain_aToggleMenuKeyIds[0] != 0;
     for ( size_t i = 0; i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds) && JonesMain_aToggleMenuKeyIds[i]; ++i ) // Fixed: Added bounds check for i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds)
     {
+        // Fixed: skip a binding outside the key range (a joystick axis in a user scheme) instead
+        // of asserting in stdControl_ReadKey.
         int numPressed;
-        if ( stdControl_ReadKey(JonesMain_aToggleMenuKeyIds[i], &numPressed) )
+        if ( JonesMain_aToggleMenuKeyIds[i] < STDCONTROL_MAX_KEYID
+            && stdControl_ReadKey(JonesMain_aToggleMenuKeyIds[i], &numPressed) )
         {
             bMenuKeyPressed = 1;
             break;

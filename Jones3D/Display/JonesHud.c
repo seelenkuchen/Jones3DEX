@@ -2571,6 +2571,14 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
         return 0;
     }
 
+    // Fixed: a scheme may bind Activate to a joystick axis (the Modern and pad schemes bind the
+    // right trigger), whose id lies outside the key range. Reading it as a key asserted when the
+    // inventory opened; it counts as not pressed here.
+    if ( keyId >= STDCONTROL_MAX_KEYID )
+    {
+        return 0;
+    }
+
     JonesHud_bKeyStateUpdated = 0;
     switch ( keyId )
     {
