@@ -47,6 +47,14 @@ static void AudioLibTest_WriteU32LE(uint8_t* pData, uint32_t value)
     pData[3] = (uint8_t)(value >> 24);
 }
 
+static void AudioLibTest_WriteU32BE(uint8_t* pData, uint32_t value)
+{
+    pData[0] = (uint8_t)(value >> 24);
+    pData[1] = (uint8_t)(value >> 16);
+    pData[2] = (uint8_t)(value >> 8);
+    pData[3] = (uint8_t)value;
+}
+
 static void AudioLibTest_WriteS16LE(uint8_t* pData, int16_t value)
 {
     uint16_t bits = (uint16_t)value;
@@ -1188,18 +1196,42 @@ static void AudioLibTest_AssertOutput(const uint8_t* pExpected, size_t expectedS
     }
 }
 
-TEST(AudioLib, TestOriginalParseWaveFileHeader)
+// Cases whose recorded result comes from the original's 32-bit index wrap in the iMUS sound data size read.
+// The bounded parser rejects a size below 12, so these return NULL instead of the recorded pointer.
+typedef struct
 {
-    // Added: the iMUS `MAP ` size edge cases (0..52, see tv/AudioLib/README.md) move the sound data size read and
-    // the returned pointer with 32-bit unsigned pointer arithmetic: a size below 0x10 reads up to 16 bytes below the
-    // input block, which stays inside the heap of the 32-bit image (and did in the retail capture) but jumps ~4 GB
-    // to unmapped memory on a 64-bit host. Not a portability bug in the parser: the engine replays the original
-    // exactly on the 32-bit builds this project ships. Same reasoning as the sith vector suites.
-    if ( sizeof(void*) != 4 )
+    const char* pName;
+    const char* pReason;
+} AudioLibTestParseExclusion;
+
+static const AudioLibTestParseExclusion AudioLibTest_aParseExclusions[] = {
     {
-        TEST_IGNORE_MESSAGE("32-bit state images; needs a 32-bit build");
+        "edge_imus_map_size_0",
+        "size 0: the sound data size is read at 32 + (uint32_t)(0 - 12) = 4294967316, outside the input; "
+        "the capture wrapped to offset 20"
+    },
+    {
+        "edge_imus_map_size_8",
+        "size 8: the sound data size is read at 32 + (uint32_t)(8 - 12) = 4294967324, outside the input; "
+        "the capture wrapped to offset 28"
+    }
+};
+
+static const AudioLibTestParseExclusion* AudioLibTest_FindParseExclusion(const char* pName)
+{
+    for ( size_t i = 0; i < STD_ARRAYLEN(AudioLibTest_aParseExclusions); ++i )
+    {
+        if ( strcmp(pName, AudioLibTest_aParseExclusions[i].pName) == 0 )
+        {
+            return &AudioLibTest_aParseExclusions[i];
+        }
     }
 
+    return NULL;
+}
+
+TEST(AudioLib, TestOriginalParseWaveFileHeader)
+{
     // Headers of every container the parser handles (RIFF WAVE with and without sync chunk, INDYWV with and without
     // extra data, iMUS, AIFF with each rate exponent, MCMP wrapped files) and the well-formed variants it rejects.
     // Each output pointer is passed or omitted as recorded in the case, so untouched outputs are checked as well.
@@ -1213,6 +1245,8 @@ TEST(AudioLib, TestOriginalParseWaveFileHeader)
     {
         char aName[AUDIOLIB_TEST_VECTOR_NAMESIZE];
         AudioLibTest_VectorCaseName(&vec, aName, sizeof(aName));
+
+        const AudioLibTestParseExclusion* pExclusion = AudioLibTest_FindParseExclusion(aName);
 
         uint32_t flags = AudioLibTest_VectorU32(&vec);
         size_t inputSize;
@@ -1235,6 +1269,7 @@ TEST(AudioLib, TestOriginalParseWaveFileHeader)
 
         const uint8_t* pRet = AudioLib_ParseWaveFileHeader(
             (flags & 1u) ? NULL : pInput,
+            inputSize + AUDIOLIB_TEST_INPUT_PAD,
             (flags & (1u << 1)) ? &type : NULL,
             (flags & (1u << 2)) ? &aOut[0] : NULL,
             (flags & (1u << 3)) ? &aOut[1] : NULL,
@@ -1244,6 +1279,13 @@ TEST(AudioLib, TestOriginalParseWaveFileHeader)
             (flags & (1u << 7)) ? &aOut[5] : NULL,
             (flags & (1u << 8)) ? &aOut[6] : NULL
         );
+
+        if ( pExclusion )
+        {
+            TEST_ASSERT_NULL_MESSAGE(pRet, pExclusion->pReason);
+            free(pInput);
+            continue;
+        }
 
         if ( expectedRet < 0 )
         {
@@ -1271,6 +1313,122 @@ TEST(AudioLib, TestOriginalParseWaveFileHeader)
     }
 
     AudioLibTest_CloseVector(&vec);
+}
+
+static void AudioLibTest_WriteRiffFmt(uint8_t* pData)
+{
+    memcpy(pData, "RIFF", 4);
+    memcpy(pData + 8, "WAVEfmt ", 8);
+    AudioLibTest_WriteU32LE(pData + 16, 16);
+    AudioLibTest_WriteS16LE(pData + 20, 1);
+    AudioLibTest_WriteS16LE(pData + 22, 1);
+    AudioLibTest_WriteU32LE(pData + 24, 8000);
+    AudioLibTest_WriteU32LE(pData + 28, 16000);
+    AudioLibTest_WriteS16LE(pData + 32, 2);
+    AudioLibTest_WriteS16LE(pData + 34, 16);
+}
+
+TEST(AudioLib, TestParseWaveFileHeaderBounds)
+{
+    // Every input is allocated at exactly its size, so the sanitizer build catches any read past it.
+    static const uint32_t aSmallImusSizes[] = { 0, 11 };
+    for ( size_t i = 0; i < STD_ARRAYLEN(aSmallImusSizes); ++i )
+    {
+        uint8_t* pInput = (uint8_t*)calloc(36, 1);
+        TEST_ASSERT_NOT_NULL(pInput);
+        memcpy(pInput, "iMUS", 4);
+        memcpy(pInput + 8, "MAP ", 4);
+        AudioLibTest_WriteU32BE(pInput + 12, aSmallImusSizes[i]);
+        memcpy(pInput + 16, "FRMT", 4);
+
+        uint32_t soundDataSize = AUDIOLIB_TEST_UNTOUCHED;
+        TEST_ASSERT_NULL(AudioLib_ParseWaveFileHeader(pInput, 36, NULL, NULL, NULL, NULL, NULL, &soundDataSize, NULL, NULL));
+        TEST_ASSERT_EQUAL_UINT32(AUDIOLIB_TEST_UNTOUCHED, soundDataSize);
+        free(pInput);
+    }
+
+    // Size 12 reads the sound data size at offset 32 and returns the data offset at 36.
+    {
+        uint8_t* pInput = (uint8_t*)calloc(36, 1);
+        TEST_ASSERT_NOT_NULL(pInput);
+        memcpy(pInput, "iMUS", 4);
+        memcpy(pInput + 8, "MAP ", 4);
+        AudioLibTest_WriteU32BE(pInput + 12, 12);
+        memcpy(pInput + 16, "FRMT", 4);
+        AudioLibTest_WriteU32BE(pInput + 32, 0x11223344u);
+
+        uint32_t soundDataSize = AUDIOLIB_TEST_UNTOUCHED;
+        const uint8_t* pRet = AudioLib_ParseWaveFileHeader(pInput, 36, NULL, NULL, NULL, NULL, NULL, &soundDataSize, NULL, NULL);
+        TEST_ASSERT_TRUE(pRet == pInput + 36);
+        TEST_ASSERT_EQUAL_UINT32(0x11223344u, soundDataSize);
+        free(pInput);
+    }
+
+    // A LIST chunk larger than the buffer must not be walked past its end.
+    {
+        uint8_t* pInput = (uint8_t*)calloc(44, 1);
+        TEST_ASSERT_NOT_NULL(pInput);
+        AudioLibTest_WriteRiffFmt(pInput);
+        AudioLibTest_WriteU32LE(pInput + 4, 100);
+        memcpy(pInput + 36, "LIST", 4);
+        AudioLibTest_WriteU32LE(pInput + 40, 0x1000);
+
+        int type;
+        uint32_t rate, bits, channels, extraInfo, soundDataSize, extraDataOffset, soundDataOffset;
+        TEST_ASSERT_NULL(AudioLib_ParseWaveFileHeader(pInput, 44, &type, &rate, &bits, &channels, &extraInfo, &soundDataSize, &extraDataOffset, &soundDataOffset));
+        free(pInput);
+    }
+
+    // A chunk size near the 32-bit limit must be rejected, not added to the walk position.
+    {
+        uint8_t* pInput = (uint8_t*)calloc(44, 1);
+        TEST_ASSERT_NOT_NULL(pInput);
+        AudioLibTest_WriteRiffFmt(pInput);
+        AudioLibTest_WriteU32LE(pInput + 4, 100);
+        AudioLibTest_WriteU32LE(pInput + 16, 0xFFFFFFF0u);
+
+        int type;
+        uint32_t rate, bits, channels, extraInfo, soundDataSize, extraDataOffset, soundDataOffset;
+        TEST_ASSERT_NULL(AudioLib_ParseWaveFileHeader(pInput, 44, &type, &rate, &bits, &channels, &extraInfo, &soundDataSize, &extraDataOffset, &soundDataOffset));
+        free(pInput);
+    }
+
+    // A buffer ending inside the fmt chunk must be rejected.
+    {
+        uint8_t* pInput = (uint8_t*)calloc(24, 1);
+        TEST_ASSERT_NOT_NULL(pInput);
+        memcpy(pInput, "RIFF", 4);
+        AudioLibTest_WriteU32LE(pInput + 4, 16);
+        memcpy(pInput + 8, "WAVEfmt ", 8);
+        AudioLibTest_WriteU32LE(pInput + 16, 16);
+        AudioLibTest_WriteS16LE(pInput + 20, 1);
+
+        int type;
+        uint32_t rate, bits, channels, extraInfo, soundDataSize, extraDataOffset, soundDataOffset;
+        TEST_ASSERT_NULL(AudioLib_ParseWaveFileHeader(pInput, 24, &type, &rate, &bits, &channels, &extraInfo, &soundDataSize, &extraDataOffset, &soundDataOffset));
+        free(pInput);
+    }
+
+    // Extra data beyond the buffer is a valid file offset and is not read.
+    {
+        uint8_t* pInput = (uint8_t*)calloc(26, 1);
+        TEST_ASSERT_NOT_NULL(pInput);
+        memcpy(pInput, "INDYWV", 6);
+        AudioLibTest_WriteU32LE(pInput + 6, 22050);
+        AudioLibTest_WriteU32LE(pInput + 10, 16);
+        AudioLibTest_WriteU32LE(pInput + 14, 1);
+        AudioLibTest_WriteU32LE(pInput + 18, 0x200);
+        AudioLibTest_WriteU32LE(pInput + 22, 0x1000);
+
+        int type;
+        uint32_t rate, bits, channels, extraInfo, soundDataSize, extraDataOffset, soundDataOffset;
+        const uint8_t* pRet = AudioLib_ParseWaveFileHeader(pInput, 26, &type, &rate, &bits, &channels, &extraInfo, &soundDataSize, &extraDataOffset, &soundDataOffset);
+        TEST_ASSERT_TRUE(pRet == pInput + 26 + 0x1000);
+        TEST_ASSERT_EQUAL_UINT32(0x1000, soundDataOffset);
+        TEST_ASSERT_EQUAL_UINT32((uint32_t)(uintptr_t)(pInput + 26), extraDataOffset);
+        TEST_ASSERT_EQUAL_UINT32(0x200, soundDataSize);
+        free(pInput);
+    }
 }
 
 TEST(AudioLib, TestOriginalResetCompressor)
@@ -1672,6 +1830,7 @@ TEST_GROUP_RUNNER(AudioLib)
     RUN_TEST_CASE(AudioLib, TestRandomReferenceVectors);
     RUN_TEST_CASE(AudioLib, TestGeneratedRoundTrip);
     RUN_TEST_CASE(AudioLib, TestOriginalParseWaveFileHeader);
+    RUN_TEST_CASE(AudioLib, TestParseWaveFileHeaderBounds);
     RUN_TEST_CASE(AudioLib, TestOriginalResetCompressor);
     RUN_TEST_CASE(AudioLib, TestOriginalCompressBlock);
     RUN_TEST_CASE(AudioLib, CompressBlockSwappedMatchesNative_Fixed);

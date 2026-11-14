@@ -50,6 +50,17 @@ buffers are prefilled with `0xA5`. Output blobs hold exactly the bytes the
 original wrote; the tests also require every following byte to stay `0xA5`.
 Chained cases use the output state of the previous case as input state.
 
+The parse vectors pass `inputSize + 64` as the parser's `dataSize` argument, so
+the zero padding behind an input is part of the declared buffer. The bounded
+parser reads only inside that range and returns NULL when a needed byte lies
+outside it. Two original cases are excluded because their recorded result comes
+from a 32-bit index wrap, not from a byte in the input: iMUS `MAP ` sizes 0 and
+8 read the sound data size at `32 + (uint32_t)(size - 12)`, which is 4294967316
+and 4294967324 bytes from the input start, while the retail 32-bit build wrapped
+those to offsets 20 and 28. The bounded parser rejects every size below 12, so
+the tests assert NULL for both cases instead of the recorded result. No other
+case is excluded.
+
 ### Cases
 
 Cases are deterministic. PCM comes from integer-only generators; noise uses
@@ -89,9 +100,10 @@ cases kept their order and bytes.
   (rejected); `MCMP` with 0, 1 and 3 index entries, empty and 5 byte stored blocks,
   INDYWV and iMUS contents, a non-PCM WAV, nested `MCMP` and unknown contents.
   Truncation sweeps (`trunc_<container>_<length>`): every prefix of one WAV (with
-  `sync` chunk), INDYWV, iMUS, AIFF and `MCMP` WAV file; the parser has no size
-  argument and reads the zero padding behind a short input. 170 of the 313 prefixes
-  are kept; the others are listed below.
+  `sync` chunk), INDYWV, iMUS, AIFF and `MCMP` WAV file; the parser is given the
+  input plus 64 zero bytes as its buffer, so a short input is parsed against the
+  zero padding as in the capture. 170 of the 313 prefixes are kept; the others are
+  listed below.
 - `CompressBlock.tv` (57 + 34 cases): 0 to 4096 samples, mono and stereo, silence,
   square, sine (integer approximation), ramp, impulses, full-scale alternation,
   seeded noise at several amplitudes, loud-to-quiet bursts (the step index sweeps

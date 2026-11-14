@@ -2150,16 +2150,16 @@ void J3DAPI JonesHud_Draw(const rdMaterial* pMaterial, const JonesHudRect* rect,
     if ( bAlpha )
     {
         pPoly = rdCache_GetAlphaProcEntry();
-        pPoly->flags = RD_FF_TEX_CLAMP_Y | RD_FF_TEX_CLAMP_X | RD_FF_TEX_TRANSLUCENT;
     }
     else
     {
         pPoly = rdCache_GetProcEntry();
-        pPoly->flags = RD_FF_TEX_CLAMP_Y | RD_FF_TEX_CLAMP_X;
     }
 
+    // Fixed: the proc entry is NULL when the vertex buffer is full, so set the flags only after the check.
     if ( pPoly )
     {
+        pPoly->flags = bAlpha ? RD_FF_TEX_CLAMP_Y | RD_FF_TEX_CLAMP_X | RD_FF_TEX_TRANSLUCENT : RD_FF_TEX_CLAMP_Y | RD_FF_TEX_CLAMP_X;
         pPoly->lightingMode = RD_LIGHTING_DIFFUSE;
         pPoly->numVertices  = 4;
         pPoly->pMaterial    = (rdMaterial*)pMaterial;

@@ -251,8 +251,9 @@ void J3DAPI rdCamera_BuildFOV(rdCamera* pCamera)
             else
             {
                 pCamera->invNearClipPlane = 1.0f / pCamera->pFrustum->nearPlane;
-                pCamera->invFarClipPlane  = 1.0f / (1.0f / pCamera->pFrustum->farPlane - pCamera->invNearClipPlane) * 0.89999998f;// Used for converting vertex to screen cords; 0.89999f - 1/1.111f
-                pCamera->invNearClipPlane = 0.1f / (0.89999998f * pCamera->invFarClipPlane) + pCamera->invNearClipPlane; // Used for converting vertex to screen cords
+                pCamera->invFarClipPlane  = 0.9f / (1.0f / pCamera->pFrustum->farPlane - pCamera->invNearClipPlane); // Scales 1/y so the near..far span is 0.9
+                pCamera->invNearClipPlane = pCamera->invNearClipPlane - 0.1f / pCamera->invFarClipPlane; // Shifts 1/y so sz is 0.1 at the near plane
+                // Fixed: the main depth range is 0.1..1.0 (the overlay uses 0..0.1); the original formula gave -0.11..0.79.
             }
 
             // Setup frustum planes
@@ -322,8 +323,9 @@ int J3DAPI rdCamera_SetFrustrum(rdCamera* pCamera, rdClipFrustum* pFrustrum, int
     else
     {
         pCamera->invNearClipPlane = 1.0f / pCamera->pFrustum->nearPlane;
-        pCamera->invFarClipPlane = 1.0f / (1.0f / pCamera->pFrustum->farPlane - pCamera->invNearClipPlane) * 0.89999998f;
-        pCamera->invNearClipPlane = 0.1f / (0.89999998f * pCamera->invFarClipPlane) + pCamera->invNearClipPlane;
+        pCamera->invFarClipPlane = 0.9f / (1.0f / pCamera->pFrustum->farPlane - pCamera->invNearClipPlane); // Scales 1/y so the near..far span is 0.9
+        pCamera->invNearClipPlane = pCamera->invNearClipPlane - 0.1f / pCamera->invFarClipPlane; // Shifts 1/y so sz is 0.1 at the near plane
+        // Fixed: the main depth range is 0.1..1.0 (the overlay uses 0..0.1); the original formula gave -0.11..0.79.
     }
 
     float height = (float)(pCanvas->rect.bottom - pCanvas->rect.top);

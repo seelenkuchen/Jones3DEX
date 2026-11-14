@@ -6,8 +6,10 @@
 
 J3D_EXTERN_C_START
 
-#define RDMODEL3_MAX_VERTICES      RDCACHE_MAXVERTICES / 2                              // Changed: Was fixed 1024, now is bound to RDCACHE_MAXVERTICES
-#define RDMODEL3_MAX_TEXVRTICES    RDMODEL3_MAX_VERTICES + (RDMODEL3_MAX_VERTICES / 2)  // Changed: Was fixed to 768, now is calculated based on RDMODEL3_MAX_VERTICES
+#define RDMODEL3_MAX_VERTICES      (RDCACHE_MAXVERTICES / 2)                              // Changed: Was fixed 1024, now is bound to RDCACHE_MAXVERTICES
+#define RDMODEL3_MAX_TEXVRTICES    (RDMODEL3_MAX_VERTICES + (RDMODEL3_MAX_VERTICES / 2))  // Changed: Was fixed to 768, now is calculated based on RDMODEL3_MAX_VERTICES
+static_assert(RDMODEL3_MAX_VERTICES == 16384, "RDMODEL3_MAX_VERTICES == 16384");
+static_assert(RDMODEL3_MAX_TEXVRTICES == 24576, "RDMODEL3_MAX_TEXVRTICES == 24576");
 
 #define RDMODEL3_MAX_FACES         16384 // Changed: Was 1528
 #define RDMODEL3_MAX_FACE_VERTICES RDCACHE_MAXFACEVERTICES 

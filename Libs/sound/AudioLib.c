@@ -250,8 +250,17 @@ static inline uint16_t AudioLib_SwapU16(uint16_t value)
     return (uint16_t)((value << AUDIOLIB_BITS_PER_BYTE) | (value >> AUDIOLIB_BITS_PER_BYTE));
 }
 
-// Returns pointer to snd data
-const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pType, uint32_t* pSampleRate, uint32_t* pBitsPerSample, uint32_t* pNumChannels, uint32_t* pExtraInfo, uint32_t* pSoundDataSize, uint32_t* pExtraDataOffset, uint32_t* pSoundDataOffset)
+// Fixed: A read is allowed only when its whole range lies in the caller's buffer.
+static int AudioLib_IsBufferRange(size_t dataSize, uint64_t offset, uint64_t size)
+{
+    return offset <= (uint64_t)dataSize && size <= (uint64_t)dataSize - offset;
+}
+
+// Returns pointer to snd data.
+// Reads only pData[0 .. dataSize). Returns NULL when a needed byte is outside that range; outputs written
+// before the failure stay written, as on the original's own NULL paths. The returned pointer marks where the
+// sound data starts and may lie past dataSize, because the caller only uses it as a file offset.
+const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, size_t dataSize, int* pType, uint32_t* pSampleRate, uint32_t* pBitsPerSample, uint32_t* pNumChannels, uint32_t* pExtraInfo, uint32_t* pSoundDataSize, uint32_t* pExtraDataOffset, uint32_t* pSoundDataOffset)
 {
     bool bCompressed = false;
     if ( pType )
@@ -274,18 +283,39 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
         *pSoundDataOffset = 0;
     }
 
-    // Skip the MCMP container header: the index of entries followed by a size prefixed block
-    if ( memeq(pData, AUDIOLIB_MCMP_MAGIC, sizeof(AUDIOLIB_MCMP_MAGIC) - 1) )
-    {
-        uint16_t count = AudioLib_ReadU16BE(pData + AUDIOLIB_MCMP_MAGIC_SIZE);
-        pData += (AUDIOLIB_MCMP_ENTRY_SIZE * count) + AUDIOLIB_MCMP_HEADER_SIZE;
+    // Fixed: track the position as an offset from pData and bound every read to dataSize.
+    uint64_t offset = 0;
 
-        count = AudioLib_ReadU16BE(pData);
-        pData += count + sizeof(uint16_t);
+    // Skip the MCMP container header: the index of entries followed by a size prefixed block
+    if ( AudioLib_IsBufferRange(dataSize, offset, sizeof(AUDIOLIB_MCMP_MAGIC) - 1)
+        && memeq(pData, AUDIOLIB_MCMP_MAGIC, sizeof(AUDIOLIB_MCMP_MAGIC) - 1) )
+    {
+        offset += AUDIOLIB_MCMP_MAGIC_SIZE;
+        if ( !AudioLib_IsBufferRange(dataSize, offset, sizeof(uint16_t)) )
+        {
+            return NULL;
+        }
+
+        uint16_t count = AudioLib_ReadU16BE(pData + offset);
+        offset += (uint64_t)AUDIOLIB_MCMP_ENTRY_SIZE * count + AUDIOLIB_MCMP_HEADER_SIZE - AUDIOLIB_MCMP_MAGIC_SIZE;
+
+        if ( !AudioLib_IsBufferRange(dataSize, offset, sizeof(uint16_t)) )
+        {
+            return NULL;
+        }
+
+        count = AudioLib_ReadU16BE(pData + offset);
+        offset += (uint64_t)count + sizeof(uint16_t);
+        if ( offset > (uint64_t)dataSize )
+        {
+            return NULL;
+        }
+
         bCompressed = true;
     }
 
-    if ( memeq(pData, AUDIOLIB_INDYWV_MAGIC, sizeof(AUDIOLIB_INDYWV_MAGIC) - 1) )
+    if ( AudioLib_IsBufferRange(dataSize, offset, sizeof(AUDIOLIB_INDYWV_MAGIC) - 1)
+        && memeq(pData + offset, AUDIOLIB_INDYWV_MAGIC, sizeof(AUDIOLIB_INDYWV_MAGIC) - 1) )
     {
         if ( pType )
         {
@@ -294,37 +324,67 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
 
         if ( pSampleRate )
         {
-            *pSampleRate = AudioLib_ReadU32LE(pData + AUDIOLIB_INDYWV_SAMPLERATE_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_INDYWV_SAMPLERATE_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pSampleRate = AudioLib_ReadU32LE(pData + offset + AUDIOLIB_INDYWV_SAMPLERATE_OFFSET);
         }
 
         if ( pBitsPerSample )
         {
-            *pBitsPerSample = AudioLib_ReadU32LE(pData + AUDIOLIB_INDYWV_BITS_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_INDYWV_BITS_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pBitsPerSample = AudioLib_ReadU32LE(pData + offset + AUDIOLIB_INDYWV_BITS_OFFSET);
         }
 
         if ( pNumChannels )
         {
-            *pNumChannels = AudioLib_ReadU32LE(pData + AUDIOLIB_INDYWV_CHANNELS_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_INDYWV_CHANNELS_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pNumChannels = AudioLib_ReadU32LE(pData + offset + AUDIOLIB_INDYWV_CHANNELS_OFFSET);
         }
 
         if ( pExtraInfo )
         {
-            *pExtraInfo = AudioLib_ReadU32LE(pData + AUDIOLIB_INDYWV_DATASIZE_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_INDYWV_DATASIZE_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pExtraInfo = AudioLib_ReadU32LE(pData + offset + AUDIOLIB_INDYWV_DATASIZE_OFFSET);
         }
 
         if ( pSoundDataSize )
         {
-            *pSoundDataSize = AudioLib_ReadU32LE(pData + AUDIOLIB_INDYWV_DATASIZE_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_INDYWV_DATASIZE_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pSoundDataSize = AudioLib_ReadU32LE(pData + offset + AUDIOLIB_INDYWV_DATASIZE_OFFSET);
         }
 
         uint32_t extraDataSize = 0;
         if ( pExtraDataOffset && pSoundDataOffset )
         {
-            extraDataSize = AudioLib_ReadU32LE(pData + AUDIOLIB_INDYWV_EXTRASIZE_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_INDYWV_EXTRASIZE_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            extraDataSize = AudioLib_ReadU32LE(pData + offset + AUDIOLIB_INDYWV_EXTRASIZE_OFFSET);
             *pSoundDataOffset = extraDataSize;
             if ( *pSoundDataOffset )
             {
-                *pExtraDataOffset = (uint32_t)(uintptr_t)(pData + AUDIOLIB_INDYWV_HEADER_SIZE);
+                *pExtraDataOffset = (uint32_t)(uintptr_t)(pData + offset + AUDIOLIB_INDYWV_HEADER_SIZE);
             }
             else
             {
@@ -332,18 +392,36 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
             }
         }
 
-        return pData + AUDIOLIB_INDYWV_HEADER_SIZE + extraDataSize;
-    }
-
-    if ( memeq(pData, AUDIOLIB_RIFF_MAGIC, sizeof(AUDIOLIB_RIFF_MAGIC) - 1) )
-    {
-        const uint8_t* pEnd = pData + AudioLib_ReadU32LE(pData + AUDIOLIB_CONTAINER_SIZE_OFFSET) + AUDIOLIB_CHUNK_HEADER_SIZE;
-        if ( !memeq(pData + AUDIOLIB_CONTAINER_FORMTYPE_OFFSET, AUDIOLIB_RIFF_WAVEFMT_MAGIC, sizeof(AUDIOLIB_RIFF_WAVEFMT_MAGIC) - 1) )
+        uint64_t dataOffset = offset + AUDIOLIB_INDYWV_HEADER_SIZE + extraDataSize;
+        if ( dataOffset > UINT32_MAX )
         {
             return NULL;
         }
 
-        if ( AudioLib_ReadS16LE(pData + AUDIOLIB_RIFF_FMT_CHUNK_OFFSET + AUDIOLIB_RIFF_FMT_FORMAT_OFFSET) != AUDIOLIB_RIFF_FORMAT_PCM )
+        return pData + dataOffset;
+    }
+
+    if ( AudioLib_IsBufferRange(dataSize, offset, sizeof(AUDIOLIB_RIFF_MAGIC) - 1)
+        && memeq(pData + offset, AUDIOLIB_RIFF_MAGIC, sizeof(AUDIOLIB_RIFF_MAGIC) - 1) )
+    {
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_CONTAINER_SIZE_OFFSET, sizeof(uint32_t)) )
+        {
+            return NULL;
+        }
+
+        uint64_t endOffset = offset + AudioLib_ReadU32LE(pData + offset + AUDIOLIB_CONTAINER_SIZE_OFFSET) + AUDIOLIB_CHUNK_HEADER_SIZE;
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_CONTAINER_FORMTYPE_OFFSET, sizeof(AUDIOLIB_RIFF_WAVEFMT_MAGIC) - 1)
+            || !memeq(pData + offset + AUDIOLIB_CONTAINER_FORMTYPE_OFFSET, AUDIOLIB_RIFF_WAVEFMT_MAGIC, sizeof(AUDIOLIB_RIFF_WAVEFMT_MAGIC) - 1) )
+        {
+            return NULL;
+        }
+
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_RIFF_FMT_CHUNK_OFFSET + AUDIOLIB_RIFF_FMT_FORMAT_OFFSET, sizeof(int16_t)) )
+        {
+            return NULL;
+        }
+
+        if ( AudioLib_ReadS16LE(pData + offset + AUDIOLIB_RIFF_FMT_CHUNK_OFFSET + AUDIOLIB_RIFF_FMT_FORMAT_OFFSET) != AUDIOLIB_RIFF_FORMAT_PCM )
         {
             return NULL;
         }
@@ -353,21 +431,41 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
             *pType = bCompressed ? AUDIOLIB_FILETYPE_WAV_COMPRESSED : AUDIOLIB_FILETYPE_WAV;
         }
 
-        pData += AUDIOLIB_RIFF_FMT_CHUNK_OFFSET;
-        uint32_t size = AudioLib_ReadU32LE(pData);
+        uint64_t current = offset + AUDIOLIB_RIFF_FMT_CHUNK_OFFSET;
+        if ( !AudioLib_IsBufferRange(dataSize, current, sizeof(uint32_t)) )
+        {
+            return NULL;
+        }
+
+        uint32_t size = AudioLib_ReadU32LE(pData + current);
         if ( pSampleRate )
         {
-            *pSampleRate = AudioLib_ReadU32LE(pData + AUDIOLIB_RIFF_FMT_SAMPLERATE_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, current + AUDIOLIB_RIFF_FMT_SAMPLERATE_OFFSET, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pSampleRate = AudioLib_ReadU32LE(pData + current + AUDIOLIB_RIFF_FMT_SAMPLERATE_OFFSET);
         }
 
         if ( pBitsPerSample )
         {
-            *pBitsPerSample = AudioLib_ReadS16LE(pData + AUDIOLIB_RIFF_FMT_BITS_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, current + AUDIOLIB_RIFF_FMT_BITS_OFFSET, sizeof(int16_t)) )
+            {
+                return NULL;
+            }
+
+            *pBitsPerSample = AudioLib_ReadS16LE(pData + current + AUDIOLIB_RIFF_FMT_BITS_OFFSET);
         }
 
         if ( pNumChannels )
         {
-            *pNumChannels = AudioLib_ReadS16LE(pData + AUDIOLIB_RIFF_FMT_CHANNELS_OFFSET);
+            if ( !AudioLib_IsBufferRange(dataSize, current + AUDIOLIB_RIFF_FMT_CHANNELS_OFFSET, sizeof(int16_t)) )
+            {
+                return NULL;
+            }
+
+            *pNumChannels = AudioLib_ReadS16LE(pData + current + AUDIOLIB_RIFF_FMT_CHANNELS_OFFSET);
         }
 
         if ( pExtraInfo )
@@ -378,32 +476,51 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
         // Walk the chunks until the data chunk, remembering the sync chunk
         do
         {
-            pData += size + AUDIOLIB_CHUNK_HEADER_SIZE;
-            size = AudioLib_ReadU32LE(pData);
-            if ( memeq(pData - AUDIOLIB_CHUNK_TAG_SIZE, AUDIOLIB_RIFF_SYNC_CHUNK, sizeof(AUDIOLIB_RIFF_SYNC_CHUNK) - 1) && pExtraDataOffset && pSoundDataOffset )
+            uint64_t next = current + (uint64_t)size + AUDIOLIB_CHUNK_HEADER_SIZE;
+            if ( !AudioLib_IsBufferRange(dataSize, next, sizeof(uint32_t)) )
             {
-                *pExtraDataOffset = (uint32_t)(uintptr_t)(pData + AUDIOLIB_CHUNK_SIZE_SIZE);
+                return NULL;
+            }
+
+            current = next;
+            size = AudioLib_ReadU32LE(pData + current);
+            if ( memeq(pData + current - AUDIOLIB_CHUNK_TAG_SIZE, AUDIOLIB_RIFF_SYNC_CHUNK, sizeof(AUDIOLIB_RIFF_SYNC_CHUNK) - 1) && pExtraDataOffset && pSoundDataOffset )
+            {
+                *pExtraDataOffset = (uint32_t)(uintptr_t)(pData + current + AUDIOLIB_CHUNK_SIZE_SIZE);
                 *pSoundDataOffset = size;
             }
-        } while ( pData < pEnd && !memeq(pData - AUDIOLIB_CHUNK_TAG_SIZE, AUDIOLIB_RIFF_DATA_CHUNK, sizeof(AUDIOLIB_RIFF_DATA_CHUNK) - 1) );
+        } while ( current < endOffset && !memeq(pData + current - AUDIOLIB_CHUNK_TAG_SIZE, AUDIOLIB_RIFF_DATA_CHUNK, sizeof(AUDIOLIB_RIFF_DATA_CHUNK) - 1) );
 
-        if ( pData < pEnd )
+        if ( current < endOffset )
         {
             if ( pSoundDataSize )
             {
                 *pSoundDataSize = size;
             }
 
-            return pData + AUDIOLIB_CHUNK_SIZE_SIZE;
+            uint64_t dataOffset = current + AUDIOLIB_CHUNK_SIZE_SIZE;
+            if ( dataOffset > UINT32_MAX )
+            {
+                return NULL;
+            }
+
+            return pData + dataOffset;
         }
 
         return NULL;
     }
 
-    if ( memeq(pData, AUDIOLIB_IMUS_MAGIC, sizeof(AUDIOLIB_IMUS_MAGIC) - 1) )
+    if ( AudioLib_IsBufferRange(dataSize, offset, sizeof(AUDIOLIB_IMUS_MAGIC) - 1)
+        && memeq(pData + offset, AUDIOLIB_IMUS_MAGIC, sizeof(AUDIOLIB_IMUS_MAGIC) - 1) )
     {
-        uint32_t size = AudioLib_ReadU32BE(pData + AUDIOLIB_IMUS_SIZE_OFFSET);
-        if ( !memeq(pData + AUDIOLIB_IMUS_FRMT_OFFSET, AUDIOLIB_IMUS_FRMT_MAGIC, sizeof(AUDIOLIB_IMUS_FRMT_MAGIC) - 1) )
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_IMUS_SIZE_OFFSET, sizeof(uint32_t)) )
+        {
+            return NULL;
+        }
+
+        uint32_t size = AudioLib_ReadU32BE(pData + offset + AUDIOLIB_IMUS_SIZE_OFFSET);
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_IMUS_FRMT_OFFSET, sizeof(AUDIOLIB_IMUS_FRMT_MAGIC) - 1)
+            || !memeq(pData + offset + AUDIOLIB_IMUS_FRMT_OFFSET, AUDIOLIB_IMUS_FRMT_MAGIC, sizeof(AUDIOLIB_IMUS_FRMT_MAGIC) - 1) )
         {
             return NULL;
         }
@@ -413,20 +530,35 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
             *pType = bCompressed ? AUDIOLIB_FILETYPE_IMUS_COMPRESSED : AUDIOLIB_FILETYPE_IMUS;
         }
 
-        pData += AUDIOLIB_IMUS_FORMAT_OFFSET;
+        uint64_t formatOffset = offset + AUDIOLIB_IMUS_FORMAT_OFFSET;
         if ( pBitsPerSample )
         {
-            *pBitsPerSample = AudioLib_ReadU32BE(pData);
+            if ( !AudioLib_IsBufferRange(dataSize, formatOffset, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pBitsPerSample = AudioLib_ReadU32BE(pData + formatOffset);
         }
 
         if ( pSampleRate )
         {
-            *pSampleRate = AudioLib_ReadU32BE(pData + AUDIOLIB_IMUS_FORMAT_SAMPLERATE);
+            if ( !AudioLib_IsBufferRange(dataSize, formatOffset + AUDIOLIB_IMUS_FORMAT_SAMPLERATE, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pSampleRate = AudioLib_ReadU32BE(pData + formatOffset + AUDIOLIB_IMUS_FORMAT_SAMPLERATE);
         }
 
         if ( pNumChannels )
         {
-            *pNumChannels = AudioLib_ReadU32BE(pData + AUDIOLIB_IMUS_FORMAT_CHANNELS);
+            if ( !AudioLib_IsBufferRange(dataSize, formatOffset + AUDIOLIB_IMUS_FORMAT_CHANNELS, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pNumChannels = AudioLib_ReadU32BE(pData + formatOffset + AUDIOLIB_IMUS_FORMAT_CHANNELS);
         }
 
         if ( pExtraInfo )
@@ -434,12 +566,30 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
             *pExtraInfo = 1;
         }
 
-        if ( pSoundDataSize )
+        // Fixed: A size below 12 would index before the sound data size field.
+        if ( size < AUDIOLIB_IMUS_DATA_SIZE_OFFSET_BACK )
         {
-            *pSoundDataSize = AudioLib_ReadU32BE(&pData[size - AUDIOLIB_IMUS_DATA_SIZE_OFFSET_BACK]);
+            return NULL;
         }
 
-        return pData + size - AUDIOLIB_IMUS_DATA_OFFSET_BACK;
+        if ( pSoundDataSize )
+        {
+            uint64_t sizeFieldOffset = formatOffset + (uint64_t)size - AUDIOLIB_IMUS_DATA_SIZE_OFFSET_BACK;
+            if ( !AudioLib_IsBufferRange(dataSize, sizeFieldOffset, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
+
+            *pSoundDataSize = AudioLib_ReadU32BE(pData + sizeFieldOffset);
+        }
+
+        uint64_t dataOffset = formatOffset + (uint64_t)size - AUDIOLIB_IMUS_DATA_OFFSET_BACK;
+        if ( dataOffset > UINT32_MAX )
+        {
+            return NULL;
+        }
+
+        return pData + dataOffset;
     }
 
     if ( bCompressed )
@@ -447,10 +597,17 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
         return NULL;
     }
 
-    if ( memeq(pData, AUDIOLIB_AIFF_MAGIC, sizeof(AUDIOLIB_AIFF_MAGIC) - 1) )
+    if ( AudioLib_IsBufferRange(dataSize, offset, sizeof(AUDIOLIB_AIFF_MAGIC) - 1)
+        && memeq(pData + offset, AUDIOLIB_AIFF_MAGIC, sizeof(AUDIOLIB_AIFF_MAGIC) - 1) )
     {
-        const uint8_t* pEnd = pData + AudioLib_ReadU32BE(pData + AUDIOLIB_CONTAINER_SIZE_OFFSET) + AUDIOLIB_CHUNK_HEADER_SIZE;
-        if ( !memeq(pData + AUDIOLIB_CONTAINER_FORMTYPE_OFFSET, AUDIOLIB_AIFF_COMM_MAGIC, sizeof(AUDIOLIB_AIFF_COMM_MAGIC) - 1) )
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_CONTAINER_SIZE_OFFSET, sizeof(uint32_t)) )
+        {
+            return NULL;
+        }
+
+        uint64_t endOffset = offset + AudioLib_ReadU32BE(pData + offset + AUDIOLIB_CONTAINER_SIZE_OFFSET) + AUDIOLIB_CHUNK_HEADER_SIZE;
+        if ( !AudioLib_IsBufferRange(dataSize, offset + AUDIOLIB_CONTAINER_FORMTYPE_OFFSET, sizeof(AUDIOLIB_AIFF_COMM_MAGIC) - 1)
+            || !memeq(pData + offset + AUDIOLIB_CONTAINER_FORMTYPE_OFFSET, AUDIOLIB_AIFF_COMM_MAGIC, sizeof(AUDIOLIB_AIFF_COMM_MAGIC) - 1) )
         {
             return NULL;
         }
@@ -460,16 +617,26 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
             *pType = AUDIOLIB_FILETYPE_AIFF;
         }
 
-        pData += AUDIOLIB_AIFF_COMM_OFFSET;
-        uint32_t size = AudioLib_ReadU32BE(pData);
+        uint64_t current = offset + AUDIOLIB_AIFF_COMM_OFFSET;
+        if ( !AudioLib_IsBufferRange(dataSize, current, sizeof(uint32_t)) )
+        {
+            return NULL;
+        }
+
+        uint32_t size = AudioLib_ReadU32BE(pData + current);
         if ( pSampleRate )
         {
+            if ( !AudioLib_IsBufferRange(dataSize, current + AUDIOLIB_AIFF_COMM_RATE_EXP_OFFSET, sizeof(uint8_t)) )
+            {
+                return NULL;
+            }
+
             // Only the exponent byte of the extended sample rate is examined
-            if ( pData[AUDIOLIB_AIFF_COMM_RATE_EXP_OFFSET] == AUDIOLIB_AIFF_RATE_EXP_44100 )
+            if ( pData[current + AUDIOLIB_AIFF_COMM_RATE_EXP_OFFSET] == AUDIOLIB_AIFF_RATE_EXP_44100 )
             {
                 *pSampleRate = AUDIOLIB_AIFF_RATE_44100;
             }
-            else if ( pData[AUDIOLIB_AIFF_COMM_RATE_EXP_OFFSET] == AUDIOLIB_AIFF_RATE_EXP_11025 )
+            else if ( pData[current + AUDIOLIB_AIFF_COMM_RATE_EXP_OFFSET] == AUDIOLIB_AIFF_RATE_EXP_11025 )
             {
                 *pSampleRate = AUDIOLIB_AIFF_RATE_11025;
             }
@@ -481,12 +648,22 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
 
         if ( pBitsPerSample )
         {
-            *pBitsPerSample = pData[AUDIOLIB_AIFF_COMM_BITS_OFFSET];
+            if ( !AudioLib_IsBufferRange(dataSize, current + AUDIOLIB_AIFF_COMM_BITS_OFFSET, sizeof(uint8_t)) )
+            {
+                return NULL;
+            }
+
+            *pBitsPerSample = pData[current + AUDIOLIB_AIFF_COMM_BITS_OFFSET];
         }
 
         if ( pNumChannels )
         {
-            *pNumChannels = pData[AUDIOLIB_AIFF_COMM_CHANNELS_OFFSET];
+            if ( !AudioLib_IsBufferRange(dataSize, current + AUDIOLIB_AIFF_COMM_CHANNELS_OFFSET, sizeof(uint8_t)) )
+            {
+                return NULL;
+            }
+
+            *pNumChannels = pData[current + AUDIOLIB_AIFF_COMM_CHANNELS_OFFSET];
         }
 
         if ( pExtraInfo )
@@ -497,18 +674,30 @@ const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pT
         // Walk the chunks until the sound data chunk
         do
         {
-            pData += size + AUDIOLIB_CHUNK_HEADER_SIZE;
-            size = AudioLib_ReadU32BE(pData);
-        } while ( pData < pEnd && !memeq(pData - AUDIOLIB_CHUNK_TAG_SIZE, AUDIOLIB_AIFF_SSND_CHUNK, sizeof(AUDIOLIB_AIFF_SSND_CHUNK) - 1) );
+            uint64_t next = current + (uint64_t)size + AUDIOLIB_CHUNK_HEADER_SIZE;
+            if ( !AudioLib_IsBufferRange(dataSize, next, sizeof(uint32_t)) )
+            {
+                return NULL;
+            }
 
-        if ( pData < pEnd )
+            current = next;
+            size = AudioLib_ReadU32BE(pData + current);
+        } while ( current < endOffset && !memeq(pData + current - AUDIOLIB_CHUNK_TAG_SIZE, AUDIOLIB_AIFF_SSND_CHUNK, sizeof(AUDIOLIB_AIFF_SSND_CHUNK) - 1) );
+
+        if ( current < endOffset )
         {
             if ( pSoundDataSize )
             {
                 *pSoundDataSize = size - AUDIOLIB_AIFF_SSND_HEADER_SIZE;
             }
 
-            return pData + AUDIOLIB_CHUNK_SIZE_SIZE + AUDIOLIB_AIFF_SSND_HEADER_SIZE;
+            uint64_t dataOffset = current + AUDIOLIB_CHUNK_SIZE_SIZE + AUDIOLIB_AIFF_SSND_HEADER_SIZE;
+            if ( dataOffset > UINT32_MAX )
+            {
+                return NULL;
+            }
+
+            return pData + dataOffset;
         }
 
         return NULL;
