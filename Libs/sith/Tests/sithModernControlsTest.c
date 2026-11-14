@@ -8,7 +8,9 @@
 
 #include <sith/Devices/sithControl.h>
 #include <sith/Engine/sithCamera.h>
+#include <sith/Engine/sithCollision.h>
 #include <sith/Engine/sithModernCamera.h>
+#include <sith/Engine/sithPhysics.h>
 #include <sith/Engine/sithPuppet.h>
 #include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithPlayer.h>
@@ -36,6 +38,8 @@ static SithThing sithModernControlsTest_player;
 static SithCamera sithModernControlsTest_camera;
 static SithSector sithModernControlsTest_sector;
 static SithPuppetState sithModernControlsTest_puppetState;
+
+static void sithModernControlsTest_CleanupStepWorld(void); // Added
 
 // Added: a sight test that models a wall which the camera can see past but Indy cannot: only an
 // eye behind Indy (negative Y) has line of sight.
@@ -265,6 +269,7 @@ TEST_SETUP(sithModernControls)
 
 TEST_TEAR_DOWN(sithModernControls)
 {
+    sithModernControlsTest_CleanupStepWorld();
     sithControl_ClearKeyOverrides();
 
     if ( sithControl_IsOpen() )
@@ -539,22 +544,21 @@ TEST(sithModernControls, ComputeQuickStepLockedUsesIndysFacing)
     TEST_ASSERT_FALSE(out.back.bPressed);
 }
 
-TEST(sithModernControls, ComputeLockedBackHopsInsteadOfWalking)
+TEST(sithModernControls, ComputeLockedBackWalksBack)
 {
     SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
 
-    TEST_ASSERT_TRUE(out.backStep.bPressed);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.backStep.amount);
-    TEST_ASSERT_FALSE(out.back.bPressed);
+    TEST_ASSERT_TRUE(out.back.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.back.amount);
     TEST_ASSERT_TRUE(out.bTurnTowardTarget);
 
-    // A small backward push still walks back; the hop needs a clear backward stick.
+    // Any held backward stick walks back; there is no back hop.
     out = sithModernControlsTest_ComputeLock(0.0f, -0.4f, 0.0f, 0.0f, true, 0.0f);
-    TEST_ASSERT_FALSE(out.backStep.bPressed);
     TEST_ASSERT_TRUE(out.back.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(0.4f, out.back.amount);
 }
 
-TEST(sithModernControls, QuickStepBackHopsOncePerGrounding)
+TEST(sithModernControls, QuickStepBackStartsTheTimedStep)
 {
     SithThing thing;
     memset(&thing, 0, sizeof(thing));
@@ -567,18 +571,19 @@ TEST(sithModernControls, QuickStepBackHopsOncePerGrounding)
     thing.attach.attachedToStructure.pSurfaceAttached = &surface;
     thing.orient.lvec  = (rdVector3){ { 0.0f }, { 1.0f }, { 0.0f } };
 
-    sithPlayerActions_QuickStepBack(&thing);
+    sithPlayerActions_StartTimedStep(&thing, /*bBackward=*/true);
 
-    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_JUMPBACK, thing.moveStatus);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, -0.35f, thing.moveInfo.physics.velocity.y);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.6f, thing.moveInfo.physics.velocity.z);
-    TEST_ASSERT_EQUAL_INT(0, thing.attach.flags);
+    // The step uses the walking state, stays on the ground and never becomes the back hop.
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_WALKING, thing.moveStatus);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_FALSE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_EQUAL_INT(SITH_ATTACH_SURFACE, thing.attach.flags);
+    TEST_ASSERT_TRUE(rdVector_IsZero3(&thing.moveInfo.physics.velocity));
 
-    // Still airborne: the held stick must not launch another hop.
-    rdVector3 velocity = thing.moveInfo.physics.velocity;
-    sithPlayerActions_QuickStepBack(&thing);
-    TEST_ASSERT_EQUAL_FLOAT(velocity.y, thing.moveInfo.physics.velocity.y);
-    TEST_ASSERT_EQUAL_FLOAT(velocity.z, thing.moveInfo.physics.velocity.z);
+    sithPlayerActions_StopTimedStep(&thing);
+
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, thing.moveStatus);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
 }
 
 TEST(sithModernControls, LockedSidestepDropsFinishedStepForChaining)
@@ -1012,7 +1017,7 @@ TEST(sithModernControls, UpdateQuickStepModifierSuppressesMovementWithoutADirect
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
 }
 
-TEST(sithModernControls, UpdateLockedBackTakesTheStepPath)
+TEST(sithModernControls, UpdateLockedBackStartsContinuousBackpedal)
 {
     sithControl_SetModernControlStyle(true);
 
@@ -1020,16 +1025,27 @@ TEST(sithModernControls, UpdateLockedBackTakesTheStepPath)
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
     TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
 
-    // The Compute lock case reports the back hop; the update suppresses the backpedal keys.
-    SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
-    TEST_ASSERT_TRUE(out.backStep.bPressed);
-    TEST_ASSERT_FALSE(out.back.bPressed);
+    // A held backward stick while locked starts the continuous backpedal, not the back hop.
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_TRUE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_WALKING, sithModernControlsTest_player.moveStatus);
+    TEST_ASSERT_EQUAL_INT(SITH_ATTACH_SURFACE, sithModernControlsTest_player.attach.flags);
+    TEST_ASSERT_TRUE(rdVector_IsZero3(&sithModernControlsTest_player.moveInfo.physics.velocity));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
+
+    // Releasing the stick stops it at once and returns to standing.
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, sithModernControlsTest_player.moveStatus);
 
     sithModernControlsTest_ReadKey(STDKEY_F, 0);
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
 }
 
-TEST(sithModernControls, UpdateQuickStepBackHopsOnce)
+TEST(sithModernControls, UpdateQuickStepBackStartsTheTimedStep)
 {
     sithControl_SetModernControlStyle(true);
 
@@ -1037,23 +1053,24 @@ TEST(sithModernControls, UpdateQuickStepBackHopsOnce)
     memset(&surface, 0, sizeof(surface));
     sithModernControlsTest_player.attach.attachedToStructure.pSurfaceAttached = &surface;
 
-    // Down plus the modifier resolves to a backward step and starts the original back hop once.
+    // Down plus the modifier resolves to a backward step that never leaves the ground.
     sithModernControlsTest_ReadKey(STDKEY_LMENU, 1);
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
 
-    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_JUMPBACK, sithModernControlsTest_player.moveStatus);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, -0.35f, sithModernControlsTest_player.moveInfo.physics.velocity.y);
-    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.6f, sithModernControlsTest_player.moveInfo.physics.velocity.z);
-    TEST_ASSERT_EQUAL_INT(0, sithModernControlsTest_player.attach.flags);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_FALSE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_WALKING, sithModernControlsTest_player.moveStatus);
+    TEST_ASSERT_EQUAL_INT(SITH_ATTACH_SURFACE, sithModernControlsTest_player.attach.flags);
+    TEST_ASSERT_TRUE(rdVector_IsZero3(&sithModernControlsTest_player.moveInfo.physics.velocity));
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
 
-    // Airborne, the held modifier and direction cannot start another hop.
-    rdVector3 velocity = sithModernControlsTest_player.moveInfo.physics.velocity;
+    // The held modifier and direction cannot start another step until this one finishes.
+    sithControl_ReadControls();
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
-    TEST_ASSERT_EQUAL_FLOAT(velocity.y, sithModernControlsTest_player.moveInfo.physics.velocity.y);
-    TEST_ASSERT_EQUAL_FLOAT(velocity.z, sithModernControlsTest_player.moveInfo.physics.velocity.z);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
 
+    sithPlayerActions_StopTimedStep(&sithModernControlsTest_player);
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
     sithModernControlsTest_ReadKey(STDKEY_LMENU, 0);
 }
@@ -1571,11 +1588,10 @@ TEST(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys)
 
 TEST(sithModernControls, ComputeLockHoldsSidestepKeys)
 {
-    // A clear backward stick hops instead of backpedaling.
+    // A clear backward stick walks back instead of hopping.
     SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
-    TEST_ASSERT_TRUE(out.backStep.bPressed);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.backStep.amount);
-    TEST_ASSERT_FALSE(out.back.bPressed);
+    TEST_ASSERT_TRUE(out.back.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.back.amount);
     TEST_ASSERT_FALSE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.strafeLeft.bPressed);
     TEST_ASSERT_FALSE(out.strafeRight.bPressed);
@@ -1591,12 +1607,11 @@ TEST(sithModernControls, ComputeLockHoldsSidestepKeys)
     out = sithModernControlsTest_ComputeLock(-1.0f, 0.0f, 0.0f, 0.0f, true, 0.0f);
     TEST_ASSERT_TRUE(out.strafeLeft.bPressed);
 
-    // A small diagonal that is not sideways keeps the original backpedal.
+    // A small diagonal that is not sideways still walks back.
     out = sithModernControlsTest_ComputeLock(0.2f, -0.4f, 0.0f, 0.0f, true, 0.0f);
     TEST_ASSERT_FALSE(out.strafeLeft.bPressed);
     TEST_ASSERT_FALSE(out.strafeRight.bPressed);
     TEST_ASSERT_TRUE(out.back.bPressed);
-    TEST_ASSERT_FALSE(out.backStep.bPressed);
 }
 
 TEST(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing)
@@ -1759,6 +1774,382 @@ TEST(sithModernControls, MomentumAndAccelerationLeaveClassicAndWaterAndAirAlone)
 }
 #endif
 
+// Added: a small flat sector for the timed-step travel and ledge cases. The player sits at the
+// origin, and the floor's +Y edge can be moved to model a ledge.
+#define SITHMODERNCONTROLS_TEST_STEP_EDGE 0.06f
+
+static SithWorld sithModernControlsTest_stepWorld;
+static SithThing sithModernControlsTest_stepThings[1];
+static SithSector sithModernControlsTest_stepSector;
+static SithSurface sithModernControlsTest_stepFloor;
+static rdVector3 sithModernControlsTest_stepVertices[4];
+static int sithModernControlsTest_stepFaceVerts[4] = { 0, 1, 2, 3 };
+static rdPuppet sithModernControlsTest_stepPuppet;
+static rdThing sithModernControlsTest_stepRdThing;
+static rdModel3 sithModernControlsTest_stepModel;
+static SithPlayer sithModernControlsTest_stepPlayer;
+static SithPuppetState sithModernControlsTest_stepPuppetState;
+static SithPuppetClass sithModernControlsTest_stepPuppetClass;
+static rdKeyframe sithModernControlsTest_stepStrafeKf;
+static rdKeyframe sithModernControlsTest_stepWalkKf;
+static rdKeyframe sithModernControlsTest_stepWalkBackKf;
+static rdKeyframe sithModernControlsTest_stepStandKf;
+static rdKeyframe sithModernControlsTest_stepHopBackKf;
+static bool sithModernControlsTest_bStepWorldInit;
+
+static void sithModernControlsTest_CleanupStepWorld(void)
+{
+    if ( !sithModernControlsTest_bStepWorldInit )
+    {
+        return;
+    }
+
+    SithThing* pThing = &sithModernControlsTest_stepThings[0];
+    if ( pThing->pPuppetState && pThing->renderData.pPuppet )
+    {
+        sithPuppet_RemoveAllTracks(pThing);
+    }
+
+    sithPlayerActions_CancelTimedStep();
+    sithPlayer_g_pLocalPlayerThing = NULL;
+    sithWorld_g_pCurrentWorld      = NULL;
+    sithModernControlsTest_bStepWorldInit = false;
+}
+
+static SithThing* sithModernControlsTest_InitStepWorld(float floorEdgeY)
+{
+    if ( !sithModernControlsTest_bStepWorldInit )
+    {
+        sithCollision_Startup();
+    }
+
+    memset(&sithModernControlsTest_stepWorld, 0, sizeof(sithModernControlsTest_stepWorld));
+    memset(&sithModernControlsTest_stepThings, 0, sizeof(sithModernControlsTest_stepThings));
+    memset(&sithModernControlsTest_stepSector, 0, sizeof(sithModernControlsTest_stepSector));
+    memset(&sithModernControlsTest_stepFloor, 0, sizeof(sithModernControlsTest_stepFloor));
+    memset(&sithModernControlsTest_stepPuppet, 0, sizeof(sithModernControlsTest_stepPuppet));
+    memset(&sithModernControlsTest_stepRdThing, 0, sizeof(sithModernControlsTest_stepRdThing));
+    memset(&sithModernControlsTest_stepModel, 0, sizeof(sithModernControlsTest_stepModel));
+    memset(&sithModernControlsTest_stepPlayer, 0, sizeof(sithModernControlsTest_stepPlayer));
+    memset(&sithModernControlsTest_stepPuppetState, 0, sizeof(sithModernControlsTest_stepPuppetState));
+    memset(&sithModernControlsTest_stepPuppetClass, 0, sizeof(sithModernControlsTest_stepPuppetClass));
+    memset(&sithModernControlsTest_stepStrafeKf, 0, sizeof(sithModernControlsTest_stepStrafeKf));
+    memset(&sithModernControlsTest_stepWalkKf, 0, sizeof(sithModernControlsTest_stepWalkKf));
+    memset(&sithModernControlsTest_stepWalkBackKf, 0, sizeof(sithModernControlsTest_stepWalkBackKf));
+    memset(&sithModernControlsTest_stepStandKf, 0, sizeof(sithModernControlsTest_stepStandKf));
+    memset(&sithModernControlsTest_stepHopBackKf, 0, sizeof(sithModernControlsTest_stepHopBackKf));
+
+    sithModernControlsTest_stepVertices[0] = (rdVector3){ -1.0f, -1.0f, 0.0f };
+    sithModernControlsTest_stepVertices[1] = (rdVector3){ 1.0f, -1.0f, 0.0f };
+    sithModernControlsTest_stepVertices[2] = (rdVector3){ 1.0f, floorEdgeY, 0.0f };
+    sithModernControlsTest_stepVertices[3] = (rdVector3){ -1.0f, floorEdgeY, 0.0f };
+
+    sithModernControlsTest_stepFloor.pSector       = &sithModernControlsTest_stepSector;
+    sithModernControlsTest_stepFloor.flags         = SITH_SURFACE_ISFLOOR | SITH_SURFACE_COLLISION;
+    sithModernControlsTest_stepFloor.face.numVertices = 4;
+    sithModernControlsTest_stepFloor.face.aVertices   = sithModernControlsTest_stepFaceVerts;
+    sithModernControlsTest_stepFloor.face.normal      = (rdVector3){ 0.0f, 0.0f, 1.0f };
+
+    // Added: no collide box, so the surface search always checks the floor face (a collide box
+    // makes the search skip surfaces for points inside it).
+    sithModernControlsTest_stepSector.flags         = 0;
+    sithModernControlsTest_stepSector.collideBox.v0 = (rdVector3){ -10.0f, -10.0f, -1.0f };
+    sithModernControlsTest_stepSector.collideBox.v1 = (rdVector3){ 10.0f, 10.0f, 1.0f };
+    sithModernControlsTest_stepSector.numSurfaces   = 1;
+    sithModernControlsTest_stepSector.pFirstSurface = &sithModernControlsTest_stepFloor;
+    sithModernControlsTest_stepSector.radius        = 10.0f;
+
+    sithModernControlsTest_stepWorld.numVertices = 4;
+    sithModernControlsTest_stepWorld.aVertices   = sithModernControlsTest_stepVertices;
+    sithModernControlsTest_stepWorld.numSectors  = 1;
+    sithModernControlsTest_stepWorld.aSectors    = &sithModernControlsTest_stepSector;
+    sithModernControlsTest_stepWorld.numSurfaces = 1;
+    sithModernControlsTest_stepWorld.aSurfaces   = &sithModernControlsTest_stepFloor;
+    sithModernControlsTest_stepWorld.numThings   = 1;
+    sithModernControlsTest_stepWorld.aThings     = sithModernControlsTest_stepThings;
+    sithModernControlsTest_stepWorld.gravity     = 0.5f;
+
+    SithThing* pThing = &sithModernControlsTest_stepThings[0];
+    pThing->type         = SITH_THING_PLAYER;
+    pThing->moveType     = SITH_MT_PHYSICS;
+    pThing->moveStatus   = SITHPLAYERMOVE_STILL;
+    pThing->idx          = 0;
+    pThing->pInSector    = &sithModernControlsTest_stepSector;
+    pThing->pos          = (rdVector3){ 0.0f, 0.0f, 0.09f };
+    pThing->collide.movesize = 0.04f;
+    pThing->moveInfo.physics.height = 0.09f;
+    pThing->moveInfo.physics.flags  = SITH_PF_USETHRUST | SITH_PF_ALIGNUP;
+    pThing->moveInfo.physics.surfDrag = 2.0f;
+    pThing->thingInfo.actorInfo.maxThrust = 1.0f;
+    sithModernControlsTest_stepPlayer.curWeaponID = SITHWEAPON_NO_WEAPON;
+    pThing->thingInfo.actorInfo.pPlayer = &sithModernControlsTest_stepPlayer;
+    pThing->orient.lvec = (rdVector3){ 0.0f, 1.0f, 0.0f };
+    pThing->orient.rvec = (rdVector3){ 1.0f, 0.0f, 0.0f };
+    pThing->orient.uvec = (rdVector3){ 0.0f, 0.0f, 1.0f };
+    pThing->attach.flags = SITH_ATTACH_SURFACE;
+    pThing->attach.pFace = &sithModernControlsTest_stepFloor.face;
+    pThing->attach.attachedToStructure.pSurfaceAttached = &sithModernControlsTest_stepFloor;
+
+    // Added: 10 frames at 25 fps is a 0.4 s sidestep in this fixture.
+    sithModernControlsTest_stepStrafeKf.numFrames = 10;
+    sithModernControlsTest_stepStrafeKf.fps       = 25.0f;
+    sithModernControlsTest_stepWalkKf.numFrames   = 20;
+    sithModernControlsTest_stepWalkKf.fps         = 25.0f;
+    sithModernControlsTest_stepWalkKf.flags       = RDKEYFRAME_PUPPET_CONTROLLED | RDKEYFRAME_DISABLE_FADEIN;
+    sithModernControlsTest_stepWalkBackKf.numFrames = 20;
+    sithModernControlsTest_stepWalkBackKf.fps       = 25.0f;
+    sithModernControlsTest_stepWalkBackKf.flags     = RDKEYFRAME_PUPPET_CONTROLLED | RDKEYFRAME_DISABLE_FADEIN;
+    sithModernControlsTest_stepStandKf.numFrames  = 20;
+    sithModernControlsTest_stepStandKf.fps        = 25.0f;
+    sithModernControlsTest_stepHopBackKf.numFrames = 20;
+    sithModernControlsTest_stepHopBackKf.fps       = 25.0f;
+
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_STRAFELEFT].pKeyframe = &sithModernControlsTest_stepStrafeKf;
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_WALK].pKeyframe        = &sithModernControlsTest_stepWalkKf;
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_WALK].flags            = sithModernControlsTest_stepWalkKf.flags;
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_WALKBACK].pKeyframe    = &sithModernControlsTest_stepWalkBackKf;
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_WALKBACK].flags        = sithModernControlsTest_stepWalkBackKf.flags;
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_STAND].pKeyframe       = &sithModernControlsTest_stepStandKf;
+    sithModernControlsTest_stepPuppetClass.aModes[0][SITHPUPPETSUBMODE_HOPBACK].pKeyframe     = &sithModernControlsTest_stepHopBackKf;
+
+    sithModernControlsTest_stepRdThing.data.pModel3 = &sithModernControlsTest_stepModel;
+    sithModernControlsTest_stepRdThing.pThing       = pThing;
+    sithModernControlsTest_stepPuppet.pThing        = &sithModernControlsTest_stepRdThing;
+
+    pThing->pPuppetClass     = &sithModernControlsTest_stepPuppetClass;
+    pThing->pPuppetState     = &sithModernControlsTest_stepPuppetState;
+    pThing->renderData.pPuppet = &sithModernControlsTest_stepPuppet;
+
+    sithWorld_g_pCurrentWorld      = &sithModernControlsTest_stepWorld;
+    sithPlayer_g_pLocalPlayerThing = pThing;
+    sithControl_SetModernControlStyle(true);
+    sithModernControls_ResetLock();
+    sithPlayerActions_CancelTimedStep();
+    sithModernControlsTest_bStepWorldInit = true;
+
+    return pThing;
+}
+
+// Added: drive the step and move the thing exactly as the physics step would after it. The
+// collision move keeps the walking ledge checks and any world collision.
+static int sithModernControlsTest_AdvanceStep(SithThing* pThing, float secDeltaTime, int maxFrames)
+{
+    int frames = 0;
+    while ( sithPlayerActions_IsTimedStepActive() && frames < maxFrames )
+    {
+        sithPlayerActions_UpdateTimedStep(pThing, secDeltaTime);
+        if ( !sithPlayerActions_IsTimedStepActive() )
+        {
+            break;
+        }
+
+        rdVector3 moveNorm = pThing->moveInfo.physics.velocity;
+        float moveDist     = rdVector_Len3(&moveNorm) * secDeltaTime;
+        if ( moveDist > 0.0f )
+        {
+            rdVector_Normalize3Acc(&moveNorm);
+            sithCollision_MoveThing(pThing, &moveNorm, moveDist, 0);
+        }
+
+        ++frames;
+    }
+
+    return frames;
+}
+
+#ifdef J3D_QOL_IMPROVEMENTS
+TEST(sithModernControls, TimedStepTimeAndSpeedComeFromTheStrafeAnimation)
+{
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    // The fixture's StrafeLeft animation is 10 frames at 25 fps.
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.4f, sithPlayerActions_GetSidestepTime(pThing));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.25f, sithPlayerActions_GetTimedStepSpeed(pThing));
+
+    // Under the lock the animation, and therefore the step, runs at twice the rate.
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(pThing, 0.01f);
+    TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, sithPlayerActions_GetTimedStepSpeed(pThing));
+
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
+    sithModernControls_Update(pThing, 0.01f);
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+TEST(sithModernControls, TimedStepForwardTravelsTheSidestepDistanceInSeveralFrames)
+{
+    const float secDeltaTime = 1.0f / 30.0f;
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    sithPlayerActions_StartTimedStep(pThing, /*bBackward=*/false);
+
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_WALKING, pThing->moveStatus);
+    TEST_ASSERT_TRUE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_WALK));
+
+    int frames = sithModernControlsTest_AdvanceStep(pThing, secDeltaTime, 200);
+
+    TEST_ASSERT_GREATER_THAN_INT(1, frames);
+    TEST_ASSERT_FLOAT_WITHIN(secDeltaTime, 0.4f, (float)frames * secDeltaTime);
+    TEST_ASSERT_FLOAT_WITHIN(0.005f, 0.1f, pThing->pos.y);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, pThing->pos.x);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, pThing->moveStatus);
+    TEST_ASSERT_FALSE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_WALK));
+
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+TEST(sithModernControls, TimedStepBackTravelsTheSidestepDistanceInSeveralFrames)
+{
+    const float secDeltaTime = 1.0f / 30.0f;
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    sithPlayerActions_StartTimedStep(pThing, /*bBackward=*/true);
+
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_TRUE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_WALKBACK));
+    TEST_ASSERT_FALSE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_HOPBACK));
+
+    int frames = sithModernControlsTest_AdvanceStep(pThing, secDeltaTime, 200);
+
+    TEST_ASSERT_GREATER_THAN_INT(1, frames);
+    TEST_ASSERT_FLOAT_WITHIN(secDeltaTime, 0.4f, (float)frames * secDeltaTime);
+    TEST_ASSERT_FLOAT_WITHIN(0.005f, -0.1f, pThing->pos.y);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, pThing->moveStatus);
+
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+TEST(sithModernControls, TimedStepStopsAtALedge)
+{
+    const float secDeltaTime = 1.0f / 30.0f;
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(SITHMODERNCONTROLS_TEST_STEP_EDGE);
+
+    sithPlayerActions_StartTimedStep(pThing, /*bBackward=*/false);
+    sithModernControlsTest_AdvanceStep(pThing, secDeltaTime, 200);
+
+    // The walking ledge check stops Indy before the floor ends, so he never takes the full step.
+    TEST_ASSERT_GREATER_THAN_FLOAT(0.0f, pThing->pos.y);
+    TEST_ASSERT_LESS_THAN_FLOAT(SITHMODERNCONTROLS_TEST_STEP_EDGE, pThing->pos.y);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, pThing->moveStatus);
+
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+TEST(sithModernControls, TimedStepBlocksOtherMoves)
+{
+    const float secDeltaTime = 1.0f / 30.0f;
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    sithPlayerActions_StartTimedStep(pThing, /*bBackward=*/false);
+    sithModernControlsTest_AdvanceStep(pThing, secDeltaTime, 2);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
+
+    // A step key during the step must not start another move; the step's state is untouched.
+    sithModernControlsTest_ReadKey(STDKEY_Q, 1);
+    sithModernControls_Update(pThing, secDeltaTime);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_WALKING, pThing->moveStatus);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_Q, 0);
+    sithPlayerActions_StopTimedStep(pThing);
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+// A save calls StopTimedStep(NULL) before writing things: it must end any running step and give
+// the controls back, or the saved player would load with its controls disabled.
+TEST(sithModernControls, StopTimedStepWithoutThingEndsTheRunningStep)
+{
+    const float secDeltaTime = 1.0f / 30.0f;
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    sithPlayerActions_StartBackpedal(pThing);
+    sithModernControlsTest_AdvanceStep(pThing, secDeltaTime, 2);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_EQUAL_INT(1, pThing->thingInfo.actorInfo.bControlsDisabled);
+
+    sithPlayerActions_StopTimedStep(NULL);
+
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(0, pThing->thingInfo.actorInfo.bControlsDisabled);
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, pThing->moveStatus);
+
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+TEST(sithModernControls, LockedBackpedalUsesTheLockedSidestepSpeed)
+{
+    const float secDeltaTime = 1.0f / 30.0f;
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    // Hold the lock, then start the continuous backpedal the locked stick would start.
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(pThing, 0.01f);
+    TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
+
+    sithPlayerActions_StartBackpedal(pThing);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_TRUE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_WALKBACK));
+    TEST_ASSERT_FALSE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_HOPBACK));
+
+    float expectedSpeed = sithPlayerActions_GetTimedStepSpeed(pThing);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, expectedSpeed);
+
+    const int numFrames = 10;
+    int frames = sithModernControlsTest_AdvanceStep(pThing, secDeltaTime, numFrames);
+    TEST_ASSERT_EQUAL_INT(numFrames, frames);
+
+    float measuredSpeed = fabsf(pThing->pos.y) / ((float)numFrames * secDeltaTime);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, expectedSpeed, measuredSpeed);
+    TEST_ASSERT_TRUE(sithPlayerActions_IsBackpedalActive());
+
+    // Releasing the lock ends the continuous walk at once.
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
+    sithModernControls_Update(pThing, secDeltaTime);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsBackpedalActive());
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_STILL, pThing->moveStatus);
+    TEST_ASSERT_FALSE(sithPuppet_IsModeOnTrack(pThing, SITHPUPPETSUBMODE_WALKBACK));
+
+    sithModernControlsTest_CleanupStepWorld();
+}
+
+TEST(sithModernControls, QuickStepLeftAndRightStayOriginalSidesteps)
+{
+    SithThing* pThing = sithModernControlsTest_InitStepWorld(10.0f);
+
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 1);
+    sithModernControlsTest_ReadKey(STDKEY_LEFT, 1);
+    sithModernControls_Update(pThing, 0.01f);
+
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+
+    // The original sidestep is a force move; end it before checking the other side.
+    pThing->thingInfo.actorInfo.bForceMovePlay = 0;
+    sithPuppet_RemoveAllTracks(pThing);
+    pThing->moveStatus = SITHPLAYERMOVE_STILL;
+
+    sithModernControlsTest_ReadKey(STDKEY_LEFT, 0);
+    sithModernControls_Update(pThing, 0.01f); // re-arm the press edge
+
+    sithModernControlsTest_ReadKey(STDKEY_RIGHT, 1);
+    sithModernControls_Update(pThing, 0.01f);
+    TEST_ASSERT_FALSE(sithPlayerActions_IsTimedStepActive());
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_RIGHT, 0);
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 0);
+    sithModernControls_Update(pThing, 0.01f);
+    sithModernControlsTest_CleanupStepWorld();
+}
+#endif
+
 TEST_GROUP_RUNNER(sithModernControls)
 {
     RUN_TEST_CASE(sithModernControls, ComputeCameraBehindPressingUpMovesForward);
@@ -1781,11 +2172,13 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, SelectLockTargetRejectsOutsideCone);
     RUN_TEST_CASE(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys);
     RUN_TEST_CASE(sithModernControls, ComputeLockHoldsSidestepKeys);
+    RUN_TEST_CASE(sithModernControls, ComputeLockedBackWalksBack);
     RUN_TEST_CASE(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing);
     RUN_TEST_CASE(sithModernControls, SelectLockTargetUsesTheCameraEyeForSight);
     RUN_TEST_CASE(sithModernControls, SelectLockTargetRejectsHiddenFromCamera);
     RUN_TEST_CASE(sithModernControls, SelectLockTargetKeepsRangeFromIndy);
     RUN_TEST_CASE(sithModernControls, LockedSidestepDropsFinishedStepForChaining);
+    RUN_TEST_CASE(sithModernControls, QuickStepBackStartsTheTimedStep);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
     RUN_TEST_CASE(sithModernControls, UpdateSwimUsesCameraPitchAndSwimForward);
@@ -1810,5 +2203,15 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, UpdateTurnsHorizontalMomentumWithTheFacing);
     RUN_TEST_CASE(sithModernControls, ApplyGroundAccelerationUsesTheOriginalSurfaceTarget);
     RUN_TEST_CASE(sithModernControls, MomentumAndAccelerationLeaveClassicAndWaterAndAirAlone);
+    RUN_TEST_CASE(sithModernControls, UpdateLockedBackStartsContinuousBackpedal);
+    RUN_TEST_CASE(sithModernControls, UpdateQuickStepBackStartsTheTimedStep);
+    RUN_TEST_CASE(sithModernControls, TimedStepTimeAndSpeedComeFromTheStrafeAnimation);
+    RUN_TEST_CASE(sithModernControls, TimedStepForwardTravelsTheSidestepDistanceInSeveralFrames);
+    RUN_TEST_CASE(sithModernControls, TimedStepBackTravelsTheSidestepDistanceInSeveralFrames);
+    RUN_TEST_CASE(sithModernControls, TimedStepStopsAtALedge);
+    RUN_TEST_CASE(sithModernControls, TimedStepBlocksOtherMoves);
+    RUN_TEST_CASE(sithModernControls, StopTimedStepWithoutThingEndsTheRunningStep);
+    RUN_TEST_CASE(sithModernControls, LockedBackpedalUsesTheLockedSidestepSpeed);
+    RUN_TEST_CASE(sithModernControls, QuickStepLeftAndRightStayOriginalSidesteps);
 #endif
 }

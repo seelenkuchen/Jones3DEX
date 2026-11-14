@@ -456,6 +456,7 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
     if ( sithPlayerControls_g_bCutsceneMode )
     {
+        sithPlayerActions_CancelTimedStep(); // Added: a cutscene takes the player over
         return 0;
     }
 
@@ -470,6 +471,7 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
     if ( pPlayerThing->moveType != SITH_MT_PHYSICS )
     {
+        sithPlayerActions_CancelTimedStep(); // Added: the step only moves a physics thing
         return 0;
     }
 
@@ -481,6 +483,7 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
     if ( (pPlayerThing->flags & SITH_TF_DYING) != 0 )
     {
+        sithPlayerActions_CancelTimedStep(); // Added: death takes the player over
         sithPlayerControls_ProcessDeadPlayer(pPlayerThing, secDeltaTime);
         return 0;
     }
@@ -683,6 +686,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
                 break;
         }
     }
+
+    // Added: advance an active Modern timed step before the original movement switch reads the
+    // status. The step owns the walking state while it runs.
+    sithPlayerActions_UpdateTimedStep(pPlayerThing, secDeltaTime);
 
     switch ( pPlayerThing->moveStatus )
     {

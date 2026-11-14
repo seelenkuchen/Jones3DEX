@@ -669,16 +669,8 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
             return;
         }
 
-        // Added: a backward stick while locked plays the original back hop, chained while held,
-        // instead of the slow backpedal walk.
-        if ( pIn->y < -SITHMODERNCONTROL_LOCK_SIDEWAYS
-            && -pIn->y >= fabsf(pIn->x) )
-        {
-            pOut->backStep.bPressed = true;
-            pOut->backStep.amount   = -pIn->y;
-            return;
-        }
-
+        // Added: a backward stick while locked walks back continuously at the locked sidestep
+        // speed. The update layer turns it into the shared timed step rather than a back hop.
         if ( pIn->y > SITHMODERNCONTROL_ZERO_EPSILON )
         {
             pOut->forward.bPressed = true;
@@ -738,18 +730,18 @@ static void sithModernControls_SuppressHeldStepKeys(bool bLocked)
     }
 }
 
-// Added: run one original step. Left and right are the sidestep force moves; back is the original
-// back hop, and forward is the short forced walk that matches the sidestep distance.
+// Added: run one step. Left and right are the original sidestep force moves; forward and back are
+// the shared timed step over the same distance, without a hop or a one-frame move.
 static void sithModernControls_TriggerStep(SithThing* pPlayer, SithModernStep step)
 {
     switch ( step )
     {
         case SITHMODERNSTEP_FORWARD:
-            sithPlayerActions_QuickStepForward(pPlayer);
+            sithPlayerActions_StartTimedStep(pPlayer, /*bBackward=*/false);
             break;
 
         case SITHMODERNSTEP_BACK:
-            sithPlayerActions_QuickStepBack(pPlayer);
+            sithPlayerActions_StartTimedStep(pPlayer, /*bBackward=*/true);
             break;
 
         case SITHMODERNSTEP_LEFT:
@@ -896,11 +888,43 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         return;
     }
 
+    // Added: a timed step owns movement until it finishes. Only the lock's facing and the held
+    // locked backpedal are read; every movement key stays off, so no other move can interrupt.
+    if ( sithPlayerActions_IsTimedStepActive() )
+    {
+        if ( in.bLocked && in.bHasLockTarget )
+        {
+            sithModernControls_TurnToYaw(pPlayer, in.lockTargetYaw, secDeltaTime, /*bSnap=*/false);
+        }
+
+        if ( sithPlayerActions_IsBackpedalActive() )
+        {
+            bool bHeld = in.bLocked
+                && !in.bQuickStepHeld
+                && in.y < -SITHMODERNCONTROL_ZERO_EPSILON
+                && -in.y >= fabsf(in.x);
+            if ( !bHeld )
+            {
+                sithPlayerActions_StopTimedStep(pPlayer);
+            }
+        }
+
+        sithControl_SuppressKey(SITHCONTROL_FORWARD);
+        sithControl_SuppressKey(SITHCONTROL_BACK);
+        sithControl_SuppressKey(SITHCONTROL_TURNLEFT);
+        sithControl_SuppressKey(SITHCONTROL_TURNRIGHT);
+        sithControl_SuppressKey(SITHCONTROL_RUNFWD);
+        sithControl_SuppressKey(SITHCONTROL_ACT1);
+        sithControl_SuppressKey(SITHCONTROL_STPLEFT);
+        sithControl_SuppressKey(SITHCONTROL_STPRIGHT);
+        return;
+    }
+
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
 
     // Added: one quick-step per press. Left and right drive the original sidestep keys for this
-    // frame; forward and back call the original step actions directly because neither has a key.
+    // frame; forward and back start the shared timed step because neither has a key.
     if ( out.quickStep != SITHMODERNSTEP_NONE )
     {
         sithModernControls_bQuickStepLatched = true;
@@ -922,18 +946,20 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         sithModernControls_TriggerStep(pPlayer, out.quickStep);
     }
 
-    // Added: locked back hops as long as the stick stays back; the action itself starts the next
-    // hop only once the previous one has landed, so holding it chains.
-    if ( out.backStep.bPressed )
+    // Added: a held backward stick while locked walks back continuously at the locked sidestep
+    // ground speed. The shared timed step keeps the walk-back animation and ledge checks.
+    bool bBackpedalStarted = false;
+    if ( out.quickStep == SITHMODERNSTEP_NONE && in.bLocked && out.back.bPressed )
     {
-        sithModernControls_TriggerStep(pPlayer, SITHMODERNSTEP_BACK);
+        sithPlayerActions_StartBackpedal(pPlayer);
+        bBackpedalStarted = sithPlayerActions_IsBackpedalActive();
     }
 
-    bool bStepActive = in.bQuickStepHeld || out.backStep.bPressed;
+    bool bStepActive = in.bQuickStepHeld || bBackpedalStarted;
 
     if ( bStepActive )
     {
-        // Added: a held quick-step, or a locked back step, never runs or walks.
+        // Added: a held quick-step, or a locked backpedal, never runs or walks.
         sithControl_SuppressKey(SITHCONTROL_FORWARD);
         sithControl_SuppressKey(SITHCONTROL_BACK);
         sithControl_SuppressKey(SITHCONTROL_TURNLEFT);

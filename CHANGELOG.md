@@ -51,13 +51,15 @@
   - The Gameplay tab has a Control style option (`engine.input.controlStyle`, Modern by default).
     Modern adds camera-relative movement on the left stick, a mouse and right-stick free camera,
     quick-step by holding RB or Left Alt with a direction, quick-select on the D-pad, and target
-    lock on LT, `F` and the right mouse button with sidesteps and a back hop. New installs get a "Modern
+    lock on LT, `F` and the right mouse button with sidesteps and a timed back step. New installs get a "Modern
     keyboard and gamepad" default scheme (WASD and arrows, mouse look, Space jump, Ctrl and the
     left mouse button to activate and fire, R draw, V or the middle mouse button to snap the
      camera); Classic keeps the original tank controls and the "Keyboard and gamepad" scheme. A
      remembered scheme is never replaced. Starting, stopping and reversing move at once without the
-     original transition animations; locked sidesteps and the back hop play twice as fast at the same distance, and
-     the lock only needs the camera, not Indy, to see the target. Underwater, the left stick steers
+     original transition animations. Quick-step left and right keep the original sidestep force moves; forward
+     and back step visibly over the sidestep distance and time instead of hopping or teleporting. Locked
+     sidesteps play twice as fast at the same distance, a held backward stick backpedals continuously at
+     that locked speed, and the lock only needs the camera, not Indy, to see the target. Underwater, the left stick steers
      Indy through the camera's yaw and pitch and swims forward along that direction; on the surface
      the original camera-relative swim and ledge grab stay unchanged.
   - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old

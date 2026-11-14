@@ -59,7 +59,6 @@ typedef struct sSithModernOutput
     SithModernKey strafeLeft; // Added: locked-sideways input, held as the original STPLEFT key.
     SithModernKey strafeRight; // Added: the same for STPRIGHT.
     SithModernKey swimForward; // Added: held as the original JUMP key, which swims underwater.
-    SithModernKey backStep; // Added: locked back input, chained as the original HopBack.
     SithModernStep quickStep; // Added: one quick-step direction for this press edge.
     bool bTurnTowardTarget; // Added: the caller rotates the player's facing to targetYaw.
     float targetYaw; // Added: desired facing in the same convention as cameraYaw.

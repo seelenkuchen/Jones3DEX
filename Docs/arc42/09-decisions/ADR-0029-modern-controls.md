@@ -47,7 +47,8 @@ fixed puzzle views, overrides the free camera while it is active.
 
 - A separate milestone before M8, with its own design and tests; it reworks parts of the movement, camera
   and inventory logic in `sith` and `Jones3D`, each change marked `// Added:` or `// Altered:`.
-- Quick-step reuses the original sidestep, so alignment for block pushing and jumps matches retail.
+- Quick-step left and right reuse the original sidestep, so alignment for block pushing and jumps
+  matches retail. Forward and back use the same distance and time so the four steps stay consistent.
 - New tests need recorded inputs with expected Enhanced traces; the Retail traces must not change.
 - Speedrun and savegame behavior under Classic is unchanged; under Modern, movement differs by design.
 
@@ -100,7 +101,14 @@ direction becomes a 3D target, the facing turns toward it at 360 degrees per sec
 pitch (eased near the target, pitch limited to the original 75 degrees), and the original swim thrust
 runs from an override of its JUMP key. On the surface the original camera-relative thrust and ledge
 grab stay as they were. The fifth makes quick-step a held modifier, RB or Left Alt, plus a
-direction: the camera-relative push is resolved to the nearest of Indy's four directions and plays
-one original sidestep, one back hop, or a short forced walk equal to the sidestep's 0.1-unit travel.
-While target-locked, a backward stick chains the back hop at the locked sidestep rate instead of
-backpedaling.
+direction: the camera-relative push is resolved to the nearest of Indy's four directions and takes
+one step. The sixth gives forward and back one shared timed step: it covers the sidestep's 0.1-unit
+ground distance in the sidestep animation's measured time (frames / fps; half that time while
+locked, like the locked sidesteps) through the normal ground movement, so the walking collision and
+ledge checks stop it at walls and edges, and the puppet-controlled walk or walk-back animation
+matches the feet to the actual velocity. It holds the walking status with the controls disabled
+until it ends, then returns to standing; there is no teleport and no hop. Left and right stay the
+original sidestep force moves. While target-locked, a held backward stick is a continuous backpedal
+at the locked sidestep ground speed, with the walk-back animation and Indy facing the target; release
+stops it at once. The M7.7k locked hop-back path is removed. The step is not saved: a save
+ends a running step first, so a loaded player is never left with its controls disabled.

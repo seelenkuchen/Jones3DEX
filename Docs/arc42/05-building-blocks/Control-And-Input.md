@@ -220,17 +220,19 @@ The free camera is world-anchored in `sithModernCamera`: right-stick and mouse m
 original camera collision stays, and a camera set by a COG script or cutscene wins while active.
 Quick-step is a held modifier, RB or Left Alt, plus a direction. The camera-relative push is
 resolved to the nearest of Indy's four directions: left and right play the original sidestep force
-move, back plays the original back hop, and forward is a short forced walk over the sidestep's
-0.1-unit travel with the walk animation and the same floor check walking uses. One step per press:
-the direction must fall below 0.3 or the modifier be released before the next. While the modifier is
-held, normal movement and running are suppressed. While the target lock is held, a sideways stick
-keeps the step key held, the force move plays at twice its animation rate (same distance per step,
-half the time) and the original immediately starts the next step while the stick stays sideways; a
-backward stick chains the original back hop at the same doubled rate instead of backpedaling. Quick
-select uses the scheme's D-pad bindings: up toggles the lighter, down uses the best health item
-(herbs, then small health pack, then big herbs, then big health pack, as the original HEALTH
-function does), and left/right remain previous and next owned weapon. Favourite weapons for
-left/right are deferred.
+move; forward and back play one shared timed step over the sidestep's 0.1-unit travel. The timed
+step lasts the StrafeLeft animation's measured time (frames / fps), uses the walk or walk-back
+submode, moves through the normal ground physics so the walking collision and ledge checks apply,
+and blocks other moves until it ends. One step per press: the direction must fall below 0.3 or the
+modifier be released before the next. While the modifier is held, normal movement and running are
+suppressed. While the target lock is held, a sideways stick keeps the step key held, the force move
+plays at twice its animation rate (same distance per step, half the time) and the original
+immediately starts the next step while the stick stays sideways; a backward stick is a continuous
+backpedal at that same locked sidestep ground speed, with the walk-back animation and Indy facing
+the target, and release stops it at once. Quick select uses the scheme's D-pad bindings: up toggles
+the lighter, down uses the best health item (herbs, then small health pack, then big herbs, then big
+health pack, as the original HEALTH function does), and left/right remain previous and next owned
+weapon. Favourite weapons for left/right are deferred.
 
 ### Default schemes
 
@@ -282,7 +284,7 @@ and the pad layout of the Classic default.
 | Left Shift | Hold to run; a small stick push walks |
 | Space | Jump |
 | Left Ctrl / left mouse button | Activate and fire |
-| Left Alt (hold) + direction | Quick-step: one original sidestep, back hop or short forward walk |
+| Left Alt (hold) + direction | Quick-step: side step or a timed forward or back step |
 | F / right mouse button | Target lock |
 | C | Crawl |
 | R | Draw or holster the weapon |
@@ -298,7 +300,7 @@ and the pad layout of the Classic default.
 | RT | Activate as well (fire) |
 | B (East) | Roll |
 | Y (North) | Toggle weapon |
-| RB (hold) + direction | Quick-step: one original sidestep, back hop or short forward walk |
+| RB (hold) + direction | Quick-step: side step or a timed forward or back step |
 | LB | Unbound in this scheme |
 | LT (hold) | Target lock |
 | L3 | Crawl |
