@@ -49,11 +49,17 @@ static tVBuffer rdModel3Test_buffer;
 static int rdModel3Test_bNestedDraw;
 static int rdModel3Test_bDidNestedDraw;
 static size_t rdModel3Test_numNestedFaces;
+static int rdModel3Test_bProcEntryNull;
 
 TEST_GROUP(rdModel3);
 
 rdCacheProcEntry* rdModel3Test_GetProcEntry(void)
 {
+    if ( rdModel3Test_bProcEntryNull )
+    {
+        return NULL;
+    }
+
     TEST_ASSERT_TRUE(rdModel3Test_numQueuedFaces < STD_ARRAYLEN(rdModel3Test_aQueuedFaces));
     rdCacheProcEntry* pEntry = &rdModel3Test_aQueuedFaces[rdModel3Test_numQueuedFaces];
     *pEntry = (rdCacheProcEntry){ 0 };
@@ -147,6 +153,7 @@ TEST_SETUP(rdModel3)
     rdModel3Test_bNestedDraw = 0;
     rdModel3Test_bDidNestedDraw = 0;
     rdModel3Test_numNestedFaces = 0;
+    rdModel3Test_bProcEntryNull = 0;
     rdModel3_EnableFogRendering(0);
     rdModel3Test_pfPreviousDraw = rdModel3_RegisterFaceDraw(rdModel3_DrawFace);
 }
@@ -271,6 +278,26 @@ static void J3DAPI rdModel3Test_NestedDrawFace(const rdFace* pFace, const rdVect
     rdModel3_DrawFace(pFace, aView, bBackFace, pColor);
 }
 
+TEST(rdModel3, TestFullVertexBufferDropsTheFaceWithoutDrawing)
+{
+    rdModel3Test_InitQueuedDraw();
+    for ( size_t i = 0; i < STD_ARRAYLEN(rdModel3Test_aFaces); ++i )
+    {
+        rdModel3Test_aFaces[i].flags = (i & 1u) ? (RD_FF_TEX_CLAMP_X | RD_FF_TEX_TRANSLUCENT) : RD_FF_TEX_CLAMP_Y;
+    }
+    rdFace aOriginalFaces[6];
+    memcpy(aOriginalFaces, rdModel3Test_aFaces, sizeof(aOriginalFaces));
+
+    // Both the opaque and the alpha proc-entry fetches return NULL, as when the vertex buffer is full.
+    rdModel3Test_bProcEntryNull = 1;
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+
+    TEST_ASSERT_EQUAL_UINT(0u, rdModel3Test_numQueuedFaces);
+    TEST_ASSERT_EQUAL_INT(0, rdModel3_g_numDrawnFaces);
+    TEST_ASSERT_EQUAL_INT(0, rdModel3_g_numDrawnAlphaFaces);
+    TEST_ASSERT_EQUAL_MEMORY(aOriginalFaces, rdModel3Test_aFaces, sizeof(aOriginalFaces));
+}
+
 TEST(rdModel3, TestNestedOrdinaryDrawClearsAndRestoresOuterFlags)
 {
     rdModel3Test_InitQueuedDraw();
@@ -287,6 +314,7 @@ TEST_GROUP_RUNNER(rdModel3)
     RUN_TEST_CASE(rdModel3, TestDrawFlagsPersistInDeferredFacesWithoutChangingAssets);
     RUN_TEST_CASE(rdModel3, TestRejectedDrawAndClippedFacesDoNotLeakFlags);
     RUN_TEST_CASE(rdModel3, TestDrawFlagsCoexistWithFogAndAuthoredFlags);
+    RUN_TEST_CASE(rdModel3, TestFullVertexBufferDropsTheFaceWithoutDrawing);
     RUN_TEST_CASE(rdModel3, TestNestedOrdinaryDrawClearsAndRestoresOuterFlags);
 }
 

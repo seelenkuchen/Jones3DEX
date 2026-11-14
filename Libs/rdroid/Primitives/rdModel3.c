@@ -1869,6 +1869,12 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
         pPoly = bLitMesh ? rdCache_GetLitProcEntry() : rdCache_GetProcEntry(); // Altered: lit faces (option A L3)
     }
 
+    if ( !pPoly )
+    {
+        // Fixed: the proc entry is NULL when the vertex buffer is full.
+        return;
+    }
+
     pPoly->lightingMode  = pFace->lightingMode;
     if ( lightingMode < pFace->lightingMode )
     {
