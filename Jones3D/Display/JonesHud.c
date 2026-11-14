@@ -3564,6 +3564,26 @@ int JonesHud_ShowExitGame(void)
     return dlgResult;
 }
 
+// Added: true when the selected menu item is the real weapon (not the lighter, mirror or an idol)
+// Indy is holding now. Enhanced builds only; the original selects it again.
+static bool JonesHud_IsDrawnWeaponSelected(void)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    if ( !JonesHud_pCurSelectedMenuItem || !sithPlayer_g_pLocalPlayerThing
+        || !sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.pPlayer )
+    {
+        return false;
+    }
+
+    const int curWeaponID = (int)sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.pPlayer->curWeaponID;
+    return curWeaponID > SITHWEAPON_NO_WEAPON
+        && curWeaponID < SITHWEAPON_ZIPPO
+        && JonesHud_pCurSelectedMenuItem->inventoryID == curWeaponID;
+#else
+    return false;
+#endif
+}
+
 void JonesHud_MenuActivateItem(void)
 {
     if ( !JonesHud_pCurSelectedMenuItem || !sithPlayer_g_pLocalPlayerThing )
@@ -3597,6 +3617,13 @@ void JonesHud_MenuActivateItem(void)
             if ( sithWeapon_IsMountingWeapon(sithPlayer_g_pLocalPlayerThing) )
             {
                 JonesHud_selectedWeaponID = JonesHud_pCurSelectedMenuItem->inventoryID;
+            }
+            else if ( JonesHud_IsDrawnWeaponSelected() )
+            {
+                // Added: choosing the weapon Indy already holds puts it away, as the weapon toggle
+                // control does.
+                sithWeapon_DeselectWeapon(sithPlayer_g_pLocalPlayerThing);
+                JonesHud_selectedWeaponID = -1;
             }
             else
             {

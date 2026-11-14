@@ -835,6 +835,35 @@ TEST(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn)
     JonesHud_bSelectRootOnOpen    = false;
 }
 
+// Added: choosing the weapon Indy already holds puts it away in Enhanced builds; the lighter and a
+// different weapon are selected as before.
+TEST(JonesHud, ChoosingTheDrawnWeaponPutsItAway)
+{
+    JonesHudMenuItem item;
+    memset(&item, 0, sizeof(item));
+    JonesHudTest_pPlayerThing = &JonesHudTest_playerThing;
+    JonesHudTest_playerThing.thingInfo.actorInfo.pPlayer = &JonesHudTest_player;
+    JonesHud_pCurSelectedMenuItem = &item;
+
+    JonesHudTest_player.curWeaponID = SITHWEAPON_PISTOL;
+    item.inventoryID = SITHWEAPON_PISTOL;
+    TEST_ASSERT_EQUAL(J3D_QOL_VALUE(true, false), JonesHud_IsDrawnWeaponSelected());
+
+    item.inventoryID = SITHWEAPON_WHIP;
+    TEST_ASSERT_FALSE(JonesHud_IsDrawnWeaponSelected());
+
+    JonesHudTest_player.curWeaponID = SITHWEAPON_ZIPPO;
+    item.inventoryID = SITHWEAPON_ZIPPO;
+    TEST_ASSERT_FALSE(JonesHud_IsDrawnWeaponSelected());
+
+    JonesHudTest_player.curWeaponID = SITHWEAPON_NO_WEAPON;
+    item.inventoryID = SITHWEAPON_NO_WEAPON;
+    TEST_ASSERT_FALSE(JonesHud_IsDrawnWeaponSelected());
+
+    JonesHud_pCurSelectedMenuItem = NULL;
+    JonesHudTest_pPlayerThing = NULL;
+}
+
 TEST(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit)
 {
     JonesHudMenuItem a, b, upA, upB;
@@ -1009,6 +1038,7 @@ TEST_GROUP_RUNNER(JonesHud)
     RUN_TEST_CASE(JonesHud, GetKeyIgnoresTheDpadAndLeftStickInTheClassicStyle);
     RUN_TEST_CASE(JonesHud, ModernMenuSelectReadsTheAButton);
     RUN_TEST_CASE(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn);
+    RUN_TEST_CASE(JonesHud, ChoosingTheDrawnWeaponPutsItAway);
 }
 
 static void JonesHudTest_RunAllTests(void)
