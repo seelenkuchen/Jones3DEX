@@ -31,7 +31,7 @@ flowchart LR
 |---|---|---|
 | Executable and its libraries (SDL3; miniaudio, stb and jansson are compiled in) | Jones3D EX release package: the Linux AppImage or the Windows zip | Anywhere. The AppImage is one file; the zip is extracted into the folder the player chooses |
 | Original game data | The player's copy of the game (GOG, Steam or CD), never the release package | Found automatically, chosen in the folder picker or given with `--data`; optionally copied into `<user dir>/data` with `--install-data` |
-| Settings, savegames, screenshots, logs | Written by Jones3D EX | `~/.local/share/Jones3DEX` on Linux, `%APPDATA%\Jones3DEX` on Windows; beside the executable with `portable.txt` |
+| Settings, savegames, screenshots, logs | Written by Jones3D EX | `~/.local/share/Jones3DEX` on Linux, `%APPDATA%\Jones3DEX` on Windows; in the working directory or beside the executable with `portable.txt` |
 | Mods | The player | Planned: a mods directory beside the user data |
 
 The player-facing steps are in [Docs/Install.md](../Install.md); the reasons for the package and data
@@ -40,7 +40,8 @@ layout are in [ADR-0032](09-decisions/ADR-0032-packages-and-game-data-location.m
 ## 7.3 Packages
 
 The [release workflow](../../.github/workflows/release.yml) builds both artifacts from the same game
-component and uploads them to the workflow run. It does not create a release or publish anything.
+component, runs the unit suites in Release on Linux and Windows, and uploads the artifacts to the
+workflow run. It does not create a release or publish anything.
 
 | Artifact | Contents | Built by | Runs on |
 |---|---|---|---|

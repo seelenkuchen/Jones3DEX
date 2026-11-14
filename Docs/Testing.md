@@ -42,6 +42,8 @@ builds in two columns: the Null column (non-Windows) and the Babylon column
     - [🐧 Native Unit Builds](#native-unit-builds)
     - [🪟 Windows Unit Builds](#windows-unit-builds)
     - [🤖 CI Columns](#ci-columns)
+    - [📦 Release Workflow](#release-workflow)
+    - [🧰 Checking A Package Locally](#local-package-checks)
     - [🔎 Intermittent Failures](#intermittent-failures)
     - [⏱️ Timeouts And Shared Devices](#timeouts-and-shared-devices)
 - [📋 Validation Report](#validation-report)
@@ -946,6 +948,46 @@ macOS back on.
 
 Traces need game data, so CI runs none; compare them locally on the Null, Babylon
 and 64-bit Windows columns (see [Trace Tests](#trace-tests)).
+
+<a name="release-workflow"></a>
+
+### 📦 Release Workflow
+
+The [release workflow](../.github/workflows/release.yml) runs on `v*` tags and on `workflow_dispatch`. It
+builds the Babylon column in Release on Linux and Windows and runs the unit suites in both:
+
+- `linux-appimage` on `ubuntu-24.04` configures with `-DJONES3D_PLATFORM_BABYLON=ON -DCMAKE_BUILD_TYPE=Release`,
+  builds, lists and runs `ctest -L unit` with Mesa's lavapipe (`BABYLON_REQUIRE_GPU=1`), installs the game
+  component, and builds the AppImage with `packaging/linux/make-appimage.sh`.
+- `windows-zip` on `windows-2025-vs2026` configures the Babylon column with MSVC x64, builds in Release,
+  lists and runs `ctest -C Release -L unit`, and packs the game component with CPack into the Windows zip.
+
+Both jobs upload the artifact to the workflow run. The workflow has read-only permissions and creates no
+release.
+
+<a name="local-package-checks"></a>
+
+### 🧰 Checking A Package Locally
+
+Run the unit and source-boundary checks first:
+
+```bash
+ctest --test-dir build/native --output-on-failure -L unit
+ctest --test-dir build/native --output-on-failure -L check
+python3 Scripts/checkboundary.py --check
+```
+
+Then install the game component and build the AppImage from it:
+
+```bash
+cmake --install build --prefix staging --component game
+packaging/linux/make-appimage.sh staging build/out 0.5.0
+APPIMAGE_EXTRACT_AND_RUN=1 build/out/Jones3D_EX-0.5.0-x86_64.AppImage --version
+```
+
+`APPIMAGE_EXTRACT_AND_RUN=1` runs the AppImage without FUSE. The headless runner is in the `tools`
+component and is not packaged. On Windows, `cpack --config build/CPackConfig.cmake -C Release -B build/out`
+makes the zip. No package contains game data.
 
 <a name="intermittent-failures"></a>
 

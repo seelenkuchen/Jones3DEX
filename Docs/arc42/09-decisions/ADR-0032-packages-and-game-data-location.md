@@ -27,16 +27,18 @@ Linux package built on Ubuntu 22.04 (glibc 2.35) cannot link it.
   CRT so no Visual C++ redistributable is needed. It runs on 64-bit Windows 10 or newer.
 - **Writes go to the SDL user path `Jones3DEX`** ([ADR-0019](ADR-0019-user-directory-for-writes.md)):
   `~/.local/share/Jones3DEX` on Linux and `%APPDATA%\Jones3DEX` on Windows. **Portable mode** keeps everything in
-  the folder instead: a `portable.txt` in the working directory or next to the executable selects it. `--user-dir`
-  overrides the choice for one run.
-- **Data search order**, first folder with the required files wins: `--data <dir>`, `installPath` from
-  `Jones.cfg`, `<user dir>/data`, the executable's directory and the working directory, then known Steam and GOG
-  locations. The folder found this way becomes the run's install path. Only a folder the player picks in the
-  folder picker is written back to `installPath`.
+  the folder instead: a `portable.txt` in the working directory selects the working directory, else one next to
+  the executable selects the executable's directory. `--user-dir` overrides the choice for one run.
+- **Data search order**, first folder with `Jones3D.GOB`, `CD1.GOB` and `CD2.GOB` wins: `--data <dir>`,
+  `installPath` from `Jones.cfg`, `<user dir>/data` (`data` in portable mode), the executable's directory, the
+  working directory, Steam libraries, then GOG and other store folders. A folder may hold the files in its
+  `Resource` subfolder. The folder found this way becomes the run's install path. Only a folder the player picks
+  in the folder picker is written back to `installPath`.
 - **Point, don't copy:** the game uses an existing GOG, Steam or CD install where it is. `--install-data <dir>`
-  copies the required files into `<user dir>/data` for discs and moving installs; the source is never moved.
-- **First start without usable data** names the required files and offers a folder picker. Quitting fails cleanly
-  with a non-zero exit status.
+  copies the known files into `<user dir>/data/Resource` for discs and moving installs, one disc at a time; the
+  source is never moved.
+- **First start without usable data** names the required files and offers a folder picker in the windowed build.
+  Quitting, or a headless run without `--data`, fails cleanly with a non-zero exit status.
 - **The release workflow** builds both artifacts on `v*` tags and on `workflow_dispatch`, runs the unit tests and
   uploads the artifacts to the workflow run. It has read-only permissions and neither creates a GitHub release nor
   publishes anything; the owner attaches the artifacts by hand for now.
