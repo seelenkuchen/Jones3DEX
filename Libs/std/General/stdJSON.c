@@ -325,12 +325,19 @@ StdJSONHandle J3DAPI stdJSON_Duplicate(const StdJSONHandle hSrc)
         return NULL;
     }
 
+    // Fixed: stdJSON_New creates an empty root, which this assignment replaces; release it.
+    json_t* pEmptyRoot = hDst->pRoot;
     hDst->pRoot           = pRootCopy;
     hDst->pFilePath       = NULL;
     hDst->bAutoSave       = hSrc->bAutoSave;
     hDst->bModified       = hSrc->bModified;
     hDst->ppRequiredKeys  = NULL;
     hDst->numRequiredKeys = 0;
+
+    if ( pEmptyRoot )
+    {
+        json_decref(pEmptyRoot);
+    }
 
     if ( hSrc->pParent )
     {

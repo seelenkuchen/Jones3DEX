@@ -301,7 +301,9 @@ void* J3DAPI stdMemory_BlockMalloc(size_t size)
 {
 #if defined(J3D_64BIT)
     // Altered: The block zones assume a 32-bit header. They have no effect on game behavior, so 64-bit builds use the C allocator.
-    if ( !size )
+    // Fixed: Reject zero and overflowing requests before passing them to the C allocator, as the
+    // 32-bit block path already does.
+    if ( !size || size > SIZE_MAX - sizeof(tMemoryBlockHeader) )
     {
         return NULL;
     }

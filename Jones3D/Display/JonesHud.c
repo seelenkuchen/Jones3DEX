@@ -3592,7 +3592,11 @@ void JonesHud_MenuActivateItem(void)
     }
 
     int32_t bItemDisable = 0;
-    if ( (sithInventory_g_aTypes[JonesHud_pCurSelectedMenuItem->inventoryID].flags & SITHINVENTORY_TYPE_REGISTERED) != 0 )
+    // Fixed: system menu items have inventoryID -1, which read sithInventory_g_aTypes[-1] and the player's
+    // aItems[-1]; only real inventory items can be disabled.
+    const int inventoryID = JonesHud_pCurSelectedMenuItem->inventoryID;
+    if ( inventoryID >= 0 && inventoryID < SITHINVENTORY_MAXTYPES
+        && (sithInventory_g_aTypes[inventoryID].flags & SITHINVENTORY_TYPE_REGISTERED) != 0 )
     {
         bItemDisable = sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.pPlayer->aItems[JonesHud_pCurSelectedMenuItem->inventoryID].status & SITHINVENTORY_ITEM_DISABLED;
     }

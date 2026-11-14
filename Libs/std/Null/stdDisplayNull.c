@@ -119,10 +119,15 @@ static void* J3DAPI stdDisplay_AllocBufferPixels(const tRasterInfo* pRasterInfo)
     return STDMALLOC(size);
 }
 
+static void stdDisplay_ReleaseBuffers(void);
+
 // Added: The presentation-buffer setup of DX9's InitBuffers: the front and back buffer are
 // software RAM buffers sized from the current video mode.
 static void stdDisplay_InitBuffers(void)
 {
+    // Fixed: SetMode reinitializes the buffers, so release the previous mode's pixels first.
+    stdDisplay_ReleaseBuffers();
+
     tVBuffer* aBuffers[2] = { &stdDisplay_g_frontBuffer, &stdDisplay_g_backBuffer };
     for ( size_t i = 0; i < STD_ARRAYLEN(aBuffers); ++i )
     {

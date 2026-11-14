@@ -296,8 +296,28 @@ void J3DAPI sithPuppet_RemoveAllTracks(SithThing* pThing)
         pNextTrack = pTrack->pNextTrack;
 
         rdPuppet_RemoveTrack(pThing->renderData.pPuppet, pTrack->trackNum);
-        if ( pTrack->pNextTrack != STDMEMORY_FREEDPTR )
+
+        // Fixed: The finish callback frees the track through sithPuppet_FreeTrackByIndex, so pTrack
+        // must not be read after the call. Free and unlink it only if the callback left it in the list.
+        SithPuppetTrack* pPrevTrack = NULL;
+        SithPuppetTrack* pCurTrack  = pThing->pPuppetState->pFirstTrack;
+        while ( pCurTrack && pCurTrack != STDMEMORY_FREEDPTR && pCurTrack != pTrack )
         {
+            pPrevTrack = pCurTrack;
+            pCurTrack  = pCurTrack->pNextTrack;
+        }
+
+        if ( pCurTrack == pTrack )
+        {
+            if ( pPrevTrack )
+            {
+                pPrevTrack->pNextTrack = pNextTrack;
+            }
+            else
+            {
+                pThing->pPuppetState->pFirstTrack = pNextTrack;
+            }
+
             STDFREE(pTrack);
         }
     }
