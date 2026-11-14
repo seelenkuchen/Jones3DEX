@@ -270,6 +270,23 @@ if (JONES3D_BUILD_TESTS)
     if (J3D_PLATFORM_BABYLON)
         add_subdirectory(Platform/Babylon/Tests)
     endif()
+
+    # Added: --version answers before any engine code runs, so these tests need no game data.
+    # The expected text is built from the root project's version so a version bump updates the tests.
+    string(REPLACE "." "\\." JONES3D_VERSION_REGEX "${OpenJones3D_VERSION}")
+    set(JONES3D_VERSION_REGEX "^${JONES3D_PRODUCT_NAME} v${JONES3D_VERSION_REGEX}")
+    add_test(NAME Jones3D.Version COMMAND Jones3D-headless --version)
+    set_tests_properties(Jones3D.Version PROPERTIES
+        LABELS "unit;Jones3D"
+        PASS_REGULAR_EXPRESSION "${JONES3D_VERSION_REGEX}"
+    )
+    if (TARGET Jones3D)
+        add_test(NAME Jones3D.WindowedVersion COMMAND Jones3D --version)
+        set_tests_properties(Jones3D.WindowedVersion PROPERTIES
+            LABELS "unit;Jones3D"
+            PASS_REGULAR_EXPRESSION "${JONES3D_VERSION_REGEX}"
+        )
+    endif()
 endif()
 
 # Added: the committed UI assets (fonts, prompt PNGs, licenses) sit next to

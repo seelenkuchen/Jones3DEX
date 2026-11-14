@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.15)
 
 cmake_policy(SET CMP0091 NEW)
 
-project(OpenJones3D VERSION 0.4.0)
+project(OpenJones3D VERSION 0.5.0)
+
+set(JONES3D_PRODUCT_NAME "Jones3D EX")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

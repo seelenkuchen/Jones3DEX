@@ -472,7 +472,8 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
     // Startup modules and load level
 
-    STDLOG_DEBUG("Starting up Indiana Jones and the Infernal Machine.\n");
+    // Added: name the build's version in the first startup log line.
+    STDLOG_DEBUG("Starting up Indiana Jones and the Infernal Machine (" J3D_VERSION_FULL ").\n");
 
     stdEffect_Startup();
     rdStartup();

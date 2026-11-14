@@ -2,7 +2,10 @@
 // cvar registry and render device, installs them as the adapter's context, runs the shared headless
 // loop, then uninstalls before the objects die.
 #include <cstdio>
+#include <cstring>
 #include <memory>
+
+#include <j3dcore/j3d.h>
 
 #include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
@@ -24,6 +27,16 @@
 
 int main(int argc, char** argv)
 {
+    // Added: --version prints the build's version and exits before any engine code runs.
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp(argv[i], "--version") == 0 )
+        {
+            printf("%s\n", J3D_VERSION_FULL);
+            return 0;
+        }
+    }
+
     // Added: --render null|gpu picks the render device std3D draws with (the usage text is in
     // JonesHeadless.c). It is taken out of the arguments here, so the shared runner never sees it.
     StdRenderBabylonDeviceType renderType = StdRenderBabylonDeviceType::Null;

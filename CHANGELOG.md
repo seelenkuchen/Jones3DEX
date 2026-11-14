@@ -1,5 +1,7 @@
 ## Jones3D EX (unreleased)
 ### Hard fork of OpenJones3D
+  - This is version 0.5.0, the first Jones3D EX release; `Jones3D-headless --version` and
+    `Jones3D --version` print it.
   - The project continues as **Jones3D EX**, an enhanced source port on the new Babylon Engine. See the
     [roadmap](Docs/Roadmap.md) and the [architecture docs](Docs/arc42/README.md).
   - The last state compatible with OpenJones3D is tagged `upstream-compatible-final`. Entries below are

@@ -5,8 +5,11 @@
 // Added: std3D draws and stdDisplay presents on the render device made here, the SDL GPU device on
 // the game window (M6.6, M6.7).
 #include <cstdio>
+#include <cstring>
 #include <memory>
 #include <string>
+
+#include <j3dcore/j3d.h>
 
 #include <babylon/audio/Device.h>
 #include <babylon/audio/MiniaudioDevice.h>
@@ -37,7 +40,7 @@ namespace
     void PrintUsage(const char* pProgramName)
     {
         fprintf(stderr,
-            "usage: %s [--load <save.nds>] [--input <script>] [--quit-after-script] "
+            "usage: %s [--version] [--load <save.nds>] [--input <script>] [--quit-after-script] "
             "[--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] [--present-log <file>]\n",
             pProgramName ? pProgramName : "Jones3D");
     }
@@ -45,6 +48,16 @@ namespace
 
 int main(int argc, char** argv)
 {
+    // Added: --version prints the build's version and exits before any engine code runs.
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp(argv[i], "--version") == 0 )
+        {
+            printf("%s\n", J3D_VERSION_FULL);
+            return 0;
+        }
+    }
+
     // Added: the scripted tour's options are taken out before the game command line is built, so
     // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad
     // option exits before any engine code runs, like the headless runner's --input.
