@@ -19,6 +19,9 @@
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
   - The main view's depth range is 0.1..1.0 (it went negative just in front of the camera), so geometry very
     close to the camera is no longer cut away by the depth clip.
+  - High-poly models (`engine.renderer.hipoly`) are off by default again: the high-poly Indy model opens gaps at
+    the elbows during the backward step. Options > Display > Hi-poly models turns them back on; configs that
+    already set the key keep their value.
 
 ### Upstream fixes (OpenJones3D develop)
   - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on

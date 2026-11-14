@@ -202,7 +202,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `engine.renderer.hipoly` | bool | `true` | Enables the original high-poly models by default. |
+| `engine.renderer.hipoly` | bool | `false` | Loads the high-poly models from `hi3do` (Options > Display, "Hi-poly models"; restart to apply). Off by default: the high-poly Indy model opens gaps at the elbows during the backward step. |
 | `engine.renderer.geometry` | int | `4` | Uses the `engine.renderer.geometry` enum above. |
 | `engine.renderer.lighting` | int | `3` | Uses the `engine.renderer.lighting` enum above. |
 | `engine.renderer.fog.enabled` | bool | `true` | Global fog toggle. |
