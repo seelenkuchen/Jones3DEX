@@ -5,6 +5,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiPrompts.h>
+#include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 
 #include <babylon/platform/Event.h>
@@ -27,6 +28,7 @@
 #include <cstring>
 #include <optional>
 #include <variant>
+#include <vector>
 
 namespace
 {
@@ -355,6 +357,10 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
             stdBabylonEvents_InputState().lastDevice(), bHasBack,
             ui.focusedWidgetChangesValue(), !screen.tabs.empty()));
 
+        // Added: the frame's sound cues play after the drain. The accept and back cues of the
+        // frame that closes this modal's screen are dropped: leaving a menu (Resume, Back, a
+        // dialog's OK) is silent, like the original dialogs.
+        std::vector<int> frameSoundCues;
         while ( const std::optional<babylon::ui::UiEvent> pEvent = ui.pollEvent() )
         {
             if ( handler && handler(ui, screenId, *pEvent) )
@@ -394,8 +400,19 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 // Added: play the HUD menu's own sound for the cue. The HUD owns the menu sounds
                 // and loads them with its menu; before a world opens (the main menu at startup)
                 // its handles are zero and the cue stays silent.
-                JonesHud_PlayMenuSoundCue((int)pSound->cue);
+                frameSoundCues.push_back((int)pSound->cue);
             }
+        }
+
+        for ( const int cue : frameSoundCues )
+        {
+            if ( bClosed
+                && (cue == (int)kJonesUiSoundCueAccept || cue == (int)kJonesUiSoundCueBack) )
+            {
+                continue;
+            }
+
+            JonesHud_PlayMenuSoundCue(cue);
         }
 
         if ( bClosed )
