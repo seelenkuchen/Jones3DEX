@@ -322,12 +322,21 @@ static void JonesDataTest_StatPath(const char* pPath, int64_t* pSize, int64_t* p
     *pMtime = (int64_t)st.st_mtime;
 }
 
-// The caller has created "jones3d.gob" in the temporary directory: when the other spelling does
-// not exist, the volume is case-sensitive.
-static bool JonesDataTest_IsCaseSensitive(void)
+// The caller has created pCreatedName in the temporary directory: when the upper-case spelling
+// does not exist, the volume is case-sensitive. The name may be a file or a directory.
+static bool JonesDataTest_IsCaseSensitive(const char* pCreatedName)
 {
+    char aUpper[JONESDATA_MAX_PATH];
     char aPath[JONESDATA_MAX_PATH];
-    JonesDataTest_BuildPath(aPath, sizeof(aPath), g_aTempDir, "JONES3D.GOB");
+
+    size_t i = 0;
+    for ( ; pCreatedName[i] != '\0' && i + 1 < sizeof(aUpper); ++i )
+    {
+        aUpper[i] = (char)toupper((unsigned char)pCreatedName[i]);
+    }
+    aUpper[i] = '\0';
+
+    JonesDataTest_BuildPath(aPath, sizeof(aPath), g_aTempDir, aUpper);
 
 #ifdef _WIN32
     struct _stat64 st;
@@ -424,7 +433,7 @@ TEST(JonesData, TestFindResourceDirSubdirLower)
     JonesDataTest_WriteFile(g_aTempDir, "resource/Jones3D.GOB", "", 0);
     TEST_ASSERT_TRUE(JonesData_FindResourceDir(g_aTempDir, aDir, sizeof(aDir)));
     JonesDataTest_BuildPath(aExpected, sizeof(aExpected), g_aTempDir, "resource");
-    if ( JonesDataTest_IsCaseSensitive() )
+    if ( JonesDataTest_IsCaseSensitive("resource") )
     {
         TEST_ASSERT_EQUAL_STRING(aExpected, aDir);
     }
@@ -539,7 +548,7 @@ TEST(JonesData, TestCheckDirCaseInsensitiveNames)
     TEST_ASSERT_TRUE(report.aFiles[1].bPresent);
     TEST_ASSERT_TRUE(report.aFiles[2].bPresent);
 
-    if ( JonesDataTest_IsCaseSensitive() )
+    if ( JonesDataTest_IsCaseSensitive("jones3d.gob") )
     {
         TEST_ASSERT_TRUE(JonesDataTest_EndsWith(report.aFiles[0].aPath, "jones3d.gob"));
         TEST_ASSERT_TRUE(JonesDataTest_EndsWith(report.aFiles[2].aPath, "cd2.gob"));
