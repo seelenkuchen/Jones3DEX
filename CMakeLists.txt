@@ -98,6 +98,11 @@ if (JONES3D_PLATFORM_BABYLON)
     set(J3D_PLATFORM_BABYLON ON)
 endif()
 
+# Use the static CRT for optimized configurations and the debug DLL CRT for Debug.
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+    "$<$<CONFIG:Debug>:MultiThreadedDebugDLL>$<$<CONFIG:Release>:MultiThreaded>$<$<CONFIG:RelWithDebInfo>:MultiThreaded>$<$<CONFIG:MinSizeRel>:MultiThreaded>"
+)
+
 if (JONES3D_BUILD_BABYLON)
     set(BABYLON_BUILD_TESTS ${JONES3D_BUILD_TESTS} CACHE BOOL "" FORCE)
     set(BABYLON_SANITIZE ${JONES3D_SANITIZE} CACHE BOOL "" FORCE)
@@ -117,11 +122,6 @@ configure_file(
     "${JONES3D_GENERATED_INCLUDE_DIR}/j3dcore/j3d.h"
 )
 include_directories(BEFORE "${JONES3D_GENERATED_INCLUDE_DIR}")
-
-# Use the static CRT for optimized configurations and the debug DLL CRT for Debug.
-set(CMAKE_MSVC_RUNTIME_LIBRARY
-    "$<$<CONFIG:Debug>:MultiThreadedDebugDLL>$<$<CONFIG:Release>:MultiThreaded>$<$<CONFIG:RelWithDebInfo>:MultiThreaded>$<$<CONFIG:MinSizeRel>:MultiThreaded>"
-)
 
 if (MSVC)
     # Clion IDE can't read the preprocessor macro below and needs special treatment
