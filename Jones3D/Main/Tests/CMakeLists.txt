@@ -40,6 +40,46 @@ set_tests_properties(Jones3D.Capture PROPERTIES
     TIMEOUT 60
 )
 
+# Added: the game data check (ADR-0021, M8.3). It is plain C and needs no platform, so its test
+# links the module directly, like jonesCaptureTests above.
+add_executable(jonesDataTests
+    JonesDataTestRunner.c
+    JonesDataTest.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesData.c"
+)
+
+target_include_directories(jonesDataTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+if (APPLE OR MSVC)
+    target_link_libraries(jonesDataTests PRIVATE
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jonesDataTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+        m
+    )
+endif()
+
+set_target_properties(jonesDataTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    JonesDataTestRunner.c
+    JonesDataTest.c
+)
+
+add_test(NAME Jones3D.Data COMMAND jonesDataTests)
+set_tests_properties(Jones3D.Data PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 120
+)
+
 # Added: the video mode lookup JonesMain_FindClosestVideoMode (JonesMainTest.c). JonesMain.c needs
 # the rest of the application layer, so the test links the Jones3DGame objects and the platform
 # helpers of Platform/Null without its main(), like the Babylon column's Jones3D-headless. The
