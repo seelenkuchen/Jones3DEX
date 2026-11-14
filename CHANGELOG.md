@@ -15,6 +15,7 @@
     `rand` and other random choices follow the retail sequence; this also makes the jeep's bumps work natively.
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Loading a save or level no longer risks a crash from a stale lip-sync pointer on 64-bit.
+  - Malformed sound files are refused instead of read out of bounds.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
 
 ### Upstream fixes (OpenJones3D develop)

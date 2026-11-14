@@ -114,6 +114,8 @@ void Sound_TestResetLipSyncState(void);
 void Sound_TestSetOpenState(void); // Added: ADR-0027 - open the layer's clock without touching a driver
 void Sound_TestSetChannels(tSoundChannel* pChannels, size_t numChannels);
 void Sound_TestSetSoundBank(size_t bankNum, SoundInfo* pSoundInfos, size_t numSounds, uint8_t* pSoundCache, size_t cacheSize);
+void Sound_TestSetSoundBankCapacity(size_t bankNum, size_t sizeSounds);
+size_t Sound_TestGetNumSounds(size_t bankNum);
 void Sound_TestSetOpen(int bOpen);
 void Sound_TestSetNoLipSync(int bNoLipSync);
 void Sound_TestSetCurrentPosition(size_t position);

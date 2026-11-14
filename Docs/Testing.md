@@ -1100,7 +1100,10 @@ covered by original-engine vectors captured from retail v1.0 `Indy3D.exe` and
 stored in `Libs/sound/Tests/tv/AudioLib` (provenance, case lists, preserved
 quirks and the inputs kept out of the corpus are in that directory's
 `README.md`). The `TestOriginal*` cases compare complete outputs, return values
-and compressor state, including chained block calls.
+and compressor state, including chained block calls. The parse vectors now run on
+64-bit hosts: the parser takes the input length, and the two iMUS `MAP ` size
+cases (0 and 8) whose captured result depends on the original's 32-bit index wrap
+are excluded and asserted to return NULL.
 
 <a name="smush-fixtures"></a>
 
