@@ -22,11 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The SDL3 build dependency set of game-native.yml, plus `file`, which
-      # appimagetool calls.
+      # appimagetool calls, and the static innoextract build dependencies.
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build file libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdrm-dev libgbm-dev libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev mesa-vulkan-drivers
+          sudo apt-get install -y ninja-build file libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdrm-dev libgbm-dev libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev mesa-vulkan-drivers libboost-date-time-dev libboost-filesystem-dev libboost-iostreams-dev libboost-program-options-dev liblzma-dev zlib1g-dev libbz2-dev
       # The shader toolchain and compiled shaders share the repository root's
       # .cache, like in game-native.yml.
       - name: Cache the shader toolchain
@@ -47,15 +47,25 @@ jobs:
         run: ctest --test-dir build --output-on-failure -L unit
       - name: Install the game component
         run: cmake --install build --prefix staging --component game
+      - name: Build innoextract
+        run: packaging/linux/build-innoextract.sh build/innoextract
       - name: Build the AppImage
         env:
           ARCH: x86_64
+          INNOEXTRACT_DIR: ${{ github.workspace }}/build/innoextract
         run: |
           version="${GITHUB_REF_NAME#v}"
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
             version="$(sed -n 's/^project(OpenJones3D VERSION \([0-9][0-9.]*\)).*/\1/p' CMakeLists.txt)"
           fi
           packaging/linux/make-appimage.sh staging build/out "$version"
+      - name: Check the AppImage
+        run: |
+          appimage=$(find build/out -maxdepth 1 -name '*.AppImage' -print -quit)
+          rm -rf squashfs-root
+          "$appimage" --appimage-extract >/dev/null
+          squashfs-root/usr/bin/innoextract --version
+          ldd squashfs-root/usr/bin/innoextract
       - uses: actions/upload-artifact@v4
         with:
           name: Jones3D_EX-AppImage
