@@ -306,6 +306,34 @@ if (J3D_PLATFORM_BABYLON)
         endif()
     endforeach()
 
-    install(TARGETS Jones3D-headless Jones3D RUNTIME DESTINATION ".")
-    install(DIRECTORY "${JONES3D_UI_DATA_DIR}" DESTINATION ".")
+    # Added: the player package layout (M8.5). The game component carries the
+    # windowed program and the UI data next to it; the headless runner is a
+    # tool and is not part of a package. `cmake --install --component game`
+    # produces the tree both the AppImage script and CPack start from.
+    install(TARGETS Jones3D RUNTIME DESTINATION "." COMPONENT game)
+    install(DIRECTORY "${JONES3D_UI_DATA_DIR}" DESTINATION "." COMPONENT game)
+    install(TARGETS Jones3D-headless RUNTIME DESTINATION "." COMPONENT tools)
+    install(FILES "${CMAKE_SOURCE_DIR}/README.md" "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
+        DESTINATION "." COMPONENT game)
+
+    # Added: the licenses of everything compiled into the windowed program:
+    # the game, Babylon, SDL3, miniaudio, stb and jansson. Data/ already carries
+    # the font and prompt licenses of the UI assets.
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+        DESTINATION "licenses" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Babylon/LICENSE"
+        DESTINATION "licenses/Babylon" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Babylon/third_party/miniaudio/LICENSE"
+        DESTINATION "licenses/miniaudio" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Babylon/third_party/stb/LICENSE"
+        DESTINATION "licenses/stb" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Libs/external/jansson/LICENSE"
+        DESTINATION "licenses/jansson" COMPONENT game)
+    get_property(JONES3D_SDL3_SOURCE_DIR GLOBAL PROPERTY BABYLON_SDL3_SOURCE_DIR)
+    if (JONES3D_SDL3_SOURCE_DIR AND EXISTS "${JONES3D_SDL3_SOURCE_DIR}/LICENSE.txt")
+        install(FILES "${JONES3D_SDL3_SOURCE_DIR}/LICENSE.txt"
+            DESTINATION "licenses/SDL3" COMPONENT game)
+    else()
+        message(WARNING "SDL3's license file was not found; packages will lack licenses/SDL3")
+    endif()
 endif()

@@ -100,6 +100,11 @@ if (JONES3D_PLATFORM_BABYLON)
     set(J3D_PLATFORM_BABYLON ON)
 endif()
 
+# Use the static CRT for optimized configurations and the debug DLL CRT for Debug.
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+    "$<$<CONFIG:Debug>:MultiThreadedDebugDLL>$<$<CONFIG:Release>:MultiThreaded>$<$<CONFIG:RelWithDebInfo>:MultiThreaded>$<$<CONFIG:MinSizeRel>:MultiThreaded>"
+)
+
 if (JONES3D_BUILD_BABYLON)
     set(BABYLON_BUILD_TESTS ${JONES3D_BUILD_TESTS} CACHE BOOL "" FORCE)
     set(BABYLON_SANITIZE ${JONES3D_SANITIZE} CACHE BOOL "" FORCE)
@@ -119,11 +124,6 @@ configure_file(
     "${JONES3D_GENERATED_INCLUDE_DIR}/j3dcore/j3d.h"
 )
 include_directories(BEFORE "${JONES3D_GENERATED_INCLUDE_DIR}")
-
-# Use the static CRT for optimized configurations and the debug DLL CRT for Debug.
-set(CMAKE_MSVC_RUNTIME_LIBRARY
-    "$<$<CONFIG:Debug>:MultiThreadedDebugDLL>$<$<CONFIG:Release>:MultiThreaded>$<$<CONFIG:RelWithDebInfo>:MultiThreaded>$<$<CONFIG:MinSizeRel>:MultiThreaded>"
-)
 
 if (MSVC)
     # Clion IDE can't read the preprocessor macro below and needs special treatment
@@ -259,3 +259,27 @@ jones3d_print_config_option("Runtime guards" JONES3D_RUNTIME_GUARDS)
 jones3d_print_config_option("Speedrun build" JONES3D_SPEEDRUN_BUILD)
 jones3d_print_config_option("Build programs" JONES3D_BUILD_PROGRAMS)
 jones3d_print_config_option("Build tests" JONES3D_BUILD_TESTS)
+
+# Added: CPack packages the game component only (M8.5). Windows gets the player
+# zip; the same configuration makes a tar.gz for local checks on Linux, whose
+# release artifact comes from packaging/linux/make-appimage.sh instead. The
+# headless runner's tools component is deliberately not packaged.
+if (JONES3D_PLATFORM_BABYLON)
+    set(CPACK_PACKAGE_NAME "Jones3D_EX")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_COMPONENTS_ALL game)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+    # Files at the archive root, like the Windows zip layout: Jones3D.exe and
+    # Data/ next to each other, then licenses/, README.md and CHANGELOG.md.
+    set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    if (WIN32)
+        set(CPACK_GENERATOR "ZIP")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-windows-x64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-windows-x64")
+    else()
+        set(CPACK_GENERATOR "TGZ")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-linux-x86_64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-linux-x86_64")
+    endif()
+    include(CPack)
+endif()
