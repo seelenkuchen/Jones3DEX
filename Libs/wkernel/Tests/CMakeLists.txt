@@ -14,6 +14,9 @@ add_executable(wkernelTests
 
 target_compile_definitions(wkernelTests PRIVATE
     J3D_TEST
+    # Added: keep Unity's malloc/free macros out of C++: inline STL code compiled here would share
+    # one COMDAT with production and free CRT memory through unity_free, corrupting the heap in Release.
+    $<$<COMPILE_LANGUAGE:CXX>:UNITY_FIXTURE_NO_EXTRAS>
 )
 
 # wkernelBabylonTest.cpp includes <std/...>, <wkernel/...> (via Libs) and <babylon/...> (via the links).

@@ -68,7 +68,13 @@ add_executable(jones3dTests
 )
 
 if (J3D_PLATFORM_BABYLON)
-    target_compile_definitions(jones3dTests PRIVATE JONES3D_CONTROL_SCHEMES_TEST)
+    target_compile_definitions(jones3dTests PRIVATE
+        JONES3D_CONTROL_SCHEMES_TEST
+        # Added: keep Unity's malloc/free macros out of C++: inline STL code compiled here would
+        # share one COMDAT with production and free CRT memory through unity_free, corrupting the
+        # heap in Release.
+        $<$<COMPILE_LANGUAGE:CXX>:UNITY_FIXTURE_NO_EXTRAS>
+    )
 endif()
 
 target_include_directories(jones3dTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
