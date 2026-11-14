@@ -36,3 +36,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0029](ADR-0029-modern-controls.md) | Modern controls as an Enhanced option | Accepted |
 | [ADR-0030](ADR-0030-fixed-50hz-physics.md) | Physics always integrates at the original 50 Hz step | Accepted |
 | [ADR-0031](ADR-0031-babylon-font-and-image-modules.md) | Babylon font and image modules for the menu assets | Accepted |
+| [ADR-0032](ADR-0032-packages-and-game-data-location.md) | Packages and game data location | Accepted |
