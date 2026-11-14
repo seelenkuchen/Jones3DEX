@@ -9,6 +9,7 @@
 #include <rdroid/Math/Tests/rdMathTestHost.h>
 
 #include <rdroid/Engine/rdCamera.h>
+#include <rdroid/Engine/rdClip.h>
 #include <rdroid/Engine/rdLight.h>
 #include <rdroid/Math/rdVector.h>
 
@@ -21,11 +22,16 @@
 static rdCamera rdCameraTest_camera;
 static rdLight rdCameraTest_aLights[RDCAMERA_MAX_LIGHTS + 2];
 static StdLight rdCameraTest_aOut[STD3D_MAXLIGHTS + 1];
+static rdCamera* rdCameraTest_pSavedCamera;
+static bool rdCameraTest_bSavedOverlayDepthRange;
 
 TEST_GROUP(rdCamera);
 
 TEST_SETUP(rdCamera)
 {
+    rdCameraTest_pSavedCamera            = rdCamera_g_pCurCamera;
+    rdCameraTest_bSavedOverlayDepthRange = rdCamera_IsOverlayDepthRangeEnabled();
+
     // World to view: view x = world y - 2, view y = 5 - world x, view z = world z - 1.
     memset(&rdCameraTest_camera, 0, sizeof(rdCameraTest_camera));
     rdCameraTest_camera.viewMatrix.rvec.x = 0.0f;
@@ -54,6 +60,8 @@ TEST_SETUP(rdCamera)
 
 TEST_TEAR_DOWN(rdCamera)
 {
+    rdCamera_g_pCurCamera = rdCameraTest_pSavedCamera;
+    rdCamera_SetOverlayDepthRange(rdCameraTest_bSavedOverlayDepthRange);
 }
 
 static void rdCameraTest_AssertLight(const StdLight* pOut, float vx, float vy, float vz, const rdLight* pLight, uint32_t flags)
@@ -154,9 +162,93 @@ TEST(rdCamera, TestBuildStdLightsChangesNothing)
     TEST_ASSERT_EQUAL_MEMORY(&lightBefore, &rdCameraTest_aLights[0], sizeof(lightBefore));
 }
 
+// A perspective camera with canvas 640x480 and frustum near 1/64, far 64, the values the retail
+// game uses for the main view.
+static rdCanvas rdCameraTest_depthCanvas;
+static rdCamera rdCameraTest_depthCamera;
+static rdClipFrustum rdCameraTest_depthFrustum;
+
+static void rdCameraTest_InitDepthCamera(void)
+{
+    memset(&rdCameraTest_depthCanvas, 0, sizeof(rdCameraTest_depthCanvas));
+    rdCameraTest_depthCanvas.center.x = 320.0f;
+    rdCameraTest_depthCanvas.center.y = 240.0f;
+    rdCameraTest_depthCanvas.rect.right = 640;
+    rdCameraTest_depthCanvas.rect.bottom = 480;
+
+    memset(&rdCameraTest_depthFrustum, 0, sizeof(rdCameraTest_depthFrustum));
+    rdCameraTest_depthFrustum.bClipFar  = 1;
+    rdCameraTest_depthFrustum.nearPlane = 1.0f / 64.0f;
+    rdCameraTest_depthFrustum.farPlane  = 64.0f;
+
+    memset(&rdCameraTest_depthCamera, 0, sizeof(rdCameraTest_depthCamera));
+    rdCameraTest_depthCamera.projectType = RDCAMERA_PROJECT_PERSPECTIVE;
+    rdCameraTest_depthCamera.pCanvas     = &rdCameraTest_depthCanvas;
+    rdCameraTest_depthCamera.pFrustum    = &rdCameraTest_depthFrustum;
+    rdCameraTest_depthCamera.fov         = 90.0f;
+    rdCameraTest_depthCamera.focalLength = 100.0f;
+    rdCameraTest_depthCamera.aspectRatio = 1.0f;
+}
+
+// Projects a view-space point with rdClip_VerticesToPlane, the consumer of the depth constants,
+// and returns its sz.
+static float rdCameraTest_ProjectDepth(rdCamera* pCamera, float y)
+{
+    const rdVector3 vertex = { 0.0f, y, 0.0f };
+    const rdVector2 texVert = { 0.0f, 0.0f };
+    StdVertexTL outVertex;
+    rdCacheProcEntry entry;
+
+    memset(&entry, 0, sizeof(entry));
+    entry.numVertices = 1;
+    entry.aVertices   = &outVertex;
+
+    rdCamera_g_pCurCamera = pCamera;
+    rdClip_VerticesToPlane(&entry, &vertex, &texVert, 1u);
+    return outVertex.sz;
+}
+
+// With N = 1/near and F = 1/far, near 1/64 and far 64:
+// invFar  = 0.9 / (F - N) = 0.9 / (1/64 - 64) = -32/2275,
+// invNear = N - 0.1 / invFar = 64 + 2275/320 = 4551/64,
+// so sz(1) = (1 - 4551/64) * (-32/2275) = 4487/4550.
+static void rdCameraTest_AssertMainDepthRange(rdCamera* pCamera)
+{
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.1f, rdCameraTest_ProjectDepth(pCamera, 1.0f / 64.0f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 4487.0f / 4550.0f, rdCameraTest_ProjectDepth(pCamera, 1.0f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 1.0f, rdCameraTest_ProjectDepth(pCamera, 64.0f));
+}
+
+TEST(rdCamera, TestMainDepthRangeIsTenthToOne)
+{
+    rdCameraTest_InitDepthCamera();
+    rdCamera_SetCanvas(&rdCameraTest_depthCamera, &rdCameraTest_depthCanvas);
+    rdCameraTest_AssertMainDepthRange(&rdCameraTest_depthCamera);
+}
+
+TEST(rdCamera, TestMainDepthRangeIsTenthToOneFromSetFrustrum)
+{
+    rdCameraTest_InitDepthCamera();
+    TEST_ASSERT_EQUAL_INT(1, rdCamera_SetFrustrum(&rdCameraTest_depthCamera, &rdCameraTest_depthFrustum, 0, 0, 640, 480));
+    rdCameraTest_AssertMainDepthRange(&rdCameraTest_depthCamera);
+}
+
+TEST(rdCamera, TestOverlayDepthRangeUnchanged)
+{
+    rdCamera_SetOverlayDepthRange(true);
+
+    rdCameraTest_InitDepthCamera();
+    rdCamera_SetCanvas(&rdCameraTest_depthCamera, &rdCameraTest_depthCanvas);
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.0f, rdCameraTest_ProjectDepth(&rdCameraTest_depthCamera, 1.0f / 64.0f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, 0.1f, rdCameraTest_ProjectDepth(&rdCameraTest_depthCamera, 64.0f));
+}
+
 TEST_GROUP_RUNNER(rdCamera)
 {
     RUN_TEST_CASE(rdCamera, TestBuildStdLightsIsTheCameraListInViewSpace);
     RUN_TEST_CASE(rdCamera, TestBuildStdLightsKeepsTheCameraCapAndOrder);
     RUN_TEST_CASE(rdCamera, TestBuildStdLightsChangesNothing);
+    RUN_TEST_CASE(rdCamera, TestMainDepthRangeIsTenthToOne);
+    RUN_TEST_CASE(rdCamera, TestMainDepthRangeIsTenthToOneFromSetFrustrum);
+    RUN_TEST_CASE(rdCamera, TestOverlayDepthRangeUnchanged);
 }

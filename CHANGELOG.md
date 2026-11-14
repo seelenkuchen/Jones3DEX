@@ -15,6 +15,8 @@
     `rand` and other random choices follow the retail sequence; this also makes the jeep's bumps work natively.
   - Fixed native crashes: starting with the intro movie, and starting in a directory without game files.
   - Two profiles are planned for players: Enhanced (the default, every enhancement on) and Retail.
+  - The main view's depth range is 0.1..1.0 (it went negative just in front of the camera), so geometry very
+    close to the camera is no longer cut away by the depth clip.
 
 ### Upstream fixes (OpenJones3D develop)
   - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on
