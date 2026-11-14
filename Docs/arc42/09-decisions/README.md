@@ -37,3 +37,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0030](ADR-0030-fixed-50hz-physics.md) | Physics always integrates at the original 50 Hz step | Accepted |
 | [ADR-0031](ADR-0031-babylon-font-and-image-modules.md) | Babylon font and image modules for the menu assets | Accepted |
 | [ADR-0032](ADR-0032-packages-and-game-data-location.md) | Packages and game data location | Accepted |
+| [ADR-0033](ADR-0033-babylon-ui-render-painter.md) | A Babylon UI render painter | Accepted |

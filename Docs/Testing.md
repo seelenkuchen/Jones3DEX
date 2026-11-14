@@ -510,6 +510,14 @@ same command stream, and that the target keeps its clear color. A draw whose sha
 uniform slot that was not filled earlier in the pass is dropped with one warning on every device. The SDL
 image checks skip on a host without a GPU device, as above; the Null cases always run.
 
+`Babylon/uirender/tests/RenderPainterTest.cpp` covers the `uirender` module (ADR-0033). Against the Null
+device it checks that quads sharing a texture and clip become one `Draw`, that the clip stack sets the
+scissor, that a baked Jost font is created once and measures the glyphs it draws, and that an uploaded
+image switches the batch texture. On the SDL GPU device it draws a filled rectangle and a text line into a
+480x480 offscreen Rgba8 target, reads it back, and checks the rectangle's center, a background corner and
+non-background pixels in the text area. CTest runs it as `babylon.uirender`; its GPU case follows the same
+skip and `BABYLON_REQUIRE_GPU=1` rules as `babylon.render`.
+
 The first configure fetches SDL_shadercross at its pinned commit and builds it with the pinned DXC release,
 which takes about 50 seconds; later configures reuse the cache in `${BABYLON_CACHE_DIR}` (`.cache/`, or
 `Babylon/.cache` in the standalone build). An offline configure needs that cache already populated or
