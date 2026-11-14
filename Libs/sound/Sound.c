@@ -354,6 +354,26 @@ void Sound_TestSetSoundBank(size_t bankNum, SoundInfo* pSoundInfos, size_t numSo
     soundbank_aUsedCacheSizes[bankNum] = cacheSize;
 }
 
+void Sound_TestSetSoundBankCapacity(size_t bankNum, size_t sizeSounds)
+{
+    if ( bankNum >= SOUNDBANK_NUMBANKS )
+    {
+        return;
+    }
+
+    soundbank_aSizeSounds[bankNum] = sizeSounds;
+}
+
+size_t Sound_TestGetNumSounds(size_t bankNum)
+{
+    if ( bankNum >= SOUNDBANK_NUMBANKS )
+    {
+        return 0;
+    }
+
+    return soundbank_aNumSounds[bankNum];
+}
+
 void Sound_TestSetOpen(int bOpen)
 {
     Sound_state = bOpen ? SOUNDSTATE_OPEN : SOUNDSTATE_INITIALIZED;
@@ -1236,6 +1256,7 @@ static tSoundHandle Sound_LoadToBank(const char* pFilepath, uint32_t* sndIdx, si
 
     const uint8_t* pSoundData = AudioLib_ParseWaveFileHeader(
         Sound_loadBuffer,
+        nRead,
         &wavType,
         &pSndInfo->sampleRate,
         &pSndInfo->sempleBitSize,
@@ -1245,6 +1266,14 @@ static tSoundHandle Sound_LoadToBank(const char* pFilepath, uint32_t* sndIdx, si
         &extraDataOffset,
         &soundDataOffset
     );
+
+    // Fixed: A header without usable sound data has no data offset to seek to.
+    if ( !pSoundData )
+    {
+        SOUNDLOG_ERROR("Sound_Load: %s has no usable sound data.\n", pFilepath);
+        Sound_pHS->pFileClose(fh);
+        return SOUND_INVALIDHANDLE;
+    }
 
     if ( wavType != 3 && wavType != 6 && wavType != 5 ) // 6  - IndyWV,  3 - WAV, 5 - FORM AIFFCOM
     {

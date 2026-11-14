@@ -49,6 +49,7 @@ static tSoundChannel SoundTest_channel;
 static uint8_t SoundTest_aSoundCache[SOUND_TEST_CACHE_SIZE];
 static SoundTestAllocation SoundTest_aAllocations[SOUND_TEST_MAX_ALLOCATIONS];
 static SoundTestBankFile SoundTest_bankFile;
+static SoundTestBankFile SoundTest_waveFile;
 static size_t SoundTest_numMallocCalls;
 static size_t SoundTest_numFreeCalls;
 static size_t SoundTest_numActiveAllocations;
@@ -203,6 +204,36 @@ static void SoundTest_ResetBankFile(void)
 {
     SoundTest_bankFile.size     = 0;
     SoundTest_bankFile.position = 0;
+}
+
+static void SoundTest_ResetWaveFile(void)
+{
+    SoundTest_waveFile.size     = 0;
+    SoundTest_waveFile.position = 0;
+}
+
+static void SoundTest_SetWaveImage(const uint8_t* pImage, size_t size)
+{
+    TEST_ASSERT_TRUE(size <= sizeof(SoundTest_waveFile.aData));
+
+    SoundTest_waveFile.position = 0;
+    SoundTest_waveFile.size     = size;
+    memcpy(SoundTest_waveFile.aData, pImage, size);
+}
+
+static tFileHandle J3DAPI SoundTest_FileOpen(const char* pFilename, const char* mode)
+{
+    J3D_UNUSED(pFilename);
+    J3D_UNUSED(mode);
+
+    SoundTest_waveFile.position = 0;
+    return (tFileHandle)(uintptr_t)&SoundTest_waveFile;
+}
+
+static int J3DAPI SoundTest_FileClose(tFileHandle fh)
+{
+    J3D_UNUSED(fh);
+    return 0;
 }
 
 static void SoundTest_SetBankImage(const uint8_t* pImage, size_t size)
@@ -369,10 +400,13 @@ TEST_SETUP(Sound)
     SoundTest_hostServices.pMalloc       = SoundTest_Malloc;
     SoundTest_hostServices.pFree         = SoundTest_Free;
     SoundTest_hostServices.pRealloc      = SoundTest_Realloc;
+    SoundTest_hostServices.pFileOpen     = SoundTest_FileOpen;
+    SoundTest_hostServices.pFileClose    = SoundTest_FileClose;
     SoundTest_hostServices.pFileRead     = SoundTest_FileRead;
     SoundTest_hostServices.pFileWrite    = SoundTest_FileWrite;
 
     SoundTest_ResetBankFile();
+    SoundTest_ResetWaveFile();
 
     // Added: Sound_Play allocates the Null driver's buffers through the std memory layer.
     stdStartup(&SoundTest_hostServices);
@@ -660,6 +694,41 @@ TEST(Sound, TestLoadFindsBankedSound)
 
     // Leading separator
     TEST_ASSERT_EQUAL_UINT32(SOUND_TEST_SOUND_HANDLE, Sound_Load("\\voice_test.wav", NULL));
+}
+
+// Regression: a RIFF WAVE without a data chunk was loaded as a sound with an unset data size.
+TEST(Sound, TestLoadRejectsWaveWithoutDataChunk)
+{
+    uint8_t aWave[52];
+    STD_ZEROMEM(aWave, sizeof(aWave));
+    memcpy(aWave, "RIFF", 4);
+    SoundTest_WriteU32LE(aWave + 4, 44);
+    memcpy(aWave + 8, "WAVEfmt ", 8);
+    SoundTest_WriteU32LE(aWave + 16, 16);
+    aWave[20] = 1; // PCM format tag
+    aWave[22] = 1; // channels
+    SoundTest_WriteU32LE(aWave + 24, 8000);
+    SoundTest_WriteU32LE(aWave + 28, 16000);
+    aWave[32] = 2;  // block align
+    aWave[34] = 16; // bits per sample
+    memcpy(aWave + 36, "LIST", 4);
+    SoundTest_WriteU32LE(aWave + 40, 8);
+
+    SoundTest_SetWaveImage(aWave, sizeof(aWave));
+
+    SoundInfo aSoundInfos[2];
+    STD_ZEROMEM(aSoundInfos, sizeof(aSoundInfos));
+    aSoundInfos[0] = SoundTest_soundInfo;
+    Sound_TestSetSoundBank(SOUND_TEST_NORMAL_BANK, aSoundInfos, 1, SoundTest_aSoundCache, sizeof(SoundTest_aSoundCache));
+    Sound_TestSetSoundBankCapacity(SOUND_TEST_NORMAL_BANK, STD_ARRAYLEN(aSoundInfos));
+    Sound_EnableLoad(1);
+
+    size_t numBefore = Sound_TestGetNumSounds(SOUND_TEST_NORMAL_BANK);
+    TEST_ASSERT_EQUAL_UINT32(SOUND_INVALIDHANDLE, Sound_Load("missing.wav", NULL));
+    TEST_ASSERT_EQUAL_size_t(numBefore, Sound_TestGetNumSounds(SOUND_TEST_NORMAL_BANK));
+
+    Sound_TestSetSoundBank(SOUND_TEST_NORMAL_BANK, NULL, 0, NULL, 0);
+    Sound_EnableLoad(0);
 }
 
 // Regression: Sound_GetSoundIndex matched the invalid handle (0) with unused sound infos
@@ -985,6 +1054,7 @@ TEST_GROUP_RUNNER(Sound)
     RUN_TEST_CASE(Sound, TestMouthLevelMacro);
     RUN_TEST_CASE(Sound, TestPlayAllChannelsBusy);
     RUN_TEST_CASE(Sound, TestLoadFindsBankedSound);
+    RUN_TEST_CASE(Sound, TestLoadRejectsWaveWithoutDataChunk);
     RUN_TEST_CASE(Sound, TestGetSoundIndexInvalidHandle);
     RUN_TEST_CASE(Sound, TestNonLoopingFinishesAtLength);
     RUN_TEST_CASE(Sound, TestPitchScalesPlayPosition);

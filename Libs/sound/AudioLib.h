@@ -10,8 +10,11 @@ J3D_EXTERN_C_START
 #define AUDIOLIB_LIPSYNC_MOUTH_POSITION_BITS  7u
 #define AUDIOLIB_LIPSYNC_MOUTH_POSITION_COUNT (1u << AUDIOLIB_LIPSYNC_MOUTH_POSITION_BITS)
 
-// Returns pointer to snd data
-const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, int* pType, uint32_t* pSampleRate, uint32_t* pBitsPerSample, uint32_t* pNumChannels, uint32_t* pExtraInfo, uint32_t* pSoundDataSize, uint32_t* pExtraDataOffset, uint32_t* pSoundDataOffset);
+// Returns pointer to snd data.
+// Reads only pData[0 .. dataSize). Returns NULL when a needed byte is outside that range; outputs written
+// before the failure stay written, as on the original's own NULL paths. The returned pointer marks where the
+// sound data starts and may lie past dataSize, because the caller only uses it as a file offset.
+const uint8_t* J3DAPI AudioLib_ParseWaveFileHeader(const uint8_t* pData, size_t dataSize, int* pType, uint32_t* pSampleRate, uint32_t* pBitsPerSample, uint32_t* pNumChannels, uint32_t* pExtraInfo, uint32_t* pSoundDataSize, uint32_t* pExtraDataOffset, uint32_t* pSoundDataOffset);
 
 int J3DAPI AudioLib_Compress(tAudioCompressorState* pCompressorState, uint8_t* pOutBuffer, const uint8_t* pInBuffer, int size, unsigned int numChannels);
 void J3DAPI AudioLib_ResetCompressor(tAudioCompressorState* pState);
