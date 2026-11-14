@@ -337,17 +337,25 @@ static void J3DAPI JonesReticle_DrawArrow(const JonesAimReticle* reticle, float 
     if ( bAlpha )
     {
         pPoly = rdCache_GetAlphaProcEntry();
-        pPoly->flags = RD_FF_TEX_TRANSLUCENT | RD_FF_ZWRITE_DISABLED;
     }
     else
     {
         pPoly = rdCache_GetProcEntry();
-        pPoly->flags = 0;
     }
 
     if ( !pPoly )
     {
+        // Fixed: the proc entry is NULL when the vertex buffer is full.
         return;
+    }
+
+    if ( bAlpha )
+    {
+        pPoly->flags = RD_FF_TEX_TRANSLUCENT | RD_FF_ZWRITE_DISABLED;
+    }
+    else
+    {
+        pPoly->flags = 0;
     }
 
     pPoly->lightingMode = RD_LIGHTING_DIFFUSE;
