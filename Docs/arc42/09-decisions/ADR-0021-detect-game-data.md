@@ -20,8 +20,10 @@ partial or modified data shows up later as load errors or crashes.
 - The table records provenance: which release each checksum comes from.
 
 Implemented in M8 (2026-11-14): the game searches for the data at startup, asks for it with a folder
-picker when it cannot find it, and checks it against the table. `--data`, `--hash-data` and
-`--install-data` cover explicit folders, adding releases to the table, and installing from CDs.
+picker in the windowed build when it cannot find it, and checks it against the table. The table holds
+the GOG English release today. `--data` names a folder for one run, `--hash-data` prints the rows to add
+a release to the table, and `--install-data` copies a disc's files into `<user dir>/data`, one disc at a
+time. A headless run has no picker, so it reports the missing files and exits nonzero; use `--data`.
 
 ## Consequences
 

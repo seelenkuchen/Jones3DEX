@@ -1,15 +1,32 @@
 ## Jones3D EX (unreleased)
-### Hard fork of OpenJones3D
+### M8: Release
   - This is version 0.5.0, the first Jones3D EX release; `Jones3D-headless --version` and
     `Jones3D --version` print it.
+  - Release packages: a Linux AppImage and a Windows zip, both without game data. The AppImage runs from
+    one file and installs nothing; the zip is extracted into a folder and needs no Visual C++
+    redistributable. Players point either at their own copy of the game.
+  - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on
+    Linux, `%APPDATA%\Jones3DEX\` on Windows) instead of next to the game data, so it runs from a read-only
+    or shared install. An existing `Jones.cfg` and existing savegames are copied there when they are missing,
+    and the old files are kept. Put a `portable.txt` in the working directory or beside the executable to
+    keep everything local, or pass `--user-dir <dir>`; headless runs stay in the working directory unless
+    given `--user-dir`.
+  - The game finds its data automatically: `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/data`,
+    next to the executable, the working directory, then Steam and GOG/store locations. When it cannot find
+    the data it names the missing files and offers a folder picker, and only a picked folder is saved to
+    `installPath`. `--hash-data <dir>` prints the hash rows for a release, and `--install-data <dir>` copies
+    a disc's files into `<user dir>/data/Resource`, one disc at a time. Both tools run without a display.
+  - At startup the game checks the game files against a table of known releases by size and SHA-256. A known
+    release is logged by name and an unknown one gets a warning naming the files; the game still starts. The
+    result is cached in the user directory, so later starts are quick.
+
+### Hard fork of OpenJones3D
   - The project continues as **Jones3D EX**, an enhanced source port on the new Babylon Engine. See the
     [roadmap](Docs/Roadmap.md) and the [architecture docs](Docs/arc42/README.md).
   - The last state compatible with OpenJones3D is tagged `upstream-compatible-final`. Entries below are
     OpenJones3D's own history.
   - The game builds natively on Linux and other systems, 32-bit and 64-bit, and on 64-bit Windows, and runs
     headless there.
-  - Release packages: a Linux AppImage and a Windows zip, both without game data, so players point them at
-    their own copy.
   - Binary compatibility with the retail executable is gone: Windows builds always produce the standalone
     `Jones3D.exe`. The `Jones3D.dll` injected into `Indy3D.exe`, its launcher, the `JONES3D_STANDALONE` option
     and the post-build copy options (`JONES3D_ENABLE_POST_BUILD_COPY`, `JONES3D_POST_BUILD_COPY_DIR`) are removed.
@@ -26,15 +43,6 @@
   - High-poly models (`engine.renderer.hipoly`) are off by default again: the high-poly Indy model opens gaps at
     the elbows during the backward step. Options > Display > Hi-poly models turns them back on; configs that
     already set the key keep their value.
-  - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on Linux,
-    `%APPDATA%\Jones3DEX\` on Windows) instead of next to the game data, so it runs from a read-only or shared
-    install. Existing `Jones.cfg` and savegames are copied there when they are missing, and the old files are kept.
-    Put a `portable.txt` beside the executable or in the working directory to keep everything local, or pass
-    `--user-dir <dir>`; headless runs stay in the working directory unless given `--user-dir`.
-  - The game finds its data automatically: `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/data`, next
-    to the executable, the working directory, and known Steam/GOG locations. When it cannot find the data it asks
-    for the folder once and checks it against the known releases. `--hash-data <dir>` prints the hash rows for a
-    release, and `--install-data <dir>` copies the files from a disc or folder into `<user dir>/data/Resource`.
 
 ### Upstream fixes (OpenJones3D develop)
   - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on

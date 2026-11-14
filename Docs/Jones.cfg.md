@@ -10,17 +10,19 @@ The windowed game writes `Jones.cfg` to a per-user directory, so it runs from a 
 shared install. The directory is chosen once at startup, in this order:
 
 1. `--user-dir <dir>` on the command line.
-2. Portable mode: a file `portable.txt` beside the executable keeps everything in the executable's
-   directory; a `portable.txt` in the working directory keeps the working directory.
+2. Portable mode: a file named `portable.txt` (it can be empty) in the working directory keeps the
+   working directory; a `portable.txt` beside the executable keeps the executable's directory.
 3. The platform user directory: `~/.local/share/Jones3DEX/` (or `$XDG_DATA_HOME/Jones3DEX/`) on Linux,
    `%APPDATA%\Jones3DEX\` on Windows, and `~/Library/Application Support/Jones3DEX/` on macOS.
 
-On the first start with a user directory, an existing `Jones.cfg` in the working directory is copied
-there, and saves are copied when the user directory has none yet. The old files are left in place.
-Screenshots, key sets, the log file and the error file move to the same directory.
+When the user directory has no `Jones.cfg`, the game copies the one in the working directory there.
+When it has no `.nds` savegame, it copies the saves from the old save folder next to the data. The old
+files are left in place. Screenshots, key sets, the log file, the error file and `datacheck.txt` are
+written to the user directory.
 
 Headless runs (`Jones3D-headless`) default to the working directory and accept `--user-dir <dir>` too,
-so tests and traces keep their paths unless asked otherwise.
+so tests and traces keep their paths unless asked otherwise. A headless run has no dialogs: to load a
+save, pass `--load <save.nds>` and set `startMode` to 1 (load game).
 
 ## Format and behavior
 
@@ -89,7 +91,8 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
 In the windowed Babylon build, a missing `startMode` and the value `2` (the developer dialog, which
 has no screen any more) both open the main menu. `0`, `1`, `3` and `4` keep their meaning, and a
 `--load` path still loads that save directly. The headless runs and the Null column keep the values
-above unchanged.
+above unchanged; a headless run loads the save given with `--load` only when `startMode` is `1`, and
+cancels when `--load` is absent.
 
 ### `log.mode`
 
@@ -158,7 +161,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `version` | string | `1.0.0` | Written automatically when a new config file is created. |
-| `installPath` | string | empty | Installation path. The game finds its data automatically: `--data <dir>`, then this key, then `<user dir>/data`, the executable and working directories, and known Steam/GOG locations. The found folder is used for the run but only a folder chosen in the first-run picker is written back here. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
+| `installPath` | string | empty | Installation path. The game finds its data automatically: `--data <dir>`, then this key, then `<user dir>/data` (`data` in portable mode), the executable's folder, the working directory, Steam libraries, then GOG/store folders. The found folder is used for the run, but only a folder chosen in the folder picker is written back here. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
 | `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |
