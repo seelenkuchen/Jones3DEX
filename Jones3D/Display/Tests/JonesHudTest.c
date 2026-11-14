@@ -792,6 +792,49 @@ TEST(JonesHud, ShutdownReleasesThemeAndClearsItsOwnership)
     TEST_ASSERT_EQUAL_UINT(1, JonesHudTest_numReleases);
 }
 
+// Added: Enhanced builds select the root column once it has slid in; the original needs one left or
+// right press. A press that got there first wins.
+TEST(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn)
+{
+    JonesHudMenuItem root;
+    memset(&root, 0, sizeof(root));
+    root.id           = JONESHUD_MENU_IQ;
+    root.nextUpItemId = -1;
+    root.flags        = 0x01 | 0x80; // shown, still sliding in
+    root.pos.x        = 0.5f;
+    root.endMovePos.x = 1.0f;
+
+    JonesHud_pMenuItemLinkedList  = &root;
+    JonesHud_pCurSelectedMenuItem = NULL;
+    JonesHud_bSelectRootOnOpen    = true;
+
+    TEST_ASSERT_FALSE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_NULL(JonesHud_pCurSelectedMenuItem);
+
+    root.flags = 0x01;
+    root.pos.x = 1.0f;
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_EQUAL_PTR(&root, JonesHud_pCurSelectedMenuItem);
+    TEST_ASSERT_FALSE(JonesHud_bSelectRootOnOpen);
+#else
+    TEST_ASSERT_FALSE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_NULL(JonesHud_pCurSelectedMenuItem);
+#endif
+
+    // Selected by a press before the slide ended: the pending selection is dropped.
+    JonesHudMenuItem other;
+    memset(&other, 0, sizeof(other));
+    JonesHud_pCurSelectedMenuItem = &other;
+    JonesHud_bSelectRootOnOpen    = true;
+    TEST_ASSERT_FALSE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_EQUAL_PTR(&other, JonesHud_pCurSelectedMenuItem);
+
+    JonesHud_pCurSelectedMenuItem = NULL;
+    JonesHud_pMenuItemLinkedList  = NULL;
+    JonesHud_bSelectRootOnOpen    = false;
+}
+
 TEST(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit)
 {
     JonesHudMenuItem a, b, upA, upB;
@@ -965,6 +1008,7 @@ TEST_GROUP_RUNNER(JonesHud)
     RUN_TEST_CASE(JonesHud, GetKeyReadsTheDpadAndLeftStickInTheModernStyle);
     RUN_TEST_CASE(JonesHud, GetKeyIgnoresTheDpadAndLeftStickInTheClassicStyle);
     RUN_TEST_CASE(JonesHud, ModernMenuSelectReadsTheAButton);
+    RUN_TEST_CASE(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn);
 }
 
 static void JonesHudTest_RunAllTests(void)

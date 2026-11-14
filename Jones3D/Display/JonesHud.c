@@ -320,6 +320,8 @@ void JonesHud_MenuMoveUp(void);
 
 int J3DAPI JonesHud_GetKey(unsigned int keyId);
 static int JonesHud_GetModernMenuSelectKey(void); // Added
+static bool JonesHud_SelectRootColumnOnOpen(void); // Added
+static bool JonesHud_bSelectRootOnOpen = false; // Added: the opening menu still has to select its root column
 
 int JonesHud_InitializeMenu(void);
 void JonesHud_InitializeMenuSounds(void);
@@ -1486,6 +1488,7 @@ void JonesHud_MenuOpen(void)
             JonesHud_pMenuItemLinkedList->flags |= 0x83;
 
             JonesHud_hudState |= 0x01; // mark menu opened;
+            JonesHud_bSelectRootOnOpen = true; // Added
 
             float moveRate = fabsf(JonesHud_pMenuItemLinkedList->endMovePos.x - JonesHud_pMenuItemLinkedList->startMovePos.x);
             JonesHud_StartItemTranslation(JonesHud_pMenuItemLinkedList, JonesHud_msecMenuOpenStartSlideDuration, moveRate, /*bMoveUp=*/0);
@@ -2222,6 +2225,10 @@ void JonesHud_ProcessInventoryMenu(void)
     int bActivateKeyPressed;
     JonesHud_UpdateItem(JonesHud_pMenuItemLinkedList);
 
+    // Added: select the root column (the current weapon's) once the menu has slid in, as the
+    // first left or right press does in the original, so up and down work at once.
+    JonesHud_SelectRootColumnOnOpen();
+
     if ( (JonesHud_hudState & 0x04) == 0 && (JonesHud_hudState & 0x08) == 0 )
     {
         if ( (JonesHud_hudState & 0x02) == 0 )
@@ -2348,6 +2355,38 @@ void JonesHud_MenuMoveRight(void)
             JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[2], 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
         }
     }
+}
+
+// Added: the original opens the menu with no column selected; the first left or right press
+// selects the root column. Enhanced builds select it as soon as the root item has slid into place,
+// without the move sound. Returns true when it selected the column this call.
+static bool JonesHud_SelectRootColumnOnOpen(void)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    if ( !JonesHud_bSelectRootOnOpen )
+    {
+        return false;
+    }
+
+    if ( JonesHud_pCurSelectedMenuItem || !JonesHud_pMenuItemLinkedList )
+    {
+        JonesHud_bSelectRootOnOpen = false; // A press got there first, or there is no menu.
+        return false;
+    }
+
+    JonesHudMenuItem* pRoot = JonesHud_pMenuItemLinkedList;
+    if ( (pRoot->flags & 0x01) == 0 || (pRoot->flags & 0x80) != 0 || pRoot->pos.x != pRoot->endMovePos.x )
+    {
+        return false; // still sliding in
+    }
+
+    JonesHud_bSelectRootOnOpen    = false;
+    JonesHud_pCurSelectedMenuItem = pRoot;
+    JonesHud_MenuExpandColumn(pRoot);
+    return true;
+#else
+    return false;
+#endif
 }
 
 void JonesHud_MenuMoveDown(void)
