@@ -45,6 +45,20 @@ static bool g_bHostServices;
 
 TEST_GROUP(JonesDataLocate);
 
+static const char* JonesDataLocateTest_GetEnv(const char* pName)
+{
+    static char aValue[1024];
+    size_t size = 0;
+
+    aValue[0] = '\0';
+    if ( getenv_s(&size, aValue, sizeof(aValue), pName) == 0 && size > 0 )
+    {
+        return aValue;
+    }
+
+    return NULL;
+}
+
 static const char* JonesDataLocateTest_TempBase(void)
 {
 #ifdef _WIN32
@@ -61,17 +75,17 @@ static const char* JonesDataLocateTest_TempBase(void)
         return aBase;
     }
 
-    const char* pBase = getenv("TEMP");
+    const char* pBase = JonesDataLocateTest_GetEnv("TEMP");
     return pBase && pBase[0] ? pBase : "C:\\Windows\\Temp";
 #else
-    const char* pBase = getenv("TMPDIR");
+    const char* pBase = JonesDataLocateTest_GetEnv("TMPDIR");
     if ( !pBase || pBase[0] == '\0' )
     {
-        pBase = getenv("TEMP");
+        pBase = JonesDataLocateTest_GetEnv("TEMP");
     }
     if ( !pBase || pBase[0] == '\0' )
     {
-        pBase = getenv("TMP");
+        pBase = JonesDataLocateTest_GetEnv("TMP");
     }
     if ( !pBase || pBase[0] == '\0' )
     {
@@ -237,7 +251,8 @@ static void JonesDataLocateTest_WriteFile(const char* pDir, const char* pName,
     char aPath[JONESDATALOCATE_MAX_PATH];
     JonesDataLocateTest_BuildPath(aPath, sizeof(aPath), pDir, pName);
 
-    FILE* pFile = fopen(aPath, "wb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, aPath, "wb"));
     TEST_ASSERT_NOT_NULL(pFile);
 
     if ( size > 0 )
@@ -296,7 +311,8 @@ static bool JonesDataLocateTest_PathsEqual(const char* pPath1, const char* pPath
 
 static size_t JonesDataLocateTest_ReadWhole(const char* pPath, char* pOut, size_t outSize)
 {
-    FILE* pFile = fopen(pPath, "rb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, pPath, "rb"));
     TEST_ASSERT_NOT_NULL(pFile);
 
     size_t numRead = fread(pOut, 1, outSize - 1, pFile);
@@ -377,7 +393,13 @@ static int J3DAPI JonesDataLocateTest_Print(const char* pFormat, ...)
 
 static tFileHandle J3DAPI JonesDataLocateTest_FileOpen(const char* pFilename, const char* mode)
 {
-    return (tFileHandle)(uintptr_t)fopen(pFilename, mode);
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pFilename, mode) != 0 )
+    {
+        return 0;
+    }
+
+    return (tFileHandle)(uintptr_t)pFile;
 }
 
 static int J3DAPI JonesDataLocateTest_FileClose(tFileHandle fh)
@@ -525,6 +547,8 @@ TEST_SETUP(JonesDataLocate)
 {
     TEST_ASSERT_EQUAL_INT(0, JonesDataLocateTest_MakeTempDir());
     JonesDataLocate_Reset();
+    JonesDataLocate_SetHostDirs(NULL, NULL);
+    JonesDataLocate_SetHostEnvironment(NULL, NULL, NULL);
     JonesData_SetReleaseTable(NULL, 0);
 }
 
@@ -544,8 +568,8 @@ TEST(JonesDataLocate, TestLinuxCandidateOrderAndContent)
 {
     JonesDataLocatePathList steam;
     memset(&steam, 0, sizeof(steam));
-    strcpy(steam.aPaths[0], "/home/player/.steam/steam");
-    strcpy(steam.aPaths[1], "/mnt/games/SteamLibrary");
+    snprintf(steam.aPaths[0], sizeof(steam.aPaths[0]), "%s", "/home/player/.steam/steam");
+    snprintf(steam.aPaths[1], sizeof(steam.aPaths[1]), "%s", "/mnt/games/SteamLibrary");
     steam.numPaths = 2;
 
     JonesDataLocateEnv env;
@@ -586,8 +610,8 @@ TEST(JonesDataLocate, TestWindowsCandidateOrderAndContent)
 {
     JonesDataLocatePathList steam;
     memset(&steam, 0, sizeof(steam));
-    strcpy(steam.aPaths[0], "C:\\Program Files (x86)\\Steam");
-    strcpy(steam.aPaths[1], "D:\\SteamLibrary");
+    snprintf(steam.aPaths[0], sizeof(steam.aPaths[0]), "%s", "C:\\Program Files (x86)\\Steam");
+    snprintf(steam.aPaths[1], sizeof(steam.aPaths[1]), "%s", "D:\\SteamLibrary");
     steam.numPaths = 2;
 
     JonesDataLocateEnv env;

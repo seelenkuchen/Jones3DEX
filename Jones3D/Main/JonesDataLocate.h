@@ -114,6 +114,23 @@ void JonesDataLocate_ParseLibraryFolders(const char* pText, JonesDataLocatePathL
 /** Stores the --data option for the next JonesDataLocate_Startup. NULL or "" clears it. */
 void JonesDataLocate_SetDataPath(const char* pPath);
 
+/**
+ * @brief Provides the executable and working directories the host already knows.
+ *
+ * Set by the host before JonesMain_Startup. NULL or "" means unknown, and that rule is skipped.
+ */
+void JonesDataLocate_SetHostDirs(const char* pExecutableDir, const char* pWorkingDir);
+
+/**
+ * @brief Provides the environment values the store search needs.
+ *
+ * Set by the host before JonesMain_Startup. pHome is the player's home; pProgramFiles and
+ * pProgramFilesX86 are the Windows program folders. NULL or "" means unknown, and that candidate
+ * source is skipped.
+ */
+void JonesDataLocate_SetHostEnvironment(const char* pHome, const char* pProgramFiles,
+    const char* pProgramFilesX86);
+
 /** Registers the prompt hook. NULL restores the stderr-only default. */
 void JonesDataLocate_SetPromptHandler(JonesDataLocatePromptHandler pfHandler, void* pUserData);
 

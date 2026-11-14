@@ -2,8 +2,10 @@
 // cvar registry and render device, installs them as the adapter's context, runs the shared headless
 // loop, then uninstalls before the objects die.
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string>
 
 #include <j3dcore/j3d.h>
 
@@ -23,7 +25,32 @@
 #include <std/Babylon/stdBabylonCvars.h>
 #include <std/Babylon/stdRenderBabylon.h>
 
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Platform/Null/JonesHeadless.h>
+
+namespace
+{
+    // Added: the home the store search uses. Windows keeps it in USERPROFILE, or HOMEDRIVE plus
+    // HOMEPATH; other hosts use HOME.
+    std::string HomeDirectory()
+    {
+        const char* pUserProfile = std::getenv("USERPROFILE");
+        if ( pUserProfile && pUserProfile[0] )
+        {
+            return pUserProfile;
+        }
+
+        const char* pDrive = std::getenv("HOMEDRIVE");
+        const char* pPath  = std::getenv("HOMEPATH");
+        if ( pDrive && pPath )
+        {
+            return std::string(pDrive) + pPath;
+        }
+
+        const char* pHome = std::getenv("HOME");
+        return pHome ? pHome : "";
+    }
+}
 
 int main(int argc, char** argv)
 {
@@ -67,6 +94,12 @@ int main(int argc, char** argv)
     }
 
     std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
+    // Added: the game data search takes the host paths and environment from here, so the game layer
+    // no longer reads platform paths or getenv itself.
+    const std::string homeDir = HomeDirectory();
+    JonesDataLocate_SetHostDirs(pFileSystem->basePath().c_str(), pFileSystem->currentPath().c_str());
+    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), std::getenv("ProgramFiles"),
+        std::getenv("ProgramFiles(x86)"));
     std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
     babylon::time::NullClock virtualClock;
     // Added: the headless run has no OS input, so the platform is a NullPlatform whose queue the

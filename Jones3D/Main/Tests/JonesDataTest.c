@@ -77,6 +77,20 @@ static unsigned int g_tempDirCounter;
 
 TEST_GROUP(JonesData);
 
+static const char* JonesDataTest_GetEnv(const char* pName)
+{
+    static char aValue[1024];
+    size_t size = 0;
+
+    aValue[0] = '\0';
+    if ( getenv_s(&size, aValue, sizeof(aValue), pName) == 0 && size > 0 )
+    {
+        return aValue;
+    }
+
+    return NULL;
+}
+
 #ifdef _WIN32
 static const char* JonesDataTest_TempBase(void)
 {
@@ -92,7 +106,7 @@ static const char* JonesDataTest_TempBase(void)
         return aBase;
     }
 
-    const char* pBase = getenv("TEMP");
+    const char* pBase = JonesDataTest_GetEnv("TEMP");
     if ( pBase && pBase[0] != '\0' )
     {
         return pBase;
@@ -103,14 +117,14 @@ static const char* JonesDataTest_TempBase(void)
 #else
 static const char* JonesDataTest_TempBase(void)
 {
-    const char* pBase = getenv("TMPDIR");
+    const char* pBase = JonesDataTest_GetEnv("TMPDIR");
     if ( !pBase || pBase[0] == '\0' )
     {
-        pBase = getenv("TEMP");
+        pBase = JonesDataTest_GetEnv("TEMP");
     }
     if ( !pBase || pBase[0] == '\0' )
     {
-        pBase = getenv("TMP");
+        pBase = JonesDataTest_GetEnv("TMP");
     }
     if ( !pBase || pBase[0] == '\0' )
     {
@@ -247,7 +261,8 @@ static void JonesDataTest_WriteFile(const char* pDir, const char* pName, const v
     char aPath[JONESDATA_MAX_PATH];
     JonesDataTest_BuildPath(aPath, sizeof(aPath), pDir, pName);
 
-    FILE* pFile = fopen(aPath, "wb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, aPath, "wb"));
     TEST_ASSERT_NOT_NULL(pFile);
 
     if ( size > 0 )
@@ -263,7 +278,8 @@ static void JonesDataTest_WriteRepeated(const char* pDir, const char* pName, cha
     char aPath[JONESDATA_MAX_PATH];
     JonesDataTest_BuildPath(aPath, sizeof(aPath), pDir, pName);
 
-    FILE* pFile = fopen(aPath, "wb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, aPath, "wb"));
     TEST_ASSERT_NOT_NULL(pFile);
 
     char aBuffer[4096];
@@ -282,7 +298,8 @@ static void JonesDataTest_WriteRepeated(const char* pDir, const char* pName, cha
 
 static size_t JonesDataTest_ReadWhole(const char* pPath, char* pOut, size_t outSize)
 {
-    FILE* pFile = fopen(pPath, "rb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, pPath, "rb"));
     TEST_ASSERT_NOT_NULL(pFile);
 
     size_t numRead = fread(pOut, 1, outSize - 1, pFile);
@@ -590,7 +607,8 @@ TEST(JonesData, TestCheckDirCacheReusesHash)
     memset(aWrongHash, '0', JONESDATA_HASH_LENGTH);
     aWrongHash[JONESDATA_HASH_LENGTH] = '\0';
 
-    FILE* pCache = fopen(aCachePath, "wb");
+    FILE* pCache = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pCache, aCachePath, "wb"));
     TEST_ASSERT_NOT_NULL(pCache);
     fprintf(pCache, "%lld %lld %s %s\n", (long long)size, (long long)mtime, aWrongHash, aCd1Path);
     fprintf(pCache, "%lld %lld %s %s\n", 3LL, 1LL, aWrongHash, "/nonexistent/foo");
@@ -626,7 +644,8 @@ TEST(JonesData, TestCheckDirCacheIgnoresMalformed)
     memset(aWrongHash, '1', JONESDATA_HASH_LENGTH);
     aWrongHash[JONESDATA_HASH_LENGTH] = '\0';
 
-    FILE* pCache = fopen(aCachePath, "wb");
+    FILE* pCache = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pCache, aCachePath, "wb"));
     TEST_ASSERT_NOT_NULL(pCache);
     fprintf(pCache, "garbage\n");
     for ( size_t i = 0; i < 3000; ++i )
@@ -654,7 +673,8 @@ TEST(JonesData, TestPrintHashRows)
     JonesDataTest_WriteFile(g_aTempDir, "jonesopn.snm", "abc", 3);
 
     JonesDataTest_BuildPath(aRowsPath, sizeof(aRowsPath), g_aTempDir, "rows.txt");
-    FILE* pFile = fopen(aRowsPath, "wb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, aRowsPath, "wb"));
     TEST_ASSERT_NOT_NULL(pFile);
     TEST_ASSERT_TRUE(JonesData_PrintHashRows(g_aTempDir, pFile));
     TEST_ASSERT_EQUAL_INT(0, fclose(pFile));
@@ -675,7 +695,8 @@ TEST(JonesData, TestPrintHashRowsNoKnownFile)
     char aRows[64];
 
     JonesDataTest_BuildPath(aRowsPath, sizeof(aRowsPath), g_aTempDir, "rows.txt");
-    FILE* pFile = fopen(aRowsPath, "wb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, aRowsPath, "wb"));
     TEST_ASSERT_NOT_NULL(pFile);
     TEST_ASSERT_FALSE(JonesData_PrintHashRows(g_aTempDir, pFile));
     TEST_ASSERT_EQUAL_INT(0, fclose(pFile));

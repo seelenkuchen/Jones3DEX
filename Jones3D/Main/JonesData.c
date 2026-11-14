@@ -149,7 +149,7 @@ static bool JonesData_JoinPath(char* pOut, size_t outSize, const char* pDir, con
         }
     }
 
-    strcpy(&pOut[dirLen], pName);
+    stdUtil_StringCopy(&pOut[dirLen], outSize - dirLen, pName);
     return true;
 }
 
@@ -392,8 +392,8 @@ static void JonesData_ReadCache(const char* pCachePath, JonesDataCacheEntry* aEn
 {
     *pNumEntries = 0;
 
-    FILE* pFile = fopen(pCachePath, "rb");
-    if ( !pFile )
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pCachePath, "rb") != 0 )
     {
         return;
     }
@@ -440,7 +440,7 @@ static bool JonesData_FindCacheEntry(const JonesDataCacheEntry* aEntries, size_t
           && aEntries[i].mtime == mtime
           && strcmp(aEntries[i].aPath, pPath) == 0 )
         {
-            strcpy(pHashOut, aEntries[i].aSha256);
+            memcpy(pHashOut, aEntries[i].aSha256, JONESDATA_HASH_SIZE);
             return true;
         }
     }
@@ -450,8 +450,8 @@ static bool JonesData_FindCacheEntry(const JonesDataCacheEntry* aEntries, size_t
 
 static void JonesData_WriteCache(const char* pCachePath, const JonesDataCacheEntry* aEntries, size_t numEntries)
 {
-    FILE* pFile = fopen(pCachePath, "wb");
-    if ( !pFile )
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pCachePath, "wb") != 0 )
     {
         JonesData_LogWarning("Game data cache: cannot write '%s'.\n", pCachePath);
         return;
@@ -751,8 +751,8 @@ bool JonesData_Sha256File(const char* pPath, char* pHashOut, size_t outSize)
         return false;
     }
 
-    FILE* pFile = fopen(pPath, "rb");
-    if ( !pFile )
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pPath, "rb") != 0 )
     {
         JonesData_LogWarning("Game data: cannot open '%s' for hashing.\n", pPath);
         return false;
@@ -858,7 +858,7 @@ bool JonesData_CheckDir(const char* pResourceDir, const char* pCachePath, JonesD
                 JonesData_CopyPath(pWrite->aPath, sizeof(pWrite->aPath), pFile->aPath);
                 pWrite->size  = pFile->size;
                 pWrite->mtime = mtime;
-                strcpy(pWrite->aSha256, pFile->aSha256);
+                STD_STRCPY(pWrite->aSha256, pFile->aSha256);
             }
         }
 

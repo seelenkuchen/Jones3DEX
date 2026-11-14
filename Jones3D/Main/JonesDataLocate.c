@@ -17,7 +17,6 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include <sys/stat.h>
@@ -25,16 +24,12 @@
 
 #ifdef _WIN32
 #include <direct.h>
-#include <windows.h>
 #define JONESDATALOCATE_MKDIR(path) _mkdir(path)
-#define JONESDATALOCATE_GETCWD _getcwd
 #define JONESDATALOCATE_STAT _stat
 #define JONESDATALOCATE_STAT_ISDIR(mode) (((mode) & _S_IFDIR) != 0)
 #define JONESDATALOCATE_STAT_ISREG(mode) (((mode) & _S_IFREG) != 0)
 #else
-#include <unistd.h>
 #define JONESDATALOCATE_MKDIR(path) mkdir((path), 0700)
-#define JONESDATALOCATE_GETCWD getcwd
 #define JONESDATALOCATE_STAT stat
 #define JONESDATALOCATE_STAT_ISDIR(mode) S_ISDIR(mode)
 #define JONESDATALOCATE_STAT_ISREG(mode) S_ISREG(mode)
@@ -82,12 +77,13 @@ typedef struct JonesDataLocateEnvironmentStorage
     JonesDataLocateEnv env;
     JonesDataLocatePathList steam;
     char aUserData[JONESDATALOCATE_MAX_PATH];
-    char aExecutableDir[JONESDATALOCATE_MAX_PATH];
-    char aWorkingDir[JONESDATALOCATE_MAX_PATH];
-    char aHome[JONESDATALOCATE_MAX_PATH];
-    char aProgramFiles[JONESDATALOCATE_MAX_PATH];
-    char aProgramFilesX86[JONESDATALOCATE_MAX_PATH];
 } JonesDataLocateEnvironmentStorage;
+
+static char JonesDataLocate_aHostExecutableDir[JONESDATALOCATE_MAX_PATH];
+static char JonesDataLocate_aHostWorkingDir[JONESDATALOCATE_MAX_PATH];
+static char JonesDataLocate_aHostHome[JONESDATALOCATE_MAX_PATH];
+static char JonesDataLocate_aHostProgramFiles[JONESDATALOCATE_MAX_PATH];
+static char JonesDataLocate_aHostProgramFilesX86[JONESDATALOCATE_MAX_PATH];
 
 static const char* JonesDataLocate_pDataPath;
 static JonesDataLocatePromptHandler JonesDataLocate_pfPromptHandler;
@@ -172,7 +168,7 @@ static bool JonesDataLocate_Join(char* pOut, size_t outSize, JonesDataLocatePlat
         }
     }
 
-    strcpy(&pOut[dirLen], pName);
+    memcpy(&pOut[dirLen], pName, strlen(pName) + 1);
     return true;
 }
 
@@ -504,9 +500,9 @@ static size_t JonesDataLocate_CollectMissingRequired(const char* pDir, char* pOu
             size_t needed = len + strlen(pSeparator) + strlen(pFile->pName) + 1;
             if ( needed <= outSize )
             {
-                strcpy(&pOut[len], pSeparator);
+                memcpy(&pOut[len], pSeparator, strlen(pSeparator) + 1);
                 len += strlen(pSeparator);
-                strcpy(&pOut[len], pFile->pName);
+                memcpy(&pOut[len], pFile->pName, strlen(pFile->pName) + 1);
                 len += strlen(pFile->pName);
             }
         }
@@ -800,7 +796,7 @@ void JonesDataLocate_ParseLibraryFolders(const char* pText, JonesDataLocatePathL
               && JonesDataLocate_ParseQuoted(&pLine, aValue, sizeof(aValue))
               && aValue[0] != '\0' && pOut->numPaths < JONESDATALOCATE_MAX_STEAM_LIBRARIES )
             {
-                strcpy(pOut->aPaths[pOut->numPaths++], aValue);
+                memcpy(pOut->aPaths[pOut->numPaths++], aValue, strlen(aValue) + 1);
             }
         }
 
@@ -866,8 +862,8 @@ bool JonesDataLocate_Search(const JonesDataLocateCandidate* aCandidates, size_t 
         if ( !pOut->bIncomplete && JonesDataLocate_HasJones3D(aResourceDir) )
         {
             pOut->bIncomplete = true;
-            strcpy(pOut->aIncompleteDir, pCandidate->aPath);
-            strcpy(pOut->aMissingFiles, aMissing);
+            STD_STRCPY(pOut->aIncompleteDir, pCandidate->aPath);
+            STD_STRCPY(pOut->aMissingFiles, aMissing);
         }
     }
 
@@ -997,8 +993,8 @@ static void JonesDataLocate_AddSteamPath(JonesDataLocatePathList* pOut,
 
 static char* JonesDataLocate_ReadTextFile(const char* pPath)
 {
-    FILE* pFile = fopen(pPath, "rb");
-    if ( !pFile )
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pPath, "rb") != 0 )
     {
         return NULL;
     }
@@ -1155,71 +1151,23 @@ static void JonesDataLocate_CopyEnvironmentString(char* pOut, size_t outSize, co
     memcpy(pOut, pValue, len + 1);
 }
 
-static void JonesDataLocate_GetExecutableDir(char* pOut, size_t outSize)
+void JonesDataLocate_SetHostDirs(const char* pExecutableDir, const char* pWorkingDir)
 {
-    if ( !pOut || outSize == 0 )
-    {
-        return;
-    }
+    JonesDataLocate_CopyEnvironmentString(JonesDataLocate_aHostExecutableDir,
+        sizeof(JonesDataLocate_aHostExecutableDir), pExecutableDir);
+    JonesDataLocate_CopyEnvironmentString(JonesDataLocate_aHostWorkingDir,
+        sizeof(JonesDataLocate_aHostWorkingDir), pWorkingDir);
+}
 
-    pOut[0] = '\0';
-
-#ifdef _WIN32
-    char aPath[JONESDATALOCATE_MAX_PATH];
-    DWORD len = GetModuleFileNameA(NULL, aPath, (DWORD)sizeof(aPath));
-    if ( len == 0 || len >= sizeof(aPath) )
-    {
-        return;
-    }
-
-    aPath[len] = '\0';
-#else
-    char aPath[JONESDATALOCATE_MAX_PATH];
-    ssize_t len = readlink("/proc/self/exe", aPath, sizeof(aPath) - 1);
-    if ( len <= 0 || (size_t)len >= sizeof(aPath) )
-    {
-        return;
-    }
-
-    aPath[len] = '\0';
-#endif
-
-    size_t dirLen = strlen(aPath);
-    while ( dirLen > 1 && aPath[dirLen - 1] != '/' && aPath[dirLen - 1] != '\\' )
-    {
-        --dirLen;
-    }
-
-    if ( dirLen == 1 && (aPath[0] == '/' || aPath[0] == '\\') )
-    {
-        if ( outSize < 2 )
-        {
-            return;
-        }
-
-        pOut[0] = aPath[0];
-        pOut[1] = '\0';
-        return;
-    }
-
-    if ( dirLen > 0 && (aPath[dirLen - 1] == '/' || aPath[dirLen - 1] == '\\') )
-    {
-        --dirLen;
-    }
-
-    if ( dirLen == 0 )
-    {
-        strcpy(pOut, ".");
-        return;
-    }
-
-    if ( dirLen + 1 > outSize )
-    {
-        return;
-    }
-
-    memcpy(pOut, aPath, dirLen);
-    pOut[dirLen] = '\0';
+void JonesDataLocate_SetHostEnvironment(const char* pHome, const char* pProgramFiles,
+    const char* pProgramFilesX86)
+{
+    JonesDataLocate_CopyEnvironmentString(JonesDataLocate_aHostHome,
+        sizeof(JonesDataLocate_aHostHome), pHome);
+    JonesDataLocate_CopyEnvironmentString(JonesDataLocate_aHostProgramFiles,
+        sizeof(JonesDataLocate_aHostProgramFiles), pProgramFiles);
+    JonesDataLocate_CopyEnvironmentString(JonesDataLocate_aHostProgramFilesX86,
+        sizeof(JonesDataLocate_aHostProgramFilesX86), pProgramFilesX86);
 }
 
 static void JonesDataLocate_FillEnvironment(JonesDataLocateEnvironmentStorage* pStorage)
@@ -1231,50 +1179,24 @@ static void JonesDataLocate_FillEnvironment(JonesDataLocateEnvironmentStorage* p
     platform = JONESDATALOCATE_PLATFORM_WINDOWS;
 #endif
 
-#ifdef _WIN32
-    const char* pUserProfile = getenv("USERPROFILE");
-    const char* pHomeDrive = getenv("HOMEDRIVE");
-    const char* pHomePath = getenv("HOMEPATH");
-    if ( pUserProfile && pUserProfile[0] )
-    {
-        JonesDataLocate_CopyEnvironmentString(pStorage->aHome, sizeof(pStorage->aHome), pUserProfile);
-    }
-    else if ( pHomeDrive && pHomePath )
-    {
-        snprintf(pStorage->aHome, sizeof(pStorage->aHome), "%s%s", pHomeDrive, pHomePath);
-    }
-#else
-    JonesDataLocate_CopyEnvironmentString(pStorage->aHome, sizeof(pStorage->aHome), getenv("HOME"));
-#endif
-
-    JonesDataLocate_CopyEnvironmentString(pStorage->aProgramFiles,
-        sizeof(pStorage->aProgramFiles), getenv("ProgramFiles"));
-    JonesDataLocate_CopyEnvironmentString(pStorage->aProgramFilesX86,
-        sizeof(pStorage->aProgramFilesX86), getenv("ProgramFiles(x86)"));
-
     if ( !stdUserDir_MakePath(pStorage->aUserData, sizeof(pStorage->aUserData), "data") )
     {
         pStorage->aUserData[0] = '\0';
     }
 
-    JonesDataLocate_GetExecutableDir(pStorage->aExecutableDir, sizeof(pStorage->aExecutableDir));
-    if ( !JONESDATALOCATE_GETCWD(pStorage->aWorkingDir, sizeof(pStorage->aWorkingDir)) )
-    {
-        pStorage->aWorkingDir[0] = '\0';
-    }
-
-    JonesDataLocate_AddDefaultSteamRoots(&pStorage->steam, platform, pStorage->aHome,
-        pStorage->aProgramFiles, pStorage->aProgramFilesX86);
+    JonesDataLocate_AddDefaultSteamRoots(&pStorage->steam, platform,
+        JonesDataLocate_aHostHome, JonesDataLocate_aHostProgramFiles,
+        JonesDataLocate_aHostProgramFilesX86);
 
     pStorage->env.platform         = platform;
     pStorage->env.pDataOption      = JonesDataLocate_pDataPath;
     pStorage->env.pInstallPath     = "";
     pStorage->env.pUserDataDir     = pStorage->aUserData;
-    pStorage->env.pExecutableDir   = pStorage->aExecutableDir;
-    pStorage->env.pWorkingDir      = pStorage->aWorkingDir;
-    pStorage->env.pHome            = pStorage->aHome;
-    pStorage->env.pProgramFiles    = pStorage->aProgramFiles;
-    pStorage->env.pProgramFilesX86 = pStorage->aProgramFilesX86;
+    pStorage->env.pExecutableDir   = JonesDataLocate_aHostExecutableDir;
+    pStorage->env.pWorkingDir      = JonesDataLocate_aHostWorkingDir;
+    pStorage->env.pHome            = JonesDataLocate_aHostHome;
+    pStorage->env.pProgramFiles    = JonesDataLocate_aHostProgramFiles;
+    pStorage->env.pProgramFilesX86 = JonesDataLocate_aHostProgramFilesX86;
     pStorage->env.pSteamLibraries  = &pStorage->steam;
 }
 
@@ -1312,15 +1234,15 @@ int JonesDataLocate_HashData(const char* pDir)
 
 static bool JonesDataLocate_CopyFile(const char* pSource, const char* pDest)
 {
-    FILE* pIn = fopen(pSource, "rb");
-    if ( !pIn )
+    FILE* pIn = NULL;
+    if ( fopen_s(&pIn, pSource, "rb") != 0 )
     {
         fprintf(stderr, "ERROR: cannot open '%s': %s.\n", pSource, strerror(errno));
         return false;
     }
 
-    FILE* pOut = fopen(pDest, "wb");
-    if ( !pOut )
+    FILE* pOut = NULL;
+    if ( fopen_s(&pOut, pDest, "wb") != 0 )
     {
         fprintf(stderr, "ERROR: cannot create '%s': %s.\n", pDest, strerror(errno));
         fclose(pIn);

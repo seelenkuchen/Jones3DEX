@@ -894,8 +894,8 @@ void JonesMain_OnQuickLoadKey(void)
 
     STD_MAKEPATH(aPath, pSaveGamesDir, aFilename);
 
-    FILE* pFile = fopen(aPath, "r");
-    if ( pFile )
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, aPath, "r") == 0 && pFile )
     {
         fclose(pFile); // Looks like the file exists, so we can close it here
 
@@ -2644,8 +2644,8 @@ void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText)
 
     if ( pErrorText && strlen(pErrorText) )
     {
-        FILE* fp = fopen(aFilePath, "wt+");
-        if ( fp )
+        FILE* fp = NULL;
+        if ( fopen_s(&fp, aFilePath, "wt+") == 0 && fp )
         {
             fprintf(fp, "%s", pErrorText); // Fixed: the text isn't a format string
             fprintf(fp, "\n");

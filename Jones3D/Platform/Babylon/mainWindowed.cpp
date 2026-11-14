@@ -5,6 +5,7 @@
 // Added: std3D draws and stdDisplay presents on the render device made here, the SDL GPU device on
 // the game window (M6.6, M6.7).
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -183,6 +184,27 @@ namespace
 
         return path;
     }
+
+    // Added: the home the store search uses. Windows keeps it in USERPROFILE, or HOMEDRIVE plus
+    // HOMEPATH; other hosts use HOME.
+    std::string HomeDirectory()
+    {
+        const char* pUserProfile = std::getenv("USERPROFILE");
+        if ( pUserProfile && pUserProfile[0] )
+        {
+            return pUserProfile;
+        }
+
+        const char* pDrive = std::getenv("HOMEDRIVE");
+        const char* pPath  = std::getenv("HOMEPATH");
+        if ( pDrive && pPath )
+        {
+            return std::string(pDrive) + pPath;
+        }
+
+        const char* pHome = std::getenv("HOME");
+        return pHome ? pHome : "";
+    }
 }
 
 int main(int argc, char** argv)
@@ -258,6 +280,13 @@ int main(int argc, char** argv)
         stdBabylon_SetContext(nullptr);
         return toolExitCode;
     }
+
+    // Added: the game data search no longer reads platform paths or the environment itself. The
+    // composition root passes what it already has from the file system and the host environment.
+    const std::string homeDir = HomeDirectory();
+    JonesDataLocate_SetHostDirs(pFileSystem->basePath().c_str(), pFileSystem->currentPath().c_str());
+    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), std::getenv("ProgramFiles"),
+        std::getenv("ProgramFiles(x86)"));
 
     // Added: the scripted tour's options are taken out before the game command line is built, so
     // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad

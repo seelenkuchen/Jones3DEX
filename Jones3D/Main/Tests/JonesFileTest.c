@@ -45,6 +45,20 @@ static tHostServices g_hostServices;
 
 TEST_GROUP(JonesFile);
 
+static const char* JonesFileTest_GetEnv(const char* pName)
+{
+    static char aValue[1024];
+    size_t size = 0;
+
+    aValue[0] = '\0';
+    if ( getenv_s(&size, aValue, sizeof(aValue), pName) == 0 && size > 0 )
+    {
+        return aValue;
+    }
+
+    return NULL;
+}
+
 static const char* JonesFileTest_TempBase(void)
 {
 #ifdef _WIN32
@@ -61,17 +75,17 @@ static const char* JonesFileTest_TempBase(void)
         return aBase;
     }
 
-    const char* pBase = getenv("TEMP");
+    const char* pBase = JonesFileTest_GetEnv("TEMP");
     return pBase && pBase[0] ? pBase : "C:\\Windows\\Temp";
 #else
-    const char* pBase = getenv("TMPDIR");
+    const char* pBase = JonesFileTest_GetEnv("TMPDIR");
     if ( !pBase || pBase[0] == '\0' )
     {
-        pBase = getenv("TEMP");
+        pBase = JonesFileTest_GetEnv("TEMP");
     }
     if ( !pBase || pBase[0] == '\0' )
     {
-        pBase = getenv("TMP");
+        pBase = JonesFileTest_GetEnv("TMP");
     }
     if ( !pBase || pBase[0] == '\0' )
     {
@@ -238,7 +252,7 @@ static void JonesFileTest_WriteFakeGob(const char* pPath)
 
     entry.offset = (int)sizeof(header);
     entry.size   = (int)sizeof(payload);
-    strcpy(entry.aName, "dummy");
+    snprintf(entry.aName, sizeof(entry.aName), "%s", "dummy");
 
     size_t offset = 0;
     memcpy(&aData[offset], &header, sizeof(header));
@@ -250,7 +264,8 @@ static void JonesFileTest_WriteFakeGob(const char* pPath)
     memcpy(&aData[offset], &entry, sizeof(entry));
     offset += sizeof(entry);
 
-    FILE* pFile = fopen(pPath, "wb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, pPath, "wb"));
     TEST_ASSERT_NOT_NULL(pFile);
     TEST_ASSERT_EQUAL_size_t(offset, fwrite(aData, 1, offset, pFile));
     TEST_ASSERT_EQUAL_INT(0, fclose(pFile));
@@ -282,7 +297,13 @@ static int J3DAPI JonesFileTest_Print(const char* pFormat, ...)
 
 static tFileHandle J3DAPI JonesFileTest_FileOpen(const char* pFilename, const char* mode)
 {
-    return (tFileHandle)(uintptr_t)fopen(pFilename, mode);
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pFilename, mode) != 0 )
+    {
+        return 0;
+    }
+
+    return (tFileHandle)(uintptr_t)pFile;
 }
 
 static int J3DAPI JonesFileTest_FileClose(tFileHandle fh)
@@ -322,7 +343,8 @@ static int J3DAPI JonesFileTest_FileSeek(tFileHandle fh, int offset, int origin)
 
 static size_t J3DAPI JonesFileTest_FileSize(const char* pFilename)
 {
-    FILE* pFile = fopen(pFilename, "rb");
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, pFilename, "rb"));
     if ( !pFile )
     {
         return 0;
