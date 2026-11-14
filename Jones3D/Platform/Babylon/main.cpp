@@ -30,25 +30,44 @@
 
 namespace
 {
+    // Added: _dupenv_s avoids MSVC's getenv deprecation; other hosts keep std::getenv.
+    std::string ReadEnvironment(const char* pName)
+    {
+#ifdef _WIN32
+        char* pValue = nullptr;
+        size_t size = 0;
+        if ( _dupenv_s(&pValue, &size, pName) != 0 || !pValue )
+        {
+            return {};
+        }
+
+        std::string value = pValue;
+        std::free(pValue);
+        return value;
+#else
+        const char* pValue = std::getenv(pName);
+        return pValue ? pValue : "";
+#endif
+    }
+
     // Added: the home the store search uses. Windows keeps it in USERPROFILE, or HOMEDRIVE plus
     // HOMEPATH; other hosts use HOME.
     std::string HomeDirectory()
     {
-        const char* pUserProfile = std::getenv("USERPROFILE");
-        if ( pUserProfile && pUserProfile[0] )
+        const std::string userProfile = ReadEnvironment("USERPROFILE");
+        if ( !userProfile.empty() )
         {
-            return pUserProfile;
+            return userProfile;
         }
 
-        const char* pDrive = std::getenv("HOMEDRIVE");
-        const char* pPath  = std::getenv("HOMEPATH");
-        if ( pDrive && pPath )
+        const std::string drive = ReadEnvironment("HOMEDRIVE");
+        const std::string path  = ReadEnvironment("HOMEPATH");
+        if ( !drive.empty() && !path.empty() )
         {
-            return std::string(pDrive) + pPath;
+            return drive + path;
         }
 
-        const char* pHome = std::getenv("HOME");
-        return pHome ? pHome : "";
+        return ReadEnvironment("HOME");
     }
 }
 
@@ -96,10 +115,12 @@ int main(int argc, char** argv)
     std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
     // Added: the game data search takes the host paths and environment from here, so the game layer
     // no longer reads platform paths or getenv itself.
-    const std::string homeDir = HomeDirectory();
+    const std::string homeDir        = HomeDirectory();
+    const std::string programFiles   = ReadEnvironment("ProgramFiles");
+    const std::string programFilesX86 = ReadEnvironment("ProgramFiles(x86)");
     JonesDataLocate_SetHostDirs(pFileSystem->basePath().c_str(), pFileSystem->currentPath().c_str());
-    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), std::getenv("ProgramFiles"),
-        std::getenv("ProgramFiles(x86)"));
+    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), programFiles.c_str(),
+        programFilesX86.c_str());
     std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
     babylon::time::NullClock virtualClock;
     // Added: the headless run has no OS input, so the platform is a NullPlatform whose queue the

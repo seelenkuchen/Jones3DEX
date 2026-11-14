@@ -185,25 +185,44 @@ namespace
         return path;
     }
 
+    // Added: _dupenv_s avoids MSVC's getenv deprecation; other hosts keep std::getenv.
+    std::string ReadEnvironment(const char* pName)
+    {
+#ifdef _WIN32
+        char* pValue = nullptr;
+        size_t size = 0;
+        if ( _dupenv_s(&pValue, &size, pName) != 0 || !pValue )
+        {
+            return {};
+        }
+
+        std::string value = pValue;
+        std::free(pValue);
+        return value;
+#else
+        const char* pValue = std::getenv(pName);
+        return pValue ? pValue : "";
+#endif
+    }
+
     // Added: the home the store search uses. Windows keeps it in USERPROFILE, or HOMEDRIVE plus
     // HOMEPATH; other hosts use HOME.
     std::string HomeDirectory()
     {
-        const char* pUserProfile = std::getenv("USERPROFILE");
-        if ( pUserProfile && pUserProfile[0] )
+        const std::string userProfile = ReadEnvironment("USERPROFILE");
+        if ( !userProfile.empty() )
         {
-            return pUserProfile;
+            return userProfile;
         }
 
-        const char* pDrive = std::getenv("HOMEDRIVE");
-        const char* pPath  = std::getenv("HOMEPATH");
-        if ( pDrive && pPath )
+        const std::string drive = ReadEnvironment("HOMEDRIVE");
+        const std::string path  = ReadEnvironment("HOMEPATH");
+        if ( !drive.empty() && !path.empty() )
         {
-            return std::string(pDrive) + pPath;
+            return drive + path;
         }
 
-        const char* pHome = std::getenv("HOME");
-        return pHome ? pHome : "";
+        return ReadEnvironment("HOME");
     }
 }
 
@@ -283,10 +302,12 @@ int main(int argc, char** argv)
 
     // Added: the game data search no longer reads platform paths or the environment itself. The
     // composition root passes what it already has from the file system and the host environment.
-    const std::string homeDir = HomeDirectory();
+    const std::string homeDir        = HomeDirectory();
+    const std::string programFiles   = ReadEnvironment("ProgramFiles");
+    const std::string programFilesX86 = ReadEnvironment("ProgramFiles(x86)");
     JonesDataLocate_SetHostDirs(pFileSystem->basePath().c_str(), pFileSystem->currentPath().c_str());
-    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), std::getenv("ProgramFiles"),
-        std::getenv("ProgramFiles(x86)"));
+    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), programFiles.c_str(),
+        programFilesX86.c_str());
 
     // Added: the scripted tour's options are taken out before the game command line is built, so
     // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad

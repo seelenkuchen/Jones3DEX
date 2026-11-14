@@ -1274,9 +1274,9 @@ TEST(JonesControlSchemes, TestUserDirectoryPathsAndSaveMigration)
     TEST_ASSERT_TRUE(longShotsDir == longUserDirString + "\\ScreenShots");
 
     char aQuickName[STDUSERDIR_MAXPATH] = { 0 };
-    STD_FORMAT(aQuickName, "%s.%s", sithGetQuickSaveFilePrefix(), "nds");
+    std::snprintf(aQuickName, sizeof(aQuickName), "%s.%s", sithGetQuickSaveFilePrefix(), "nds");
     char aQuickPath[STDUSERDIR_MAXPATH] = { 0 };
-    STD_MAKEPATH(aQuickPath, sithGetSaveGamesDir(), aQuickName);
+    stdFnames_MakePath(aQuickPath, (int)sizeof(aQuickPath), sithGetSaveGamesDir(), aQuickName);
     TEST_ASSERT_TRUE(std::string(aQuickPath) == longSaveDir + "\\QUICKSAVE.nds");
 
     sithString_Shutdown();

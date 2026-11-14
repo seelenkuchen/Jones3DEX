@@ -439,11 +439,19 @@ static int J3DAPI JonesDataLocateTest_FileSeek(tFileHandle fh, int offset, int o
 
 static size_t J3DAPI JonesDataLocateTest_FileSize(const char* pFilename)
 {
+#ifdef _WIN32
+    struct _stat64 st;
+    if ( _stat64(pFilename, &st) != 0 )
+    {
+        return 0;
+    }
+#else
     struct stat st;
     if ( stat(pFilename, &st) != 0 )
     {
         return 0;
     }
+#endif
 
     return (size_t)st.st_size;
 }
