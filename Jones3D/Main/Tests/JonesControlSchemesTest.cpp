@@ -523,10 +523,9 @@ TEST(JonesControlSchemes, TestDefaultSchemes)
         STDKEY_A, STDKEY_LEFT });
     ExpectBindings(scheme, JONESCONTROL_ACTION_TURNRIGHT, {
         STDKEY_D, STDKEY_RIGHT });
-    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPLEFT, {
-        STDKEY_Q, STDCONTROL_JOYSTICK_GETBUTTON(0, 4) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPLEFT, {});
     ExpectBindings(scheme, JONESCONTROL_ACTION_STEPRIGHT, {
-        STDKEY_E, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) });
+        STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) });
     ExpectBindings(scheme, JONESCONTROL_ACTION_CRAWL, {
         STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) });
     ExpectBindings(scheme, JONESCONTROL_ACTION_RUN, {
@@ -782,6 +781,111 @@ TEST(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock)
     g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
     stdControl_GetNumJoysticks();
 }
+
+TEST(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 4));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // The Modern scheme's step-right row carries RB, which becomes the quick-step modifier.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPRIGHT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, false });
+    stdControl_ReadControls();
+
+    // LB is free in the Modern scheme.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
+TEST(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    // "Keyboard and gamepad" binds LB to step left; in Modern LB stays free for the weapon wheel.
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, false });
+    stdControl_ReadControls();
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKSTEP));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+    sithControl_SetModernControlStyle(true);
+}
+
+TEST(JonesControlSchemes, TestClassicBinderKeepsStepRows)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(false);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // Classic keeps LB and RB as the original held sidesteps.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_STPRIGHT));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_STPLEFT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
 TEST(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys)
 {
     StartControls();
@@ -1080,8 +1184,11 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestBinderKeepsJoystickBindingsWithControllerFalse);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock);
+    RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep);
     RUN_TEST_CASE(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys);
 #endif
+    RUN_TEST_CASE(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme);
+    RUN_TEST_CASE(JonesControlSchemes, TestClassicBinderKeepsStepRows);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupReadsClassicControlStyle);

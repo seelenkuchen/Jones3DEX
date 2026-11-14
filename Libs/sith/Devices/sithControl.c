@@ -110,6 +110,7 @@ const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
     "HEALTH",
     "CHALK",
     "TARGETLOCK",
+    "QUICKSTEP",
     "MAXFUNCTIONS"
 };
 
@@ -839,6 +840,7 @@ void sithControl_RegisterControlFunctions(void)
     sithControl_RegisterKeyFunction(SITHCONTROL_HEALTH);
     sithControl_RegisterKeyFunction(SITHCONTROL_CHALK);
     sithControl_RegisterKeyFunction(SITHCONTROL_TARGETLOCK); // Added: Modern target lock (ADR-0029)
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKSTEP); // Added: Modern quick-step modifier (ADR-0029)
     sithControl_RegisterKeyFunction(SITHCONTROL_DEBUG);
     sithControl_RegisterKeyFunction(SITHCONTROL_GAMMA);
     sithControl_RegisterKeyFunction(SITHCONTROL_SCREENSHOT);

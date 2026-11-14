@@ -4,6 +4,7 @@
 #include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithModernCamera.h>
 #include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerActions.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 
 #include <rdroid/Math/rdMatrix.h>
@@ -27,6 +28,8 @@
 #define SITHMODERNCONTROL_TURN_SNAP_ANGLE     100.0f  // snapped in one update instead of rotating
 #define SITHMODERNCONTROL_LOCK_SIDEWAYS       0.5f
 #define SITHMODERNCONTROL_LOCK_LOST_SECONDS   0.5f
+#define SITHMODERNCONTROL_QUICKSTEP_THRESHOLD 0.5f // one direction must pass this to step
+#define SITHMODERNCONTROL_QUICKSTEP_REARM     0.3f // the stick must fall below this to step again
 #define SITHMODERNCONTROL_ACCEL_TIME          0.15f  // seconds from rest to the original target speed
 #define SITHMODERNCONTROL_GROUND_THRUST_SCALE 0.30000001f // the player physics' ground thrust scale
 #define SITHMODERNCONTROL_SWIM_YAW_SPEED      360.0f // degrees per second toward the camera direction
@@ -39,6 +42,7 @@ static bool sithModernControls_bLockHeld;
 static bool sithModernControls_bLockActive;
 static bool sithModernControls_bLockWasHeld;
 static float sithModernControls_secLockLost;
+static bool sithModernControls_bQuickStepLatched; // Added: this press already took a step
 
 // Added: a floor-plane yaw in the engine's convention: 0 faces +Y and positive turns left.
 static float sithModernControls_GetYaw(const rdMatrix34* pOrient)
@@ -56,6 +60,48 @@ static float sithModernControls_GetYaw(const rdMatrix34* pOrient)
 static float sithModernControls_GetDirectionYaw(const rdVector3* pFrom, const rdVector3* pTo)
 {
     return STDMATH_TODEGREESF(atan2f(-(pTo->x - pFrom->x), pTo->y - pFrom->y));
+}
+
+// Added: turn the camera-relative move vector into the nearest of Indy's four directions. While
+// locked the stick is already relative to Indy's facing toward the target, so only the screen
+// axes rotate into that facing; otherwise the camera yaw rotates it into the world first.
+static SithModernStep sithModernControls_ResolveQuickStep(const SithModernInput* pIn)
+{
+    float absX = fabsf(pIn->x);
+    float absY = fabsf(pIn->y);
+    if ( absX < SITHMODERNCONTROL_QUICKSTEP_THRESHOLD
+        && absY < SITHMODERNCONTROL_QUICKSTEP_THRESHOLD )
+    {
+        return SITHMODERNSTEP_NONE;
+    }
+
+    float relativeYaw;
+    if ( pIn->bLocked )
+    {
+        relativeYaw = -STDMATH_TODEGREESF(atan2f(pIn->x, pIn->y));
+    }
+    else
+    {
+        float worldYaw = pIn->cameraYaw - STDMATH_TODEGREESF(atan2f(pIn->x, pIn->y));
+        relativeYaw    = stdMath_NormalizeAngleAcute(worldYaw - pIn->playerYaw);
+    }
+
+    if ( relativeYaw >= -45.0f && relativeYaw < 45.0f )
+    {
+        return SITHMODERNSTEP_FORWARD;
+    }
+
+    if ( relativeYaw >= 45.0f && relativeYaw < 135.0f )
+    {
+        return SITHMODERNSTEP_LEFT;
+    }
+
+    if ( relativeYaw >= -135.0f && relativeYaw < -45.0f )
+    {
+        return SITHMODERNSTEP_RIGHT;
+    }
+
+    return SITHMODERNSTEP_BACK;
 }
 
 // Added: rotate Indy's facing toward a target heading the way the original turn does, about the
@@ -577,6 +623,24 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
         return;
     }
 
+    // Added: the quick-step modifier takes the frame. One direction crosses the threshold and
+    // starts one step; every other movement key stays off so a held modifier never runs.
+    if ( pIn->bQuickStepHeld )
+    {
+        if ( pIn->bQuickStepAllowed )
+        {
+            pOut->quickStep = sithModernControls_ResolveQuickStep(pIn);
+        }
+
+        if ( pIn->bLocked && pIn->bHasLockTarget )
+        {
+            pOut->bTurnTowardTarget = true;
+            pOut->targetYaw         = pIn->lockTargetYaw;
+        }
+
+        return;
+    }
+
     if ( pIn->bLocked )
     {
         // Added: Indy faces the locked target directly, so the original turn keys stay off.
@@ -602,6 +666,16 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
                 pOut->strafeLeft.amount   = fabsf(pIn->x);
             }
 
+            return;
+        }
+
+        // Added: a backward stick while locked plays the original back hop, chained while held,
+        // instead of the slow backpedal walk.
+        if ( pIn->y < -SITHMODERNCONTROL_LOCK_SIDEWAYS
+            && -pIn->y >= fabsf(pIn->x) )
+        {
+            pOut->backStep.bPressed = true;
+            pOut->backStep.amount   = -pIn->y;
             return;
         }
 
@@ -639,10 +713,11 @@ void J3DAPI sithModernControls_Compute(const SithModernInput* pIn, SithModernOut
     pOut->forward.amount    = magnitude;
 }
 
-// Added: a Modern quick-step counts only the press edge. The original sidestep force move starts
-// once per press, but a held STPLEFT/STPRIGHT starts another step as soon as the previous one
-// finishes. Suppressing the held key leaves the original move code and its alignment untouched.
-static void sithModernControls_UpdateQuickStep(bool bLocked)
+// Added: a physical step key bound by an older Modern scheme counts only the press edge. The
+// original sidestep force move starts once per press, but a held STPLEFT/STPRIGHT starts another
+// step as soon as the previous one finishes. Suppressing the held key leaves the original move
+// code and its alignment untouched.
+static void sithModernControls_SuppressHeldStepKeys(bool bLocked)
 {
     // Added: the lock uses the held sidestep, so quick-step's press-edge rule stays off for it.
     if ( bLocked )
@@ -663,6 +738,33 @@ static void sithModernControls_UpdateQuickStep(bool bLocked)
     }
 }
 
+// Added: run one original step. Left and right are the sidestep force moves; back is the original
+// back hop, and forward is the short forced walk that matches the sidestep distance.
+static void sithModernControls_TriggerStep(SithThing* pPlayer, SithModernStep step)
+{
+    switch ( step )
+    {
+        case SITHMODERNSTEP_FORWARD:
+            sithPlayerActions_QuickStepForward(pPlayer);
+            break;
+
+        case SITHMODERNSTEP_BACK:
+            sithPlayerActions_QuickStepBack(pPlayer);
+            break;
+
+        case SITHMODERNSTEP_LEFT:
+            sithPlayerActions_StrafeLeft(pPlayer);
+            break;
+
+        case SITHMODERNSTEP_RIGHT:
+            sithPlayerActions_StrafeRight(pPlayer);
+            break;
+
+        default:
+            break;
+    }
+}
+
 void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 {
     sithControl_ClearKeyOverrides();
@@ -672,11 +774,19 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         || pPlayer != sithPlayer_g_pLocalPlayerThing
         || pPlayer->moveType != SITH_MT_PHYSICS )
     {
+        sithModernControls_bQuickStepLatched = false;
         sithModernControls_ResetLock();
         return;
     }
 
     SithModernControlMode mode = sithModernControls_GetMode(pPlayer);
+
+    int quickStepPressed = 0;
+    bool bQuickStepHeld  = sithControl_GetKey(SITHCONTROL_QUICKSTEP, &quickStepPressed) != 0;
+    if ( !bQuickStepHeld )
+    {
+        sithModernControls_bQuickStepLatched = false;
+    }
 
     float playerYaw   = sithModernControls_GetYaw(&pPlayer->orient);
     float cameraYaw   = playerYaw;
@@ -701,7 +811,7 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     // Added: the target lock is read in every move state; only camera-relative states apply it.
     sithModernControls_UpdateLock(pPlayer, mode, cameraYaw, secDeltaTime);
 
-    sithModernControls_UpdateQuickStep(sithModernControls_IsLockActive());
+    sithModernControls_SuppressHeldStepKeys(sithModernControls_IsLockActive());
 
     if ( mode == SITHMODERNCONTROL_MODE_NONE )
     {
@@ -765,6 +875,20 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         in.lockTargetYaw = sithModernControls_GetDirectionYaw(&pPlayer->pos, &sithModernControls_pLockedTarget->pos);
     }
 
+    // Added: quick-step is a grounded Modern action. A held modifier with no direction takes the
+    // frame and suppresses normal movement; a direction past the threshold takes one step, and the
+    // latch only clears once the input falls below the re-arm magnitude or the modifier is released.
+    float inMagnitude = sqrtf(in.x * in.x + in.y * in.y);
+    in.bQuickStepHeld = bQuickStepHeld
+        && mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE
+        && !sithModernControls_IsSwimming(pPlayer);
+    if ( in.bQuickStepHeld && inMagnitude < SITHMODERNCONTROL_QUICKSTEP_REARM )
+    {
+        sithModernControls_bQuickStepLatched = false;
+    }
+
+    in.bQuickStepAllowed = in.bQuickStepHeld && !sithModernControls_bQuickStepLatched;
+
     // Added: a neutral underwater input sets no overrides, so the real keys stay Classic.
     if ( mode == SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM
         && sqrtf(in.x * in.x + in.y * in.y) < SITHMODERNCONTROL_ZERO_EPSILON )
@@ -775,16 +899,74 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     SithModernOutput out;
     sithModernControls_Compute(&in, &out);
 
-    sithModernControls_ApplyMovementKey(SITHCONTROL_FORWARD, &out.forward);
-    sithModernControls_ApplyMovementKey(SITHCONTROL_BACK, &out.back);
-    sithModernControls_ApplyMovementKey(SITHCONTROL_TURNLEFT, &out.turnLeft);
-    sithModernControls_ApplyMovementKey(SITHCONTROL_TURNRIGHT, &out.turnRight);
-
-    // Added: underwater the real RUN binding still starts the original swim boost, so the swim
-    // mode does not turn the stick's magnitude into a virtual run key.
-    if ( mode != SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM )
+    // Added: one quick-step per press. Left and right drive the original sidestep keys for this
+    // frame; forward and back call the original step actions directly because neither has a key.
+    if ( out.quickStep != SITHMODERNSTEP_NONE )
     {
-        sithModernControls_ApplyMovementKey(SITHCONTROL_RUNFWD, &out.run);
+        sithModernControls_bQuickStepLatched = true;
+
+        // Added: also hold the original sidestep key on the press frame. The direct action has
+        // already started the force move, so the original still-state step guard skips it, while
+        // the key keeps the edge visible to the original code and to tests.
+        if ( out.quickStep == SITHMODERNSTEP_LEFT )
+        {
+            SithModernKey stepKey = { true, 1.0f };
+            sithModernControls_ApplyMovementKey(SITHCONTROL_STPLEFT, &stepKey);
+        }
+        else if ( out.quickStep == SITHMODERNSTEP_RIGHT )
+        {
+            SithModernKey stepKey = { true, 1.0f };
+            sithModernControls_ApplyMovementKey(SITHCONTROL_STPRIGHT, &stepKey);
+        }
+
+        sithModernControls_TriggerStep(pPlayer, out.quickStep);
+    }
+
+    // Added: locked back hops as long as the stick stays back; the action itself starts the next
+    // hop only once the previous one has landed, so holding it chains.
+    if ( out.backStep.bPressed )
+    {
+        sithModernControls_TriggerStep(pPlayer, SITHMODERNSTEP_BACK);
+    }
+
+    bool bStepActive = in.bQuickStepHeld || out.backStep.bPressed;
+
+    if ( bStepActive )
+    {
+        // Added: a held quick-step, or a locked back step, never runs or walks.
+        sithControl_SuppressKey(SITHCONTROL_FORWARD);
+        sithControl_SuppressKey(SITHCONTROL_BACK);
+        sithControl_SuppressKey(SITHCONTROL_TURNLEFT);
+        sithControl_SuppressKey(SITHCONTROL_TURNRIGHT);
+        sithControl_SuppressKey(SITHCONTROL_RUNFWD);
+        sithControl_SuppressKey(SITHCONTROL_ACT1);
+        sithControl_SuppressKey(SITHCONTROL_STPLEFT);
+        sithControl_SuppressKey(SITHCONTROL_STPRIGHT);
+    }
+    else
+    {
+        sithModernControls_ApplyMovementKey(SITHCONTROL_FORWARD, &out.forward);
+        sithModernControls_ApplyMovementKey(SITHCONTROL_BACK, &out.back);
+        sithModernControls_ApplyMovementKey(SITHCONTROL_TURNLEFT, &out.turnLeft);
+        sithModernControls_ApplyMovementKey(SITHCONTROL_TURNRIGHT, &out.turnRight);
+
+        // Added: underwater the real RUN binding still starts the original swim boost, so the swim
+        // mode does not turn the stick's magnitude into a virtual run key.
+        if ( mode != SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM )
+        {
+            sithModernControls_ApplyMovementKey(SITHCONTROL_RUNFWD, &out.run);
+        }
+
+        // Added: only a lock's sideways stick holds a sidestep key, leaving the physical quick-step
+        // key alone otherwise.
+        if ( out.strafeLeft.bPressed )
+        {
+            sithModernControls_ApplyMovementKey(SITHCONTROL_STPLEFT, &out.strafeLeft);
+        }
+        else if ( out.strafeRight.bPressed )
+        {
+            sithModernControls_ApplyMovementKey(SITHCONTROL_STPRIGHT, &out.strafeRight);
+        }
     }
 
     // Added: underwater the original JUMP path is the swim thrust (and keeps its boost logic);
@@ -792,17 +974,6 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     if ( out.swimForward.bPressed )
     {
         sithModernControls_ApplyMovementKey(SITHCONTROL_JUMP, &out.swimForward);
-    }
-
-    // Added: only a lock's sideways stick holds a sidestep key, leaving the physical quick-step
-    // key alone otherwise.
-    if ( out.strafeLeft.bPressed )
-    {
-        sithModernControls_ApplyMovementKey(SITHCONTROL_STPLEFT, &out.strafeLeft);
-    }
-    else if ( out.strafeRight.bPressed )
-    {
-        sithModernControls_ApplyMovementKey(SITHCONTROL_STPRIGHT, &out.strafeRight);
     }
 
     // Added: the facing turns directly toward the stick or lock heading before the original

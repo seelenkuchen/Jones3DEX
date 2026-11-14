@@ -218,11 +218,15 @@ heading to face. The classifier returns three modes:
 
 The free camera is world-anchored in `sithModernCamera`: right-stick and mouse motion orbit it, the
 original camera collision stays, and a camera set by a COG script or cutscene wins while active.
-Quick-step reuses the original sidestep force move. The original repeats a held step, so Modern
-suppresses a held `STPLEFT`/`STPRIGHT` and lets only the press edge start exactly one step. While
-the target lock is held, a sideways stick keeps the step key held, the force move plays at twice
-its animation rate (same distance per step, half the time) and the original immediately starts the
-next step while the stick stays sideways. Quick
+Quick-step is a held modifier, RB or Left Alt, plus a direction. The camera-relative push is
+resolved to the nearest of Indy's four directions: left and right play the original sidestep force
+move, back plays the original back hop, and forward is a short forced walk over the sidestep's
+0.1-unit travel with the walk animation and the same floor check walking uses. One step per press:
+the direction must fall below 0.3 or the modifier be released before the next. While the modifier is
+held, normal movement and running are suppressed. While the target lock is held, a sideways stick
+keeps the step key held, the force move plays at twice its animation rate (same distance per step,
+half the time) and the original immediately starts the next step while the stick stays sideways; a
+backward stick chains the original back hop at the same doubled rate instead of backpedaling. Quick
 select uses the scheme's D-pad bindings: up toggles the lighter, down uses the best health item
 (herbs, then small health pack, then big herbs, then big health pack, as the original HEALTH
 function does), and left/right remain previous and next owned weapon. Favourite weapons for
@@ -278,7 +282,7 @@ and the pad layout of the Classic default.
 | Left Shift | Hold to run; a small stick push walks |
 | Space | Jump |
 | Left Ctrl / left mouse button | Activate and fire |
-| Q / E | Quick-step left / right, exactly one original step per press |
+| Left Alt (hold) + direction | Quick-step: one original sidestep, back hop or short forward walk |
 | F / right mouse button | Target lock |
 | C | Crawl |
 | R | Draw or holster the weapon |
@@ -294,7 +298,8 @@ and the pad layout of the Classic default.
 | RT | Activate as well (fire) |
 | B (East) | Roll |
 | Y (North) | Toggle weapon |
-| LB / RB | Step left / step right |
+| RB (hold) + direction | Quick-step: one original sidestep, back hop or short forward walk |
+| LB | Unbound in this scheme |
 | LT (hold) | Target lock |
 | L3 | Crawl |
 | R3 | Snap the camera behind Indy |

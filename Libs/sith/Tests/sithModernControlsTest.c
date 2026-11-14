@@ -15,6 +15,7 @@
 #include <sith/Gameplay/sithPlayerActions.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Main/sithMain.h>
+#include <sith/World/sithWorld.h>
 
 #include <std/General/stdControl.h>
 #include <std/General/stdKeys.h>
@@ -138,6 +139,40 @@ static SithModernOutput sithModernControlsTest_ComputeLock(float x, float y, flo
     return out;
 }
 
+static SithModernOutput sithModernControlsTest_ComputeQuickStep(float x, float y,
+    float cameraYaw, float playerYaw, bool bAllowed)
+{
+    SithModernInput in = { 0 };
+    in.x                = x;
+    in.y                = y;
+    in.cameraYaw        = cameraYaw;
+    in.playerYaw        = playerYaw;
+    in.mode             = SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
+    in.bQuickStepHeld   = true;
+    in.bQuickStepAllowed = bAllowed;
+
+    SithModernOutput out;
+    sithModernControls_Compute(&in, &out);
+    return out;
+}
+
+static SithModernOutput sithModernControlsTest_ComputeQuickStepLocked(float x, float y)
+{
+    SithModernInput in = { 0 };
+    in.x                 = x;
+    in.y                 = y;
+    in.mode              = SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
+    in.bLocked           = true;
+    in.bHasLockTarget    = true;
+    in.lockTargetYaw     = 0.0f;
+    in.bQuickStepHeld    = true;
+    in.bQuickStepAllowed = true;
+
+    SithModernOutput out;
+    sithModernControls_Compute(&in, &out);
+    return out;
+}
+
 static float sithModernControlsTest_PlayerYaw(void)
 {
     const rdVector3* pLvec = &sithModernControlsTest_player.orient.lvec;
@@ -207,6 +242,7 @@ TEST_SETUP(sithModernControls)
     sithControl_RegisterAxisFunction(SITHCONTROL_TARGETLOCK, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_STPLEFT, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_STPRIGHT, SITHCONTROLFUNCTION_KEY);
+    sithControl_RegisterAxisFunction(SITHCONTROL_QUICKSTEP, SITHCONTROLFUNCTION_KEY);
 
     TEST_ASSERT_EQUAL_INT(1, sithControl_Open());
 
@@ -222,6 +258,7 @@ TEST_SETUP(sithModernControls)
     sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDKEY_F, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_STPLEFT, STDKEY_Q, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_STPRIGHT, STDKEY_E, (SithControlBindFlag)0);
+    sithControl_BindControl(SITHCONTROL_QUICKSTEP, STDKEY_LMENU, (SithControlBindFlag)0);
 
     sithModernControlsTest_ResetWorld();
 }
@@ -443,6 +480,105 @@ TEST(sithModernControls, ComputeNoneSetsNothing)
     TEST_ASSERT_FALSE(out.turnLeft.bPressed);
     TEST_ASSERT_FALSE(out.turnRight.bPressed);
     TEST_ASSERT_FALSE(out.run.bPressed);
+}
+
+TEST(sithModernControls, ComputeQuickStepMapsFourDirections)
+{
+    SithModernOutput out = sithModernControlsTest_ComputeQuickStep(0.0f, 1.0f, 0.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_FORWARD, out.quickStep);
+    TEST_ASSERT_FALSE(out.forward.bPressed);
+    TEST_ASSERT_FALSE(out.run.bPressed);
+
+    out = sithModernControlsTest_ComputeQuickStep(0.0f, -1.0f, 0.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_BACK, out.quickStep);
+    TEST_ASSERT_FALSE(out.back.bPressed);
+
+    out = sithModernControlsTest_ComputeQuickStep(-1.0f, 0.0f, 0.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_LEFT, out.quickStep);
+    TEST_ASSERT_FALSE(out.turnLeft.bPressed);
+
+    out = sithModernControlsTest_ComputeQuickStep(1.0f, 0.0f, 0.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_RIGHT, out.quickStep);
+    TEST_ASSERT_FALSE(out.turnRight.bPressed);
+}
+
+TEST(sithModernControls, ComputeQuickStepRotatesWithTheCamera)
+{
+    // A camera turned 90 degrees makes stick up Indy's left, and stick right his forward.
+    SithModernOutput out = sithModernControlsTest_ComputeQuickStep(0.0f, 1.0f, 90.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_LEFT, out.quickStep);
+
+    out = sithModernControlsTest_ComputeQuickStep(1.0f, 0.0f, 90.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_FORWARD, out.quickStep);
+
+    // Indy facing right relative to the camera: stick forward is his right.
+    out = sithModernControlsTest_ComputeQuickStep(0.0f, 1.0f, 0.0f, -90.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_RIGHT, out.quickStep);
+}
+
+TEST(sithModernControls, ComputeQuickStepNeedsThresholdAndTheEdge)
+{
+    SithModernOutput out = sithModernControlsTest_ComputeQuickStep(0.4f, 0.0f, 0.0f, 0.0f, true);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_NONE, out.quickStep);
+
+    // Another step waits until the press edge re-arms.
+    out = sithModernControlsTest_ComputeQuickStep(1.0f, 0.0f, 0.0f, 0.0f, false);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_NONE, out.quickStep);
+}
+
+TEST(sithModernControls, ComputeQuickStepLockedUsesIndysFacing)
+{
+    SithModernOutput out = sithModernControlsTest_ComputeQuickStepLocked(0.0f, 1.0f);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_FORWARD, out.quickStep);
+
+    out = sithModernControlsTest_ComputeQuickStepLocked(1.0f, 0.0f);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_RIGHT, out.quickStep);
+
+    out = sithModernControlsTest_ComputeQuickStepLocked(0.0f, -1.0f);
+    TEST_ASSERT_EQUAL_INT(SITHMODERNSTEP_BACK, out.quickStep);
+    TEST_ASSERT_FALSE(out.back.bPressed);
+}
+
+TEST(sithModernControls, ComputeLockedBackHopsInsteadOfWalking)
+{
+    SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
+
+    TEST_ASSERT_TRUE(out.backStep.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.backStep.amount);
+    TEST_ASSERT_FALSE(out.back.bPressed);
+    TEST_ASSERT_TRUE(out.bTurnTowardTarget);
+
+    // A small backward push still walks back; the hop needs a clear backward stick.
+    out = sithModernControlsTest_ComputeLock(0.0f, -0.4f, 0.0f, 0.0f, true, 0.0f);
+    TEST_ASSERT_FALSE(out.backStep.bPressed);
+    TEST_ASSERT_TRUE(out.back.bPressed);
+}
+
+TEST(sithModernControls, QuickStepBackHopsOncePerGrounding)
+{
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    SithSurface surface;
+    memset(&surface, 0, sizeof(surface));
+    thing.type         = SITH_THING_PLAYER;
+    thing.moveType     = SITH_MT_PHYSICS;
+    thing.moveStatus   = SITHPLAYERMOVE_STILL;
+    thing.attach.flags = SITH_ATTACH_SURFACE;
+    thing.attach.attachedToStructure.pSurfaceAttached = &surface;
+    thing.orient.lvec  = (rdVector3){ { 0.0f }, { 1.0f }, { 0.0f } };
+
+    sithPlayerActions_QuickStepBack(&thing);
+
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_JUMPBACK, thing.moveStatus);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, -0.35f, thing.moveInfo.physics.velocity.y);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.6f, thing.moveInfo.physics.velocity.z);
+    TEST_ASSERT_EQUAL_INT(0, thing.attach.flags);
+
+    // Still airborne: the held stick must not launch another hop.
+    rdVector3 velocity = thing.moveInfo.physics.velocity;
+    sithPlayerActions_QuickStepBack(&thing);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.y, thing.moveInfo.physics.velocity.y);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.z, thing.moveInfo.physics.velocity.z);
 }
 
 TEST(sithModernControls, LockedSidestepDropsFinishedStepForChaining)
@@ -802,6 +938,124 @@ TEST(sithModernControls, UpdateQuickStepCountsOnlyThePressEdge)
     sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
     TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
     sithModernControlsTest_ReadKey(STDKEY_E, 0);
+}
+
+TEST(sithModernControls, UpdateQuickStepModifierTakesOneStepPerPress)
+{
+    int pressed = -1;
+
+    sithControl_SetModernControlStyle(true);
+
+    // A floor-less test world keeps the original step action from touching real sector data;
+    // the quick-step key edge is what this case observes.
+    static SithWorld testWorld;
+    memset(&testWorld, 0, sizeof(testWorld));
+    SithSector testSector;
+    memset(&testSector, 0, sizeof(testSector));
+    testSector.flags = SITH_SECTOR_HASCOLLIDEBOX;
+    testSector.collideBox.v0 = (rdVector3){ -100.0f, -100.0f, -100.0f };
+    testSector.collideBox.v1 = (rdVector3){ 100.0f, 100.0f, 100.0f };
+    sithWorld_g_pCurrentWorld = &testWorld;
+    sithModernControlsTest_player.pInSector = &testSector;
+
+    // Left Alt plus a direction is the Modern quick-step. A left direction resolves to Indy's
+    // left and reaches the original sidestep key once.
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 1);
+    sithModernControlsTest_ReadKey(STDKEY_LEFT, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed));
+    TEST_ASSERT_TRUE(pressed != 0);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPRIGHT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_RUNFWD, NULL));
+
+    // The held modifier and direction do not start another step.
+    sithControl_ReadControls();
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed));
+    TEST_ASSERT_EQUAL_INT(0, pressed);
+
+    // Returning the direction below the re-arm magnitude allows a new step to the other side.
+    sithModernControlsTest_ReadKey(STDKEY_LEFT, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    sithModernControlsTest_ReadKey(STDKEY_RIGHT, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_STPRIGHT, &pressed));
+    TEST_ASSERT_TRUE(pressed != 0);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_STPLEFT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_RIGHT, 0);
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    sithModernControlsTest_player.pInSector = NULL;
+    sithWorld_g_pCurrentWorld = NULL;
+}
+
+TEST(sithModernControls, UpdateQuickStepModifierSuppressesMovementWithoutADirection)
+{
+    sithControl_SetModernControlStyle(true);
+
+    // A held modifier alone walks or runs nowhere.
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_RUNFWD, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+}
+
+TEST(sithModernControls, UpdateLockedBackTakesTheStepPath)
+{
+    sithControl_SetModernControlStyle(true);
+
+    sithModernControlsTest_ReadKey(STDKEY_F, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_TRUE(sithModernControls_IsLockActive());
+
+    // The Compute lock case reports the back hop; the update suppresses the backpedal keys.
+    SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
+    TEST_ASSERT_TRUE(out.backStep.bPressed);
+    TEST_ASSERT_FALSE(out.back.bPressed);
+
+    sithModernControlsTest_ReadKey(STDKEY_F, 0);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+}
+
+TEST(sithModernControls, UpdateQuickStepBackHopsOnce)
+{
+    sithControl_SetModernControlStyle(true);
+
+    SithSurface surface;
+    memset(&surface, 0, sizeof(surface));
+    sithModernControlsTest_player.attach.attachedToStructure.pSurfaceAttached = &surface;
+
+    // Down plus the modifier resolves to a backward step and starts the original back hop once.
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 1);
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERMOVE_JUMPBACK, sithModernControlsTest_player.moveStatus);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, -0.35f, sithModernControlsTest_player.moveInfo.physics.velocity.y);
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.6f, sithModernControlsTest_player.moveInfo.physics.velocity.z);
+    TEST_ASSERT_EQUAL_INT(0, sithModernControlsTest_player.attach.flags);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_BACK, NULL));
+
+    // Airborne, the held modifier and direction cannot start another hop.
+    rdVector3 velocity = sithModernControlsTest_player.moveInfo.physics.velocity;
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.y, sithModernControlsTest_player.moveInfo.physics.velocity.y);
+    TEST_ASSERT_EQUAL_FLOAT(velocity.z, sithModernControlsTest_player.moveInfo.physics.velocity.z);
+
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
+    sithModernControlsTest_ReadKey(STDKEY_LMENU, 0);
 }
 
 TEST(sithModernControls, UpdateLeavesQuickStepHoldInClassic)
@@ -1317,9 +1571,11 @@ TEST(sithModernControls, ComputeLockFacesTargetWithoutTurnKeys)
 
 TEST(sithModernControls, ComputeLockHoldsSidestepKeys)
 {
+    // A clear backward stick hops instead of backpedaling.
     SithModernOutput out = sithModernControlsTest_ComputeLock(0.0f, -1.0f, 0.0f, 0.0f, true, 0.0f);
-    TEST_ASSERT_TRUE(out.back.bPressed);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.back.amount);
+    TEST_ASSERT_TRUE(out.backStep.bPressed);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.backStep.amount);
+    TEST_ASSERT_FALSE(out.back.bPressed);
     TEST_ASSERT_FALSE(out.forward.bPressed);
     TEST_ASSERT_FALSE(out.strafeLeft.bPressed);
     TEST_ASSERT_FALSE(out.strafeRight.bPressed);
@@ -1335,11 +1591,12 @@ TEST(sithModernControls, ComputeLockHoldsSidestepKeys)
     out = sithModernControlsTest_ComputeLock(-1.0f, 0.0f, 0.0f, 0.0f, true, 0.0f);
     TEST_ASSERT_TRUE(out.strafeLeft.bPressed);
 
-    // A diagonal that is not sideways falls back to forward or back.
-    out = sithModernControlsTest_ComputeLock(0.4f, -0.8f, 0.0f, 0.0f, true, 0.0f);
+    // A small diagonal that is not sideways keeps the original backpedal.
+    out = sithModernControlsTest_ComputeLock(0.2f, -0.4f, 0.0f, 0.0f, true, 0.0f);
     TEST_ASSERT_FALSE(out.strafeLeft.bPressed);
     TEST_ASSERT_FALSE(out.strafeRight.bPressed);
     TEST_ASSERT_TRUE(out.back.bPressed);
+    TEST_ASSERT_FALSE(out.backStep.bPressed);
 }
 
 TEST(sithModernControls, ComputeLockWithoutTargetUsesIndyFacing)

@@ -16,6 +16,16 @@ typedef enum eSithModernControlMode
     SITHMODERNCONTROL_MODE_CAMERA_RELATIVE_SWIM = 3, // Added: underwater, steered in 3D.
 } SithModernControlMode;
 
+// Added: the four original directions a Modern quick-step resolves to, relative to Indy.
+typedef enum eSithModernStep
+{
+    SITHMODERNSTEP_NONE    = 0,
+    SITHMODERNSTEP_FORWARD = 1,
+    SITHMODERNSTEP_BACK    = 2,
+    SITHMODERNSTEP_LEFT    = 3,
+    SITHMODERNSTEP_RIGHT   = 4,
+} SithModernStep;
+
 // Added: one frame of already-gathered input. x is right and y is forward on screen, each -1..1.
 typedef struct sSithModernInput
 {
@@ -29,6 +39,8 @@ typedef struct sSithModernInput
     bool bLocked; // Added: target lock is held.
     bool bHasLockTarget; // Added: the lock has a live target.
     float lockTargetYaw; // Added: direction from Indy to the locked target, same convention.
+    bool bQuickStepHeld; // Added: the Modern quick-step modifier is held.
+    bool bQuickStepAllowed; // Added: the press-edge rule allows a new step this frame.
 } SithModernInput;
 
 typedef struct sSithModernKey
@@ -47,6 +59,8 @@ typedef struct sSithModernOutput
     SithModernKey strafeLeft; // Added: locked-sideways input, held as the original STPLEFT key.
     SithModernKey strafeRight; // Added: the same for STPRIGHT.
     SithModernKey swimForward; // Added: held as the original JUMP key, which swims underwater.
+    SithModernKey backStep; // Added: locked back input, chained as the original HopBack.
+    SithModernStep quickStep; // Added: one quick-step direction for this press edge.
     bool bTurnTowardTarget; // Added: the caller rotates the player's facing to targetYaw.
     float targetYaw; // Added: desired facing in the same convention as cameraYaw.
     float targetPitch; // Added: desired swim pitch, positive is up.

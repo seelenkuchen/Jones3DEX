@@ -48,6 +48,12 @@ static const float sithPlayerActions_raftActivateSearchRadius = 0.07f;
 // original one. Quick-step without a lock and Classic keep the original rate.
 #define SITHPLAYERACTIONS_LOCKED_SIDESTEP_SPEED 2.0f
 
+// Added: the sidestep force moves check and travel 0.1 world units sideways
+// (sithPlayerControls_CanStrafeMove and sithPlayerActions_StrafeLeft/Right). The Modern forward
+// quick-step uses the same distance so all four steps cover the same ground.
+#define SITHPLAYERACTIONS_QUICKSTEP_DISTANCE 0.1f
+#define SITHPLAYERACTIONS_QUICKSTEP_EPSILON  0.0001f
+
 float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing)
 {
     if ( pThing == sithPlayer_g_pLocalPlayerThing
@@ -1521,6 +1527,69 @@ void J3DAPI sithPlayerActions_HopBack(SithThing* pThing)
     }
 
     sithThing_DetachThing(pThing);
+}
+
+void J3DAPI sithPlayerActions_QuickStepForward(SithThing* pThing)
+{
+    if ( !pThing
+        || pThing->thingInfo.actorInfo.bForceMovePlay
+        || pThing->attach.flags == 0 )
+    {
+        return;
+    }
+
+    // Added: step along the floor plane, then use the same end-of-step floor check and collision
+    // move that walking uses. A missing floor or a blocking wall leaves the player in place.
+    rdVector3 moveNorm = pThing->orient.lvec;
+    moveNorm.z = 0.0f;
+    if ( rdVector_Normalize3Acc(&moveNorm) <= SITHPLAYERACTIONS_QUICKSTEP_EPSILON )
+    {
+        return;
+    }
+
+    rdVector3 stepPos;
+    rdVector_ScaleAdd3(&stepPos, &moveNorm, SITHPLAYERACTIONS_QUICKSTEP_DISTANCE, &pThing->pos);
+
+    int bSurfaceChange;
+    if ( !sithPlayerActions_CheckFloorAtPos(pThing, &stepPos, &bSurfaceChange) )
+    {
+        return;
+    }
+
+    sithCollision_MoveThing(pThing, &moveNorm, SITHPLAYERACTIONS_QUICKSTEP_DISTANCE, 0x0);
+
+    // Added: the walk animation covers the short forced step; the movement layer suppresses the
+    // movement keys, so the original walk state stops again on the next update.
+    pThing->moveStatus = SITHPLAYERMOVE_WALKING;
+    if ( pThing->pPuppetState )
+    {
+        sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_WALK, NULL);
+    }
+}
+
+void J3DAPI sithPlayerActions_QuickStepBack(SithThing* pThing)
+{
+    if ( !pThing
+        || pThing->thingInfo.actorInfo.bForceMovePlay
+        || pThing->attach.flags == 0 )
+    {
+        return;
+    }
+
+    // Added: the original back hop detaches and sets the velocity. While the local player holds
+    // the Modern target lock the hop-back animation plays at the locked sidestep rate. The guard
+    // above only passes again after landing, so a held stick chains one hop at a time.
+    pThing->moveStatus = SITHPLAYERMOVE_JUMPBACK;
+
+    sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_HOPBACK, NULL);
+
+    float playbackSpeed = sithPlayerActions_GetSidestepPlaybackSpeed(pThing);
+    if ( playbackSpeed != 1.0f )
+    {
+        sithPuppet_SetModeSpeed(pThing, SITHPUPPETSUBMODE_HOPBACK, playbackSpeed);
+    }
+
+    sithPlayerActions_HopBack(pThing);
 }
 
 void J3DAPI sithPlayerActions_Stand2Crawl(SithThing* pThing)

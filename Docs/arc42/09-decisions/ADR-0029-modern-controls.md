@@ -24,7 +24,7 @@ Modern, on a gamepad:
 | Right stick | Free camera (replaces the "Look" button) |
 | R3 | Snap the camera behind Indy |
 | L3 | Toggle crouch or crawl |
-| LB / RB | Quick-step: one tap moves Indy exactly one original sidestep left or right, independent of the stick |
+| LB / RB | Quick-step: hold RB and push a direction to step left, right, forward or back, independent of the stick magnitude |
 | LT (hold) | Target lock on the visible hostile closest to the free camera's forward direction within 35 degrees; with no target it centers the camera forward. While held, the left stick sidesteps sideways and walks or backpedals forward and back. Release ends the lock |
 | RT | Fire the weapon, whip or punch |
 | A | Jump, swim up |
@@ -99,4 +99,8 @@ scheme). The fourth steers underwater swimming through the free camera's yaw and
 direction becomes a 3D target, the facing turns toward it at 360 degrees per second in yaw and 180 in
 pitch (eased near the target, pitch limited to the original 75 degrees), and the original swim thrust
 runs from an override of its JUMP key. On the surface the original camera-relative thrust and ledge
-grab stay as they were.
+grab stay as they were. The fifth makes quick-step a held modifier, RB or Left Alt, plus a
+direction: the camera-relative push is resolved to the nearest of Indy's four directions and plays
+one original sidestep, one back hop, or a short forced walk equal to the sidestep's 0.1-unit travel.
+While target-locked, a backward stick chains the back hop at the locked sidestep rate instead of
+backpedaling.

@@ -622,16 +622,17 @@ static const JonesConfigControlAction jonesConfig_aDefaultPadControlSet[JONESCON
 };
 
 // Added: the Modern keyboard and gamepad default (ADR-0029). Its keyboard follows the Modern
-// model: WASD and the arrows move, Q/E quick-step, Space jumps, Ctrl and the left mouse button
-// activate and fire, R draws, V and the middle mouse button snap the camera. Its gamepad part is
-// the keyboard-and-gamepad scheme's, with LT still stored as Run so the Modern binder maps it to
-// target lock.
+// model: WASD and the arrows move, Left Alt is the quick-step modifier for a held direction,
+// Space jumps, Ctrl and the left mouse button activate and fire, R draws, V and the middle mouse
+// button snap the camera. The step-right row carries the quick-step key, which the Modern binder
+// maps to SITHCONTROL_QUICKSTEP; the step-left row is free, so LB is unbound in this scheme. Its
+// gamepad part is the keyboard-and-gamepad scheme's, with LT still stored as Run so the Modern
+// binder maps it to target lock.
 static const size_t aActionWalkFwdModernKeys[2]       = { STDKEY_W, STDKEY_UP };
 static const size_t aActionWalkBackModernKeys[2]      = { STDKEY_S, STDKEY_DOWN };
 static const size_t aActionTurnLeftModernKeys[2]      = { STDKEY_A, STDKEY_LEFT };
 static const size_t aActionTurnRightModernKeys[2]     = { STDKEY_D, STDKEY_RIGHT };
-static const size_t aActionStepLeftModernKeys[2]      = { STDKEY_Q, STDCONTROL_JOYSTICK_GETBUTTON(0, 4) };
-static const size_t aActionStepRightModernKeys[2]     = { STDKEY_E, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
+static const size_t aActionStepRightModernKeys[2]     = { STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
 static const size_t aActionCrawlModernKeys[2]         = { STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) };
 static const size_t aActionRunModernKeys[2]           = { STDKEY_LSHIFT, JONESCONFIG_JOYAXISKID_GROUND };
 static const size_t aActionRollModernKeys[2]          = { STDKEY_Z, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) };
@@ -653,7 +654,7 @@ static const JonesConfigControlAction jonesConfig_aDefaultModernControlSet[JONES
     { STD_ARRAYLEN(aActionWalkBackModernKeys)    , aActionWalkBackModernKeys     },
     { STD_ARRAYLEN(aActionTurnLeftModernKeys)    , aActionTurnLeftModernKeys     },
     { STD_ARRAYLEN(aActionTurnRightModernKeys)   , aActionTurnRightModernKeys    },
-    { STD_ARRAYLEN(aActionStepLeftModernKeys)    , aActionStepLeftModernKeys     },
+    { 0                                          , NULL                          },
     { STD_ARRAYLEN(aActionStepRightModernKeys)   , aActionStepRightModernKeys    },
     { STD_ARRAYLEN(aActionCrawlModernKeys)       , aActionCrawlModernKeys        },
     { STD_ARRAYLEN(aActionRunModernKeys)         , aActionRunModernKeys          },
@@ -2209,6 +2210,17 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
     int bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
 
+    // Added: in Modern the scheme's step rows become quick-step modifiers, so the old held
+    // sidestep bindings never survive a rebind. The two rows share SITHCONTROL_QUICKSTEP, so it
+    // is unbound once here instead of before each row.
+    bool bModern = sithControl_IsModernControlStyle();
+    if ( bModern )
+    {
+        sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
+        sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
+    }
+    sithControl_UnbindFunction(SITHCONTROL_QUICKSTEP);
+
     // Altered: enable/disable the mouse before the action loop, not after it. sithControl_RebindMouse
     // removes every mouse-button binding, so the original order dropped a scheme's mouse bindings.
     jonesConfig_EnableMouseControl(bMouse);
@@ -2367,10 +2379,20 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
             if ( functionId != (SithControlFunction)-1 )
             {
-                sithControl_UnbindFunction(functionId);
-                if ( functionId == SITHCONTROL_FORWARD )
+                // Added: Modern turns both scheme step rows into quick-step modifiers. The
+                // physical controls keep their row, but a held direction now combines with the
+                // modifier instead of stepping on a held key. Classic keeps the original rows.
+                bool bQuickStep = bModern
+                    && (functionId == SITHCONTROL_STPLEFT || functionId == SITHCONTROL_STPRIGHT);
+                SithControlFunction bindFunction = bQuickStep ? SITHCONTROL_QUICKSTEP : functionId;
+
+                if ( !bQuickStep )
                 {
-                    sithControl_UnbindFunction(SITHCONTROL_RUNFWD);
+                    sithControl_UnbindFunction(functionId);
+                    if ( functionId == SITHCONTROL_FORWARD )
+                    {
+                        sithControl_UnbindFunction(SITHCONTROL_RUNFWD);
+                    }
                 }
 
                 for ( size_t i = 1; i <= JONESCONTROL_ACTION_GETNUMBINDS(pConfig->aActions[actionId]); ++i )
@@ -2380,12 +2402,21 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                     // Added: in Modern the left trigger locks a target; Run comes from the stick
                     // magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind time.
                     // Classic keeps the same scheme data and LT stays Run.
-                    SithControlFunction bindFunctionId = functionId;
+                    SithControlFunction bindFunctionId = bindFunction;
                     if ( sithControl_IsModernControlStyle()
-                        && functionId == SITHCONTROL_ACT1
+                        && bindFunctionId == SITHCONTROL_ACT1
                         && controlId == JONESCONFIG_JOYAXISKID_GROUND )
                     {
                         bindFunctionId = SITHCONTROL_TARGETLOCK;
+                    }
+
+                    // Added: the owner reserves LB for a weapon wheel, so in Modern a step-left row's
+                    // gamepad controls are not bound; RB (the step-right row) is the quick-step modifier.
+                    if ( bQuickStep && functionId == SITHCONTROL_STPLEFT
+                        && !JonesControlSchemes_IsKeyboardControl(controlId)
+                        && !JonesControlSchemes_IsMouseButton(controlId) )
+                    {
+                        continue;
                     }
 
                     if ( JonesControlSchemes_IsKeyboardControl(controlId) )

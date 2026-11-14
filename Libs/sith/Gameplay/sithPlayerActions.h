@@ -82,6 +82,13 @@ void J3DAPI sithPlayerActions_JumpRollForward(SithThing* pThing);
 void J3DAPI sithPlayerActions_StrafeLeft(SithThing* pThing);
 void J3DAPI sithPlayerActions_StrafeRight(SithThing* pThing);
 
+// Added: the Modern forward quick-step. It walks one sidestep distance forward with the walk
+// animation, after the same ledge and collision checks walking uses.
+void J3DAPI sithPlayerActions_QuickStepForward(SithThing* pThing);
+// Added: the Modern back quick-step. It starts the original back hop with the hop-back animation;
+// a held Modern lock plays that animation at the locked-step rate.
+void J3DAPI sithPlayerActions_QuickStepBack(SithThing* pThing);
+
 // Added: playback rate for the sidestep force move. 2.0 while the local player holds the Modern
 // target lock (the step covers its original distance in half the time); 1.0 otherwise.
 float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing);
