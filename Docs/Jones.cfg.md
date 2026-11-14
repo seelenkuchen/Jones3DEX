@@ -6,13 +6,21 @@ The engine creates it automatically on first launch and keeps it auto-saved whil
 
 ## Location
 
-`Jones.cfg` is opened with a relative path from the game process, so it is created next to the executable in the current working directory.
+The windowed game writes `Jones.cfg` to a per-user directory, so it runs from a read-only AppImage or a
+shared install. The directory is chosen once at startup, in this order:
 
-For the normal release layout, that means:
+1. `--user-dir <dir>` on the command line.
+2. Portable mode: a file `portable.txt` beside the executable keeps everything in the executable's
+   directory; a `portable.txt` in the working directory keeps the working directory.
+3. The platform user directory: `~/.local/share/Jones3DEX/` (or `$XDG_DATA_HOME/Jones3DEX/`) on Linux,
+   `%APPDATA%\Jones3DEX\` on Windows, and `~/Library/Application Support/Jones3DEX/` on macOS.
 
-- place the release files next to `Indy3D.exe` in the game's `Resource` directory
-- launch `Jones3D.exe`
-- expect `Jones.cfg` to appear in that same directory
+On the first start with a user directory, an existing `Jones.cfg` in the working directory is copied
+there, and saves are copied when the user directory has none yet. The old files are left in place.
+Screenshots, key sets, the log file and the error file move to the same directory.
+
+Headless runs (`Jones3D-headless`) default to the working directory and accept `--user-dir <dir>` too,
+so tests and traces keep their paths unless asked otherwise.
 
 ## Format and behavior
 

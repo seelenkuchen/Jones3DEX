@@ -24,6 +24,11 @@
   - High-poly models (`engine.renderer.hipoly`) are off by default again: the high-poly Indy model opens gaps at
     the elbows during the backward step. Options > Display > Hi-poly models turns them back on; configs that
     already set the key keep their value.
+  - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on Linux,
+    `%APPDATA%\Jones3DEX\` on Windows) instead of next to the game data, so it runs from a read-only or shared
+    install. Existing `Jones.cfg` and savegames are copied there when they are missing, and the old files are kept.
+    Put a `portable.txt` beside the executable or in the working directory to keep everything local, or pass
+    `--user-dir <dir>`; headless runs stay in the working directory unless given `--user-dir`.
 
 ### Upstream fixes (OpenJones3D develop)
   - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on

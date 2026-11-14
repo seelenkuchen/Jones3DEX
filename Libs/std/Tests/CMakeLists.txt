@@ -24,6 +24,7 @@ set(STD_GENERAL_TEST_SOURCES
     "${STD_GENERAL_TEST_DIR}/stdFileUtilTest.c"
     "${STD_GENERAL_TEST_DIR}/stdJSONTest.c"
     "${STD_GENERAL_TEST_DIR}/stdStrTableTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdUserDirTest.c"
     # Added: the suites of surviving code that only the Win32/DirectX build ran (M6.3f): stdGob.c and
     # stdPlatform.c, and the header contracts of std3D, stdDisplay, stdControl, stdComm and stdWin95,
     # restored from std/Win95/Tests against the Null backends below.
@@ -48,6 +49,7 @@ set(STD_GENERAL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/stdMemory.c"
     "${STD_GENERAL_SOURCE_DIR}/stdPlatform.c"
     "${STD_GENERAL_SOURCE_DIR}/stdStrTable.c"
+    "${STD_GENERAL_SOURCE_DIR}/stdUserDir.c"
     "${STD_GENERAL_SOURCE_DIR}/stdUtil.c"
     "${STD_GENERAL_SOURCE_DIR}/stdHashtbl.c"
     "${STD_GENERAL_SOURCE_DIR}/stdFnames.c"

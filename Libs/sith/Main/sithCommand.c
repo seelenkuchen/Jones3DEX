@@ -26,6 +26,7 @@
 #include <rdroid/Math/rdMatrix.h>
 
 #include <std/General/stdMemory.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/stdComm.h>
 
@@ -416,7 +417,14 @@ int J3DAPI sithCommand_MemoryDump(const SithConsoleCommand* pFunc, const char* p
     J3D_UNUSED(pFunc);
     J3D_UNUSED(pArg);
 
-    tFileHandle fh = sith_g_pHS->pFileOpen("memdump.txt", "w+");
+    // Added: the memory dump is user output and goes to the user directory (ADR-0019).
+    char aPath[STDUSERDIR_MAXPATH] = { 0 };
+    if ( !stdUserDir_MakePath(aPath, sizeof(aPath), "memdump.txt") )
+    {
+        return 0;
+    }
+
+    tFileHandle fh = sith_g_pHS->pFileOpen(aPath, "w+");
     if ( !fh )
     {
         return 0;
@@ -436,7 +444,7 @@ int J3DAPI sithCommand_MemoryDump(const SithConsoleCommand* pFunc, const char* p
     }
 
     sith_g_pHS->pFileClose(fh);
-    sithConsole_PrintString("Memory dump file 'memdump.txt' written.");
+    sithConsole_PrintString("Memory dump file written.");
     return 1;
 }
 

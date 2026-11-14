@@ -99,8 +99,10 @@ TEST_CASE("The Null base path and user path match the documented layout")
     CHECK(fs.userPath("Aster Studio", "Field Trip") == "/user/Aster Studio/Field Trip/");
     CHECK(fs.userPath("Aster Studio", "Field Trip") == "/user/Aster Studio/Field Trip/");
     CHECK(fs.userPath("aster studio", "field trip") == "/user/aster studio/field trip/");
+    CHECK(fs.userPath("", "Jones3DEX") == "/user/Jones3DEX/");
     CHECK(fs.exists("/user/Aster Studio/Field Trip/"));
     CHECK(fs.exists("/user/Aster Studio"));
+    CHECK(fs.exists("/user/Jones3DEX/"));
     CHECK(fs.exists("/user"));
     CHECK(sink.records().empty());
 }
@@ -110,14 +112,13 @@ TEST_CASE("userPath rejects names that are not one path segment")
     babylon::files::NullFileSystem fs;
     babylon::log::CaptureSink sink;
 
-    CHECK(fs.userPath("", "Field Trip").empty());
     CHECK(fs.userPath("Aster", "").empty());
     CHECK(fs.userPath("As/ter", "Field Trip").empty());
     CHECK(fs.userPath("Aster", "Field/Trip").empty());
     CHECK(fs.userPath("As\\ter", "Field Trip").empty());
     CHECK(fs.userPath(".", "Field Trip").empty());
     CHECK(fs.userPath("Aster", "..").empty());
-    REQUIRE(sink.records().size() == 7);
+    REQUIRE(sink.records().size() == 6);
     for ( const babylon::log::CapturedRecord& record : sink.records() )
     {
         CHECK(record.level == babylon::log::Level::Warning);

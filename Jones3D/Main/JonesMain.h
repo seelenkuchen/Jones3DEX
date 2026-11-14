@@ -28,6 +28,11 @@ void JonesMain_SetCapture(const char* pPath, const char* pColumn);
 int J3DAPI JonesMain_Startup(const char* lpCmdLine);
 void JonesMain_Shutdown(void);
 
+// Added: the path JonesMain_Startup opens Jones.cfg from: <user directory>/Jones.cfg, or Jones.cfg
+// in the working directory when no user directory is set. Returns false, with pOut unchanged,
+// when it does not fit. Exposed for the path tests.
+bool J3DAPI JonesMain_GetConfigFilePath(char* pOut, size_t outSize);
+
 int JonesMain_Open(void);
 int JonesMain_Close(void);
 int JonesMain_HasStarted(void);

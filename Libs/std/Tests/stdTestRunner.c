@@ -20,6 +20,7 @@ void TEST_stdRenderCapture_GROUP_RUNNER(void);
 void TEST_stdFileUtil_GROUP_RUNNER(void);
 void TEST_stdJSON_GROUP_RUNNER(void);
 void TEST_stdStrTable_GROUP_RUNNER(void);
+void TEST_stdUserDir_GROUP_RUNNER(void);
 // Added: the non-Windows columns' simulation cvar seam (ADR-0020), stdCvarNull.c; the Babylon
 // column's replacement is covered by stdCvarBabylon.cpp in stdBabylonTests.
 void TEST_stdCvarNull_GROUP_RUNNER(void);
@@ -57,6 +58,7 @@ static void runAllTests(void)
     TEST_stdRenderCaptureForward_GROUP_RUNNER();
     TEST_stdRenderReplay_GROUP_RUNNER();
     TEST_stdStrTable_GROUP_RUNNER();
+    TEST_stdUserDir_GROUP_RUNNER();
     TEST_stdGob_GROUP_RUNNER();
     TEST_stdPlatform_GROUP_RUNNER();
     TEST_std3D_GROUP_RUNNER();

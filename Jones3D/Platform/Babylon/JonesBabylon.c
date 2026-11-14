@@ -17,6 +17,8 @@
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
+#include <std/General/stdUserDir.h>
+
 #include <wkernel/wkernel.h>
 
 // Added: the command line handed to JonesMain_Startup, the shape of the Windows lpCmdLine, in a
@@ -31,7 +33,7 @@ static void J3DAPI JonesBabylon_OnActivate(int bActive)
     JonesMain_OnAppActivate(NULL, bActive);
 }
 
-int JonesBabylon_Run(int argc, char** argv)
+int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
 {
     // Added: --load <save.nds> answers the Null load-game dialog, like the headless runner's
     // option; everything else joins into the startup command line. Both are parsed completely
@@ -74,6 +76,15 @@ int JonesBabylon_Run(int argc, char** argv)
 
     // WinMain/DllMain: the global reset before anything else runs.
     Jones3D_ResetAllGlobals();
+
+    // Added: the reset restores the working directory; the composition root's decision is applied
+    // after it, so the user directory survives the reset and is created before any config is read.
+    if ( !stdUserDir_Set(pUserDir) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
+            STDUSERDIR_MAXPATH - 1);
+        return 1;
+    }
 
     // Indy3D_WinMain: hand the --load path to the Null load-game dialog, which JonesMain_Startup
     // asks when Jones.cfg is in the load-game start mode.

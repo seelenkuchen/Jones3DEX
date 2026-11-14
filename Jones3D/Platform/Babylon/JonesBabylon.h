@@ -14,9 +14,12 @@ J3D_EXTERN_C_START
 // Null load-game dialog (needs the load-game start mode in Jones.cfg, like the headless runner);
 // every other argument joins with single spaces into the command line of JonesMain_Startup. A
 // "--load" without a value, or a joined command line longer than the engine's command line
-// buffer, prints one error and returns 1 before the engine starts. Returns the process exit
-// code. Call once.
-int JonesBabylon_Run(int argc, char** argv);
+// buffer, prints one error and returns 1 before the engine starts. pUserDir is the writable
+// directory chosen by the composition root ("--user-dir", portable.txt or the platform user path;
+// "" is the working directory). It is applied after the global reset, so it is created then; a
+// path too long for stdUserDir prints one error and returns 1. Returns the process exit code.
+// Call once.
+int JonesBabylon_Run(int argc, char** argv, const char* pUserDir);
 
 // Added: maps a JonesMain_Startup result to the process exit code. A user quit from the main menu
 // reports JONESMAIN_STARTUP_USERQUIT and is a normal exit; every other nonzero result is a startup

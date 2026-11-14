@@ -16,6 +16,7 @@
 #include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
 #include <babylon/files/FileSystem.h>
+#include <babylon/files/Path.h>
 #include <babylon/files/SdlFileSystem.h>
 #include <babylon/platform/Platform.h>
 #include <babylon/platform/SdlPlatform.h>
@@ -40,9 +41,89 @@ namespace
     void PrintUsage(const char* pProgramName)
     {
         fprintf(stderr,
-            "usage: %s [--version] [--load <save.nds>] [--input <script>] [--quit-after-script] "
-            "[--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] [--present-log <file>]\n",
+            "usage: %s [--version] [--user-dir <dir>] [--load <save.nds>] [--input <script>] "
+            "[--quit-after-script] [--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] "
+            "[--present-log <file>]\n",
             pProgramName ? pProgramName : "Jones3D");
+    }
+
+    // Added: --user-dir is taken out before the game command line is built, like --load. It is
+    // validated here so a missing value stops the run before any engine code.
+    bool TakeUserDirOption(int* pArgc, char** argv, std::string& rUserDir, bool& rHasUserDir,
+        std::string& rError)
+    {
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--user-dir") != 0 )
+            {
+                continue;
+            }
+
+            if ( i + 1 >= *pArgc )
+            {
+                rError = "--user-dir needs a value";
+                return false;
+            }
+
+            rUserDir    = argv[++i];
+            rHasUserDir = true;
+        }
+
+        int numKept = 1;
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--user-dir") == 0 )
+            {
+                ++i;
+                continue;
+            }
+
+            argv[numKept++] = argv[i];
+        }
+
+        *pArgc = numKept;
+        return true;
+    }
+
+    // Added: decides the windowed run's writable directory once, before JonesMain_Startup: an
+    // explicit --user-dir, portable.txt beside the working directory (the working directory
+    // itself, kept as "") or beside the executable (its directory), else the platform user path.
+    // A failed platform lookup falls back to the working directory.
+    std::string ResolveUserDir(babylon::files::FileSystem& fs, bool bHasUserDir,
+        const std::string& userDir)
+    {
+        if ( bHasUserDir )
+        {
+            return userDir;
+        }
+
+        if ( fs.exists("portable.txt") )
+        {
+            return {};
+        }
+
+        const std::string basePath = fs.basePath();
+        if ( !basePath.empty() && fs.exists(babylon::files::joinPath(basePath, "portable.txt")) )
+        {
+            std::string directory = basePath;
+            while ( directory.size() > 1 && directory.back() == '/' )
+            {
+                directory.pop_back();
+            }
+
+            return directory;
+        }
+
+        std::string path = fs.userPath("", "Jones3DEX");
+        if ( path.empty() )
+        {
+            fprintf(stderr,
+                "WARNING: Jones3D: could not find a per-user data directory, using the working "
+                "directory!\n");
+            return {};
+        }
+
+        return path;
     }
 }
 
@@ -56,6 +137,18 @@ int main(int argc, char** argv)
             printf("%s\n", J3D_VERSION_FULL);
             return 0;
         }
+    }
+
+    // Added: the user directory option comes out first, so neither the tour parser nor the game
+    // command line sees it.
+    std::string userDir;
+    bool bHasUserDir = false;
+    std::string userDirError;
+    if ( !TakeUserDirOption(&argc, argv, userDir, bHasUserDir, userDirError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: %s\n", userDirError.c_str());
+        PrintUsage(argv[0]);
+        return 1;
     }
 
     // Added: the scripted tour's options are taken out before the game command line is built, so
@@ -95,6 +188,8 @@ int main(int argc, char** argv)
     }
 
     std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
+    // Added: the user directory decision needs the file system (portable.txt, base path, user path).
+    const std::string userDirPath = ResolveUserDir(*pFileSystem, bHasUserDir, userDir);
     std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
     babylon::time::NullClock virtualClock;
     // Added: the run's cvars (ADR-0020), registered before finishStartup() like in the headless root,
@@ -135,7 +230,7 @@ int main(int argc, char** argv)
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), pPlatform.get(),
         nullptr, pWindow.get(), &cvars, pRenderDevice.get(), pAudioDevice.get() };
     stdBabylon_SetContext(&context);
-    int exitCode = JonesBabylon_Run(tourArgc, argv);
+    int exitCode = JonesBabylon_Run(tourArgc, argv, userDirPath.c_str());
     stdBabylon_SetContext(nullptr);
 
     // Added: close the present log and forget the tour after the run that used it.

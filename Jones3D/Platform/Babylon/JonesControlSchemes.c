@@ -24,6 +24,7 @@
 #include <std/General/stdFileUtil.h>
 #include <std/General/stdFnames.h>
 #include <std/General/stdMemory.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 
 #include <ctype.h>
@@ -38,6 +39,8 @@
 static int jonesConfig_bStartup = 0;
 static int jonesConfig_bPendingDefaultScheme = 0;
 static char jonesConfig_aKeySetsDirPath[JONESCONFIG_KEYSDIRPATH_MAX] = { 0 };
+// Added: where the shipped key sets stay readable when the user directory takes the writes.
+static char jonesConfig_aShippedKeySetsDirPath[JONESCONFIG_KEYSDIRPATH_MAX] = { 0 };
 
 static size_t jonesConfig_maxControlStrLen       = 0u;
 static size_t jonesConfig_maxControlWords        = 0u;
@@ -1274,21 +1277,42 @@ int J3DAPI jonesConfig_InitKeySetsPath(void)
     char aInstallPath[256] = { 0 };
     stdConfig_GetString(SITH_CFG_INSTALLPATH, aInstallPath, STD_ARRAYLEN(aInstallPath), "");
 
+    char aShippedDirPath[JONESCONFIG_KEYSDIRPATH_MAX] = { 0 };
     if ( !aInstallPath[0] )
     {
-        STD_FORMAT(jonesConfig_aKeySetsDirPath, "..\\\\%s", aKeysets);
+        STD_FORMAT(aShippedDirPath, "..\\\\%s", aKeysets);
     }
     else
     {
         size_t len = strlen(aInstallPath);
         if ( aInstallPath[len - 1] == '\\' || aInstallPath[len - 1] == '/' )
         {
-            STD_FORMAT(jonesConfig_aKeySetsDirPath, "%s%s", aInstallPath, aKeysets);
+            STD_FORMAT(aShippedDirPath, "%s%s", aInstallPath, aKeysets);
         }
         else
         {
-            STD_FORMAT(jonesConfig_aKeySetsDirPath, "%s\\%s", aInstallPath, aKeysets);
+            STD_FORMAT(aShippedDirPath, "%s\\%s", aInstallPath, aKeysets);
         }
+    }
+
+    // Added: user-made key sets go to <user dir>/KeySets; the shipped directory stays readable.
+    if ( stdUserDir_GetPath()[0] != '\0' )
+    {
+        stdUtil_StringCopy(jonesConfig_aShippedKeySetsDirPath,
+            STD_ARRAYLEN(jonesConfig_aShippedKeySetsDirPath), aShippedDirPath);
+
+        if ( !stdUserDir_MakePath(jonesConfig_aKeySetsDirPath,
+                STD_ARRAYLEN(jonesConfig_aKeySetsDirPath), "KeySets") )
+        {
+            STDLOG_ERROR("Control scheme: the user directory path is too long for KeySets.\n");
+            jonesConfig_aKeySetsDirPath[0] = '\0';
+        }
+    }
+    else
+    {
+        stdUtil_StringCopy(jonesConfig_aKeySetsDirPath,
+            STD_ARRAYLEN(jonesConfig_aKeySetsDirPath), aShippedDirPath);
+        jonesConfig_aShippedKeySetsDirPath[0] = '\0';
     }
 
     return 1;
@@ -1986,9 +2010,15 @@ int J3DAPI JonesControlSchemes_SaveScheme(const JonesControlsScheme* pScheme)
 
 // --- Active scheme and binding ----------------------------------------------------------------
 
+static void JonesControlSchemes_MakeSchemePathInDir(const char* pDir, const char* pName,
+    char* pDst, size_t dstSize)
+{
+    stdUtil_Format(pDst, dstSize, "%s\\%s%s", pDir, pName, JONESCONFIG_KFG_EXT);
+}
+
 static void JonesControlSchemes_MakeSchemePath(const char* pName, char* pDst, size_t dstSize)
 {
-    stdUtil_Format(pDst, dstSize, "%s\\%s%s", jonesConfig_aKeySetsDirPath, pName, JONESCONFIG_KFG_EXT);
+    JonesControlSchemes_MakeSchemePathInDir(jonesConfig_aKeySetsDirPath, pName, pDst, dstSize);
 }
 
 JonesControlsScheme* J3DAPI jonesConfig_LoadActiveControlScheme(void)
@@ -2013,6 +2043,18 @@ JonesControlsScheme* J3DAPI jonesConfig_LoadActiveControlScheme(void)
         if ( jonesConfig_LoadControlScheme(aFilePath, pScheme) )
         {
             return pScheme;
+        }
+
+        // Added: a shipped key set keeps loading from its original directory when the user actually
+        // has not copied or re-saved it into the user directory.
+        if ( jonesConfig_aShippedKeySetsDirPath[0] )
+        {
+            JonesControlSchemes_MakeSchemePathInDir(jonesConfig_aShippedKeySetsDirPath, aFilename,
+                aFilePath, STD_ARRAYLEN(aFilePath));
+            if ( jonesConfig_LoadControlScheme(aFilePath, pScheme) )
+            {
+                return pScheme;
+            }
         }
 
         // A scheme name that matches a built-in default is re-created from the built-in data.
@@ -2475,23 +2517,18 @@ int J3DAPI jonesConfig_ControlOptions_SetAllDefaultControlSchemes(JonesControlsC
     return 1;
 }
 
-int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig* pConfig)
+static void JonesControlSchemes_LoadSchemesFromDirectory(JonesControlsConfig* pConfig,
+    const char* pDirectory, int bSkipExisting)
 {
-    if ( !pConfig )
+    if ( !pDirectory[0] )
     {
-        return 0;
+        return;
     }
 
-    JonesControlSchemes_EnsureTables();
-    if ( !jonesConfig_aKeySetsDirPath[0] )
-    {
-        return 1;
-    }
-
-    FindFileData* pFind = stdFileUtil_NewFind(jonesConfig_aKeySetsDirPath, 3, "kfg");
+    FindFileData* pFind = stdFileUtil_NewFind(pDirectory, 3, "kfg");
     if ( !pFind )
     {
-        return 1;
+        return;
     }
 
     tFoundFileInfo fileInfo;
@@ -2504,6 +2541,35 @@ int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig*
 
         size_t nameLen = strlen(fileInfo.aName);
         if ( nameLen < 4 || !strneqi(fileInfo.aName + nameLen - 4, JONESCONFIG_KFG_EXT, 4) )
+        {
+            continue;
+        }
+
+        char aStem[128] = { 0 };
+        const size_t stemLen = nameLen - 4u;
+        if ( stemLen >= sizeof(aStem) )
+        {
+            continue;
+        }
+
+        memcpy(aStem, fileInfo.aName, stemLen);
+        aStem[stemLen] = '\0';
+
+        // Added: a user file wins over the shipped file of the same name.
+        int bExists = 0;
+        if ( bSkipExisting )
+        {
+            for ( size_t i = 0; i < pConfig->numSchemes; ++i )
+            {
+                if ( streqi(pConfig->aSchemes[i].aName, aStem) )
+                {
+                    bExists = 1;
+                    break;
+                }
+            }
+        }
+
+        if ( bExists )
         {
             continue;
         }
@@ -2522,7 +2588,7 @@ int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig*
         }
 
         char aPath[JONESCONFIG_KEYSDIRPATH_MAX + 160] = { 0 };
-        STD_FORMAT(aPath, "%s\\%s", jonesConfig_aKeySetsDirPath, fileInfo.aName);
+        STD_FORMAT(aPath, "%s\\%s", pDirectory, fileInfo.aName);
         if ( jonesConfig_LoadControlScheme(aPath, &pConfig->aSchemes[pConfig->numSchemes]) )
         {
             ++pConfig->numSchemes;
@@ -2534,6 +2600,20 @@ int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig*
     }
 
     stdFileUtil_DisposeFind(pFind);
+}
+
+int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig* pConfig)
+{
+    if ( !pConfig )
+    {
+        return 0;
+    }
+
+    JonesControlSchemes_EnsureTables();
+
+    // Added: user key sets first, then the shipped ones they do not shadow.
+    JonesControlSchemes_LoadSchemesFromDirectory(pConfig, jonesConfig_aKeySetsDirPath, 0);
+    JonesControlSchemes_LoadSchemesFromDirectory(pConfig, jonesConfig_aShippedKeySetsDirPath, 1);
     return 1;
 }
 
@@ -2695,6 +2775,7 @@ void jonesConfig_Shutdown(void)
     }
 
     memset(jonesConfig_aKeySetsDirPath, 0, sizeof(jonesConfig_aKeySetsDirPath));
+    memset(jonesConfig_aShippedKeySetsDirPath, 0, sizeof(jonesConfig_aShippedKeySetsDirPath));
     jonesConfig_bKeyActionsInited = 0;
     jonesConfig_bStartup = 0;
     jonesConfig_bPendingDefaultScheme = 0;

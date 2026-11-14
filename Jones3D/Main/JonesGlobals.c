@@ -128,6 +128,7 @@
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdStrTable.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/std3D.h>
 #include <std/General/stdDisplay.h>
@@ -272,6 +273,7 @@ void Jones3D_ResetGlobalsBeforeStdWin95(void)
     stdMemory_ResetGlobals();
     stdPlatform_ResetGlobals();
     stdStrTable_ResetGlobals();
+    stdUserDir_Reset();
     stdUtil_ResetGlobals();
 }
 

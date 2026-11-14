@@ -8,7 +8,9 @@
 // behind: the retail mutex, the Win32 signal handler, window creation and the
 // stdWin95 window/instance/Guid registration.
 //
-// Usage: Jones3D-headless [--load <save.nds>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>]
+// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>]
+//   --user-dir writes Jones.cfg, logs and savegames in the given directory, created when missing.
+//            The default is "" (the working directory), so headless traces keep today's paths.
 //   --load   answers the load-game dialog once with the given path; needs the
 //            "startMode = 1" (load game) entry in Jones.cfg, like on Windows.
 //   --frames frame limit of the engine's own game-state frame counter (default 1000).
@@ -45,6 +47,7 @@
 #include <sith/World/sithWorld.h>
 
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/Null/stdControlNull.h>
 #include <std/Null/stdCvarNull.h>
 #include <std/Null/stdPlatformNull.h>
@@ -90,7 +93,7 @@ typedef struct HeadlessInputEvent
 
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--load <save.nds>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]" HEADLESS_RENDER_USAGE "\n",
+    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]" HEADLESS_RENDER_USAGE "\n",
         pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP);
 }
 
@@ -619,6 +622,7 @@ static bool Headless_WriteStateFile(const char* pPath, size_t frameCount)
 
 int JonesHeadless_Run(int argc, char** argv)
 {
+    const char* pUserDirPath = NULL;
     const char* pLoadPath    = NULL;
     const char* pStatePath   = NULL;
     const char* pInputPath   = NULL;
@@ -628,8 +632,9 @@ int JonesHeadless_Run(int argc, char** argv)
 
     for ( int i = 1; i < argc; ++i )
     {
-        if ( !strcmp(argv[i], "--load") || !strcmp(argv[i], "--frames") || !strcmp(argv[i], "--step")
-            || !strcmp(argv[i], "--state") || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--capture") )
+        if ( !strcmp(argv[i], "--user-dir") || !strcmp(argv[i], "--load") || !strcmp(argv[i], "--frames")
+            || !strcmp(argv[i], "--step") || !strcmp(argv[i], "--state") || !strcmp(argv[i], "--input")
+            || !strcmp(argv[i], "--capture") )
         {
             if ( i + 1 >= argc )
             {
@@ -638,7 +643,11 @@ int JonesHeadless_Run(int argc, char** argv)
                 return 1;
             }
 
-            if ( !strcmp(argv[i], "--load") )
+            if ( !strcmp(argv[i], "--user-dir") )
+            {
+                pUserDirPath = argv[++i];
+            }
+            else if ( !strcmp(argv[i], "--load") )
             {
                 pLoadPath = argv[++i];
             }
@@ -707,6 +716,15 @@ int JonesHeadless_Run(int argc, char** argv)
 
     // WinMain/DllMain: the global reset before anything else runs.
     Jones3D_ResetAllGlobals();
+
+    // Added: the user directory, when asked for. The reset above restored the working directory.
+    if ( pUserDirPath && !stdUserDir_Set(pUserDirPath) )
+    {
+        fprintf(stderr, "ERROR: Jones3D-headless: the user directory path is too long (at most %d bytes)!\n",
+            STDUSERDIR_MAXPATH - 1);
+        Headless_InputFree();
+        return 1;
+    }
 
     // Indy3D_WinMain: hand the --load path to the Null load-game dialog, which
     // JonesMain_Startup asks when Jones.cfg is in the load-game start mode.

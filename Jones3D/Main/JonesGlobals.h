@@ -34,8 +34,8 @@ void Jones3D_ResetGlobalsBeforeStdComm(void);
 void Jones3D_ResetGlobalsBeforeStdConsole(void);
 
 // stdDisplay, stdEffect, stdFileUtil, stdFnames, stdGob, stdHashtbl, stdLinkList,
-// stdMath, stdMemory, stdPlatform, stdStrTable, stdUtil; runs before the Windows-only
-// stdWin95 reset.
+// stdMath, stdMemory, stdPlatform, stdStrTable, stdUserDir, stdUtil; runs before the
+// Windows-only stdWin95 reset.
 void Jones3D_ResetGlobalsBeforeStdWin95(void);
 
 // std; runs before the Windows-only wkernel and wuRegistry resets.

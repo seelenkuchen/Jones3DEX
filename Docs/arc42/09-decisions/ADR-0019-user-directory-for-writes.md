@@ -30,3 +30,13 @@ users can share one install.
 - Babylon's Files module stays small: file access, paths and user directories, no archive or mount logic.
 - Moving the write location is a user-visible change and goes into `CHANGELOG.md` when it lands.
 - Tests and headless runs point the user directory at a temporary directory, so they never touch real saves.
+
+## Implementation
+
+Implemented in M8 (2026-11-14): the windowed Babylon game writes `Jones.cfg`, savegames, screenshots, key
+sets, `JonesLog.txt` and `JonesError.txt` to the directory chosen by `--user-dir`, a `portable.txt` beside
+the executable or in the working directory, or else `FileSystem::userPath("", "Jones3DEX")`
+(`~/.local/share/Jones3DEX/` on Linux, `%APPDATA%\Jones3DEX\` on Windows,
+`~/Library/Application Support/Jones3DEX/` on macOS); an existing `Jones.cfg` and existing savegames are
+copied there once, keeping the old files. Headless runs default to the working directory and accept
+`--user-dir`.

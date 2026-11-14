@@ -53,14 +53,20 @@ namespace
         return path;
     }
 
-    // The two names of userPath(): each must be one usable path segment.
-    // The same rule as in the Null backend, so both give the same answer.
+    // The application name of userPath() must be one usable path segment;
+    // the organization is either empty or one such segment. The same rule as
+    // in the Null backend, so both give the same answer.
     bool isSingleSegmentName(std::string_view name)
     {
         return !name.empty() && name != "." && name != ".."
             && name.find('/') == std::string_view::npos
             && name.find('\\') == std::string_view::npos
             && name.find('\0') == std::string_view::npos;
+    }
+
+    bool isOrganizationName(std::string_view name)
+    {
+        return name.empty() || isSingleSegmentName(name);
     }
 
     // One open file on an SDL_IOStream from SDL_IOFromFile. The stream is
@@ -439,7 +445,7 @@ namespace
         std::string userPath(std::string_view organization,
             std::string_view application) override
         {
-            if ( !isSingleSegmentName(organization) || !isSingleSegmentName(application) )
+            if ( !isOrganizationName(organization) || !isSingleSegmentName(application) )
             {
                 log::warning("files: can not make a user path from '{}' and '{}'",
                     organization, application);

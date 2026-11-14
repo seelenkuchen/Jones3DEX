@@ -44,6 +44,7 @@
 #include <std/General/stdFileUtil.h>
 #include <std/General/stdFnames.h>
 #include <std/General/stdMemory.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/stdComm.h>
 
@@ -110,6 +111,14 @@ void sithMain_ResetGlobals(void)
     memset(&sithMain_g_frameNumber, 0, sizeof(sithMain_g_frameNumber));
     memset(&sithMain_g_sith_mode, 0, sizeof(sithMain_g_sith_mode));
     memset(&sithMain_g_curRenderTick, 0, sizeof(sithMain_g_curRenderTick));
+
+    // Added: the path functions cache their first answer; a reset must let the next call see a
+    // changed user or install directory.
+    memset(sith_aTmpQuickSavePrefix, 0, sizeof(sith_aTmpQuickSavePrefix));
+    memset(sith_aTmpSaveGameDirPath, 0, sizeof(sith_aTmpSaveGameDirPath));
+    memset(sith_aTmpAutoSaveFilePrefix, 0, sizeof(sith_aTmpAutoSaveFilePrefix));
+    memset(sith_aTmpScreenShotDirPath, 0, sizeof(sith_aTmpScreenShotDirPath));
+    memset(sith_aScreenShotsFileName, 0, sizeof(sith_aScreenShotsFileName));
 }
 
 void J3DAPI sithSetServices(tHostServices* pHS)
@@ -743,10 +752,54 @@ bool sithToggleDrawPlayerRadius(void)
     return sith_bDrawPlayerMoveBounds;
 }
 
+// Added: computes a path the pre-user-directory way, for the legacy save directory to migrate from.
+static const char* J3DAPI sithGetPathInternal(char* aOutPath, const char* pSithStrName,
+    int bPrependInstallDirPath, int bUseUserDir);
+
+static void sithMigrateSaveGames(void)
+{
+    if ( stdUserDir_GetPath()[0] == '\0' )
+    {
+        return;
+    }
+
+    char aLegacyDir[SITH_PATHSIZE] = { 0 };
+    sithGetPathInternal(aLegacyDir, "SITHSTRING_SAVEGAMES", 1, 0);
+    if ( aLegacyDir[0] == '\0' )
+    {
+        return;
+    }
+
+    // The user directory's relative save folder has the same name the legacy path ends with.
+    const char* pSaveDir = sithGetSaveGamesDir();
+    const char* pUserDir = stdUserDir_GetPath();
+    const size_t userLen = strlen(pUserDir);
+    const char* pRelative = pSaveDir;
+    if ( strncmp(pSaveDir, pUserDir, userLen) == 0 )
+    {
+        pRelative = pSaveDir + userLen;
+    }
+
+    while ( *pRelative == '\\' || *pRelative == '/' )
+    {
+        ++pRelative;
+    }
+
+    if ( *pRelative == '\0' )
+    {
+        return;
+    }
+
+    stdUserDir_MigrateDirectory(aLegacyDir, pRelative, "nds");
+}
+
 void sithMakeDirs(void)
 {
     stdFileUtil_MkDir(sithGetSaveGamesDir());
     stdFileUtil_MkDir(sithGetScreenShotsDir());
+
+    // Added: existing savegames are copied into the user directory once it exists (ADR-0019).
+    sithMigrateSaveGames();
 }
 
 const char* sithGetAutoSaveFilePrefix(void)
@@ -754,7 +807,8 @@ const char* sithGetAutoSaveFilePrefix(void)
     return sithGetPath(sith_aTmpAutoSaveFilePrefix, "SITHSTRING_AUTO", 0);
 }
 
-const char* J3DAPI sithGetPath(char* aOutPath, const char* pSithStrName, int bPrependInstallDirPath)
+static const char* J3DAPI sithGetPathInternal(char* aOutPath, const char* pSithStrName,
+    int bPrependInstallDirPath, int bUseUserDir)
 {
     if ( strlen(aOutPath) != 0 ) // if not empty, i.e. inadvertently the string gets cached because the functions that call this functions use static global var to store path
     {
@@ -774,7 +828,30 @@ const char* J3DAPI sithGetPath(char* aOutPath, const char* pSithStrName, int bPr
 
     if ( strlen(pName) )
     {
-        if ( strlen(aInstallPath) && bPrependInstallDirPath )
+        const char* pUserDir = bUseUserDir ? stdUserDir_GetPath() : "";
+
+        // Added: write directories go to the user directory instead of the install path (ADR-0019).
+        if ( pUserDir[0] != '\0' && bPrependInstallDirPath )
+        {
+            char* pFilename = pName;
+            char* pStripName = strchr(pName, '\\');
+            if ( pStripName )
+            {
+                pFilename = pStripName + 1;
+            }
+
+            while ( pFilename && *pFilename == '\\' )
+            {
+                ++pFilename;
+            }
+
+            if ( !stdUserDir_MakePath(aOutPath, SITH_PATHSIZE, pFilename) )
+            {
+                SITHLOG_WARNING("sithGetPath: the user directory path is too long for '%s'.\n", pFilename);
+                aOutPath[0] = '\0';
+            }
+        }
+        else if ( strlen(aInstallPath) && bPrependInstallDirPath )
         {
             char* pFilename = pName;
             char* pStripName = strchr(pName, '\\');
@@ -806,6 +883,11 @@ const char* J3DAPI sithGetPath(char* aOutPath, const char* pSithStrName, int bPr
     }
 
     return aOutPath;
+}
+
+const char* J3DAPI sithGetPath(char* aOutPath, const char* pSithStrName, int bPrependInstallDirPath)
+{
+    return sithGetPathInternal(aOutPath, pSithStrName, bPrependInstallDirPath, 1);
 }
 
 const char* sithGetSaveGamesDir(void)

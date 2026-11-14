@@ -146,9 +146,12 @@ namespace babylon::files
 
         // A per-user writable directory for this organization and
         // application, created if missing, ending with '/'. Empty string
-        // and a warning on failure, or if either name is empty, contains
-        // '/' or '\\', is "." or "..", or holds a NUL byte: each name must
-        // be one usable path segment, the same way in every backend.
+        // and a warning on failure, or if the application name is empty,
+        // either name contains '/' or '\\', is "." or "..", or holds a NUL
+        // byte: the application must be one usable path segment, and the
+        // organization is either empty or one such segment. An empty
+        // organization omits its directory level, the same way in every
+        // backend.
         virtual std::string userPath(std::string_view organization, std::string_view application) = 0;
     };
 

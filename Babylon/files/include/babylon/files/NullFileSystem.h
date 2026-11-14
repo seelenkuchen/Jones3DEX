@@ -22,8 +22,9 @@ namespace babylon::files
     // as the interface describes, including validation, the byte-order sort
     // of listings and the one warning per failure. basePath() is "/base/"
     // and userPath(organization, application) is
-    // "/user/<organization>/<application>/"; both exist as directories from
-    // the moment they are asked for. Case is passed through unchanged, so
+    // "/user/<organization>/<application>/", or "/user/<application>/" for an
+    // empty organization; both exist as directories from the moment they are
+    // asked for. Case is passed through unchanged, so
     // two spellings are two directories. Directory entries report
     // modifiedSeconds 0: the Null tree keeps no times.
     //

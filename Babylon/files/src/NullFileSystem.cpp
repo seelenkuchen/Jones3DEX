@@ -189,6 +189,12 @@ namespace
             && name.find('\0') == std::string_view::npos;
     }
 
+    // The organization is optional: empty omits its directory level.
+    bool isOrganizationName(std::string_view name)
+    {
+        return name.empty() || isSingleSegmentName(name);
+    }
+
 }
 
     NullFileSystem::NullFileSystem()
@@ -457,15 +463,18 @@ namespace
     std::string NullFileSystem::userPath(std::string_view organization,
         std::string_view application)
     {
-        if ( !isSingleSegmentName(organization) || !isSingleSegmentName(application) )
+        if ( !isOrganizationName(organization) || !isSingleSegmentName(application) )
         {
             log::warning("files: can not make a user path from '{}' and '{}'",
                 organization, application);
             return {};
         }
         std::string path = "/user/";
-        path.append(organization);
-        path.push_back('/');
+        if ( !organization.empty() )
+        {
+            path.append(organization);
+            path.push_back('/');
+        }
         path.append(application);
         path.push_back('/');
         if ( !isValidPath(path) )

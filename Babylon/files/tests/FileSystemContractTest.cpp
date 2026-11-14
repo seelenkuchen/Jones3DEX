@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <initializer_list>
@@ -398,3 +399,59 @@ TEST_CASE("The SDL file system honors the FileSystem contract")
     INFO("remove_all: " << error.message());
     CHECK(!stdfs::exists(root));
 }
+
+#ifndef _WIN32
+TEST_CASE("The SDL user path accepts an empty organization under a temporary data home")
+{
+    namespace stdfs = std::filesystem;
+
+    // SDL_GetPrefPath reads XDG_DATA_HOME each call, so the case points it at a fresh directory
+    // and leaves the real user profile untouched.
+    stdfs::path root;
+    for ( int attempt = 0; attempt < 64 && root.empty(); ++attempt )
+    {
+        const stdfs::path candidate = stdfs::temp_directory_path()
+            / ("babylon-files-userpath-" + std::to_string(attempt));
+        if ( !stdfs::exists(candidate) )
+        {
+            root = candidate;
+        }
+    }
+    REQUIRE(!root.empty());
+
+    const char* const pOldDataHome = std::getenv("XDG_DATA_HOME");
+    const std::optional<std::string> oldDataHome =
+        pOldDataHome ? std::optional<std::string>(pOldDataHome) : std::nullopt;
+    REQUIRE(setenv("XDG_DATA_HOME", root.string().c_str(), 1) == 0);
+
+    {
+        CaptureSink sink;
+        const std::unique_ptr<FileSystem> fs = babylon::files::createSdlFileSystem();
+        REQUIRE(fs != nullptr);
+
+        std::string rootString = root.string();
+        std::replace(rootString.begin(), rootString.end(), '\\', '/');
+        if ( !rootString.empty() && rootString.back() == '/' )
+        {
+            rootString.pop_back();
+        }
+
+        CHECK(fs->userPath("", "Jones3DEX") == rootString + "/Jones3DEX/");
+        CHECK(fs->exists(rootString + "/Jones3DEX/"));
+        CHECK(sink.records().empty());
+    }
+
+    if ( oldDataHome )
+    {
+        setenv("XDG_DATA_HOME", oldDataHome->c_str(), 1);
+    }
+    else
+    {
+        unsetenv("XDG_DATA_HOME");
+    }
+
+    std::error_code error;
+    stdfs::remove_all(root, error);
+    CHECK(!stdfs::exists(root));
+}
+#endif

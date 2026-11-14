@@ -52,6 +52,7 @@
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdPlatformSys.h>
 #include <std/General/stdUtil.h>
 #include <std/General/std3D.h>
@@ -175,6 +176,12 @@ void JonesMain_ResetGlobals(void)
     memset(&JonesMain_g_mainMutex, 0, sizeof(JonesMain_g_mainMutex));
 }
 
+// Added: where Jones.cfg lives (ADR-0019). "" user directory keeps the original relative path.
+bool J3DAPI JonesMain_GetConfigFilePath(char* pOut, size_t outSize)
+{
+    return stdUserDir_MakePath(pOut, outSize, "Jones.cfg");
+}
+
 // Added: only remembers the strings; the capture opens in JonesMain_Startup once the host services
 // exist. ResetGlobals deliberately leaves them alone, so the reset order cannot drop the request.
 void JonesMain_SetCapture(const char* pPath, const char* pColumn)
@@ -233,7 +240,24 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // Added: Register the registry-based fallback reader so stdConfig no longer depends on w32util directly.
     const StdConfigFallback fallback = { wuRegistry_HasStarted, wuRegistry_GetInt, wuRegistry_GetFloat, wuRegistry_GetStr };
     stdConfig_SetFallback(&fallback);
-    if ( !stdConfig_Startup("Jones.cfg") )
+
+    // Added: Jones.cfg lives in the user directory; the old one in the working directory is copied
+    // there once, before the config opens, so settings survive the move (ADR-0019).
+    char aConfigPath[STDUSERDIR_MAXPATH] = { 0 };
+    if ( !JonesMain_GetConfigFilePath(aConfigPath, sizeof(aConfigPath)) )
+    {
+        JonesMain_LogErrorToFile("The user directory path is too long for Jones.cfg.");
+        JonesMain_CloseWindow();
+        return 1;
+    }
+
+    if ( stdUserDir_GetPath()[0] != '\0'
+        && stdUserDir_CopyFileIfMissing("Jones.cfg", "Jones.cfg") )
+    {
+        STDLOG_STATUS("user dir: copied the legacy Jones.cfg to '%s'\n", aConfigPath);
+    }
+
+    if ( !stdConfig_Startup(aConfigPath) )
     {
         JonesMain_LogErrorToFile("Couldn't open the config file.");
         JonesMain_CloseWindow();
@@ -423,7 +447,17 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         case JONES_OUTPUTMODE_LOGFILE:
         {
-            fopen_s(&JonesMain_pLogFile, "JonesLog.txt", "w+"); // TODO: Add check for case when fopen fails
+            // Added: the log is user output and lives in the user directory like Jones.cfg.
+            char aLogPath[STDUSERDIR_MAXPATH] = { 0 };
+            if ( stdUserDir_MakePath(aLogPath, sizeof(aLogPath), "JonesLog.txt") )
+            {
+                fopen_s(&JonesMain_pLogFile, aLogPath, "w+"); // TODO: Add check for case when fopen fails
+            }
+            else
+            {
+                fprintf(stderr, "WARNING: Jones3D: the user directory path is too long for JonesLog.txt!\n");
+            }
+
             switch ( JonesMain_state.logLevel )
             {
                 case JONES_LOGLEVEL_ERROR:
@@ -2508,9 +2542,23 @@ void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText)
         pErrorText = pErrorStr;
     }
 
-    char aFilePath[128] = { 0 };
+    char aFilePath[STDUSERDIR_MAXPATH] = { 0 };
     const char* pFilename = jonesString_GetString("JONES_STR_ERRORFILE");
-    if ( pFilename )
+    if ( !pFilename )
+    {
+        pFilename = "JonesError.txt";
+    }
+
+    if ( stdUserDir_GetPath()[0] != '\0' )
+    {
+        // Added: the error file is user output and lives in the user directory (ADR-0019).
+        if ( !stdUserDir_MakePath(aFilePath, sizeof(aFilePath), pFilename) )
+        {
+            aFilePath[0] = '\0';
+        }
+    }
+
+    if ( aFilePath[0] == '\0' && pFilename )
     {
         // Changed: Use cwd path instead of install path from registry.
         //          This subsequently fixes also fatal error where there was registry startup error 
@@ -2532,10 +2580,6 @@ void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText)
         {
             STD_FORMAT(aFilePath, ".\\\\%s", pFilename);
         }
-    }
-    else
-    {
-        STD_FORMAT(aFilePath, ".\\\\%s", "JonesError.txt");
     }
 
     if ( pErrorText && strlen(pErrorText) )

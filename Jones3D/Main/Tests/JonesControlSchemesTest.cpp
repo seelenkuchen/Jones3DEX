@@ -35,6 +35,7 @@
 #include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Main/sithMain.h>
+#include <sith/Main/sithString.h>
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/General/std.h>
@@ -42,6 +43,7 @@
 #include <std/General/stdControl.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/Null/stdControlNull.h>
 
 TEST_GROUP(JonesControlSchemes);
@@ -1164,6 +1166,98 @@ TEST(JonesControlSchemes, TestCreateDeleteAndLoadAll)
     TEST_ASSERT_FALSE(std::filesystem::exists(KeySetsPath("fresh")));
 }
 
+TEST(JonesControlSchemes, TestUserDirectoryPathsAndSaveMigration)
+{
+    namespace stdfs = std::filesystem;
+
+    // The string table is loaded from misc/ relative to the working directory, so this case moves
+    // into its temporary directory for the short time sithString is started and restores it after.
+    const stdfs::path userDir = g_tempDir / "user";
+    const std::string userDirString = userDir.string();
+
+    struct ScopedWorkingDirectory
+    {
+        explicit ScopedWorkingDirectory(const stdfs::path& pDirectory) : old(stdfs::current_path())
+        {
+            stdfs::current_path(pDirectory);
+        }
+
+        ~ScopedWorkingDirectory()
+        {
+            stdfs::current_path(old);
+        }
+
+        stdfs::path old;
+    } scopedWorkingDirectory(g_tempDir);
+
+    WriteFile((g_tempDir / "misc" / "voiceStrings.uni").string(), "MSGS 0\nEND\n");
+    WriteFile((g_tempDir / "misc" / "sithStrings.uni").string(),
+        "MSGS 5\n"
+        "\"SITHSTRING_SAVEGAMES\" 0 \"SaveGames\"\n"
+        "\"SITHSTRING_SHOTS\" 0 \"ScreenShots\"\n"
+        "\"SITHSTRING_QUICK\" 0 \"QUICKSAVE\"\n"
+        "\"SITHSTRING_AUTO\" 0 \"start_\"\n"
+        "\"SITHSTRING_JONES_SHOTS\" 0 \"jones%02d\"\n"
+        "END\n");
+
+    sithString_Shutdown();
+    TEST_ASSERT_TRUE(sithString_Startup() == 0);
+
+    // The config path follows the user directory, and stays relative with none.
+    stdUserDir_Reset();
+    sithMain_ResetGlobals();
+    char aPath[STDUSERDIR_MAXPATH] = { 0 };
+    TEST_ASSERT_TRUE(JonesMain_GetConfigFilePath(aPath, sizeof(aPath)));
+    TEST_ASSERT_TRUE(std::string(aPath) == "Jones.cfg");
+
+    TEST_ASSERT_TRUE(stdUserDir_Set(userDirString.c_str()));
+    sithMain_ResetGlobals();
+    TEST_ASSERT_TRUE(JonesMain_GetConfigFilePath(aPath, sizeof(aPath)));
+    TEST_ASSERT_TRUE(std::string(aPath) == userDirString + "\\Jones.cfg");
+
+    // Without a user directory, sithGetPath keeps the original install-relative answer.
+    stdUserDir_Reset();
+    sithMain_ResetGlobals();
+    TEST_ASSERT_TRUE(std::string(sithGetSaveGamesDir()) == g_installPath + "\\SaveGames");
+    TEST_ASSERT_TRUE(std::string(sithGetQuickSaveFilePrefix()) == "QUICKSAVE");
+
+    // With one, the write directories move there; the quick-save name stays a name that callers
+    // join with the save directory.
+    TEST_ASSERT_TRUE(stdUserDir_Set(userDirString.c_str()));
+    sithMain_ResetGlobals();
+    TEST_ASSERT_TRUE(std::string(sithGetSaveGamesDir()) == userDirString + "\\SaveGames");
+    TEST_ASSERT_TRUE(std::string(sithGetScreenShotsDir()) == userDirString + "\\ScreenShots");
+    TEST_ASSERT_TRUE(std::string(sithGetQuickSaveFilePrefix()) == "QUICKSAVE");
+
+    // User-made key sets are written in the user directory as well.
+    jonesConfig_Shutdown();
+    TEST_ASSERT_EQUAL_INT(1, jonesConfig_InitKeySetsPath());
+    TEST_ASSERT_TRUE(std::string(JonesControlSchemes_GetDirectory()) == userDirString + "\\KeySets");
+
+    sithMakeDirs();
+    TEST_ASSERT_TRUE(stdfs::exists(userDir / "SaveGames"));
+    TEST_ASSERT_TRUE(stdfs::exists(userDir / "ScreenShots"));
+
+    // The old config is copied once; a config already in the user directory is kept.
+    WriteFile((g_tempDir / "Jones.cfg").string(), "legacy config");
+    TEST_ASSERT_TRUE(stdUserDir_CopyFileIfMissing("Jones.cfg", "Jones.cfg"));
+    TEST_ASSERT_TRUE(ReadFile((userDir / "Jones.cfg").string()) == "legacy config");
+    WriteFile((userDir / "Jones.cfg").string(), "user config");
+    TEST_ASSERT_FALSE(stdUserDir_CopyFileIfMissing("Jones.cfg", "Jones.cfg"));
+    TEST_ASSERT_TRUE(ReadFile((userDir / "Jones.cfg").string()) == "user config");
+
+    // A legacy .nds is copied into the empty user save directory, never moved.
+    const stdfs::path legacySave = stdfs::path(g_installPath) / "SaveGames" / "legacy.nds";
+    WriteFile(legacySave.string(), "legacy save");
+    sithMakeDirs();
+    TEST_ASSERT_TRUE(stdfs::exists(userDir / "SaveGames" / "legacy.nds"));
+    TEST_ASSERT_TRUE(stdfs::exists(legacySave));
+
+    sithString_Shutdown();
+    stdUserDir_Reset();
+    sithMain_ResetGlobals();
+}
+
 static void JonesControlSchemes_RunAllTests(void)
 {
     RUN_TEST_CASE(JonesControlSchemes, TestLoadSchemeWithKeysMouseJoystick);
@@ -1201,6 +1295,7 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestHudSystemIconsTrueShowsThem);
     RUN_TEST_CASE(JonesControlSchemes, TestChangeBindingUpdatesCounts);
     RUN_TEST_CASE(JonesControlSchemes, TestCreateDeleteAndLoadAll);
+    RUN_TEST_CASE(JonesControlSchemes, TestUserDirectoryPathsAndSaveMigration);
 }
 
 extern "C" void TEST_JonesControlSchemes_GROUP_RUNNER(void)
