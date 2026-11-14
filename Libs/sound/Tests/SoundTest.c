@@ -21,6 +21,14 @@
 #define SOUND_TEST_LARGE_FRAME_COUNT  2048u
 #define SOUND_TEST_CACHE_SIZE         600000u
 #define SOUND_TEST_MAX_ALLOCATIONS    8u
+#define SOUND_TEST_NORMAL_BANK        1u
+#define SOUND_TEST_BANK_CACHE_SIZE    8u
+#define SOUND_TEST_BANK_MAX_SIZE      256u
+#define SOUND_TEST_BANK_RECORD_SIZE   48u
+#define SOUND_TEST_BANK_ENTROPY       0x12345678u
+#define SOUND_TEST_IMPORTED_HANDLE    (SOUND_TEST_SOUND_HANDLE + 2u)
+#define SOUND_TEST_ROUNDTRIP_HANDLE   (SOUND_TEST_SOUND_HANDLE + 4u)
+#define SOUND_TEST_LIPSYNC_POINTER    0xDEADBEEFu
 
 typedef struct SoundTestAllocation
 {
@@ -28,11 +36,19 @@ typedef struct SoundTestAllocation
     size_t size;
 } SoundTestAllocation;
 
+typedef struct SoundTestBankFile
+{
+    uint8_t aData[SOUND_TEST_BANK_MAX_SIZE];
+    size_t size;
+    size_t position;
+} SoundTestBankFile;
+
 static tHostServices SoundTest_hostServices;
 static SoundInfo SoundTest_soundInfo;
 static tSoundChannel SoundTest_channel;
 static uint8_t SoundTest_aSoundCache[SOUND_TEST_CACHE_SIZE];
 static SoundTestAllocation SoundTest_aAllocations[SOUND_TEST_MAX_ALLOCATIONS];
+static SoundTestBankFile SoundTest_bankFile;
 static size_t SoundTest_numMallocCalls;
 static size_t SoundTest_numFreeCalls;
 static size_t SoundTest_numActiveAllocations;
@@ -137,6 +153,96 @@ static void SoundTest_SetLipSyncEntry(uint8_t* pData, int index, uint32_t timeKe
 {
     uint32_t entry = (timeKey & 0xFFFF0000u) | ((uint32_t)(mouthX & 0x7Fu) << 8) | (mouthY & 0x7Fu);
     SoundTest_WriteU32LE(pData + 8 + index * 4, entry);
+}
+
+static size_t J3DAPI SoundTest_FileRead(tFileHandle fh, void* pData, size_t size)
+{
+    SoundTestBankFile* pFile = (SoundTestBankFile*)(uintptr_t)fh;
+    size_t remaining = pFile->size - pFile->position;
+
+    if ( size > remaining )
+    {
+        size = remaining;
+    }
+
+    if ( size > 0 )
+    {
+        memcpy(pData, &pFile->aData[pFile->position], size);
+        pFile->position += size;
+    }
+
+    return size;
+}
+
+static size_t J3DAPI SoundTest_FileWrite(tFileHandle fh, const void* pData, size_t size)
+{
+    SoundTestBankFile* pFile = (SoundTestBankFile*)(uintptr_t)fh;
+
+    if ( pFile->position + size > sizeof(pFile->aData) )
+    {
+        return 0;
+    }
+
+    memcpy(&pFile->aData[pFile->position], pData, size);
+    pFile->position += size;
+
+    if ( pFile->position > pFile->size )
+    {
+        pFile->size = pFile->position;
+    }
+
+    return size;
+}
+
+static tFileHandle SoundTest_BankFileHandle(void)
+{
+    return (tFileHandle)(uintptr_t)&SoundTest_bankFile;
+}
+
+static void SoundTest_ResetBankFile(void)
+{
+    SoundTest_bankFile.size     = 0;
+    SoundTest_bankFile.position = 0;
+}
+
+static void SoundTest_SetBankImage(const uint8_t* pImage, size_t size)
+{
+    TEST_ASSERT_TRUE(size <= sizeof(SoundTest_bankFile.aData));
+
+    SoundTest_bankFile.position = 0;
+    SoundTest_bankFile.size     = size;
+    memcpy(SoundTest_bankFile.aData, pImage, size);
+}
+
+static void SoundTest_WriteBankRecord(uint8_t* pData, const SoundInfo* pInfo, uint32_t lipSyncSlot)
+{
+    SoundTest_WriteU32LE(pData + 0, pInfo->hSnd);
+    SoundTest_WriteU32LE(pData + 4, pInfo->bankNum);
+    SoundTest_WriteU32LE(pData + 8, pInfo->filePathOffset);
+    SoundTest_WriteU32LE(pData + 12, pInfo->nameOffset);
+    SoundTest_WriteU32LE(pData + 16, pInfo->dataOffset);
+    SoundTest_WriteU32LE(pData + 20, lipSyncSlot);
+    SoundTest_WriteU32LE(pData + 24, pInfo->sampleRate);
+    SoundTest_WriteU32LE(pData + 28, pInfo->sempleBitSize);
+    SoundTest_WriteU32LE(pData + 32, pInfo->numChannels);
+    SoundTest_WriteU32LE(pData + 36, pInfo->dataSize);
+    SoundTest_WriteU32LE(pData + 40, pInfo->bCompressed);
+    SoundTest_WriteU32LE(pData + 44, pInfo->idx);
+}
+
+static void SoundTest_AssertSoundInfoFields(const SoundInfo* pExpected, const SoundInfo* pActual)
+{
+    TEST_ASSERT_EQUAL_UINT32(pExpected->hSnd, pActual->hSnd);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->bankNum, pActual->bankNum);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->filePathOffset, pActual->filePathOffset);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->nameOffset, pActual->nameOffset);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->dataOffset, pActual->dataOffset);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->sampleRate, pActual->sampleRate);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->sempleBitSize, pActual->sempleBitSize);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->numChannels, pActual->numChannels);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->dataSize, pActual->dataSize);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->bCompressed, pActual->bCompressed);
+    TEST_ASSERT_EQUAL_UINT32(pExpected->idx, pActual->idx);
 }
 
 static void SoundTest_ResetAllocationState(void)
@@ -263,6 +369,10 @@ TEST_SETUP(Sound)
     SoundTest_hostServices.pMalloc       = SoundTest_Malloc;
     SoundTest_hostServices.pFree         = SoundTest_Free;
     SoundTest_hostServices.pRealloc      = SoundTest_Realloc;
+    SoundTest_hostServices.pFileRead     = SoundTest_FileRead;
+    SoundTest_hostServices.pFileWrite    = SoundTest_FileWrite;
+
+    SoundTest_ResetBankFile();
 
     // Added: Sound_Play allocates the Null driver's buffers through the std memory layer.
     stdStartup(&SoundTest_hostServices);
@@ -745,6 +855,125 @@ TEST(Sound, OutputDeviceStubsReportNoDevicesAndRefuseSwitching)
     TEST_ASSERT_EQUAL_STRING("", SoundDriver_GetCurrentOutputDevice());
 }
 
+TEST(Sound, TestImportBankDropsStoredLipSyncPointer)
+{
+    SoundInfo expected;
+    STD_ZEROMEM(&expected, sizeof(expected));
+    expected.hSnd           = SOUND_TEST_IMPORTED_HANDLE;
+    expected.bankNum        = SOUND_TEST_NORMAL_BANK;
+    expected.filePathOffset = 0x11u;
+    expected.nameOffset     = 0x22u;
+    expected.dataOffset     = 0x33u;
+    expected.sampleRate     = 8000u;
+    expected.sempleBitSize  = 16u;
+    expected.numChannels    = 1u;
+    expected.dataSize       = 64u;
+    expected.bCompressed    = 1u;
+    expected.idx            = 7u;
+
+    uint8_t aImage[SOUND_TEST_BANK_MAX_SIZE];
+    size_t offset = 0;
+
+    SoundTest_WriteU32LE(aImage + offset, 1u); // number of sound infos
+    offset += 4;
+    SoundTest_WriteU32LE(aImage + offset, SOUND_TEST_BANK_CACHE_SIZE);
+    offset += 4;
+    SoundTest_WriteBankRecord(aImage + offset, &expected, SOUND_TEST_LIPSYNC_POINTER);
+    offset += SOUND_TEST_BANK_RECORD_SIZE;
+
+    for ( size_t i = 0; i < SOUND_TEST_BANK_CACHE_SIZE; ++i )
+    {
+        aImage[offset + i] = (uint8_t)(0xA0u + i);
+    }
+    offset += SOUND_TEST_BANK_CACHE_SIZE;
+
+    SoundTest_WriteU32LE(aImage + offset, 0u); // next handle entropy
+    offset += 4;
+
+    SoundTest_SetBankImage(aImage, offset);
+
+    TEST_ASSERT_EQUAL_INT(1, Sound_ImportNormalBank(SoundTest_BankFileHandle()));
+
+    SoundInfo* pImported = Sound_GetSoundInfo(SOUND_TEST_IMPORTED_HANDLE);
+    TEST_ASSERT_NOT_NULL(pImported);
+    TEST_ASSERT_NULL(pImported->pLipSyncData);
+    SoundTest_AssertSoundInfoFields(&expected, pImported);
+
+    // Old code restored 0xDEADBEEF as the pointer; Sound_Reset would free an untracked address.
+    Sound_Reset(0);
+}
+
+TEST(Sound, TestExportBankWritesNoLipSyncPointer)
+{
+    // Load an empty bank first so the exported next-handle entropy is deterministic.
+    uint8_t aEmptyImage[12];
+    SoundTest_WriteU32LE(aEmptyImage + 0, 0u);
+    SoundTest_WriteU32LE(aEmptyImage + 4, 0u);
+    SoundTest_WriteU32LE(aEmptyImage + 8, SOUND_TEST_BANK_ENTROPY);
+    SoundTest_SetBankImage(aEmptyImage, sizeof(aEmptyImage));
+    TEST_ASSERT_EQUAL_INT(1, Sound_ImportNormalBank(SoundTest_BankFileHandle()));
+
+    SoundInfo record = SoundTest_soundInfo;
+    record.pLipSyncData = (uint8_t*)SoundTest_Malloc(4);
+    TEST_ASSERT_NOT_NULL(record.pLipSyncData);
+    record.pLipSyncData[0] = 0x5A;
+
+    Sound_TestSetSoundBank(SOUND_TEST_NORMAL_BANK, &record, 1, SoundTest_aSoundCache, SOUND_TEST_BANK_CACHE_SIZE);
+
+    uint8_t aExpected[SOUND_TEST_BANK_MAX_SIZE];
+    size_t offset = 0;
+
+    SoundTest_WriteU32LE(aExpected + offset, 1u); // number of sound infos
+    offset += 4;
+    SoundTest_WriteU32LE(aExpected + offset, SOUND_TEST_BANK_CACHE_SIZE);
+    offset += 4;
+    SoundTest_WriteBankRecord(aExpected + offset, &record, 0u);
+    offset += SOUND_TEST_BANK_RECORD_SIZE;
+
+    memcpy(aExpected + offset, SoundTest_aSoundCache, SOUND_TEST_BANK_CACHE_SIZE);
+    offset += SOUND_TEST_BANK_CACHE_SIZE;
+
+    SoundTest_WriteU32LE(aExpected + offset, SOUND_TEST_BANK_ENTROPY);
+    offset += 4;
+
+    SoundTest_ResetBankFile();
+    TEST_ASSERT_EQUAL_INT(1, Sound_ExportNormalBank(SoundTest_BankFileHandle()));
+    TEST_ASSERT_EQUAL_size_t(offset, SoundTest_bankFile.size);
+    TEST_ASSERT_EQUAL_MEMORY(aExpected, SoundTest_bankFile.aData, offset);
+
+    Sound_TestSetSoundBank(SOUND_TEST_NORMAL_BANK, NULL, 0, NULL, 0);
+    SoundTest_Free(record.pLipSyncData);
+}
+
+TEST(Sound, TestBankRoundTripKeepsFields)
+{
+    SoundInfo record = SoundTest_soundInfo;
+    record.hSnd         = SOUND_TEST_ROUNDTRIP_HANDLE;
+    record.pLipSyncData = (uint8_t*)SoundTest_Malloc(4);
+    TEST_ASSERT_NOT_NULL(record.pLipSyncData);
+    record.pLipSyncData[0] = 0xA5;
+
+    Sound_TestSetSoundBank(SOUND_TEST_NORMAL_BANK, &record, 1, SoundTest_aSoundCache, SOUND_TEST_BANK_CACHE_SIZE);
+
+    SoundTest_ResetBankFile();
+    TEST_ASSERT_EQUAL_INT(1, Sound_ExportNormalBank(SoundTest_BankFileHandle()));
+    TEST_ASSERT_GREATER_THAN_size_t(0u, SoundTest_bankFile.size);
+
+    // Detach the source record before importing so the import reset does not free test-owned memory.
+    Sound_TestSetSoundBank(SOUND_TEST_NORMAL_BANK, NULL, 0, NULL, 0);
+    SoundTest_bankFile.position = 0;
+
+    TEST_ASSERT_EQUAL_INT(1, Sound_ImportNormalBank(SoundTest_BankFileHandle()));
+
+    SoundInfo* pImported = Sound_GetSoundInfo(SOUND_TEST_ROUNDTRIP_HANDLE);
+    TEST_ASSERT_NOT_NULL(pImported);
+    TEST_ASSERT_NULL(pImported->pLipSyncData);
+    SoundTest_AssertSoundInfoFields(&record, pImported);
+
+    Sound_Reset(0);
+    SoundTest_Free(record.pLipSyncData);
+}
+
 TEST_GROUP_RUNNER(Sound)
 {
     RUN_TEST_CASE(Sound, TestFailures);
@@ -766,4 +995,7 @@ TEST_GROUP_RUNNER(Sound)
     RUN_TEST_CASE(Sound, TestPlayAcrossPauseResume);
     RUN_TEST_CASE(Sound, TestPlayProgressUsesComputedPosition);
     RUN_TEST_CASE(Sound, OutputDeviceStubsReportNoDevicesAndRefuseSwitching);
+    RUN_TEST_CASE(Sound, TestImportBankDropsStoredLipSyncPointer);
+    RUN_TEST_CASE(Sound, TestExportBankWritesNoLipSyncPointer);
+    RUN_TEST_CASE(Sound, TestBankRoundTripKeepsFields);
 }
