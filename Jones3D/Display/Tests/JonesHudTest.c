@@ -86,13 +86,56 @@ static void J3DAPI JonesHudTest_SetFrequency(tSysSoundBuffer* pBuffer, float fre
 #define jonesCog_g_bEnableGamesave JonesHudTest_bEnableGamesave
 #define stdWin95_GetWindow JonesHudTest_GetWindow
 #define sithGamesave_CloseRestore JonesHudTest_CloseRestore
+// By default every key reads as pressed. A test that needs one control sets the only pressed key or
+// axis id; (size_t)-1 restores the default.
+#define JONESHUDTEST_ANY_CONTROL ((size_t)-1)
+static size_t JonesHudTest_pressedKeyId  = JONESHUDTEST_ANY_CONTROL;
+static size_t JonesHudTest_pressedAxisId = 0;
+static int JonesHudTest_bModernStyle;
 static int J3DAPI JonesHudTest_ReadKey(size_t keyId, int* pNumPressed)
 {
-    J3D_UNUSED(keyId);
+    if ( JonesHudTest_pressedKeyId != JONESHUDTEST_ANY_CONTROL && keyId != JonesHudTest_pressedKeyId )
+    {
+        return 0;
+    }
+
     *pNumPressed = 1;
     return 1;
 }
+static int J3DAPI JonesHudTest_ReadAxisAsKey(size_t axis, int* pNumPressed)
+{
+    if ( JonesHudTest_pressedAxisId == 0 || axis != JonesHudTest_pressedAxisId )
+    {
+        return 0;
+    }
+
+    *pNumPressed = 1;
+    return 1;
+}
+static size_t J3DAPI JonesHudTest_GetNumJoysticks(void)
+{
+    return 1;
+}
+static bool J3DAPI JonesHudTest_IsModernControlStyle(void)
+{
+    return JonesHudTest_bModernStyle != 0;
+}
 #define stdControl_ReadKey JonesHudTest_ReadKey
+#define stdControl_ReadAxisAsKey JonesHudTest_ReadAxisAsKey
+#define stdControl_GetNumJoysticks JonesHudTest_GetNumJoysticks
+// No walk or turn function is bound in this executable; the menu directions come only from the
+// Modern D-pad and stick reading.
+static int J3DAPI JonesHudTest_GetControlKey(SithControlFunction functionId, int* pState)
+{
+    J3D_UNUSED(functionId);
+    if ( pState )
+    {
+        *pState = 0;
+    }
+    return 0;
+}
+#define sithControl_IsModernControlStyle JonesHudTest_IsModernControlStyle
+#define sithControl_GetKey JonesHudTest_GetControlKey
 #ifndef JONESHUD_TEST_SOURCE
 #define JONESHUD_TEST_SOURCE "../JonesHud.c"
 #endif
@@ -815,6 +858,55 @@ TEST(JonesHud, GetKeyIgnoresIdsOutsideTheKeyRange)
     TEST_ASSERT_EQUAL_UINT(200, JonesHud_msecMenuItemMoveCurDuration);
 }
 
+static int JonesHudTest_GetFreshKey(unsigned int keyId)
+{
+    JonesHud_bKeyStateUpdated = 0;
+    return JonesHud_GetKey(keyId);
+}
+
+// Added: the Modern scheme binds no gamepad control to walk and turn, so the inventory reads the
+// D-pad and the left stick itself in the Modern style.
+TEST(JonesHud, GetKeyReadsTheDpadAndLeftStickInTheModernStyle)
+{
+    JonesHudTest_bModernStyle = 1;
+
+    JonesHudTest_pressedKeyId = STDCONTROL_JOYSTICK_GETPOVUP(0, 0);
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_UP));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_DOWN));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_LEFT));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_RIGHT));
+
+    JonesHudTest_pressedKeyId = STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0);
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_RIGHT));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_UP));
+
+    JonesHudTest_pressedKeyId  = STDKEY_ESCAPE; // no direction key held
+    JonesHudTest_pressedAxisId = STDCONTROL_GET_JOYSTICK_AXIS(0, STDCONTROL_JOYSTICK_AXIS_X) | STDCONTROL_AID_NEGATIVE_AXIS;
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_LEFT));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_RIGHT));
+
+    JonesHudTest_pressedAxisId = STDCONTROL_GET_JOYSTICK_AXIS(0, STDCONTROL_JOYSTICK_AXIS_Y) | STDCONTROL_AID_POSITIVE_AXIS;
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_DOWN));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_UP));
+
+    JonesHudTest_bModernStyle  = 0;
+    JonesHudTest_pressedKeyId  = JONESHUDTEST_ANY_CONTROL;
+    JonesHudTest_pressedAxisId = 0;
+}
+
+// The Classic style keeps the original reading: only the controls bound to walk and turn.
+TEST(JonesHud, GetKeyIgnoresTheDpadAndLeftStickInTheClassicStyle)
+{
+    JonesHudTest_bModernStyle  = 0;
+    JonesHudTest_pressedKeyId  = STDCONTROL_JOYSTICK_GETPOVUP(0, 0);
+    JonesHudTest_pressedAxisId = STDCONTROL_GET_JOYSTICK_AXIS(0, STDCONTROL_JOYSTICK_AXIS_Y) | STDCONTROL_AID_NEGATIVE_AXIS;
+
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_UP));
+
+    JonesHudTest_pressedKeyId  = JONESHUDTEST_ANY_CONTROL;
+    JonesHudTest_pressedAxisId = 0;
+}
+
 TEST(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey)
 {
     JonesHud_bKeyStateUpdated = 0;
@@ -846,6 +938,8 @@ TEST_GROUP_RUNNER(JonesHud)
     RUN_TEST_CASE(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit);
     RUN_TEST_CASE(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey);
     RUN_TEST_CASE(JonesHud, GetKeyIgnoresIdsOutsideTheKeyRange);
+    RUN_TEST_CASE(JonesHud, GetKeyReadsTheDpadAndLeftStickInTheModernStyle);
+    RUN_TEST_CASE(JonesHud, GetKeyIgnoresTheDpadAndLeftStickInTheClassicStyle);
 }
 
 static void JonesHudTest_RunAllTests(void)

@@ -2560,6 +2560,59 @@ void J3DAPI JonesHud_BindActivateControlKeys(const size_t* aKeyIds, size_t numKe
     }
 }
 
+// Added: the Modern style reads the left stick itself and gives the D-pad to quick select, so its
+// scheme binds no gamepad control to the walk and turn functions the inventory navigates with. In
+// the Modern style the inventory also takes the D-pad and the left stick of every joystick.
+static int JonesHud_ReadModernMenuDirection(unsigned int keyId, int* pNumPressed)
+{
+    if ( !sithControl_IsModernControlStyle() )
+    {
+        return 0;
+    }
+
+    size_t axis;
+    size_t axisFlags;
+    size_t povDir;
+    switch ( keyId )
+    {
+        case STDKEY_UP:
+            axis      = STDCONTROL_JOYSTICK_AXIS_Y;
+            axisFlags = STDCONTROL_AID_NEGATIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRUP;
+            break;
+
+        case STDKEY_DOWN:
+            axis      = STDCONTROL_JOYSTICK_AXIS_Y;
+            axisFlags = STDCONTROL_AID_POSITIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRDOWN;
+            break;
+
+        case STDKEY_LEFT:
+            axis      = STDCONTROL_JOYSTICK_AXIS_X;
+            axisFlags = STDCONTROL_AID_NEGATIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRLEFT;
+            break;
+
+        case STDKEY_RIGHT:
+            axis      = STDCONTROL_JOYSTICK_AXIS_X;
+            axisFlags = STDCONTROL_AID_POSITIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRRIGHT;
+            break;
+
+        default:
+            return 0;
+    }
+
+    int bPressed = 0;
+    for ( size_t joyNum = 0; joyNum < stdControl_GetNumJoysticks(); ++joyNum )
+    {
+        bPressed |= stdControl_ReadKey(STDCONTROL_JOYSTICK_GETPOV(joyNum, 0, povDir), pNumPressed);
+        bPressed |= stdControl_ReadAxisAsKey(STDCONTROL_GET_JOYSTICK_AXIS(joyNum, axis) | axisFlags, pNumPressed);
+    }
+
+    return bPressed;
+}
+
 int J3DAPI JonesHud_GetKey(unsigned int keyId)
 {
     int bKeyPressed;
@@ -2602,6 +2655,8 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
             bKeyPressed = stdControl_ReadKey(keyId, &numPressed);
             break;
     }
+
+    bKeyPressed |= JonesHud_ReadModernMenuDirection(keyId, &numPressed); // Added
 
     if ( !bKeyPressed )
     {
