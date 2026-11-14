@@ -3,6 +3,7 @@
 // C11; this test file is C++ only to construct that file-system context.
 #include <unity_fixture.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -247,6 +248,21 @@ namespace
             ++index;
         }
     }
+
+    void ExpectNoSharedControls(const JonesControlsScheme& scheme)
+    {
+        std::vector<size_t> seen;
+        for ( size_t cur = 0; cur < JONESCONTROL_ACTION_NUMACTIONS; ++cur )
+        {
+            size_t count = JONESCONTROL_ACTION_GETNUMBINDS(scheme.aActions[cur]);
+            for ( size_t index = 1; index <= count; ++index )
+            {
+                size_t controlId = scheme.aActions[cur][index];
+                TEST_ASSERT_TRUE(std::find(seen.begin(), seen.end(), controlId) == seen.end());
+                seen.push_back(controlId);
+            }
+        }
+    }
 }
 
 extern "C" bool JonesBabylon_HasWindow(void)
@@ -302,6 +318,7 @@ TEST_SETUP(JonesControlSchemes)
 
     std::filesystem::create_directories(g_keysetsDir, error);
     ResetModule();
+    sithControl_SetModernControlStyle(J3D_QOL_VALUE(true, false));
 }
 
 TEST_TEAR_DOWN(JonesControlSchemes)
@@ -431,7 +448,7 @@ TEST(JonesControlSchemes, TestRoundTripKeepsExtraBindings)
 
 TEST(JonesControlSchemes, TestDefaultSchemes)
 {
-    TEST_ASSERT_EQUAL_size_t(4, JonesControlSchemes_GetNumDefaultSchemes());
+    TEST_ASSERT_EQUAL_size_t(5, JonesControlSchemes_GetNumDefaultSchemes());
 
     JonesControlsScheme scheme;
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 0));
@@ -495,6 +512,61 @@ TEST(JonesControlSchemes, TestDefaultSchemes)
         STDKEY_I, STDCONTROL_JOYSTICK_GETBUTTON(0, 6) });
     ExpectBindings(scheme, JONESCONTROL_ACTION_HEALTH, {
         STDKEY_H, STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0) });
+
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 4));
+    TEST_ASSERT_EQUAL_STRING("Modern keyboard and gamepad", scheme.aName);
+    ExpectBindings(scheme, JONESCONTROL_ACTION_WALKFORWARD, {
+        STDKEY_W, STDKEY_UP });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_WALKBACK, {
+        STDKEY_S, STDKEY_DOWN });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TURNLEFT, {
+        STDKEY_A, STDKEY_LEFT });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TURNRIGHT, {
+        STDKEY_D, STDKEY_RIGHT });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPLEFT, {});
+    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPRIGHT, {
+        STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_CRAWL, {
+        STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_RUN, {
+        STDKEY_LSHIFT, JONESCONFIG_JOYAXISKID_GROUND });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_ROLL, {
+        STDKEY_Z, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_JUMP, {
+        STDKEY_SPACE, STDCONTROL_JOYSTICK_GETBUTTON(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_LOOK, {
+        STDKEY_V, STDCONTROL_KID_MOUSE_MBUTTON, STDCONTROL_JOYSTICK_GETBUTTON(0, 9) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_ACTIVATE, {
+        STDKEY_LCONTROL, STDCONTROL_KID_MOUSE_LBUTTON, STDCONTROL_JOYSTICK_GETBUTTON(0, 2),
+        JONESCONFIG_JOYAXISKID_TWISTR });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TOGGLEWEAPON, {
+        STDKEY_R, STDCONTROL_JOYSTICK_GETBUTTON(0, 3) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_PREVWEAPON, {
+        STDKEY_COMMA, STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_NEXTWEAPON, {
+        STDKEY_PERIOD, STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TOGGLELIGHT, {
+        STDKEY_L, STDCONTROL_JOYSTICK_GETPOVUP(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_MAP, {
+        STDKEY_M });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_INTERFACE, {
+        STDKEY_TAB, STDKEY_I, STDCONTROL_JOYSTICK_GETBUTTON(0, 6) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_HEALTH, {
+        STDKEY_H, STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0) });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_FISTS, { STDKEY_0 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_WHIP, { STDKEY_1 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_PISTOL, { STDKEY_2 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TOKEREV, { STDKEY_3 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_MAUSER, { STDKEY_4 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_SIMONOV, { STDKEY_5 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_MACHETE, { STDKEY_6 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_PPSH41, { STDKEY_7 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_TOZ34, { STDKEY_8 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_BAZOOKA, { STDKEY_9 });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_SATCHEL, { STDKEY_P });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_GRENADE, { STDKEY_G });
+    ExpectBindings(scheme, JONESCONTROL_ACTION_CHALK, { STDKEY_K });
+    ExpectNoSharedControls(scheme);
 }
 
 TEST(JonesControlSchemes, TestControlNamesRoundTrip)
@@ -555,9 +627,11 @@ TEST(JonesControlSchemes, TestWindowedStartupLoadsAndBinds)
     TEST_ASSERT_EQUAL_size_t(STDKEY_J, aToggleKeys[0]);
 }
 
-TEST(JonesControlSchemes, TestWindowedFirstRunPicksDefaultAfterControlStartup)
+#ifdef J3D_QOL_IMPROVEMENTS
+TEST(JonesControlSchemes, TestWindowedFirstRunPicksModernDefaultAfterControlStartup)
 {
     g_bTestWindowed = true;
+    sithControl_SetModernControlStyle(true);
     StartControls();
 
     // No controls.configFile: jonesConfig_Startup waits for the gamepad enumeration.
@@ -570,8 +644,50 @@ TEST(JonesControlSchemes, TestWindowedFirstRunPicksDefaultAfterControlStartup)
     char aConfigured[128] = { 0 };
     TEST_ASSERT_TRUE(stdConfig_GetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE, aConfigured,
         sizeof(aConfigured), ""));
-    TEST_ASSERT_EQUAL_STRING(JonesControlSchemes_GetDefaultSchemeName(3), aConfigured);
+    TEST_ASSERT_EQUAL_size_t(4, JonesControlSchemes_GetDefaultSchemeIndex());
+    TEST_ASSERT_EQUAL_STRING("Modern keyboard and gamepad", aConfigured);
+    TEST_ASSERT_EQUAL_STRING(aConfigured, JonesControlSchemes_GetDefaultSchemeName(4));
 }
+#endif
+
+TEST(JonesControlSchemes, TestWindowedFirstRunPicksClassicDefaultAfterControlStartup)
+{
+    g_bTestWindowed = true;
+    sithControl_SetModernControlStyle(false);
+    StartControls();
+
+    TEST_ASSERT_EQUAL_INT(1, jonesConfig_Startup());
+    TEST_ASSERT_NULL(JonesControlSchemes_GetActiveScheme());
+
+    JonesControlSchemes_BindActive();
+    TEST_ASSERT_NOT_NULL(JonesControlSchemes_GetActiveScheme());
+
+    char aConfigured[128] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE, aConfigured,
+        sizeof(aConfigured), ""));
+    TEST_ASSERT_EQUAL_size_t(3, JonesControlSchemes_GetDefaultSchemeIndex());
+    TEST_ASSERT_EQUAL_STRING("Keyboard and gamepad", aConfigured);
+    TEST_ASSERT_EQUAL_STRING(aConfigured, JonesControlSchemes_GetDefaultSchemeName(3));
+}
+
+#ifdef J3D_QOL_IMPROVEMENTS
+TEST(JonesControlSchemes, TestRememberedClassicSchemeIsKeptInModernStyle)
+{
+    g_bTestWindowed = true;
+    sithControl_SetModernControlStyle(true);
+    StartControls();
+
+    TEST_ASSERT_TRUE(stdConfig_SetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE,
+        "Keyboard and gamepad"));
+
+    TEST_ASSERT_EQUAL_INT(1, jonesConfig_Startup());
+    JonesControlSchemes_BindActive();
+
+    const JonesControlsScheme* pActive = JonesControlSchemes_GetActiveScheme();
+    TEST_ASSERT_NOT_NULL(pActive);
+    TEST_ASSERT_EQUAL_STRING("Keyboard and gamepad", pActive->aName);
+}
+#endif
 
 TEST(JonesControlSchemes, TestRememberedActiveSchemeIsKept)
 {
@@ -638,6 +754,227 @@ TEST(JonesControlSchemes, TestStartupDropsControllerKey)
 
     g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
     stdControl_GetNumJoysticks();
+}
+
+#ifdef J3D_QOL_IMPROVEMENTS
+TEST(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // The scheme still stores LT as Run, but Modern binds that trigger to target lock.
+    g_platform.pushEvent(babylon::platform::GamepadAxisMoved{ 1,
+        babylon::platform::GamepadAxis::LeftTrigger, 1.0f });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_TARGETLOCK));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_ACT1));
+
+    g_platform.pushEvent(babylon::platform::GamepadAxisMoved{ 1,
+        babylon::platform::GamepadAxis::LeftTrigger, 0.0f });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
+TEST(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 4));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // The Modern scheme's step-right row carries RB, which becomes the quick-step modifier.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPRIGHT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, false });
+    stdControl_ReadControls();
+
+    // LB is free in the Modern scheme.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
+TEST(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    // "Keyboard and gamepad" binds LB to step left; in Modern LB stays free for the weapon wheel.
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, false });
+    stdControl_ReadControls();
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKSTEP));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+    sithControl_SetModernControlStyle(true);
+}
+
+TEST(JonesControlSchemes, TestClassicBinderKeepsStepRows)
+{
+    g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
+    TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
+
+    StartControls();
+    sithControl_SetModernControlStyle(false);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // Classic keeps LB and RB as the original held sidesteps.
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_STPRIGHT));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, true });
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_STPLEFT));
+
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::RightShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
+        babylon::platform::GamepadButton::LeftShoulder, false });
+    g_platform.pushEvent(babylon::platform::GamepadDisconnected{ 1 });
+    stdControl_GetNumJoysticks();
+}
+
+TEST(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys)
+{
+    StartControls();
+    sithControl_SetModernControlStyle(true);
+
+    JonesControlsScheme scheme;
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 4));
+    TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
+
+    // F is the Modern keyboard default, and the scheme's mouse setup binds the right button.
+    sithControl_RegisterKeyboardBindings();
+
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_F, 1));
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_TARGETLOCK));
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_F, 0));
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_TARGETLOCK));
+
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDCONTROL_KID_MOUSE_RBUTTON, 1));
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_TARGETLOCK));
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDCONTROL_KID_MOUSE_RBUTTON, 0));
+    stdControl_ReadControls();
+}
+#endif
+
+TEST(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle)
+{
+    TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    char aStyle[16] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("modern", aStyle);
+#else
+    // Retail never reads or writes the key, so it stays absent and the style stays Classic.
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupReadsClassicControlStyle)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+
+    char aStyle[16] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+#else
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+
+    // Retail leaves the key as it found it.
+    char aStyle[16] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "turbo"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+#else
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "turbo"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+#endif
 }
 
 TEST(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard)
@@ -805,7 +1142,7 @@ TEST(JonesControlSchemes, TestCreateDeleteAndLoadAll)
 
     JonesControlsConfig config;
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_LoadAllSchemes(&config));
-    TEST_ASSERT_EQUAL_size_t(6, config.numSchemes); // 4 defaults + 2 files
+    TEST_ASSERT_EQUAL_size_t(7, config.numSchemes); // 5 defaults + 2 files
 
     bool bFoundOne = false;
     bool bFoundTwo = false;
@@ -836,10 +1173,26 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestDefaultSchemes);
     RUN_TEST_CASE(JonesControlSchemes, TestControlNamesRoundTrip);
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedStartupLoadsAndBinds);
-    RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksDefaultAfterControlStartup);
+#ifdef J3D_QOL_IMPROVEMENTS
+    RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksModernDefaultAfterControlStartup);
+#endif
+    RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksClassicDefaultAfterControlStartup);
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedActiveSchemeIsKept);
+#ifdef J3D_QOL_IMPROVEMENTS
+    RUN_TEST_CASE(JonesControlSchemes, TestRememberedClassicSchemeIsKeptInModernStyle);
+#endif
     RUN_TEST_CASE(JonesControlSchemes, TestBinderKeepsJoystickBindingsWithControllerFalse);
+#ifdef J3D_QOL_IMPROVEMENTS
+    RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock);
+    RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep);
+    RUN_TEST_CASE(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys);
+#endif
+    RUN_TEST_CASE(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme);
+    RUN_TEST_CASE(JonesControlSchemes, TestClassicBinderKeepsStepRows);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupReadsClassicControlStyle);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern);
     RUN_TEST_CASE(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard);
     RUN_TEST_CASE(JonesControlSchemes, TestHeadlessStartupDoesNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuFallbackWhenSchemeBindsNothing);

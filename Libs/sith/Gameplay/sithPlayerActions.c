@@ -6,6 +6,7 @@
 
 #include <sith/Cog/sithCog.h>
 #include <sith/Devices/sithComm.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Dss/sithDSSThing.h>
 #include <sith/Engine/sithAnimate.h>
 #include <sith/Engine/sithCamera.h>
@@ -14,6 +15,7 @@
 #include <sith/Engine/sithPuppet.h>
 #include <sith/Gameplay/sithFX.h>
 #include <sith/Gameplay/sithInventory.h>
+#include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Gameplay/sithPlayerControls.h>
@@ -41,8 +43,37 @@ SithSector* sithPlayerActions_g_pChalkWriteSector;
 uint32_t sithPlayerActions_msecCurActivateTime = 0; // Altered: Init to 0
 static const float sithPlayerActions_raftActivateSearchRadius = 0.07f;
 
+// Added: locked Modern sidesteps play at twice the original rate. Speeding up the animation also
+// halves the force move's duration and doubles its velocity, so the distance per step stays the
+// original one. Quick-step without a lock and Classic keep the original rate.
+#define SITHPLAYERACTIONS_LOCKED_SIDESTEP_SPEED 2.0f
+
+// Added: the sidestep force moves check and travel 0.1 world units sideways
+// (sithPlayerControls_CanStrafeMove and sithPlayerActions_StrafeLeft/Right). The Modern forward
+// and backward timed steps use the same distance so all four steps cover the same ground.
+#define SITHPLAYERACTIONS_QUICKSTEP_DISTANCE 0.1f
+#define SITHPLAYERACTIONS_QUICKSTEP_EPSILON  0.0001f
+
+// Added: used only when a thing has no puppet class to measure the sidestep animation from (unit
+// fixtures). A loaded world always measures the StrafeLeft keyframe's frames and fps instead.
+#define SITHPLAYERACTIONS_SIDESTEP_FALLBACK_TIME 0.4f
+
+float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing)
+{
+    if ( pThing == sithPlayer_g_pLocalPlayerThing
+        && sithControl_IsModernControlStyle()
+        && sithModernControls_IsLockActive() )
+    {
+        return SITHPLAYERACTIONS_LOCKED_SIDESTEP_SPEED;
+    }
+
+    return 1.0f;
+}
+
 float J3DAPI sithPlayerActions_GetLedgeSurfaceGrabPosZ(const SithSurface* pLedgeSurf); // Added
 float J3DAPI sithPlayerActions_GetLedgeThingGrabPosZ(const SithThing* pThing, const rdFace* pFace, const rdModel3Mesh* pMesh);
+
+static void sithPlayerActions_ResetTimedStep(void); // Added
 
 void sithPlayerActions_ResetGlobals(void)
 {
@@ -58,6 +89,8 @@ void sithPlayerActions_ResetGlobals(void)
     STD_ZEROMEM(&sithPlayerActions_g_pChalkWriteSurf, sizeof(sithPlayerActions_g_pChalkWriteSurf));
     STD_ZEROMEM(&sithPlayerActions_g_chalkWritePos, sizeof(sithPlayerActions_g_chalkWritePos));
     STD_ZEROMEM(&sithPlayerActions_g_pChalkWriteSector, sizeof(sithPlayerActions_g_pChalkWriteSector));
+
+    sithPlayerActions_ResetTimedStep();
 }
 
 int J3DAPI sithPlayerActions_Activate(SithThing* pThing)
@@ -1373,7 +1406,21 @@ void J3DAPI sithPlayerActions_StrafeLeft(SithThing* pThing)
             pThing->thingInfo.actorInfo.bForceMovePlay = 1;
             pThing->moveStatus        = SITHPLAYERMOVE_STRAFING_LEFT;
             pThing->forceMoveStartPos = pThing->pos;
+
+            // Added: a held Modern lock drops the finished step's track so the next step starts
+            // without an idle frame, then speeds the force move up without changing its distance.
+            float playbackSpeed = sithPlayerActions_GetSidestepPlaybackSpeed(pThing);
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_DropFinishedMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT);
+            }
+
             sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_STRAFELEFT, NULL);
+
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_SetModeSpeed(pThing, SITHPUPPETSUBMODE_STRAFELEFT, playbackSpeed);
+            }
         }
     }
 }
@@ -1391,7 +1438,21 @@ void J3DAPI sithPlayerActions_StrafeRight(SithThing* pThing)
             pThing->thingInfo.actorInfo.bForceMovePlay = 1;
             pThing->moveStatus        = SITHPLAYERMOVE_STRAFING_RIGHT;
             pThing->forceMoveStartPos = pThing->pos;
+
+            // Added: a held Modern lock drops the finished step's track so the next step starts
+            // without an idle frame, then speeds the force move up without changing its distance.
+            float playbackSpeed = sithPlayerActions_GetSidestepPlaybackSpeed(pThing);
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_DropFinishedMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT);
+            }
+
             sithPuppet_PlayForceMoveMode(pThing, SITHPUPPETSUBMODE_STRAFERIGHT, NULL);
+
+            if ( playbackSpeed != 1.0f )
+            {
+                sithPuppet_SetModeSpeed(pThing, SITHPUPPETSUBMODE_STRAFERIGHT, playbackSpeed);
+            }
         }
     }
 }
@@ -1474,6 +1535,299 @@ void J3DAPI sithPlayerActions_HopBack(SithThing* pThing)
     }
 
     sithThing_DetachThing(pThing);
+}
+
+// Added: one shared timed step for the Modern forward and backward quick-step, and the locked
+// continuous backpedal. It covers the sidestep's 0.1-unit ground distance in the sidestep's time
+// (half that time under the lock) through the normal ground movement, so the walking collision and
+// ledge checks stay in charge and the puppet-controlled walk animation matches the feet.
+static bool sithPlayerActions_bTimedStepActive;
+static bool sithPlayerActions_bTimedStepContinuous;
+static float sithPlayerActions_secTimedStepTime;
+static float sithPlayerActions_secTimedStepDuration;
+static float sithPlayerActions_timedStepSpeed;
+static rdVector3 sithPlayerActions_timedStepDir;
+static SithThing* sithPlayerActions_pTimedStepThing;
+
+// Added: the length of one animation at normal playback speed. The sidestep force move lasts
+// exactly one StrafeLeft animation, so this is the time the original side step takes.
+static float sithPlayerActions_GetSubmodeTime(const SithThing* pThing, SithPuppetSubMode submode)
+{
+    if ( !pThing
+        || !pThing->pPuppetClass
+        || !pThing->pPuppetState
+        || pThing->pPuppetState->majorMode < 0
+        || pThing->pPuppetState->majorMode >= SITH_PUPPET_MAXMODES
+        || submode < 0
+        || submode >= SITH_PUPPET_NUMSUBMODES )
+    {
+        return 0.0f;
+    }
+
+    const rdKeyframe* pKeyframe = pThing->pPuppetClass->aModes[pThing->pPuppetState->majorMode][submode].pKeyframe;
+    if ( !pKeyframe || pKeyframe->fps <= 0.0f || pKeyframe->numFrames == 0 )
+    {
+        return 0.0f;
+    }
+
+    return (float)pKeyframe->numFrames / pKeyframe->fps;
+}
+
+float J3DAPI sithPlayerActions_GetSidestepTime(const SithThing* pThing)
+{
+    float seconds = sithPlayerActions_GetSubmodeTime(pThing, SITHPUPPETSUBMODE_STRAFELEFT);
+    if ( seconds <= SITHPLAYERACTIONS_QUICKSTEP_EPSILON )
+    {
+        seconds = SITHPLAYERACTIONS_SIDESTEP_FALLBACK_TIME;
+    }
+
+    return seconds;
+}
+
+// Added: the ground speed of one step at the current sidestep playback rate. Under the Modern
+// target lock the sidestep animation runs at 2x, so a locked step is twice as fast.
+float J3DAPI sithPlayerActions_GetTimedStepSpeed(const SithThing* pThing)
+{
+    float seconds = sithPlayerActions_GetSidestepTime(pThing) / sithPlayerActions_GetSidestepPlaybackSpeed(pThing);
+    if ( seconds <= SITHPLAYERACTIONS_QUICKSTEP_EPSILON )
+    {
+        return 0.0f;
+    }
+
+    return SITHPLAYERACTIONS_QUICKSTEP_DISTANCE / seconds;
+}
+
+static void sithPlayerActions_ResetTimedStep(void)
+{
+    sithPlayerActions_bTimedStepActive     = false;
+    sithPlayerActions_bTimedStepContinuous = false;
+    sithPlayerActions_secTimedStepTime     = 0.0f;
+    sithPlayerActions_secTimedStepDuration = 0.0f;
+    sithPlayerActions_timedStepSpeed       = 0.0f;
+    sithPlayerActions_timedStepDir         = rdroid_g_zeroVector3;
+    sithPlayerActions_pTimedStepThing      = NULL;
+}
+
+bool J3DAPI sithPlayerActions_IsTimedStepActive(void)
+{
+    return sithPlayerActions_bTimedStepActive;
+}
+
+bool J3DAPI sithPlayerActions_IsBackpedalActive(void)
+{
+    return sithPlayerActions_bTimedStepActive && sithPlayerActions_bTimedStepContinuous;
+}
+
+// Added: the horizontal facing direction, reversed for a backward step.
+static bool sithPlayerActions_GetStepDirection(const SithThing* pThing, bool bBackward, rdVector3* pDir)
+{
+    *pDir     = pThing->orient.lvec;
+    pDir->z   = 0.0f;
+    float len = rdVector_Normalize3Acc(pDir);
+    if ( len <= SITHPLAYERACTIONS_QUICKSTEP_EPSILON )
+    {
+        return false;
+    }
+
+    if ( bBackward )
+    {
+        rdVector_Neg3Acc(pDir);
+    }
+
+    return true;
+}
+
+static bool sithPlayerActions_BeginTimedStep(SithThing* pThing, bool bBackward, bool bContinuous)
+{
+    if ( !pThing
+        || sithPlayerActions_bTimedStepActive
+        || pThing->thingInfo.actorInfo.bForceMovePlay
+        || pThing->attach.flags == 0 )
+    {
+        return false;
+    }
+
+    rdVector3 dir;
+    if ( !sithPlayerActions_GetStepDirection(pThing, bBackward, &dir) )
+    {
+        return false;
+    }
+
+    float speed = sithPlayerActions_GetTimedStepSpeed(pThing);
+    if ( speed <= SITHPLAYERACTIONS_QUICKSTEP_EPSILON )
+    {
+        return false;
+    }
+
+    sithPlayerActions_bTimedStepActive     = true;
+    sithPlayerActions_bTimedStepContinuous = bContinuous;
+    sithPlayerActions_secTimedStepTime     = 0.0f;
+    sithPlayerActions_secTimedStepDuration = SITHPLAYERACTIONS_QUICKSTEP_DISTANCE / speed;
+    sithPlayerActions_timedStepSpeed       = speed;
+    sithPlayerActions_timedStepDir         = dir;
+    sithPlayerActions_pTimedStepThing      = pThing;
+
+    // Added: walk and walk-back are the states the original ground movement uses, so
+    // sithCollision_MoveThing's walking ledge check and the puppet-controlled feet stay in effect.
+    // The disabled controls keep every input out until the step finishes.
+    pThing->moveStatus = SITHPLAYERMOVE_WALKING;
+    pThing->thingInfo.actorInfo.bControlsDisabled = 1;
+
+    SithPhysicsInfo* pPhysics = &pThing->moveInfo.physics;
+    rdVector_Zero3(&pPhysics->thrust);
+    rdVector_Zero3(&pPhysics->velocity);
+    pPhysics->angularVelocity.yaw = 0.0f;
+
+    if ( pThing->pPuppetState && pThing->renderData.pPuppet )
+    {
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STAND);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALK);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALKBACK);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_RUN);
+        sithPuppet_PlayMode(pThing, bBackward ? SITHPUPPETSUBMODE_WALKBACK : SITHPUPPETSUBMODE_WALK, NULL);
+    }
+
+    return true;
+}
+
+void J3DAPI sithPlayerActions_StartTimedStep(SithThing* pThing, bool bBackward)
+{
+    sithPlayerActions_BeginTimedStep(pThing, bBackward, /*bContinuous=*/false);
+}
+
+void J3DAPI sithPlayerActions_StartBackpedal(SithThing* pThing)
+{
+    sithPlayerActions_BeginTimedStep(pThing, /*bBackward=*/true, /*bContinuous=*/true);
+}
+
+// Added: put the thing back to standing without imposing a state when something else (a fall, a
+// cutscene or death) has already taken it over.
+static void sithPlayerActions_EndTimedStep(SithThing* pThing)
+{
+    if ( !pThing )
+    {
+        return;
+    }
+
+    if ( pThing->moveStatus == SITHPLAYERMOVE_WALKING || pThing->moveStatus == SITHPLAYERMOVE_STILL )
+    {
+        pThing->moveStatus = SITHPLAYERMOVE_STILL;
+        pThing->thingInfo.actorInfo.bControlsDisabled = 0;
+
+        if ( pThing->pPuppetState && pThing->renderData.pPuppet )
+        {
+            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALK);
+            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALKBACK);
+            sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_STAND, NULL);
+        }
+
+        pThing->moveInfo.physics.flags &= ~SITH_PF_FORCEAPPLIED; // Added: drop the step's drag bypass
+        sithPhysics_ResetThingMovement(pThing);
+    }
+    else
+    {
+        pThing->thingInfo.actorInfo.bControlsDisabled = 0;
+    }
+}
+
+void J3DAPI sithPlayerActions_StopTimedStep(SithThing* pThing)
+{
+    if ( !sithPlayerActions_bTimedStepActive || (pThing && pThing != sithPlayerActions_pTimedStepThing) )
+    {
+        return;
+    }
+
+    SithThing* pOwner = sithPlayerActions_pTimedStepThing;
+    sithPlayerActions_ResetTimedStep();
+    sithPlayerActions_EndTimedStep(pOwner);
+}
+
+// Added: drop the step without touching the thing, for a cutscene or death that owns it now.
+void J3DAPI sithPlayerActions_CancelTimedStep(void)
+{
+    if ( sithPlayerActions_bTimedStepActive && sithPlayerActions_pTimedStepThing )
+    {
+        sithPlayerActions_pTimedStepThing->moveInfo.physics.flags &= ~SITH_PF_FORCEAPPLIED;
+    }
+
+    sithPlayerActions_ResetTimedStep();
+}
+
+void J3DAPI sithPlayerActions_UpdateTimedStep(SithThing* pThing, float secDeltaTime)
+{
+    if ( !sithPlayerActions_bTimedStepActive )
+    {
+        return;
+    }
+
+    if ( pThing != sithPlayerActions_pTimedStepThing )
+    {
+        sithPlayerActions_ResetTimedStep();
+        return;
+    }
+
+    // Added: a collision or a ledge check may have stopped the walking state, or the thing may
+    // have left the ground. Either way the step is over.
+    if ( pThing->thingInfo.actorInfo.bForceMovePlay
+        || pThing->attach.flags == 0
+        || pThing->moveStatus != SITHPLAYERMOVE_WALKING )
+    {
+        sithPlayerActions_StopTimedStep(pThing);
+        return;
+    }
+
+    if ( secDeltaTime <= 0.0f )
+    {
+        return;
+    }
+
+    if ( !sithPlayerActions_bTimedStepContinuous )
+    {
+        if ( sithPlayerActions_secTimedStepTime >= sithPlayerActions_secTimedStepDuration )
+        {
+            sithPlayerActions_StopTimedStep(pThing);
+            return;
+        }
+    }
+
+    rdVector3 dir;
+    if ( sithPlayerActions_bTimedStepContinuous )
+    {
+        // Added: the locked backpedal keeps pointing away from the target as Indy faces it.
+        if ( !sithPlayerActions_GetStepDirection(pThing, /*bBackward=*/true, &dir) )
+        {
+            sithPlayerActions_StopTimedStep(pThing);
+            return;
+        }
+    }
+    else
+    {
+        dir = sithPlayerActions_timedStepDir;
+    }
+
+    float speed = sithPlayerActions_timedStepSpeed;
+    if ( !sithPlayerActions_bTimedStepContinuous )
+    {
+        // Added: cover exactly the remaining distance on the last frame, whatever the frame time.
+        float remainingTime = sithPlayerActions_secTimedStepDuration - sithPlayerActions_secTimedStepTime;
+        if ( remainingTime <= secDeltaTime )
+        {
+            float remainingDistance = SITHPLAYERACTIONS_QUICKSTEP_DISTANCE * remainingTime
+                / sithPlayerActions_secTimedStepDuration;
+            speed = remainingDistance / secDeltaTime;
+        }
+
+        sithPlayerActions_secTimedStepTime += secDeltaTime;
+    }
+
+    pThing->thingInfo.actorInfo.bControlsDisabled = 1; // Added: keep the step in charge
+
+    SithPhysicsInfo* pPhysics = &pThing->moveInfo.physics;
+    rdVector_Zero3(&pPhysics->thrust);
+    rdVector_Scale3(&pPhysics->velocity, &dir, speed);
+    pPhysics->velocity.z = 0.0f;
+    pPhysics->angularVelocity.yaw = 0.0f;
+    pPhysics->flags |= SITH_PF_FORCEAPPLIED; // Added: keep the step's velocity this frame
 }
 
 void J3DAPI sithPlayerActions_Stand2Crawl(SithThing* pThing)

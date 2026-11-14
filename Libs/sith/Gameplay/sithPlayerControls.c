@@ -15,6 +15,7 @@
 #include <sith/Engine/sithPhysics.h>
 #include <sith/Gameplay/sithFX.h>
 #include <sith/Gameplay/sithInventory.h>
+#include <sith/Gameplay/sithModernControls.h>
 #include <sith/Gameplay/sithOverlayMap.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerActions.h>
@@ -104,6 +105,11 @@ static float sithPlayerControls_mirrorAimMaxVerticalAngleAcquire   = 14.0f;
 static float sithPlayerControls_mirrorAimMaxVerticalAngleTrack     = 16.0f;
 static float sithPlayerControls_mirrorAimMaxHorizontalAngleNear    = 5.0f;
 
+#define SITHPLAYERCONTROLS_LOCKRANGE_DEFAULT 10.0f // Added: target lock still works when the weapon has no aim range
+#define SITHPLAYERCONTROLS_LOCKCANDIDATES    64u   // Added: fixed local cap for one acquisition search
+#define SITHPLAYERCONTROLS_LOCKCONE_DEGREES  35.0f // Added: half-angle around the free camera's forward
+#define SITHPLAYERCONTROLS_LOCKANGLE_EPSILON 0.01f
+
 // Devmode vars
 static rdVector3 sithPlayerControls_curOrbCamDir  = { 0.0f , -1.0f , 0.0f };
 static float sithPlayerControls_curOrbCamDist     = 0.2f;
@@ -174,6 +180,7 @@ void sithPlayerControls_Reset(void)
 
     sithPlayerControls_pBoardedVehicleThing   = NULL;
     sithPlayerControls_pTargetThing           = NULL;
+    sithModernControls_ResetLock(); // Added
 
     sithPlayerControls_curOrbCamDir           = (rdVector3){ 0.0f, -1.0f, 0.0f };
     sithPlayerControls_curOrbCamDist          = 0.2f;
@@ -443,8 +450,13 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
     SithPhysicsInfo* pPhysics = &pPlayerThing->moveInfo.physics;
     SithActorInfo* pActor     = &pPlayerThing->thingInfo.actorInfo;
 
+    // Added: drop the Modern control style's virtual keys of the previous frame before any early
+    // return, so none of them outlives a cutscene, a death or an editor frame.
+    sithControl_ClearKeyOverrides();
+
     if ( sithPlayerControls_g_bCutsceneMode )
     {
+        sithPlayerActions_CancelTimedStep(); // Added: a cutscene takes the player over
         return 0;
     }
 
@@ -459,6 +471,7 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
     if ( pPlayerThing->moveType != SITH_MT_PHYSICS )
     {
+        sithPlayerActions_CancelTimedStep(); // Added: the step only moves a physics thing
         return 0;
     }
 
@@ -470,9 +483,14 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
     if ( (pPlayerThing->flags & SITH_TF_DYING) != 0 )
     {
+        sithPlayerActions_CancelTimedStep(); // Added: death takes the player over
         sithPlayerControls_ProcessDeadPlayer(pPlayerThing, secDeltaTime);
         return 0;
     }
+
+    // Added: translate the Modern control style's move input into this frame's virtual keys
+    // before any movement handling reads them.
+    sithModernControls_Update(pPlayerThing, secDeltaTime);
 
     if ( sithPlayerControls_secCommentWaitTimer != 0.0f )
     {
@@ -538,7 +556,8 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
     if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_INEDITOR) == 0 )
     {
         // Check if Look key is pressed & process movement
-        if ( sithControl_GetKey(SITHCONTROL_LOOK, NULL) )
+        // Altered: in the Modern style the Look button (R3) snaps the free camera instead.
+        if ( !sithControl_IsModernControlStyle() && sithControl_GetKey(SITHCONTROL_LOOK, NULL) )
         {
             if ( !sithPlayerControls_g_bCutsceneMode
                 && !sithPlayerControls_bLookKeyActive
@@ -668,6 +687,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
         }
     }
 
+    // Added: advance an active Modern timed step before the original movement switch reads the
+    // status. The step owns the walking state while it runs.
+    sithPlayerActions_UpdateTimedStep(pPlayerThing, secDeltaTime);
+
     switch ( pPlayerThing->moveStatus )
     {
         case SITHPLAYERMOVE_STILL:
@@ -749,6 +772,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
         default:
             break;
     }
+
+    // Added: after the move code set this frame's thrust, shorten the Modern ground accel to the
+    // original target speed; the physics step that follows reads the raised velocity.
+    sithModernControls_ApplyGroundAcceleration(pPlayerThing, secDeltaTime);
 
     sithPlayerControls_ProcessHUDControls(pPlayerThing, secDeltaTime);
     return 0;
@@ -2428,6 +2455,7 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
 
     SithInventoryType* pWeaponType = NULL;
     SithThing* pTargetThing        = NULL;
+    SithThing* pLockedTarget       = sithModernControls_GetLockedTarget(); // Added
     if ( pThing->type == SITH_THING_ACTOR && pThing->controlInfo.aiControl.pLocal )
     {
         pWeaponType  = sithInventory_GetType(weaponId);
@@ -2462,6 +2490,13 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
             sithWeapon_SendMessageAim(pThing, /*bAim=*/0);
             return;
         }
+    }
+
+    // Added: while the Modern target lock is held, prefer its target to the auto-aim pick.
+    if ( pThing->type == SITH_THING_PLAYER && pLockedTarget && sithModernControls_IsLockActive() )
+    {
+        sithPlayerControls_pTargetThing = pLockedTarget;
+        pTargetThing                    = pLockedTarget;
     }
 
     //
@@ -2641,12 +2676,8 @@ void J3DAPI sithPlayerControls_ProcessWeaponAim(SithThing* pThing, float secDelt
         while ( (pCollision = sithCollision_PopStack()) != NULL )
         {
             if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided->type == SITH_THING_ACTOR
-                && (pCollision->pThingCollided->flags & (SITH_TF_WHIPSWING | SITH_TF_WHIPCLIMB)) == 0
+                && sithPlayerControls_IsLockTargetAlive(pCollision->pThingCollided)
                 && sithInventory_GetCurrentWeapon(pThing) != SITHWEAPON_WHIP
-                && pCollision->pThingCollided->type != SITH_THING_FREE // ???
-                && (pCollision->pThingCollided->flags & (SITH_TF_DYING | SITH_TF_DESTROYED)) == 0
-                && (pCollision->pThingCollided->thingInfo.actorInfo.flags & SITH_AF_NOTARGET) == 0
                 && sithPlayerControls_CheckAimRange(pThing, &aimStartPos, &pCollision->pThingCollided->pos, cosAimHorAcquire, cosAimHorNear, cosAimVertAcquire, weaponMaxAimDist)
                 && sithCollision_CheckLOS(pStartSector, &aimStartPos, &pCollision->pThingCollided->pos, 0.0f)
                 && (weaponId != SITHWEAPON_MIRROR || !stdUtil_StrCmp(pCollision->pThingCollided->aName, "marduk")) )
@@ -2731,6 +2762,221 @@ int J3DAPI sithPlayerControls_CheckAimRange(SithThing* pThing, const rdVector3* 
     }
 
     return rdVector_Dot3(&aimDir, &aimDirXY) >= minCosVertical;
+}
+
+// Added: the target lock's shared liveness/filter test, matching the auto-aim search.
+bool J3DAPI sithPlayerControls_IsLockTargetAlive(const SithThing* pTarget)
+{
+    if ( !pTarget || pTarget->type != SITH_THING_ACTOR )
+    {
+        return false;
+    }
+
+    return (pTarget->flags & (SITH_TF_DYING | SITH_TF_DESTROYED | SITH_TF_WHIPSWING | SITH_TF_WHIPCLIMB)) == 0
+        && (pTarget->thingInfo.actorInfo.flags & SITH_AF_NOTARGET) == 0;
+}
+
+// Added: target lock range. The auto-aim distance applies while a weapon has one; the lock still
+// works when Indy is unarmed, using the close default.
+static float sithPlayerControls_GetLockRange(SithThing* pThing)
+{
+    float range = sithWeapon_GetWeaponMaxAimDistance((SithWeaponId)sithInventory_GetCurrentWeapon(pThing));
+    if ( range <= 0.0f )
+    {
+        return SITHPLAYERCONTROLS_LOCKRANGE_DEFAULT;
+    }
+
+    return range + 0.1f;
+}
+
+// Added: the lock's line of sight starts at the current camera's eye, not at Indy. The original
+// camera maintains its sector and eye position in the camera matrix; fall back to Indy only
+// while the camera has not been updated yet.
+static void sithPlayerControls_GetLockEye(const SithThing* pThing, rdVector3* pEyePos, SithSector** ppEyeSector)
+{
+    *pEyePos     = pThing->pos;
+    *ppEyeSector = pThing->pInSector;
+
+    if ( sithCamera_g_pCurCamera )
+    {
+        *pEyePos = sithCamera_g_pCurCamera->orient.dvec;
+        if ( sithCamera_g_pCurCamera->pSector )
+        {
+            *ppEyeSector = sithCamera_g_pCurCamera->pSector;
+        }
+    }
+}
+
+// Added: choose the live actor closest to the free camera's forward direction inside the
+// acquisition cone. The candidate list and sight test keep this testable without a collision
+// world; FindLockTarget fills the candidates from the same search auto-aim uses.
+SithThing* J3DAPI sithPlayerControls_SelectLockTargetEx(SithThing* pThing, float cameraYaw,
+    SithSector* pEyeSector, const rdVector3* pEyePos, SithLockSightTest pfSight,
+    SithThing* const* apCandidates, size_t numCandidates)
+{
+    if ( !pThing || !apCandidates || numCandidates == 0 )
+    {
+        return NULL;
+    }
+
+    float maxDist = sithPlayerControls_GetLockRange(pThing);
+
+    float cameraSin, cameraCos;
+    stdMath_SinCos(cameraYaw, &cameraSin, &cameraCos);
+    float cameraForwardX = -cameraSin;
+    float cameraForwardY = cameraCos;
+
+    SithThing* pBest = NULL;
+    float bestAngle  = SITHPLAYERCONTROLS_LOCKCONE_DEGREES;
+    float bestDist   = maxDist;
+
+    for ( size_t i = 0; i < numCandidates; ++i )
+    {
+        SithThing* pCandidate = apCandidates[i];
+        if ( pCandidate == pThing || !sithPlayerControls_IsLockTargetAlive(pCandidate) )
+        {
+            continue;
+        }
+
+        float dx = pCandidate->pos.x - pThing->pos.x;
+        float dy = pCandidate->pos.y - pThing->pos.y;
+        float dz = pCandidate->pos.z - pThing->pos.z;
+        float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+        if ( dist >= maxDist )
+        {
+            continue;
+        }
+
+        float horizontalDist = sqrtf(dx * dx + dy * dy);
+        float angle = 0.0f;
+        if ( horizontalDist > SITHPLAYERCONTROLS_LOCKANGLE_EPSILON )
+        {
+            float cosAngle = (dx * cameraForwardX + dy * cameraForwardY) / horizontalDist;
+            cosAngle = STDMATH_CLAMP(cosAngle, -1.0f, 1.0f);
+            angle    = STDMATH_TODEGREESF(acosf(cosAngle));
+        }
+
+        if ( angle > SITHPLAYERCONTROLS_LOCKCONE_DEGREES + SITHPLAYERCONTROLS_LOCKANGLE_EPSILON )
+        {
+            continue;
+        }
+
+        if ( pfSight && pEyeSector && pEyePos && !pfSight(pEyeSector, pEyePos, &pCandidate->pos) )
+        {
+            continue;
+        }
+
+        // Added: closest to the camera direction wins; distance breaks an angle tie.
+        bool bBetter = pBest == NULL
+            || angle < bestAngle - SITHPLAYERCONTROLS_LOCKANGLE_EPSILON
+            || (fabsf(angle - bestAngle) <= SITHPLAYERCONTROLS_LOCKANGLE_EPSILON && dist < bestDist);
+        if ( bBetter )
+        {
+            pBest     = pCandidate;
+            bestAngle = angle;
+            bestDist  = dist;
+        }
+    }
+
+    return pBest;
+}
+
+// Added: the production sight test; the camera eye and sector are supplied by the caller.
+static bool J3DAPI sithPlayerControls_CheckLockSight(SithSector* pEyeSector, const rdVector3* pEyePos, const rdVector3* pTargetPos)
+{
+    return sithCollision_CheckLOS(pEyeSector, pEyePos, pTargetPos, 0.0f) != 0;
+}
+
+SithThing* J3DAPI sithPlayerControls_SelectLockTarget(SithThing* pThing, float cameraYaw, SithThing* const* apCandidates, size_t numCandidates)
+{
+    if ( !pThing )
+    {
+        return NULL;
+    }
+
+    rdVector3 eyePos;
+    SithSector* pEyeSector;
+    sithPlayerControls_GetLockEye(pThing, &eyePos, &pEyeSector);
+
+    return sithPlayerControls_SelectLockTargetEx(pThing, cameraYaw, pEyeSector, &eyePos,
+        sithPlayerControls_CheckLockSight, apCandidates, numCandidates);
+}
+
+// Added: acquire a lock target from the candidates the auto-aim search returns along the camera.
+SithThing* J3DAPI sithPlayerControls_FindLockTarget(SithThing* pThing, float cameraYaw)
+{
+    if ( !pThing || !pThing->pInSector )
+    {
+        return NULL;
+    }
+
+    rdVector3 aimStartPos = pThing->pos;
+    aimStartPos.z += 0.050000001f;
+
+    SithSector* pStartSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &aimStartPos, 0.0f);
+    if ( !pStartSector )
+    {
+        return NULL;
+    }
+
+    float maxDist = sithPlayerControls_GetLockRange(pThing);
+
+    float cameraSin, cameraCos;
+    stdMath_SinCos(cameraYaw, &cameraSin, &cameraCos);
+    rdVector3 searchDir = { -cameraSin, cameraCos, 0.0f };
+
+    SithThing* aCandidates[SITHPLAYERCONTROLS_LOCKCANDIDATES];
+    size_t numCandidates = 0;
+
+    sithCollision_SearchForCollisions(pThing->pInSector, NULL, &pThing->pos, &searchDir, maxDist, 1.0f, 0x284);
+
+    SithCollision* pCollision;
+    while ( (pCollision = sithCollision_PopStack()) != NULL && numCandidates < STD_ARRAYLEN(aCandidates) )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0 )
+        {
+            aCandidates[numCandidates++] = pCollision->pThingCollided;
+        }
+    }
+
+    sithCollision_DecreaseStackLevel();
+
+    rdVector3 eyePos;
+    SithSector* pEyeSector;
+    sithPlayerControls_GetLockEye(pThing, &eyePos, &pEyeSector);
+
+    return sithPlayerControls_SelectLockTargetEx(pThing, cameraYaw, pEyeSector, &eyePos,
+        sithPlayerControls_CheckLockSight, aCandidates, numCandidates);
+}
+
+// Added: a held lock keeps its target only while that target is alive, in range from Indy and
+// visible from the camera.
+bool J3DAPI sithPlayerControls_IsLockTargetVisible(SithThing* pThing, SithThing* pTarget)
+{
+    if ( !pThing || !pTarget || !pThing->pInSector || !sithPlayerControls_IsLockTargetAlive(pTarget) )
+    {
+        return false;
+    }
+
+    float maxDist = sithPlayerControls_GetLockRange(pThing);
+
+    float dx = pTarget->pos.x - pThing->pos.x;
+    float dy = pTarget->pos.y - pThing->pos.y;
+    float dz = pTarget->pos.z - pThing->pos.z;
+    if ( dx * dx + dy * dy + dz * dz >= maxDist * maxDist )
+    {
+        return false;
+    }
+
+    rdVector3 eyePos;
+    SithSector* pEyeSector;
+    sithPlayerControls_GetLockEye(pThing, &eyePos, &pEyeSector);
+    if ( !pEyeSector )
+    {
+        return false;
+    }
+
+    return sithCollision_CheckLOS(pEyeSector, &eyePos, &pTarget->pos, 0.0f) != 0;
 }
 
 int J3DAPI sithPlayerControls_GetPushPullMoveNorm(rdVector3* moveNorm, const rdVector3* pLVect, float angle)
@@ -4045,6 +4291,58 @@ bool J3DAPI sithPlayerControls_TryMountClimbWall(SithThing* pThing, bool bQuickM
     return false;
 }
 
+// Added: Modern swim steering keeps the original underwater code's pitch limit.
+float J3DAPI sithPlayerControls_GetSwimMaxPitchAngle(void)
+{
+    return sithPlayerControls_swimMaxPitchAngle;
+}
+
+// Added: reach the walk or run state the original stand-to-walk/run transition would have
+// finished in, in the same update. The original transition is skipped only for Modern
+// camera-relative states; Classic always uses the transition code.
+bool J3DAPI sithPlayerControls_StartModernMove(SithThing* pThing, bool bRun, float moveFactor)
+{
+    if ( !pThing )
+    {
+        return false;
+    }
+
+    pThing->moveInfo.physics.thrust.y = sithPlayerControls_CalculateThrust(
+        &pThing->thingInfo.actorInfo, 1.0f, sithPlayerControls_moveFactorNormal) * moveFactor;
+    pThing->moveStatus = bRun ? SITHPLAYERMOVE_RUNNING : SITHPLAYERMOVE_WALKING;
+
+    if ( pThing->pPuppetState )
+    {
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_STAND);
+        sithPuppet_PlayMode(pThing, bRun ? SITHPUPPETSUBMODE_RUN : SITHPUPPETSUBMODE_WALK, NULL);
+    }
+
+    return true;
+}
+
+// Added: reach the stand state the original walk/run-to-stand transition would have finished
+// in, in the same update, without disabling the controls.
+void J3DAPI sithPlayerControls_StopModernMove(SithThing* pThing)
+{
+    if ( !pThing )
+    {
+        return;
+    }
+
+    pThing->moveStatus = SITHPLAYERMOVE_STILL;
+    pThing->thingInfo.actorInfo.bControlsDisabled = 0;
+
+    if ( pThing->pPuppetState )
+    {
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALK);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_WALKBACK);
+        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_RUN);
+        sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_STAND, NULL);
+    }
+
+    sithPhysics_ResetThingMovement(pThing);
+}
+
 void J3DAPI sithPlayerControls_ProcessStillMove(SithThing* pThing, float secDeltaTime, float moveFactor, bool bRun)
 {
     J3D_UNUSED(secDeltaTime);
@@ -4238,10 +4536,18 @@ void J3DAPI sithPlayerControls_ProcessStillMove(SithThing* pThing, float secDelt
                         return;
                     }
 
+                    rdKeyframe* pKframe;
+
                     // Okay to move forward
+                    // Added: Modern camera-relative movement skips the stand-to-walk/run
+                    // transition and reaches the walk or run move mode in this update.
+                    if ( sithModernControls_IsCameraRelative(pThing) )
+                    {
+                        sithPlayerControls_StartModernMove(pThing, bRun, moveFactor);
+                        bMoving = true;
+                    }
                     // Play stand to walk animation and change puppet move mode to walk/run
-                    rdKeyframe* pKframe = sithPuppet_GetKeyframe("in_stand_bd_walk.key");
-                    if ( pKframe )
+                    else if ( (pKframe = sithPuppet_GetKeyframe("in_stand_bd_walk.key")) != NULL )
                     {
                         // Disable controls during transition animation and
                         // set move status to stand2walk/run
@@ -4796,6 +5102,14 @@ void J3DAPI sithPlayerControls_ProcessWalkMove(SithThing* pThing, float secDelta
         && !bMoving
         && !pThing->thingInfo.actorInfo.bControlsDisabled )
     {
+        // Added: Modern camera-relative movement stops at once without the walk-to-stand
+        // transition; Classic keeps the original animation and control lock.
+        if ( sithModernControls_IsCameraRelative(pThing) )
+        {
+            sithPlayerControls_StopModernMove(pThing);
+            return;
+        }
+
         rdKeyframe* pKfTrack = sithPuppet_GetKeyframe("in_walk_bd_stand.key");
         if ( pKfTrack )
         {
@@ -4978,6 +5292,14 @@ void J3DAPI sithPlayerControls_ProcessRunMove(SithThing* pThing, float secDeltaT
     //
     if ( !bMoving && !pThing->thingInfo.actorInfo.bControlsDisabled )
     {
+        // Added: Modern camera-relative movement stops at once without the run-to-stand
+        // transition; Classic keeps the original animation and control lock.
+        if ( sithModernControls_IsCameraRelative(pThing) )
+        {
+            sithPlayerControls_StopModernMove(pThing);
+            return;
+        }
+
         rdKeyframe* pKfTrack = sithPuppet_GetKeyframe("in_walk_bd_stand.key");
         if ( pKfTrack )
         {

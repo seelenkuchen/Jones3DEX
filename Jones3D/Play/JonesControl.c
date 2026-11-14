@@ -10,6 +10,7 @@
 
 #include <std/General/stdConfig.h>
 #include <std/General/stdControl.h>
+#include <std/General/stdUtil.h>
 
 static bool JonesControl_bStartup = false; // Added: Init to false
 static unsigned int JonesControl_joystickChangeCount = 0; // Added: last hot-plug change acted on
@@ -30,6 +31,35 @@ int JonesControl_Startup(void)
         (void)stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, bRumble);
     }
     stdControl_EnableRumble(bRumble);
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Added: the Modern control style is the Enhanced default. A missing key is written with its
+    // default, and an unknown value falls back to Modern.
+    char aControlStyle[16] = { 0 };
+    stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aControlStyle,
+        sizeof(aControlStyle), "modern");
+
+    bool bModern = true;
+    if ( streq(aControlStyle, "classic") )
+    {
+        bModern = false;
+    }
+    else if ( !streq(aControlStyle, "modern") )
+    {
+        SITHLOG_STATUS("Unknown control style \"%s\"; using modern.\n", aControlStyle);
+    }
+
+    sithControl_SetModernControlStyle(bModern);
+    if ( !stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE) )
+    {
+        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+            bModern ? "modern" : "classic");
+    }
+#else
+    // Retail always keeps the original tank controls and neither reads nor writes the key.
+    sithControl_SetModernControlStyle(false);
+#endif
+
     JonesDisplaySettings* pSettings = JonesMain_GetDisplaySettings();
 
     if ( JonesControl_bStartup )

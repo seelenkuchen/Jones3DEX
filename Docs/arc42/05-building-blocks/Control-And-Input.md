@@ -183,6 +183,141 @@ The binding layer can:
 
 This lets the engine map many hardware forms onto the same movement and camera model without rewriting the gameplay code.
 
+The Modern control style adds a per-frame override layer on top of the bindings. `sithControl_SetKeyOverride()` makes a movement function read as pressed with an axis amount (0..1) and a one-press edge, `sithControl_SuppressKey()` makes a function without an override read as released, and `sithControl_ClearKeyOverrides()` drops both at the next frame. Overrides take precedence over suppressions, so Modern can suppress a real movement binding and drive the same function virtually. `engine.input.controlStyle` selects Modern or Classic; QOL builds default to Modern, non-QOL builds always use Classic.
+
+Target lock is the `TARGETLOCK` key function, active only in Modern. It acquires the live
+actor closest to the free camera's forward direction within 35 degrees and the track range that
+is visible from the camera's eye, then keeps it while visible from the camera and in range from
+Indy. Indy's own line of sight does not matter. Its defaults are `F` and the right
+mouse button on keyboard and mouse, and the left trigger (`Z+`) on a gamepad. In Modern the scheme binder redirects a scheme's LT-as-Run binding to target
+lock; Run comes from the left-stick magnitude instead. Classic keeps LT as Run. The lock does not
+add an action to the `.kfg` format, so files written before it still load.
+
+## Modern Control Style End To End
+
+`engine.input.controlStyle` is read once in `JonesControl_Startup` and stored in `sithControl`, so
+the movement, camera and binder code all see the same answer. QOL builds default to Modern and
+write the key back; the Retail profile always uses Classic and neither reads nor writes it.
+
+Each player frame runs `sithModernControls_Update` before the original movement code. It clears the
+previous frame's virtual keys, classifies the current move status, reads the stick and the real
+movement keys, and writes the frame's `FORWARD`, `BACK`, `TURNLEFT`, `TURNRIGHT` and `RUNFWD`
+overrides. `sithModernControls_Compute` is the pure part: given a screen-space move vector, the
+camera and player yaws and a mode, it returns the original keys to press and their amounts plus the
+heading to face. The classifier returns three modes:
+
+- **Camera-relative**: grounded and swimming states; the stick moves Indy relative to the camera,
+  turning his `orient` directly toward the move heading at up to 1080 degrees per second. From
+  standing, or for a change over 100 degrees, the facing snaps in one update; shorter changes ease
+  below 10 degrees. The stand/walk/run and walk/run/stand transitions are skipped, so the first
+  update already uses the run or walk move mode the transition would have reached. The original
+  turn keys stay off.
+- **Relative**: the original tank-style states (climbing, pushing, pulling, slides and vehicles);
+  the real keys keep their original meaning.
+- **None**: jump, fall and forced-move states; the real keys pass through untouched.
+
+The free camera is world-anchored in `sithModernCamera`: right-stick and mouse motion orbit it, the
+original camera collision stays, and a camera set by a COG script or cutscene wins while active.
+Quick-step is a held modifier, RB or Left Alt, plus a direction. The camera-relative push is
+resolved to the nearest of Indy's four directions: left and right play the original sidestep force
+move; forward and back play one shared timed step over the sidestep's 0.1-unit travel. The timed
+step lasts the StrafeLeft animation's measured time (frames / fps), uses the walk or walk-back
+submode, moves through the normal ground physics so the walking collision and ledge checks apply,
+and blocks other moves until it ends. One step per press: the direction must fall below 0.3 or the
+modifier be released before the next. While the modifier is held, normal movement and running are
+suppressed. While the target lock is held, a sideways stick keeps the step key held, the force move
+plays at twice its animation rate (same distance per step, half the time) and the original
+immediately starts the next step while the stick stays sideways; a backward stick is a continuous
+backpedal at that same locked sidestep ground speed, with the walk-back animation and Indy facing
+the target, and release stops it at once. Quick select uses the scheme's D-pad bindings: up toggles
+the lighter, down uses the best health item (herbs, then small health pack, then big herbs, then big
+health pack, as the original HEALTH function does), and left/right remain previous and next owned
+weapon. Favourite weapons for left/right are deferred.
+
+The Modern style pauses like the original: while the inventory or a pause menu holds the game
+paused, the Modern layer neither turns Indy nor produces movement keys. In the inventory, the
+D-pad and the left stick (past half its travel) move the selection, A selects and B closes it;
+the keyboard, Activate bindings and the Back button work as in the original. The Modern scheme
+binds no gamepad control to walk and turn, so the inventory reads these directly in the Modern
+style only. Classic reads only its bindings.
+
+### Default schemes
+
+A new install picks the `JONES_STR_DFLTMODERN` ("Modern keyboard and gamepad") scheme when the style
+is Modern and the `JONES_STR_DFLTPAD` ("Keyboard and gamepad") scheme when it is Classic. A
+remembered active scheme is never replaced. See
+[In-Game-Menus.md](In-Game-Menus.md#default-keyboard-and-gamepad-scheme) for the scheme file format
+and the pad layout of the Classic default.
+
+**Keyboard and gamepad (Classic default)**
+
+| Input | Action |
+|---|---|
+| Arrow up / down | Forward / back |
+| Arrow left / right | Turn left / right |
+| A / S | Step left / right |
+| Left / right Shift | Run |
+| X, Alt | Jump |
+| Left / right Ctrl | Activate and fire |
+| Z | Roll |
+| C | Crawl |
+| Space | Toggle weapon |
+| Insert / Numpad 0 | Look |
+| Comma / period | Previous / next weapon |
+| 0-9, P, G | Weapons, satchel, grenade |
+| L / H / M / I / K | Lighter / health / map / inventory / chalk |
+| Left stick | Walk forward/back, turn left/right |
+| A (South) | Jump |
+| X (West) | Activate (grab, pull, push, open; fires with a weapon drawn) |
+| RT | Activate as well (fire) |
+| B (East) | Roll |
+| Y (North) | Toggle weapon |
+| LB / RB | Step left / step right |
+| LT (hold) | Run |
+| L3 | Crawl |
+| R3 | Look |
+| D-pad up / down | Toggle light / health |
+| D-pad left / right | Previous / next weapon |
+| Back (View) | Interface (inventory) |
+
+**Modern keyboard and gamepad (Modern default)**
+
+| Input | Action |
+|---|---|
+| W / S | Forward / back, relative to the camera |
+| A / D | Turn left / right, relative to the camera |
+| Arrow keys | Same as W / S / A / D |
+| Mouse | Free camera (with `controls.mouse` on) |
+| Left Shift | Hold to run; a small stick push walks |
+| Space | Jump |
+| Left Ctrl / left mouse button | Activate and fire |
+| Left Alt (hold) + direction | Quick-step: side step or a timed forward or back step |
+| F / right mouse button | Target lock |
+| C | Crawl |
+| R | Draw or holster the weapon |
+| L / H | Lighter / best health item |
+| Tab or I | Inventory |
+| 1-0, P, G | Weapons, satchel, grenade |
+| M | Map |
+| V / middle mouse button | Snap the camera behind Indy |
+| Left stick | Omnidirectional movement relative to the camera |
+| Right stick | Free camera |
+| A (South) | Jump |
+| X (West) | Activate (grab, pull, push, open; fires with a weapon drawn) |
+| RT | Activate as well (fire) |
+| B (East) | Roll |
+| Y (North) | Toggle weapon |
+| RB (hold) + direction | Quick-step: side step or a timed forward or back step |
+| LB | Unbound in this scheme |
+| LT (hold) | Target lock |
+| L3 | Crawl |
+| R3 | Snap the camera behind Indy |
+| D-pad up / down | Toggle light / health |
+| D-pad left / right | Previous / next weapon |
+| Back (View) | Interface (inventory) |
+
+
+
 ## Callback Dispatch And Camera Side Effects
 
 [`sithControl_Update()`](../../../Libs/sith/Devices/sithControl.c#L334) is the high-level runtime entry point called from the frame loop.
@@ -292,7 +427,7 @@ because the pause menu reads it directly. The triggers use the original Z and RZ
 | B (East) | Roll |
 | Y (North) | Toggle weapon |
 | LB / RB | Step left / step right |
-| LT (hold) | Run |
+| LT (hold) | Run in Classic; target lock in Modern |
 | L3 | Crawl |
 | R3 | Look |
 | D-pad up / down | Toggle light / Health |

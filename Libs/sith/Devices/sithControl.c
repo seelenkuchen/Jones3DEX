@@ -32,6 +32,25 @@ static SithControlCallback aControlCallbacks[32];
 static SithControlFunctionFlag aControlFlags[SITHCONTROL_MAXFUNCTIONS];
 static SithControlFunctionBinding aControlBindings[SITHCONTROL_MAXFUNCTIONS];
 
+// Added: the Modern control style's per-frame virtual keys. bPrevPressed keeps the previous
+// frame's override across sithControl_ClearKeyOverrides, so a held override reports one press.
+typedef struct sSithControlKeyOverride
+{
+    bool bSet;
+    bool bPressed;
+    bool bPrevPressed;
+    int pressCount;
+    float amount;
+} SithControlKeyOverride;
+
+static SithControlKeyOverride aKeyOverrides[SITHCONTROL_MAXFUNCTIONS];
+static bool aKeySuppressed[SITHCONTROL_MAXFUNCTIONS];
+// Added: functions that must read released once before they act again, set when a pause ends.
+static bool aKeyAwaitRelease[SITHCONTROL_MAXFUNCTIONS];
+
+// Added: Enhanced starts Modern; the Retail profile never leaves Classic.
+static bool sithControl_bModernControlStyle = J3D_QOL_VALUE(true, false);
+
 const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
 {
     "FORWARD",
@@ -92,6 +111,8 @@ const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
     "RUNFWD",
     "HEALTH",
     "CHALK",
+    "TARGETLOCK",
+    "QUICKSTEP",
     "MAXFUNCTIONS"
 };
 
@@ -100,6 +121,10 @@ void sithControl_FinishRead(void);
 void sithControl_ResetGlobals(void)
 {
     memset(&sithControl_g_controlOptions, 0, sizeof(sithControl_g_controlOptions));
+    // Added: a reset drops the Modern layer's per-frame state.
+    memset(aKeyOverrides, 0, sizeof(aKeyOverrides));
+    memset(aKeySuppressed, 0, sizeof(aKeySuppressed));
+    memset(aKeyAwaitRelease, 0, sizeof(aKeyAwaitRelease));
 }
 
 int J3DAPI sithControl_Startup(int bKeyboardForeground)
@@ -143,6 +168,9 @@ int sithControl_Open(void)
 
 int sithControl_Close(void)
 {
+    // Added: no override survives a close.
+    sithControl_ClearKeyOverrides();
+
     if ( !bControlOpen )
     {
         SITHLOG_STATUS("Control system illegal close.\n");
@@ -391,10 +419,109 @@ void J3DAPI sithControl_Update(float secDeltaTime, uint32_t msecDeltaTime)
     }
 }
 
+// Added: an override only makes sense for a function that can be a key. A real axis function
+// (PITCH, MOUSETURN) has no key meaning to override.
+static bool sithControl_IsAxisOnlyFunction(SithControlFunction keyId)
+{
+    return (aControlFlags[keyId] & SITHCONTROLFUNCTION_AXIS) != 0
+        && (aControlFlags[keyId] & SITHCONTROLFUNCTION_KEY) == 0;
+}
+
+void J3DAPI sithControl_SetKeyOverride(SithControlFunction keyId, int bPressed, float amount)
+{
+    if ( (size_t)keyId >= SITHCONTROL_MAXFUNCTIONS )
+    {
+        return;
+    }
+
+    if ( sithControl_IsAxisOnlyFunction(keyId) )
+    {
+        SITH_ASSERT(0); // Debug: an axis-only function cannot carry a key override.
+        return;
+    }
+
+    SithControlKeyOverride* pOverride = &aKeyOverrides[keyId];
+    pOverride->bSet         = true;
+    pOverride->bPressed     = bPressed != 0;
+    pOverride->pressCount   = pOverride->bPressed && !pOverride->bPrevPressed ? 1 : 0;
+    pOverride->bPrevPressed = pOverride->bPressed;
+    pOverride->amount       = STDMATH_CLAMP(amount, 0.0f, 1.0f);
+}
+
+void J3DAPI sithControl_SuppressKey(SithControlFunction keyId)
+{
+    if ( (size_t)keyId >= SITHCONTROL_MAXFUNCTIONS )
+    {
+        return;
+    }
+
+    aKeySuppressed[keyId] = true;
+}
+
+void J3DAPI sithControl_ClearKeyOverrides(void)
+{
+    for ( size_t i = 0; i < SITHCONTROL_MAXFUNCTIONS; ++i )
+    {
+        // Added: a key that was overridden last frame keeps its pressed state for the next
+        // press edge; a key without an override counts as released.
+        aKeyOverrides[i].bPrevPressed = aKeyOverrides[i].bSet && aKeyOverrides[i].bPressed;
+        aKeyOverrides[i].bSet         = false;
+        aKeyOverrides[i].bPressed     = false;
+        aKeyOverrides[i].pressCount   = 0;
+        aKeyOverrides[i].amount       = 0.0f;
+        aKeySuppressed[i]             = false;
+    }
+}
+
+void sithControl_AwaitKeyRelease(void)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    for ( size_t i = 0; i < SITHCONTROL_MAXFUNCTIONS; ++i )
+    {
+        aKeyAwaitRelease[i] = true;
+    }
+
+    // Held walking, turning and running carry on after the pause; only actions wait.
+    aKeyAwaitRelease[SITHCONTROL_FORWARD]   = false;
+    aKeyAwaitRelease[SITHCONTROL_BACK]      = false;
+    aKeyAwaitRelease[SITHCONTROL_LEFT]      = false;
+    aKeyAwaitRelease[SITHCONTROL_RIGHT]     = false;
+    aKeyAwaitRelease[SITHCONTROL_TURNLEFT]  = false;
+    aKeyAwaitRelease[SITHCONTROL_TURNRIGHT] = false;
+    aKeyAwaitRelease[SITHCONTROL_RUNFWD]    = false;
+#endif
+}
+
+bool J3DAPI sithControl_IsModernControlStyle(void)
+{
+    return sithControl_bModernControlStyle;
+}
+
+void J3DAPI sithControl_SetModernControlStyle(bool bModern)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    sithControl_bModernControlStyle = bModern;
+#else
+    J3D_UNUSED(bModern);
+    sithControl_bModernControlStyle = false;
+#endif
+}
+
 float J3DAPI sithControl_GetKeyAsAxisNormalized(size_t axisId)
 {
     SITH_ASSERTREL((axisId >= 0) && (axisId < SITHCONTROL_MAXFUNCTIONS));
     SITH_ASSERTREL(((aControlFlags[axisId]) & (SITHCONTROLFUNCTION_AXIS)));
+
+    // Added: the Modern layer's virtual key wins over the real bindings; a suppressed key reads 0.
+    if ( aKeyOverrides[axisId].bSet )
+    {
+        return aKeyOverrides[axisId].bPressed ? aKeyOverrides[axisId].amount : 0.0f;
+    }
+
+    if ( aKeySuppressed[axisId] )
+    {
+        return 0.0f;
+    }
 
     float value = 0.0f;
     for ( size_t i = 0; i < aControlBindings[axisId].numBindings; ++i )
@@ -450,6 +577,17 @@ float J3DAPI sithControl_GetKeyAsAxis(SithControlFunction axisId)
 {
     SITH_ASSERTREL((axisId >= 0) && (axisId < SITHCONTROL_MAXFUNCTIONS));
     SITH_ASSERTREL(((aControlFlags[axisId]) & (SITHCONTROLFUNCTION_AXIS)));
+
+    // Added: the Modern layer's virtual key wins over the real bindings; a suppressed key reads 0.
+    if ( aKeyOverrides[axisId].bSet )
+    {
+        return aKeyOverrides[axisId].bPressed ? aKeyOverrides[axisId].amount : 0.0f;
+    }
+
+    if ( aKeySuppressed[axisId] )
+    {
+        return 0.0f;
+    }
 
     float value = 0.0f;
     for ( size_t i = 0; i < aControlBindings[axisId].numBindings; ++i )
@@ -525,6 +663,23 @@ int J3DAPI sithControl_GetKey(SithControlFunction keyId, int* pState)
         *pState = 0;
     }
 
+    // Added: the Modern layer's virtual key wins over the real bindings; a suppressed key reads
+    // as released with no new press.
+    if ( aKeyOverrides[keyId].bSet )
+    {
+        if ( pState )
+        {
+            *pState = aKeyOverrides[keyId].pressCount;
+        }
+
+        return aKeyOverrides[keyId].bPressed ? 1 : 0;
+    }
+
+    if ( aKeySuppressed[keyId] )
+    {
+        return 0;
+    }
+
     int value = 0;
     for ( size_t i = 0; i < aControlBindings[keyId].numBindings; ++i )
     {
@@ -541,6 +696,23 @@ int J3DAPI sithControl_GetKey(SithControlFunction keyId, int* pState)
                 value |= stdControl_ReadKey(keyNum, pState);
             }
         }
+    }
+
+    // Added: after a pause, a control still held from the menu (the button that chose Resume,
+    // or the one that closed the inventory) reads released until it is let go once.
+    if ( aKeyAwaitRelease[keyId] )
+    {
+        if ( value )
+        {
+            if ( pState )
+            {
+                *pState = 0;
+            }
+
+            return 0;
+        }
+
+        aKeyAwaitRelease[keyId] = false;
     }
 
     return value;
@@ -652,6 +824,7 @@ void sithControl_RebindMouse(void)
 void sithControl_Reset(void)
 {
     memset(aControlBindings, 0, sizeof(aControlBindings));
+    sithControl_ClearKeyOverrides(); // Added: a binding reset drops the virtual keys too.
     stdControl_Reset();
 }
 
@@ -705,6 +878,8 @@ void sithControl_RegisterControlFunctions(void)
     sithControl_RegisterKeyFunction(SITHCONTROL_ACT3);
     sithControl_RegisterKeyFunction(SITHCONTROL_HEALTH);
     sithControl_RegisterKeyFunction(SITHCONTROL_CHALK);
+    sithControl_RegisterKeyFunction(SITHCONTROL_TARGETLOCK); // Added: Modern target lock (ADR-0029)
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKSTEP); // Added: Modern quick-step modifier (ADR-0029)
     sithControl_RegisterKeyFunction(SITHCONTROL_DEBUG);
     sithControl_RegisterKeyFunction(SITHCONTROL_GAMMA);
     sithControl_RegisterKeyFunction(SITHCONTROL_SCREENSHOT);
@@ -776,6 +951,9 @@ void sithControl_RegisterKeyboardBindings(void)
         sithControl_BindControl(SITHCONTROL_SCREENSHOT, STDKEY_F12, (SithControlBindFlag)0);
         sithControl_BindControl(SITHCONTROL_HEALTH, STDKEY_H, (SithControlBindFlag)0);
         sithControl_BindControl(SITHCONTROL_CHALK, STDKEY_K, (SithControlBindFlag)0);
+        // Added: the Modern target lock's keyboard default (ADR-0029). Tab stays the menu
+        // fallback, so the otherwise free F is used here.
+        sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDKEY_F, (SithControlBindFlag)0);
 
         // Note this if scope is removed in release version but we'll keep it
         if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_INEDITOR) != 0 )
@@ -856,7 +1034,15 @@ void sithControl_RegisterMouseBindings(void)
             sithControl_BindAxis(SITHCONTROL_RUNFWD, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_NEGATIVE_AXIS | STDCONTROL_AID_POSITIVE_AXIS | STDCONTROL_AID_LOW_SENSITIVITY, (SithControlBindFlag)0);
             sithControl_BindAxis(SITHCONTROL_BACK, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_POSITIVE_AXIS, (SithControlBindFlag)0);
             sithControl_BindControl(SITHCONTROL_ACT2, STDCONTROL_KID_MOUSE_LBUTTON, (SithControlBindFlag)0);
-            sithControl_BindControl(SITHCONTROL_JUMP, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+            // Added: Modern uses the right mouse button for target lock; Classic keeps jump.
+            if ( sithControl_IsModernControlStyle() )
+            {
+                sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+            }
+            else
+            {
+                sithControl_BindControl(SITHCONTROL_JUMP, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+            }
         }
 
         stdControl_EnableMouse(1);

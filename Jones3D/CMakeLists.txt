@@ -6,8 +6,8 @@ project(Jones3D)
 # the headless runner links it in below.
 # Altered: the Windows-only Platform/Win32 files and the DirectX 9 Jones3D.exe went with the
 # Win32/DirectX game (ADR-0011).
-file(GLOB_RECURSE JONES3D_GAME_SOURCES *.c)
-file(GLOB_RECURSE JONES3D_GAME_HEADERS *.h)
+file(GLOB_RECURSE JONES3D_GAME_SOURCES CONFIGURE_DEPENDS *.c)
+file(GLOB_RECURSE JONES3D_GAME_HEADERS CONFIGURE_DEPENDS *.h)
 list(FILTER JONES3D_GAME_SOURCES EXCLUDE REGEX ".*/Tests/.*")
 list(FILTER JONES3D_GAME_HEADERS EXCLUDE REGEX ".*/Tests/.*")
 list(FILTER JONES3D_GAME_SOURCES EXCLUDE REGEX ".*/Platform/Null/.*")
@@ -26,7 +26,7 @@ target_link_libraries(Jones3DGame PUBLIC Libs)
 
 # Added: The Null headless runner: the application layer object library plus the
 # Platform/Null main(). Link groups/repeated libs resolve the static-library cycles.
-file(GLOB JONES3D_NULL_SOURCES Platform/Null/*.c)
+file(GLOB JONES3D_NULL_SOURCES CONFIGURE_DEPENDS Platform/Null/*.c)
 
 # Added: the game's babylon::ui painter and first skin (ADR-0026 amendment). They are part of the
 # Babylon column only, compiled into its executables and its painter test.

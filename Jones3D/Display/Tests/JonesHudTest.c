@@ -86,13 +86,51 @@ static void J3DAPI JonesHudTest_SetFrequency(tSysSoundBuffer* pBuffer, float fre
 #define jonesCog_g_bEnableGamesave JonesHudTest_bEnableGamesave
 #define stdWin95_GetWindow JonesHudTest_GetWindow
 #define sithGamesave_CloseRestore JonesHudTest_CloseRestore
+// By default every key reads as pressed. A test that needs one control sets the only pressed key or
+// axis id; (size_t)-1 restores the default.
+#define JONESHUDTEST_ANY_CONTROL ((size_t)-1)
+static size_t JonesHudTest_pressedKeyId  = JONESHUDTEST_ANY_CONTROL;
+static size_t JonesHudTest_rawAxisId    = (size_t)-1;
+static int JonesHudTest_rawAxisValue;
+static int JonesHudTest_bModernStyle;
 static int J3DAPI JonesHudTest_ReadKey(size_t keyId, int* pNumPressed)
 {
-    J3D_UNUSED(keyId);
+    if ( JonesHudTest_pressedKeyId != JONESHUDTEST_ANY_CONTROL && keyId != JonesHudTest_pressedKeyId )
+    {
+        return 0;
+    }
+
     *pNumPressed = 1;
     return 1;
 }
+static int J3DAPI JonesHudTest_ReadAxisRaw(size_t axis)
+{
+    return axis == JonesHudTest_rawAxisId ? JonesHudTest_rawAxisValue : 0;
+}
+static size_t J3DAPI JonesHudTest_GetNumJoysticks(void)
+{
+    return 1;
+}
+static bool J3DAPI JonesHudTest_IsModernControlStyle(void)
+{
+    return JonesHudTest_bModernStyle != 0;
+}
 #define stdControl_ReadKey JonesHudTest_ReadKey
+#define stdControl_ReadAxisRaw JonesHudTest_ReadAxisRaw
+#define stdControl_GetNumJoysticks JonesHudTest_GetNumJoysticks
+// No walk or turn function is bound in this executable; the menu directions come only from the
+// Modern D-pad and stick reading.
+static int J3DAPI JonesHudTest_GetControlKey(SithControlFunction functionId, int* pState)
+{
+    J3D_UNUSED(functionId);
+    if ( pState )
+    {
+        *pState = 0;
+    }
+    return 0;
+}
+#define sithControl_IsModernControlStyle JonesHudTest_IsModernControlStyle
+#define sithControl_GetKey JonesHudTest_GetControlKey
 #ifndef JONESHUD_TEST_SOURCE
 #define JONESHUD_TEST_SOURCE "../JonesHud.c"
 #endif
@@ -754,6 +792,78 @@ TEST(JonesHud, ShutdownReleasesThemeAndClearsItsOwnership)
     TEST_ASSERT_EQUAL_UINT(1, JonesHudTest_numReleases);
 }
 
+// Added: Enhanced builds select the root column once it has slid in; the original needs one left or
+// right press. A press that got there first wins.
+TEST(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn)
+{
+    JonesHudMenuItem root;
+    memset(&root, 0, sizeof(root));
+    root.id           = JONESHUD_MENU_IQ;
+    root.nextUpItemId = -1;
+    root.flags        = 0x01 | 0x80; // shown, still sliding in
+    root.pos.x        = 0.5f;
+    root.endMovePos.x = 1.0f;
+
+    JonesHud_pMenuItemLinkedList  = &root;
+    JonesHud_pCurSelectedMenuItem = NULL;
+    JonesHud_bSelectRootOnOpen    = true;
+
+    TEST_ASSERT_FALSE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_NULL(JonesHud_pCurSelectedMenuItem);
+
+    root.flags = 0x01;
+    root.pos.x = 1.0f;
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_EQUAL_PTR(&root, JonesHud_pCurSelectedMenuItem);
+    TEST_ASSERT_FALSE(JonesHud_bSelectRootOnOpen);
+#else
+    TEST_ASSERT_FALSE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_NULL(JonesHud_pCurSelectedMenuItem);
+#endif
+
+    // Selected by a press before the slide ended: the pending selection is dropped.
+    JonesHudMenuItem other;
+    memset(&other, 0, sizeof(other));
+    JonesHud_pCurSelectedMenuItem = &other;
+    JonesHud_bSelectRootOnOpen    = true;
+    TEST_ASSERT_FALSE(JonesHud_SelectRootColumnOnOpen());
+    TEST_ASSERT_EQUAL_PTR(&other, JonesHud_pCurSelectedMenuItem);
+
+    JonesHud_pCurSelectedMenuItem = NULL;
+    JonesHud_pMenuItemLinkedList  = NULL;
+    JonesHud_bSelectRootOnOpen    = false;
+}
+
+// Added: choosing the weapon Indy already holds puts it away in Enhanced builds; the lighter and a
+// different weapon are selected as before.
+TEST(JonesHud, ChoosingTheDrawnWeaponPutsItAway)
+{
+    JonesHudMenuItem item;
+    memset(&item, 0, sizeof(item));
+    JonesHudTest_pPlayerThing = &JonesHudTest_playerThing;
+    JonesHudTest_playerThing.thingInfo.actorInfo.pPlayer = &JonesHudTest_player;
+    JonesHud_pCurSelectedMenuItem = &item;
+
+    JonesHudTest_player.curWeaponID = SITHWEAPON_PISTOL;
+    item.inventoryID = SITHWEAPON_PISTOL;
+    TEST_ASSERT_EQUAL(J3D_QOL_VALUE(true, false), JonesHud_IsDrawnWeaponSelected());
+
+    item.inventoryID = SITHWEAPON_WHIP;
+    TEST_ASSERT_FALSE(JonesHud_IsDrawnWeaponSelected());
+
+    JonesHudTest_player.curWeaponID = SITHWEAPON_ZIPPO;
+    item.inventoryID = SITHWEAPON_ZIPPO;
+    TEST_ASSERT_FALSE(JonesHud_IsDrawnWeaponSelected());
+
+    JonesHudTest_player.curWeaponID = SITHWEAPON_NO_WEAPON;
+    item.inventoryID = SITHWEAPON_NO_WEAPON;
+    TEST_ASSERT_FALSE(JonesHud_IsDrawnWeaponSelected());
+
+    JonesHud_pCurSelectedMenuItem = NULL;
+    JonesHudTest_pPlayerThing = NULL;
+}
+
 TEST(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit)
 {
     JonesHudMenuItem a, b, upA, upB;
@@ -798,6 +908,101 @@ TEST(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit)
     TEST_ASSERT_EQUAL_HEX32(0x03, JonesHud_item_flag_state_55514C & 0xFF);
 }
 
+// The Modern and pad schemes bind Activate to the right trigger, a scheme axis id (0x8005) outside
+// the key range. The inventory reads every Activate binding through JonesHud_GetKey, which used to
+// pass it to stdControl_ReadKey and hit its key-range assert when the inventory opened.
+TEST(JonesHud, GetKeyIgnoresIdsOutsideTheKeyRange)
+{
+    JonesHud_bKeyStateUpdated = 0;
+    JonesHud_curKeyId = STDKEY_RETURN;
+    JonesHud_msecMenuItemMoveCurDuration = 200;
+    JonesHud_msecLastKeyPressTime = 1000;
+    JonesHud_msecTime = 1050;
+
+    TEST_ASSERT_EQUAL_INT(0, JonesHud_GetKey(STDCONTROL_MAX_KEYID));
+    TEST_ASSERT_EQUAL_INT(0, JonesHud_GetKey(0x8005u));
+    TEST_ASSERT_EQUAL_INT(STDKEY_RETURN, JonesHud_curKeyId);
+    TEST_ASSERT_EQUAL_UINT(200, JonesHud_msecMenuItemMoveCurDuration);
+}
+
+static int JonesHudTest_GetFreshKey(unsigned int keyId)
+{
+    JonesHud_bKeyStateUpdated = 0;
+    return JonesHud_GetKey(keyId);
+}
+
+// Added: the Modern scheme binds no gamepad control to walk and turn, so the inventory reads the
+// D-pad and the left stick itself in the Modern style.
+TEST(JonesHud, GetKeyReadsTheDpadAndLeftStickInTheModernStyle)
+{
+    JonesHudTest_bModernStyle = 1;
+
+    JonesHudTest_pressedKeyId = STDCONTROL_JOYSTICK_GETPOVUP(0, 0);
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_UP));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_DOWN));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_LEFT));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_RIGHT));
+
+    JonesHudTest_pressedKeyId = STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0);
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_RIGHT));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_UP));
+
+    JonesHudTest_pressedKeyId = STDKEY_ESCAPE; // no direction key held
+    JonesHudTest_rawAxisId    = STDCONTROL_GET_JOYSTICK_AXIS(0, STDCONTROL_JOYSTICK_AXIS_X);
+    JonesHudTest_rawAxisValue = -30000;
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_LEFT));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_RIGHT));
+
+    // A small push inside the menu threshold is not a direction.
+    JonesHudTest_rawAxisValue = -8000;
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_LEFT));
+
+    JonesHudTest_rawAxisId    = STDCONTROL_GET_JOYSTICK_AXIS(0, STDCONTROL_JOYSTICK_AXIS_Y);
+    JonesHudTest_rawAxisValue = 30000;
+    TEST_ASSERT_EQUAL_INT(1, JonesHudTest_GetFreshKey(STDKEY_DOWN));
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_UP));
+
+    JonesHudTest_bModernStyle = 0;
+    JonesHudTest_pressedKeyId = JONESHUDTEST_ANY_CONTROL;
+    JonesHudTest_rawAxisId    = (size_t)-1;
+}
+
+// Added: the Modern style selects with A (button 0); Classic keeps only the Activate bindings.
+TEST(JonesHud, ModernMenuSelectReadsTheAButton)
+{
+    JonesHudTest_pressedKeyId = STDCONTROL_JOYSTICK_GETBUTTON(0, 0);
+
+    JonesHudTest_bModernStyle = 1;
+    JonesHud_bKeyStateUpdated = 0;
+    TEST_ASSERT_EQUAL_INT(1, JonesHud_GetModernMenuSelectKey());
+
+    JonesHudTest_bModernStyle = 0;
+    JonesHud_bKeyStateUpdated = 0;
+    TEST_ASSERT_EQUAL_INT(0, JonesHud_GetModernMenuSelectKey());
+
+    JonesHudTest_pressedKeyId = STDCONTROL_JOYSTICK_GETBUTTON(0, 1);
+    JonesHudTest_bModernStyle = 1;
+    JonesHud_bKeyStateUpdated = 0;
+    TEST_ASSERT_EQUAL_INT(0, JonesHud_GetModernMenuSelectKey());
+
+    JonesHudTest_bModernStyle = 0;
+    JonesHudTest_pressedKeyId = JONESHUDTEST_ANY_CONTROL;
+}
+
+// The Classic style keeps the original reading: only the controls bound to walk and turn.
+TEST(JonesHud, GetKeyIgnoresTheDpadAndLeftStickInTheClassicStyle)
+{
+    JonesHudTest_bModernStyle  = 0;
+    JonesHudTest_pressedKeyId  = STDCONTROL_JOYSTICK_GETPOVUP(0, 0);
+    JonesHudTest_rawAxisId     = STDCONTROL_GET_JOYSTICK_AXIS(0, STDCONTROL_JOYSTICK_AXIS_Y);
+    JonesHudTest_rawAxisValue  = -30000;
+
+    TEST_ASSERT_EQUAL_INT(0, JonesHudTest_GetFreshKey(STDKEY_UP));
+
+    JonesHudTest_pressedKeyId  = JONESHUDTEST_ANY_CONTROL;
+    JonesHudTest_rawAxisId     = (size_t)-1;
+}
+
 TEST(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey)
 {
     JonesHud_bKeyStateUpdated = 0;
@@ -828,6 +1033,12 @@ TEST_GROUP_RUNNER(JonesHud)
     RUN_TEST_CASE(JonesHud, ShutdownReleasesThemeAndClearsItsOwnership);
     RUN_TEST_CASE(JonesHud, MenuCloseKeepsEveryCollapsedColumnBit);
     RUN_TEST_CASE(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey);
+    RUN_TEST_CASE(JonesHud, GetKeyIgnoresIdsOutsideTheKeyRange);
+    RUN_TEST_CASE(JonesHud, GetKeyReadsTheDpadAndLeftStickInTheModernStyle);
+    RUN_TEST_CASE(JonesHud, GetKeyIgnoresTheDpadAndLeftStickInTheClassicStyle);
+    RUN_TEST_CASE(JonesHud, ModernMenuSelectReadsTheAButton);
+    RUN_TEST_CASE(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn);
+    RUN_TEST_CASE(JonesHud, ChoosingTheDrawnWeaponPutsItAway);
 }
 
 static void JonesHudTest_RunAllTests(void)

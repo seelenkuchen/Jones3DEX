@@ -898,7 +898,7 @@ TEST_CASE("the New flow creates a custom scheme and its name rules hold")
 
     JonesControlsConfig config;
     REQUIRE(LoadConfig(config));
-    REQUIRE(config.numSchemes == 4);
+    REQUIRE(config.numSchemes == 5);
     // Pin the choice so the first scripted Down reaches the screen.
     config.selectedShemeIdx = 0;
 

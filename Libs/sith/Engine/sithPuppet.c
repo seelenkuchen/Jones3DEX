@@ -3548,6 +3548,38 @@ bool J3DAPI sithPuppet_SetModeSpeed(SithThing* pThing, SithPuppetSubMode submode
     return true;
 }
 
+// Added: a force move that finished in the previous puppet update has its rdPuppet track removed
+// but its gameplay track remains until the next update. Free it now so the next step can start.
+void J3DAPI sithPuppet_DropFinishedMode(SithThing* pThing, SithPuppetSubMode submode)
+{
+    if ( !pThing || !pThing->pPuppetState || !pThing->renderData.pPuppet )
+    {
+        return;
+    }
+
+    for ( SithPuppetTrack* pTrack = pThing->pPuppetState->pFirstTrack; pTrack && pTrack != STDMEMORY_FREEDPTR; pTrack = pTrack->pNextTrack )
+    {
+        if ( pTrack->submode != submode )
+        {
+            continue;
+        }
+
+        int trackNum = pTrack->trackNum;
+        if ( trackNum >= 0 && trackNum < RDPUPPET_MAX_TRACKS )
+        {
+            rdPuppetTrack* pRdTrack = &pThing->renderData.pPuppet->aTracks[trackNum];
+            if ( pRdTrack->pKFTrack
+                && (pRdTrack->status & RDPUPPET_TRACK_PLAYING) != 0 )
+            {
+                return;
+            }
+        }
+
+        sithPuppet_FreeTrack(pThing, pTrack);
+        return;
+    }
+}
+
 void J3DAPI sithPuppet_RemoveTrackByIndex(SithThing* pThing, int trackNum)
 {
     for ( SithPuppetTrack* pTrack = pThing->pPuppetState->pFirstTrack; pTrack; pTrack = pTrack->pNextTrack )

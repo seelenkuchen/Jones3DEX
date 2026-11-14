@@ -244,7 +244,7 @@ TEST_CASE("the default skin uses the given Cinzel and Jost ids and the prompt fo
     CHECK(skin.textFocused == ui::Color{ 1.0f, 1.0f, 1.0f, 1.0f });
 }
 
-TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
+TEST_CASE("the modal loop forwards the skin's focus cue and closes its screen silently")
 {
     TestContext testContext;
     ui::NullPainter painter;
@@ -261,25 +261,24 @@ TEST_CASE("the modal loop forwards the skin's focus and back cues to the HUD")
     };
     screen.backResult = 2;
 
-    // Moving to the second button and accepting it: focus then accept.
+    // Moving to the second button and accepting it: the focus cue plays; the accept that closes
+    // the screen is silent (Added: leaving a menu makes no sound, like the original dialogs).
     g_numMenuSoundCues = 0;
     testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Down, true, false });
     testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Enter, true, false });
 
     CHECK(JonesUiModal_Run(ui, &painter, screen, Identity) == 2);
-    REQUIRE(g_numMenuSoundCues == 2);
+    REQUIRE(g_numMenuSoundCues == 1);
     CHECK(g_aMenuSoundCues[0] == (int)kJonesUiSoundCueFocus);
-    CHECK(g_aMenuSoundCues[1] == (int)kJonesUiSoundCueAccept);
 
-    // A fresh screen closed with back reports the back cue.
+    // A fresh screen closed with back is silent too.
     testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Down, false, false });
     testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Enter, false, false });
     testContext.platform.pushEvent(platform::KeyChanged{ 1, platform::Key::Escape, true, false });
 
     g_numMenuSoundCues = 0;
     CHECK(JonesUiModal_Run(ui, &painter, screen, Identity) == 2);
-    REQUIRE(g_numMenuSoundCues == 1);
-    CHECK(g_aMenuSoundCues[0] == (int)kJonesUiSoundCueBack);
+    CHECK(g_numMenuSoundCues == 0);
 }
 
 TEST_CASE("the modal loop applies a window resize to the viewport")

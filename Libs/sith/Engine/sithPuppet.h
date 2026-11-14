@@ -124,6 +124,11 @@ void J3DAPI sithPuppet_ClearMode(SithThing* pThing, SithPuppetSubMode mode);
  */
 bool J3DAPI sithPuppet_SetModeSpeed(SithThing* pThing, SithPuppetSubMode submode, float playbackSpeed); // Added new
 
+// Added: free a gameplay submode track whose rdPuppet track has already finished. A finished
+// force move leaves its bookkeeping track until the next puppet update; dropping it first lets a
+// held Modern sidestep start its next step in the same frame.
+void J3DAPI sithPuppet_DropFinishedMode(SithThing* pThing, SithPuppetSubMode submode);
+
 void J3DAPI sithPuppet_RemoveTrackByIndex(SithThing* pThing, int trackNum);
 int J3DAPI sithPuppet_NewTrack(SithThing* pThing, SithPuppetClassSubmode* pSubmode, int trackNum, SithPuppetSubMode submode);
 void J3DAPI sithPuppet_AddTrack(SithThing* pThing, SithPuppetTrack* pNewTrack);

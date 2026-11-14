@@ -19,6 +19,7 @@
 #include <sith/Gameplay/sithInventory.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Gameplay/sithPlayer.h>
+#include <sith/Gameplay/sithPlayerActions.h>
 #include <sith/Gameplay/sithWhip.h>
 #include <sith/Main/sithString.h>
 #include <sith/World/sithThing.h>
@@ -169,6 +170,10 @@ int J3DAPI sithGamesave_SaveCurrentWorld(SithMessageStream outstream)
             return bError;
         }
     }
+
+    // Added: a Modern timed step lives outside the saved state, but it holds the player's
+    // controls disabled and the walk state. End it first so a save never restores a stuck player.
+    sithPlayerActions_StopTimedStep(NULL);
 
     // Write things state
     for ( size_t i = 0; i < pWorld->numThings; i++ )

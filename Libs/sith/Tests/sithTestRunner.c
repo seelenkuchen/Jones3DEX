@@ -8,7 +8,10 @@ void TEST_sithThingParseArg_GROUP_RUNNER(void);
 void TEST_sithVoice_GROUP_RUNNER(void);
 void TEST_sithCog_GROUP_RUNNER(void);
 void TEST_sithGamesave_GROUP_RUNNER(void);
+void TEST_sithControl_GROUP_RUNNER(void);
+void TEST_sithModernControls_GROUP_RUNNER(void);
 void TEST_sithCamera_GROUP_RUNNER(void);
+void TEST_sithModernCamera_GROUP_RUNNER(void);
 void TEST_sithPhysics_GROUP_RUNNER(void);
 
 static void SithTest_RunAllTests(void)
@@ -19,7 +22,10 @@ static void SithTest_RunAllTests(void)
     TEST_sithVoice_GROUP_RUNNER();
     TEST_sithCog_GROUP_RUNNER();
     TEST_sithGamesave_GROUP_RUNNER();
+    TEST_sithControl_GROUP_RUNNER();
+    TEST_sithModernControls_GROUP_RUNNER();
     TEST_sithCamera_GROUP_RUNNER();
+    TEST_sithModernCamera_GROUP_RUNNER();
     TEST_sithPhysics_GROUP_RUNNER();
 }
 

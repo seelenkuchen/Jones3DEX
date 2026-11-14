@@ -28,6 +28,7 @@
 #include <sith/Gameplay/sithOverlayMap.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Main/sithString.h>
 #include <sith/World/sithModel.h>
@@ -1055,6 +1056,10 @@ void JonesMain_ResumeGame(void)
         sithTime_Resume();
         Sound_Resume();
         JonesMain_bGamePaused = false;
+
+        // Added: the button that resumed the game (A on Resume, B or A in the inventory) must not
+        // also act in the game, such as jumping.
+        sithControl_AwaitKeyRelease();
     }
 }
 
@@ -1236,8 +1241,11 @@ void JonesMain_ProcessMenu(void)
     int bSchemeToggleBound = JonesMain_aToggleMenuKeyIds[0] != 0;
     for ( size_t i = 0; i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds) && JonesMain_aToggleMenuKeyIds[i]; ++i ) // Fixed: Added bounds check for i < STD_ARRAYLEN(JonesMain_aToggleMenuKeyIds)
     {
+        // Fixed: skip a binding outside the key range (a joystick axis in a user scheme) instead
+        // of asserting in stdControl_ReadKey.
         int numPressed;
-        if ( stdControl_ReadKey(JonesMain_aToggleMenuKeyIds[i], &numPressed) )
+        if ( JonesMain_aToggleMenuKeyIds[i] < STDCONTROL_MAX_KEYID
+            && stdControl_ReadKey(JonesMain_aToggleMenuKeyIds[i], &numPressed) )
         {
             bMenuKeyPressed = 1;
             break;
@@ -1254,6 +1262,13 @@ void JonesMain_ProcessMenu(void)
         // gamepad Back button as a fallback (M7.13's stopgap).
         bMenuKeyPressed |= stdControl_ReadKey(STDKEY_TAB, &numPressed);
         bMenuKeyPressed |= JonesMain_ReadGamepadButton(6); // Back
+    }
+
+    // Added: in the Modern style the gamepad's B button closes an open inventory, as its prompts
+    // show. It never opens it: B is a game control (roll) while the inventory is closed.
+    if ( jonesCog_g_bMenuVisible && sithControl_IsModernControlStyle() )
+    {
+        bMenuKeyPressed |= JonesMain_ReadGamepadButton(1); // B
     }
 
     int bPauseKeyPressed = stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);

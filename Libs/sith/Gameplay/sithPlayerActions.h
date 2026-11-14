@@ -81,6 +81,31 @@ void J3DAPI sithPlayerActions_JumpRollBack(SithThing* pThing);
 void J3DAPI sithPlayerActions_JumpRollForward(SithThing* pThing);
 void J3DAPI sithPlayerActions_StrafeLeft(SithThing* pThing);
 void J3DAPI sithPlayerActions_StrafeRight(SithThing* pThing);
+
+// Added: the original sidestep's duration, measured from the StrafeLeft animation at normal
+// playback speed (frames / fps), in seconds. Falls back to a fixture value without a puppet class.
+float J3DAPI sithPlayerActions_GetSidestepTime(const SithThing* pThing);
+// Added: the ground speed one timed step covers the sidestep distance with, at the current
+// sidestep playback rate (twice as fast while the Modern target lock is held).
+float J3DAPI sithPlayerActions_GetTimedStepSpeed(const SithThing* pThing);
+
+// Added: one shared Modern timed step over the sidestep distance, forward or backward, through the
+// normal ground movement. It plays the walk or walk-back animation, blocks other moves until it
+// finishes, then returns to standing.
+void J3DAPI sithPlayerActions_StartTimedStep(SithThing* pThing, bool bBackward);
+// Added: the locked backpedal. It keeps the same timed-step movement and walk-back animation but
+// has no end time; it runs until StopTimedStep, at the locked sidestep ground speed.
+void J3DAPI sithPlayerActions_StartBackpedal(SithThing* pThing);
+void J3DAPI sithPlayerActions_StopTimedStep(SithThing* pThing);
+void J3DAPI sithPlayerActions_CancelTimedStep(void);
+// Added: advances a running step one frame before the physics step. Called every player frame.
+void J3DAPI sithPlayerActions_UpdateTimedStep(SithThing* pThing, float secDeltaTime);
+bool J3DAPI sithPlayerActions_IsTimedStepActive(void);
+bool J3DAPI sithPlayerActions_IsBackpedalActive(void);
+
+// Added: playback rate for the sidestep force move. 2.0 while the local player holds the Modern
+// target lock (the step covers its original distance in half the time); 1.0 otherwise.
+float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing);
 void J3DAPI sithPlayerActions_HopBack(SithThing* pThing);
 void J3DAPI sithPlayerActions_JumpStart(SithThing* pThing);
 

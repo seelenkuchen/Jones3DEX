@@ -48,6 +48,25 @@
   - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
     default in both profiles, is presentation only, and the Controls screen has a Rumble row
     (`engine.input.rumble`) to turn it off.
+  - The Gameplay tab has a Control style option (`engine.input.controlStyle`, Modern by default).
+    Modern adds camera-relative movement on the left stick, a mouse and right-stick free camera,
+    quick-step by holding RB or Left Alt with a direction, quick-select on the D-pad, and target
+    lock on LT, `F` and the right mouse button with sidesteps and a timed back step. New installs get a "Modern
+    keyboard and gamepad" default scheme (WASD and arrows, mouse look, Space jump, Ctrl and the
+    left mouse button to activate and fire, R draw, V or the middle mouse button to snap the
+     camera); Classic keeps the original tank controls and the "Keyboard and gamepad" scheme. A
+     remembered scheme is never replaced. Starting, stopping and reversing move at once without the
+     original transition animations. Quick-step left and right keep the original sidestep force moves; forward
+     and back step visibly over the sidestep distance and time instead of hopping or teleporting. Locked
+     sidesteps play twice as fast at the same distance, a held backward stick backpedals continuously at
+     that locked speed, and the lock only needs the camera, not Indy, to see the target. Underwater, the left stick steers
+     Indy through the camera's yaw and pitch and swims forward along that direction; on the surface
+     the original camera-relative swim and ledge grab stay unchanged.
+  - In the Modern style the inventory works with a gamepad: the D-pad or left stick moves, A selects and B
+    closes it, and Indy no longer turns while it is open. It opens with the current weapon's column selected,
+    and choosing the weapon Indy already holds puts it away. The button that leaves a menu or the inventory
+    no longer acts in the game (choosing Resume with A no longer jumps), and closing a menu is silent.
+  - Fixed a crash when opening the inventory with a scheme that binds Activate to the right trigger.
   - One tabbed Options screen replaces the separate Gameplay, Controls, Display and Sound screens and the old
     Settings hub. Tabs switch with Q/E, LB/RB or a click on the strip, settings draw as `◀ value ▶` rows with a
     help column for the focused row, and the Display tab drops the Performance row while the stored

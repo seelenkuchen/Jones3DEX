@@ -99,6 +99,9 @@ namespace
         screen.help[layout.rotateMap] = "Rotate the overhead map to follow the player's facing.";
         screen.help[layout.difficulty] = "Choose how hard combat and puzzles are.";
         screen.help[layout.defaultRun] = "Start running by default when the player moves.";
+        screen.help[layout.controlStyle] =
+            "Modern: the stick moves Indy relative to the camera and the right stick turns the "
+            "camera. Classic: the original tank controls.";
         screen.help[layout.reticle] = "Draw an aim reticle for the equipped weapon.";
         screen.help[layout.blood] = "Show blood splatter effects when enemies are hit.";
         screen.help[layout.profile] =

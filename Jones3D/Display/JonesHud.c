@@ -319,6 +319,9 @@ void J3DAPI JonesHud_SetSelectedMenuItem(int menuId, JonesHudMenuItem* pItem);
 void JonesHud_MenuMoveUp(void);
 
 int J3DAPI JonesHud_GetKey(unsigned int keyId);
+static int JonesHud_GetModernMenuSelectKey(void); // Added
+static bool JonesHud_SelectRootColumnOnOpen(void); // Added
+static bool JonesHud_bSelectRootOnOpen = false; // Added: the opening menu still has to select its root column
 
 int JonesHud_InitializeMenu(void);
 void JonesHud_InitializeMenuSounds(void);
@@ -1485,6 +1488,7 @@ void JonesHud_MenuOpen(void)
             JonesHud_pMenuItemLinkedList->flags |= 0x83;
 
             JonesHud_hudState |= 0x01; // mark menu opened;
+            JonesHud_bSelectRootOnOpen = true; // Added
 
             float moveRate = fabsf(JonesHud_pMenuItemLinkedList->endMovePos.x - JonesHud_pMenuItemLinkedList->startMovePos.x);
             JonesHud_StartItemTranslation(JonesHud_pMenuItemLinkedList, JonesHud_msecMenuOpenStartSlideDuration, moveRate, /*bMoveUp=*/0);
@@ -2221,6 +2225,10 @@ void JonesHud_ProcessInventoryMenu(void)
     int bActivateKeyPressed;
     JonesHud_UpdateItem(JonesHud_pMenuItemLinkedList);
 
+    // Added: select the root column (the current weapon's) once the menu has slid in, as the
+    // first left or right press does in the original, so up and down work at once.
+    JonesHud_SelectRootColumnOnOpen();
+
     if ( (JonesHud_hudState & 0x04) == 0 && (JonesHud_hudState & 0x08) == 0 )
     {
         if ( (JonesHud_hudState & 0x02) == 0 )
@@ -2239,6 +2247,7 @@ void JonesHud_ProcessInventoryMenu(void)
             }
 
             bActivateKeyPressed |= JonesHud_GetKey(STDKEY_RETURN);
+            bActivateKeyPressed |= JonesHud_GetModernMenuSelectKey(); // Added
             if ( JonesHud_GetKey(STDKEY_NUMPADENTER) | bActivateKeyPressed )
             {
                 JonesHud_MenuActivateItem();
@@ -2346,6 +2355,38 @@ void JonesHud_MenuMoveRight(void)
             JonesHud_hCurSndChannel = sithSoundMixer_PlaySound(JonesHud_aSoundFxHandles[2], 1.0f, 0.0f, SOUNDPLAY_PLAYONCE);
         }
     }
+}
+
+// Added: the original opens the menu with no column selected; the first left or right press
+// selects the root column. Enhanced builds select it as soon as the root item has slid into place,
+// without the move sound. Returns true when it selected the column this call.
+static bool JonesHud_SelectRootColumnOnOpen(void)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    if ( !JonesHud_bSelectRootOnOpen )
+    {
+        return false;
+    }
+
+    if ( JonesHud_pCurSelectedMenuItem || !JonesHud_pMenuItemLinkedList )
+    {
+        JonesHud_bSelectRootOnOpen = false; // A press got there first, or there is no menu.
+        return false;
+    }
+
+    JonesHudMenuItem* pRoot = JonesHud_pMenuItemLinkedList;
+    if ( (pRoot->flags & 0x01) == 0 || (pRoot->flags & 0x80) != 0 || pRoot->pos.x != pRoot->endMovePos.x )
+    {
+        return false; // still sliding in
+    }
+
+    JonesHud_bSelectRootOnOpen    = false;
+    JonesHud_pCurSelectedMenuItem = pRoot;
+    JonesHud_MenuExpandColumn(pRoot);
+    return true;
+#else
+    return false;
+#endif
 }
 
 void JonesHud_MenuMoveDown(void)
@@ -2560,6 +2601,89 @@ void J3DAPI JonesHud_BindActivateControlKeys(const size_t* aKeyIds, size_t numKe
     }
 }
 
+// Added: the Modern style reads the left stick itself and gives the D-pad to quick select, so its
+// scheme binds no gamepad control to the walk and turn functions the inventory navigates with. In
+// the Modern style the inventory also takes the D-pad and the left stick of every joystick.
+#define JONESHUD_STICK_RANGE           32767.0f
+#define JONESHUD_STICK_MENU_THRESHOLD  0.5f
+
+static int JonesHud_ReadModernMenuDirection(unsigned int keyId, int* pNumPressed)
+{
+    if ( !sithControl_IsModernControlStyle() )
+    {
+        return 0;
+    }
+
+    size_t axis;
+    size_t axisFlags;
+    size_t povDir;
+    switch ( keyId )
+    {
+        case STDKEY_UP:
+            axis      = STDCONTROL_JOYSTICK_AXIS_Y;
+            axisFlags = STDCONTROL_AID_NEGATIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRUP;
+            break;
+
+        case STDKEY_DOWN:
+            axis      = STDCONTROL_JOYSTICK_AXIS_Y;
+            axisFlags = STDCONTROL_AID_POSITIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRDOWN;
+            break;
+
+        case STDKEY_LEFT:
+            axis      = STDCONTROL_JOYSTICK_AXIS_X;
+            axisFlags = STDCONTROL_AID_NEGATIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRLEFT;
+            break;
+
+        case STDKEY_RIGHT:
+            axis      = STDCONTROL_JOYSTICK_AXIS_X;
+            axisFlags = STDCONTROL_AID_POSITIVE_AXIS;
+            povDir    = STDCONTROL_JOYSTICK_POVDIRRIGHT;
+            break;
+
+        default:
+            return 0;
+    }
+
+    int bPressed = 0;
+    for ( size_t joyNum = 0; joyNum < stdControl_GetNumJoysticks(); ++joyNum )
+    {
+        bPressed |= stdControl_ReadKey(STDCONTROL_JOYSTICK_GETPOV(joyNum, 0, povDir), pNumPressed);
+
+        // The Modern scheme binds no stick axis, so read the raw position as the Modern layer does.
+        float pos = (float)stdControl_ReadAxisRaw(STDCONTROL_GET_JOYSTICK_AXIS(joyNum, axis))
+            / JONESHUD_STICK_RANGE;
+        if ( axisFlags == STDCONTROL_AID_NEGATIVE_AXIS ? pos <= -JONESHUD_STICK_MENU_THRESHOLD
+                                                       : pos >= JONESHUD_STICK_MENU_THRESHOLD )
+        {
+            *pNumPressed = 1;
+            bPressed     = 1;
+        }
+    }
+
+    return bPressed;
+}
+
+// Added: the Modern style selects with the gamepad's A button, as its prompts show; the original
+// reads only the Activate bindings, which put the pad's X button there.
+static int JonesHud_GetModernMenuSelectKey(void)
+{
+    if ( !sithControl_IsModernControlStyle() )
+    {
+        return 0;
+    }
+
+    int bPressed = 0;
+    for ( size_t joyNum = 0; joyNum < stdControl_GetNumJoysticks(); ++joyNum )
+    {
+        bPressed |= JonesHud_GetKey(STDCONTROL_JOYSTICK_GETBUTTON(joyNum, 0));
+    }
+
+    return bPressed;
+}
+
 int J3DAPI JonesHud_GetKey(unsigned int keyId)
 {
     int bKeyPressed;
@@ -2567,6 +2691,14 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
     int numPressed = 0;
     if ( JonesHud_bKeyStateUpdated
         && !JonesHud_HasTimeElapsed(JonesHud_msecMenuItemMoveCurDuration, JonesHud_msecMenuItemMoveCurDuration + JonesHud_msecLastKeyPressTime, JonesHud_msecTime) )
+    {
+        return 0;
+    }
+
+    // Fixed: a scheme may bind Activate to a joystick axis (the Modern and pad schemes bind the
+    // right trigger), whose id lies outside the key range. Reading it as a key asserted when the
+    // inventory opened; it counts as not pressed here.
+    if ( keyId >= STDCONTROL_MAX_KEYID )
     {
         return 0;
     }
@@ -2594,6 +2726,8 @@ int J3DAPI JonesHud_GetKey(unsigned int keyId)
             bKeyPressed = stdControl_ReadKey(keyId, &numPressed);
             break;
     }
+
+    bKeyPressed |= JonesHud_ReadModernMenuDirection(keyId, &numPressed); // Added
 
     if ( !bKeyPressed )
     {
@@ -3430,6 +3564,26 @@ int JonesHud_ShowExitGame(void)
     return dlgResult;
 }
 
+// Added: true when the selected menu item is the real weapon (not the lighter, mirror or an idol)
+// Indy is holding now. Enhanced builds only; the original selects it again.
+static bool JonesHud_IsDrawnWeaponSelected(void)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    if ( !JonesHud_pCurSelectedMenuItem || !sithPlayer_g_pLocalPlayerThing
+        || !sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.pPlayer )
+    {
+        return false;
+    }
+
+    const int curWeaponID = (int)sithPlayer_g_pLocalPlayerThing->thingInfo.actorInfo.pPlayer->curWeaponID;
+    return curWeaponID > SITHWEAPON_NO_WEAPON
+        && curWeaponID < SITHWEAPON_ZIPPO
+        && JonesHud_pCurSelectedMenuItem->inventoryID == curWeaponID;
+#else
+    return false;
+#endif
+}
+
 void JonesHud_MenuActivateItem(void)
 {
     if ( !JonesHud_pCurSelectedMenuItem || !sithPlayer_g_pLocalPlayerThing )
@@ -3463,6 +3617,13 @@ void JonesHud_MenuActivateItem(void)
             if ( sithWeapon_IsMountingWeapon(sithPlayer_g_pLocalPlayerThing) )
             {
                 JonesHud_selectedWeaponID = JonesHud_pCurSelectedMenuItem->inventoryID;
+            }
+            else if ( JonesHud_IsDrawnWeaponSelected() )
+            {
+                // Added: choosing the weapon Indy already holds puts it away, as the weapon toggle
+                // control does.
+                sithWeapon_DeselectWeapon(sithPlayer_g_pLocalPlayerThing);
+                JonesHud_selectedWeaponID = -1;
             }
             else
             {

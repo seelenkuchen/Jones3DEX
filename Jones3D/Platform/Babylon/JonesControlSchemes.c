@@ -31,7 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define JONESCONFIG_NUMDEFAULTCONTROLSCHEMES 4u
+#define JONESCONFIG_NUMDEFAULTCONTROLSCHEMES 5u
 #define JONESCONFIG_KEYSDIRPATH_MAX 512u
 #define JONESCONFIG_KFG_EXT ".kfg"
 
@@ -621,12 +621,81 @@ static const JonesConfigControlAction jonesConfig_aDefaultPadControlSet[JONESCON
     { STD_ARRAYLEN(aActionChalk)                , aActionChalk                }
 };
 
+// Added: the Modern keyboard and gamepad default (ADR-0029). Its keyboard follows the Modern
+// model: WASD and the arrows move, Left Alt is the quick-step modifier for a held direction,
+// Space jumps, Ctrl and the left mouse button activate and fire, R draws, V and the middle mouse
+// button snap the camera. The step-right row carries the quick-step key, which the Modern binder
+// maps to SITHCONTROL_QUICKSTEP; the step-left row is free, so LB is unbound in this scheme. Its
+// gamepad part is the keyboard-and-gamepad scheme's, with LT still stored as Run so the Modern
+// binder maps it to target lock.
+static const size_t aActionWalkFwdModernKeys[2]       = { STDKEY_W, STDKEY_UP };
+static const size_t aActionWalkBackModernKeys[2]      = { STDKEY_S, STDKEY_DOWN };
+static const size_t aActionTurnLeftModernKeys[2]      = { STDKEY_A, STDKEY_LEFT };
+static const size_t aActionTurnRightModernKeys[2]     = { STDKEY_D, STDKEY_RIGHT };
+static const size_t aActionStepRightModernKeys[2]     = { STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
+static const size_t aActionCrawlModernKeys[2]         = { STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) };
+static const size_t aActionRunModernKeys[2]           = { STDKEY_LSHIFT, JONESCONFIG_JOYAXISKID_GROUND };
+static const size_t aActionRollModernKeys[2]          = { STDKEY_Z, STDCONTROL_JOYSTICK_GETBUTTON(0, 1) };
+static const size_t aActionJumpModernKeys[2]          = { STDKEY_SPACE, STDCONTROL_JOYSTICK_GETBUTTON(0, 0) };
+static const size_t aActionLookModernKeys[3]          = { STDKEY_V, STDCONTROL_KID_MOUSE_MBUTTON, STDCONTROL_JOYSTICK_GETBUTTON(0, 9) };
+static const size_t aActionActivateModernKeys[4]      = { STDKEY_LCONTROL, STDCONTROL_KID_MOUSE_LBUTTON, STDCONTROL_JOYSTICK_GETBUTTON(0, 2), JONESCONFIG_JOYAXISKID_TWISTR };
+static const size_t aActionToggleWeaponModernKeys[2]  = { STDKEY_R, STDCONTROL_JOYSTICK_GETBUTTON(0, 3) };
+static const size_t aActionPrevWeaponModernKeys[2]    = { STDKEY_COMMA, STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0) };
+static const size_t aActionNextWeaponModernKeys[2]    = { STDKEY_PERIOD, STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0) };
+static const size_t aActionToggleLightModernKeys[2]   = { STDKEY_L, STDCONTROL_JOYSTICK_GETPOVUP(0, 0) };
+static const size_t aActionInterfaceModernKeys[3]     = { STDKEY_TAB, STDKEY_I, STDCONTROL_JOYSTICK_GETBUTTON(0, 6) };
+static const size_t aActionHealthModernKeys[2]        = { STDKEY_H, STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0) };
+
+// TODO: D-pad left/right should cycle the inventory's favourite weapons once that feature exists;
+// until then they stay previous/next owned weapon.
+static const JonesConfigControlAction jonesConfig_aDefaultModernControlSet[JONESCONTROL_ACTION_NUMACTIONS] =
+{
+    { STD_ARRAYLEN(aActionWalkFwdModernKeys)     , aActionWalkFwdModernKeys      },
+    { STD_ARRAYLEN(aActionWalkBackModernKeys)    , aActionWalkBackModernKeys     },
+    { STD_ARRAYLEN(aActionTurnLeftModernKeys)    , aActionTurnLeftModernKeys     },
+    { STD_ARRAYLEN(aActionTurnRightModernKeys)   , aActionTurnRightModernKeys    },
+    { 0                                          , NULL                          },
+    { STD_ARRAYLEN(aActionStepRightModernKeys)   , aActionStepRightModernKeys    },
+    { STD_ARRAYLEN(aActionCrawlModernKeys)       , aActionCrawlModernKeys        },
+    { STD_ARRAYLEN(aActionRunModernKeys)         , aActionRunModernKeys          },
+    { STD_ARRAYLEN(aActionRollModernKeys)        , aActionRollModernKeys         },
+    { STD_ARRAYLEN(aActionJumpModernKeys)        , aActionJumpModernKeys         },
+    { STD_ARRAYLEN(aActionLookModernKeys)        , aActionLookModernKeys         },
+    { STD_ARRAYLEN(aActionActivateModernKeys)    , aActionActivateModernKeys     },
+    { STD_ARRAYLEN(aActionToggleWeaponModernKeys), aActionToggleWeaponModernKeys },
+    { STD_ARRAYLEN(aActionPrevWeaponModernKeys)  , aActionPrevWeaponModernKeys   },
+    { STD_ARRAYLEN(aActionNextWeaponModernKeys)  , aActionNextWeaponModernKeys   },
+    { STD_ARRAYLEN(aActionToggleLightModernKeys) , aActionToggleLightModernKeys  },
+    { STD_ARRAYLEN(aActionFistsKeys)             , aActionFistsKeys              },
+    { STD_ARRAYLEN(aActionWhipKeys)              , aActionWhipKeys               },
+    { STD_ARRAYLEN(aActionMauserKeys)            , aActionMauserKeys             },
+    { STD_ARRAYLEN(aActionPPSH41Keys)            , aActionPPSH41Keys             },
+    { STD_ARRAYLEN(aActionPistolKeys)            , aActionPistolKeys             },
+    { STD_ARRAYLEN(aActionSimonovKeys)           , aActionSimonovKeys            },
+    { STD_ARRAYLEN(aActionTokarevKeys)           , aActionTokarevKeys            },
+    { STD_ARRAYLEN(aActionToz34Keys)             , aActionToz34Keys              },
+    { STD_ARRAYLEN(aActionBazookaKeys)           , aActionBazookaKeys            },
+    { STD_ARRAYLEN(aActionMacheteKeys)           , aActionMacheteKeys            },
+    { STD_ARRAYLEN(aActionSatchelKeys)           , aActionSatchelKeys            },
+    { STD_ARRAYLEN(aActionGrenadeKeys)           , aActionGrenadeKeys            },
+    { STD_ARRAYLEN(aActionMapKeys)               , aActionMapKeys                },
+    { STD_ARRAYLEN(aActionInterfaceModernKeys)   , aActionInterfaceModernKeys    },
+    { STD_ARRAYLEN(aActionHealthModernKeys)      , aActionHealthModernKeys       },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { 0                                          , NULL                          },
+    { STD_ARRAYLEN(aActionChalk)                 , aActionChalk                  }
+};
+
 static const JonesConfigControlAction* jonesConfig_aDfltKeySets[] =
 {
     jonesConfig_aDefaultControlSet,
     jonesConfig_aDfault2Axis4Button,
     jonesConfig_aDefault2Axis8Button,
-    jonesConfig_aDefaultPadControlSet
+    jonesConfig_aDefaultPadControlSet,
+    jonesConfig_aDefaultModernControlSet
 };
 
 static const char* jonesConfig_aDfltKeySetNames[JONESCONFIG_NUMDEFAULTCONTROLSCHEMES] =
@@ -634,7 +703,8 @@ static const char* jonesConfig_aDfltKeySetNames[JONESCONFIG_NUMDEFAULTCONTROLSCH
     "JONES_STR_DFLTKEY",
     "JONES_STR_DFLT2A4B",
     "JONES_STR_DFLT2A8B",
-    "JONES_STR_DFLTPAD"
+    "JONES_STR_DFLTPAD",
+    "JONES_STR_DFLTMODERN"
 };
 
 static const char* jonesConfig_aDfltKeySetFallbackNames[JONESCONFIG_NUMDEFAULTCONTROLSCHEMES] =
@@ -642,7 +712,8 @@ static const char* jonesConfig_aDfltKeySetFallbackNames[JONESCONFIG_NUMDEFAULTCO
     "JONES_STR_DFLTKEY",
     "JONES_STR_DFLT2A4B",
     "JONES_STR_DFLT2A8B",
-    "Keyboard and gamepad"
+    "Keyboard and gamepad",
+    "Modern keyboard and gamepad"
 };
 
 static int JonesControlSchemes_IsMouseButton(size_t controlId)
@@ -1501,11 +1572,17 @@ int J3DAPI JonesControlSchemes_SetDefaultScheme(JonesControlsScheme* pScheme, si
     return jonesConfig_SetDefaultControlScheme(pScheme, index);
 }
 
-// Added: the keyboard-and-gamepad scheme is the default for new installs. A remembered active
-// scheme stays as it is; a connected pad is always on, so the pad count no longer picks a default.
+// Added: a new install gets the Modern keyboard and gamepad scheme when the control style is
+// Modern, and the Keyboard and gamepad scheme in Classic. A remembered active scheme stays as it
+// is; a connected pad is always on, so the pad count no longer picks a default.
+size_t J3DAPI JonesControlSchemes_GetDefaultSchemeIndex(void)
+{
+    return sithControl_IsModernControlStyle() ? 4u : 3u;
+}
+
 static size_t JonesControlSchemes_DefaultSchemeIndex(void)
 {
-    return 3u;
+    return JonesControlSchemes_GetDefaultSchemeIndex();
 }
 
 // --- Reading ----------------------------------------------------------------------------------
@@ -2133,6 +2210,17 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
     int bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
 
+    // Added: in Modern the scheme's step rows become quick-step modifiers, so the old held
+    // sidestep bindings never survive a rebind. The two rows share SITHCONTROL_QUICKSTEP, so it
+    // is unbound once here instead of before each row.
+    bool bModern = sithControl_IsModernControlStyle();
+    if ( bModern )
+    {
+        sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
+        sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
+    }
+    sithControl_UnbindFunction(SITHCONTROL_QUICKSTEP);
+
     // Altered: enable/disable the mouse before the action loop, not after it. sithControl_RebindMouse
     // removes every mouse-button binding, so the original order dropped a scheme's mouse bindings.
     jonesConfig_EnableMouseControl(bMouse);
@@ -2291,29 +2379,60 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
             if ( functionId != (SithControlFunction)-1 )
             {
-                sithControl_UnbindFunction(functionId);
-                if ( functionId == SITHCONTROL_FORWARD )
+                // Added: Modern turns both scheme step rows into quick-step modifiers. The
+                // physical controls keep their row, but a held direction now combines with the
+                // modifier instead of stepping on a held key. Classic keeps the original rows.
+                bool bQuickStep = bModern
+                    && (functionId == SITHCONTROL_STPLEFT || functionId == SITHCONTROL_STPRIGHT);
+                SithControlFunction bindFunction = bQuickStep ? SITHCONTROL_QUICKSTEP : functionId;
+
+                if ( !bQuickStep )
                 {
-                    sithControl_UnbindFunction(SITHCONTROL_RUNFWD);
+                    sithControl_UnbindFunction(functionId);
+                    if ( functionId == SITHCONTROL_FORWARD )
+                    {
+                        sithControl_UnbindFunction(SITHCONTROL_RUNFWD);
+                    }
                 }
 
                 for ( size_t i = 1; i <= JONESCONTROL_ACTION_GETNUMBINDS(pConfig->aActions[actionId]); ++i )
                 {
                     size_t controlId = pConfig->aActions[actionId][i];
+
+                    // Added: in Modern the left trigger locks a target; Run comes from the stick
+                    // magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind time.
+                    // Classic keeps the same scheme data and LT stays Run.
+                    SithControlFunction bindFunctionId = bindFunction;
+                    if ( sithControl_IsModernControlStyle()
+                        && bindFunctionId == SITHCONTROL_ACT1
+                        && controlId == JONESCONFIG_JOYAXISKID_GROUND )
+                    {
+                        bindFunctionId = SITHCONTROL_TARGETLOCK;
+                    }
+
+                    // Added: the owner reserves LB for a weapon wheel, so in Modern a step-left row's
+                    // gamepad controls are not bound; RB (the step-right row) is the quick-step modifier.
+                    if ( bQuickStep && functionId == SITHCONTROL_STPLEFT
+                        && !JonesControlSchemes_IsKeyboardControl(controlId)
+                        && !JonesControlSchemes_IsMouseButton(controlId) )
+                    {
+                        continue;
+                    }
+
                     if ( JonesControlSchemes_IsKeyboardControl(controlId) )
                     {
-                        sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
+                        sithControl_BindControl(bindFunctionId, controlId, (SithControlBindFlag)0);
                     }
                     else if ( JonesControlSchemes_IsMouseButton(controlId) )
                     {
                         if ( bMouse )
                         {
-                            sithControl_BindControl(functionId, controlId, (SithControlBindFlag)0);
+                            sithControl_BindControl(bindFunctionId, controlId, (SithControlBindFlag)0);
                         }
                     }
                     else
                     {
-                        jonesConfig_BindJoystickControl(functionId, controlId);
+                        jonesConfig_BindJoystickControl(bindFunctionId, controlId);
                     }
                 }
             }
