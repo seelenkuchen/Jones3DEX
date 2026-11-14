@@ -11,12 +11,15 @@
 #include <babylon/platform/Window.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace babylon::platform
 {
@@ -130,6 +133,64 @@ namespace
     {
         log::warning("{}: {}", title, text);
         return false;
+    }
+
+    std::optional<std::size_t> NullPlatform::askChoice(std::string_view title,
+        std::string_view text, std::span<const std::string_view> buttons)
+    {
+        ChoiceRequest request{ std::string(title), std::string(text), {} };
+        request.buttons.reserve(buttons.size());
+        for ( const std::string_view button : buttons )
+        {
+            request.buttons.emplace_back(button);
+        }
+        m_lastChoice = std::move(request);
+
+        // The same limit as the interface, checked before the scripted answer
+        // so a refused list is never reported as shown.
+        if ( buttons.empty() || buttons.size() > kMaxChoiceButtons )
+        {
+            log::warning("{}: {}", title, text);
+            return std::nullopt;
+        }
+        if ( !m_choiceAnswer.has_value() )
+        {
+            log::warning("{}: {}", title, text);
+            return std::nullopt;
+        }
+        return m_choiceAnswer;
+    }
+
+    void NullPlatform::setChoiceAnswer(std::optional<std::size_t> answer)
+    {
+        m_choiceAnswer = answer;
+    }
+
+    std::optional<NullPlatform::ChoiceRequest> NullPlatform::lastChoice() const
+    {
+        return m_lastChoice;
+    }
+
+    FolderChoice NullPlatform::chooseFolder(std::string_view title,
+        std::string_view defaultLocation)
+    {
+        m_lastFolder = FolderRequest{ std::string(title), std::string(defaultLocation) };
+        if ( !m_folderAnswer.has_value() )
+        {
+            log::warning("{}: {}", title, defaultLocation);
+            return {};
+        }
+        return *m_folderAnswer;
+    }
+
+    void NullPlatform::setFolderAnswer(FolderChoice answer)
+    {
+        m_folderAnswer = std::move(answer);
+    }
+
+    std::optional<NullPlatform::FolderRequest> NullPlatform::lastFolder() const
+    {
+        return m_lastFolder;
     }
 
     bool NullPlatform::rumbleGamepad(GamepadId gamepad, float lowFrequency,
