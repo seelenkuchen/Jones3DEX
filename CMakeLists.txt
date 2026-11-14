@@ -257,3 +257,27 @@ jones3d_print_config_option("Runtime guards" JONES3D_RUNTIME_GUARDS)
 jones3d_print_config_option("Speedrun build" JONES3D_SPEEDRUN_BUILD)
 jones3d_print_config_option("Build programs" JONES3D_BUILD_PROGRAMS)
 jones3d_print_config_option("Build tests" JONES3D_BUILD_TESTS)
+
+# Added: CPack packages the game component only (M8.5). Windows gets the player
+# zip; the same configuration makes a tar.gz for local checks on Linux, whose
+# release artifact comes from packaging/linux/make-appimage.sh instead. The
+# headless runner's tools component is deliberately not packaged.
+if (JONES3D_PLATFORM_BABYLON)
+    set(CPACK_PACKAGE_NAME "Jones3D_EX")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_COMPONENTS_ALL game)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+    # Files at the archive root, like the Windows zip layout: Jones3D.exe and
+    # Data/ next to each other, then licenses/, README.md and CHANGELOG.md.
+    set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    if (WIN32)
+        set(CPACK_GENERATOR "ZIP")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-windows-x64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-windows-x64")
+    else()
+        set(CPACK_GENERATOR "TGZ")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-linux-x86_64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-linux-x86_64")
+    endif()
+    include(CPack)
+endif()

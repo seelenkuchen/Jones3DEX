@@ -1,0 +1,94 @@
+name: Release packages
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-appimage:
+    name: Linux AppImage
+    # Ubuntu 24.04, not 22.04: the pinned shader toolchain downloads a prebuilt
+    # DXC whose libdxcompiler.so needs glibc 2.36/2.38 symbols (arc4random,
+    # __isoc23_strtol), and 22.04's glibc 2.35 cannot link it. That makes the
+    # build fail at shadercross, before any game code. The AppImage therefore
+    # has a 24.04-era glibc floor. appimagetool runs with
+    # APPIMAGE_EXTRACT_AND_RUN=1 and needs no FUSE in the container.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      # The SDL3 build dependency set of game-native.yml, plus `file`, which
+      # appimagetool calls.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build file libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libegl1-mesa-dev libdrm-dev libgbm-dev libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdbus-1-dev mesa-vulkan-drivers
+      # The shader toolchain and compiled shaders share the repository root's
+      # .cache, like in game-native.yml.
+      - name: Cache the shader toolchain
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ${{ runner.os }}-${{ runner.arch }}-shader-toolchain-${{ hashFiles('Babylon/cmake/BabylonShaders.cmake', 'Babylon/cmake/BabylonCompileShader.cmake', 'Babylon/cmake/shadercross/**') }}
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release -DJONES3D_PLATFORM_BABYLON=ON
+      - name: Build
+        run: cmake --build build
+      # List first: zero discovered suites validates nothing.
+      - name: List unit tests
+        run: ctest --test-dir build -N -L unit
+      - name: Run unit tests (lavapipe required)
+        env:
+          BABYLON_REQUIRE_GPU: "1"
+        run: ctest --test-dir build --output-on-failure -L unit
+      - name: Install the game component
+        run: cmake --install build --prefix staging --component game
+      - name: Build the AppImage
+        env:
+          ARCH: x86_64
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            version="$(sed -n 's/^project(OpenJones3D VERSION \([0-9][0-9.]*\)).*/\1/p' CMakeLists.txt)"
+          fi
+          packaging/linux/make-appimage.sh staging build/out "$version"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jones3D_EX-AppImage
+          path: build/out/*.AppImage
+          if-no-files-found: error
+
+  windows-zip:
+    name: Windows zip
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache the shader toolchain
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: ${{ runner.os }}-${{ runner.arch }}-shader-toolchain-${{ hashFiles('Babylon/cmake/BabylonShaders.cmake', 'Babylon/cmake/BabylonCompileShader.cmake', 'Babylon/cmake/shadercross/**') }}
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 18 2026" -A x64 -DJONES3D_PLATFORM_BABYLON=ON
+      - name: Build
+        run: cmake --build build --config Release
+      - name: List unit tests
+        run: ctest --test-dir build -C Release -N -L unit
+      # Windows has no lavapipe, so BABYLON_REQUIRE_GPU stays unset.
+      - name: Run unit tests
+        run: ctest --test-dir build -C Release --output-on-failure -L unit
+      - name: Package the game component
+        run: cpack --config build/CPackConfig.cmake -C Release -B build/out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jones3D_EX-Windows
+          path: build/out/*.zip
+          if-no-files-found: error
