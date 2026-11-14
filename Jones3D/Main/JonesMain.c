@@ -825,12 +825,24 @@ void JonesMain_OnQuickSaveKey(tSysWindow hWnd)
         return;
     }
 
-    char aFilename[128];
+    char aFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pQSPrefix = sithGetQuickSaveFilePrefix();
     STD_FORMAT(aFilename, "%s.%s", pQSPrefix, "nds");
 
-    char aPath[128];
+    char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pSaveGamesDir = sithGetSaveGamesDir();
+    if ( pSaveGamesDir[0] == '\0' )
+    {
+        STDLOG_ERROR("JonesMain: the save directory is unavailable.\n");
+        return;
+    }
+
+    if ( strlen(pSaveGamesDir) + strlen(aFilename) + 2u > sizeof(aPath) )
+    {
+        STDLOG_ERROR("JonesMain: the quick save path is too long for '%s'.\n", aFilename);
+        return;
+    }
+
     STD_MAKEPATH(aPath, pSaveGamesDir, aFilename);
 
     JonesHud_RestoreTreasuresStatistics();
@@ -860,12 +872,26 @@ void JonesMain_OnQuickLoadKey(void)
 
     jonesCog_g_bEnableGamesave = 0;
 
-    char aFilename[128];
+    char aFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pQSPrefix = sithGetQuickSaveFilePrefix();
     STD_FORMAT(aFilename, "%s.%s", pQSPrefix, "nds");
 
-    char aPath[128];
+    char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pSaveGamesDir = sithGetSaveGamesDir();
+    if ( pSaveGamesDir[0] == '\0' )
+    {
+        STDLOG_ERROR("JonesMain: the save directory is unavailable.\n");
+        jonesCog_g_bEnableGamesave = 1;
+        return;
+    }
+
+    if ( strlen(pSaveGamesDir) + strlen(aFilename) + 2u > sizeof(aPath) )
+    {
+        STDLOG_ERROR("JonesMain: the quick save path is too long for '%s'.\n", aFilename);
+        jonesCog_g_bEnableGamesave = 1;
+        return;
+    }
+
     STD_MAKEPATH(aPath, pSaveGamesDir, aFilename);
 
     FILE* pFile = fopen(aPath, "r");
@@ -1626,7 +1652,7 @@ int J3DAPI JonesMain_Restore(const char* pNdsFilePath)
 
     const char* pSaveName    = sithGetCurrentWorldSaveName();
     const char* pFilePrefix  = sithGetAutoSaveFilePrefix();
-    char aQSaveFilename[128] = { 0 };
+    char aQSaveFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 }; // Altered: room for user-directory paths (M8.2b)
     STD_FORMAT(aQSaveFilename, "%s%s", pFilePrefix, pSaveName);
 
     // Fixed: Use bounded extension replacement for the fixed-size path buffer.
