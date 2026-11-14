@@ -436,8 +436,8 @@ TEST_CASE("The SDL user path accepts an empty organization under a temporary dat
             rootString.pop_back();
         }
 
-        CHECK(fs->userPath("", "Jones3DEX") == rootString + "/Jones3DEX/");
-        CHECK(fs->exists(rootString + "/Jones3DEX/"));
+        CHECK(fs->userPath("", "Field Trip") == rootString + "/Field Trip/");
+        CHECK(fs->exists(rootString + "/Field Trip/"));
         CHECK(sink.records().empty());
     }
 

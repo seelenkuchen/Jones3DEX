@@ -99,10 +99,10 @@ TEST_CASE("The Null base path and user path match the documented layout")
     CHECK(fs.userPath("Aster Studio", "Field Trip") == "/user/Aster Studio/Field Trip/");
     CHECK(fs.userPath("Aster Studio", "Field Trip") == "/user/Aster Studio/Field Trip/");
     CHECK(fs.userPath("aster studio", "field trip") == "/user/aster studio/field trip/");
-    CHECK(fs.userPath("", "Jones3DEX") == "/user/Jones3DEX/");
+    CHECK(fs.userPath("", "Field Trip") == "/user/Field Trip/");
     CHECK(fs.exists("/user/Aster Studio/Field Trip/"));
     CHECK(fs.exists("/user/Aster Studio"));
-    CHECK(fs.exists("/user/Jones3DEX/"));
+    CHECK(fs.exists("/user/Field Trip/"));
     CHECK(fs.exists("/user"));
     CHECK(sink.records().empty());
 }
