@@ -6,6 +6,17 @@
 
 #include <j3dcore/j3d.h>
 
+// Added: AddressSanitizer aborts an allocation above its own maximum instead of letting the
+// system allocator return NULL. Tests that intentionally request such a block can skip only
+// that request when this is set.
+#if defined(__SANITIZE_ADDRESS__)
+#  define J3DTEST_ADDRESS_SANITIZER 1
+#elif defined(__has_feature)
+#  if __has_feature(address_sanitizer)
+#    define J3DTEST_ADDRESS_SANITIZER 1
+#  endif
+#endif
+
 typedef struct sHostServices tHostServices;
 
 J3D_EXTERN_C_START

@@ -140,7 +140,13 @@ TEST(stdCircBuf, TestAllocationOverflowRejection)
     tCircularBuffer circ;
 
     STD_ZEROMEM(&circ, sizeof(circ));
+#if defined(J3D_64BIT) && defined(J3DTEST_ADDRESS_SANITIZER)
+    // Added: On 64-bit the int inputs cannot overflow the size_t product, so this case would ask
+    // the system allocator for a ~4 EiB block. ASan aborts such a request instead of returning
+    // NULL; the allocation-failure path is covered by TestAllocationFailureRejection.
+#else
     TEST_ASSERT_EQUAL_INT(0, stdCircBuf_New(&circ, INT_MAX, INT_MAX));
+#endif
     TEST_ASSERT_NULL(circ.paElements);
     TEST_ASSERT_EQUAL_size_t(0u, circ.numAllocated);
 }

@@ -516,7 +516,13 @@ TEST(stdGob, TestLoadEntryFreeEntryMmapFallbackAndRejectionVectors)
     TEST_ASSERT_EQUAL_INT(0, stdGob_LoadEntry(NULL, stdGobTest_pBasicPath, 1, 0));
     TEST_ASSERT_EQUAL_INT(0, stdGob_LoadEntry(&gob, NULL, 1, 0));
 #endif
+#if defined(J3D_64BIT) && defined(J3DTEST_ADDRESS_SANITIZER)
+    // Added: On 64-bit INT_MAX handles do not overflow the allocation size, so this case would ask
+    // the system allocator for a ~64 GiB block. ASan aborts such a request instead of returning
+    // NULL; the allocation-failure path is covered by TestAllocationFailuresDuringLoadCleanlyReject.
+#else
     TEST_ASSERT_EQUAL_INT(0, stdGob_LoadEntry(&gob, stdGobTest_pBasicPath, INT_MAX, 0));
+#endif
 
     StdGeneralTest_FailNextAllocations(0);
     TEST_ASSERT_NULL(stdGob_Load(stdGobTest_pBasicPath, 1, 0));
