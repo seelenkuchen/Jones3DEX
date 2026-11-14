@@ -15,12 +15,21 @@
 
 #include <doctest.h>
 
+#include <array>
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 #include <variant>
+#include <vector>
 
 namespace
 {
+    using babylon::platform::FolderChoice;
+    using babylon::platform::FolderChoiceResult;
+    using babylon::platform::kMaxChoiceButtons;
     using babylon::platform::kMaxWindowDimension;
     using babylon::platform::NullPlatform;
     using babylon::platform::Size;
@@ -356,4 +365,128 @@ TEST_CASE("A Null platform reports the gamepad type a test configured")
     const auto* const xbox = std::get_if<babylon::platform::GamepadConnected>(&*pushed);
     REQUIRE(xbox != nullptr);
     CHECK(xbox->type == babylon::platform::GamepadType::Xbox);
+}
+
+TEST_CASE("The Null platform refuses choice boxes by default and records every request")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    // Nothing was asked for yet.
+    CHECK_FALSE(platform.lastChoice().has_value());
+    CHECK_FALSE(platform.lastFolder().has_value());
+
+    const std::array<std::string_view, 2> buttons{ "Choose folder", "Quit" };
+    CHECK_FALSE(platform.askChoice("Game data", "Not found", buttons).has_value());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    CHECK(sink.records()[0].message == "Game data: Not found");
+    sink.clear();
+
+    const std::optional<NullPlatform::ChoiceRequest> request = platform.lastChoice();
+    REQUIRE(request.has_value());
+    CHECK(request->title == "Game data");
+    CHECK(request->text == "Not found");
+    REQUIRE(request->buttons.size() == 2);
+    CHECK(request->buttons[0] == "Choose folder");
+    CHECK(request->buttons[1] == "Quit");
+
+    // The folder picker has the same default: Unavailable, an empty path and
+    // one warning, and the request is recorded.
+    const FolderChoice folder = platform.chooseFolder("Game data", "/games");
+    CHECK(folder.result == FolderChoiceResult::Unavailable);
+    CHECK(folder.path.empty());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    CHECK(sink.records()[0].message == "Game data: /games");
+    sink.clear();
+
+    const std::optional<NullPlatform::FolderRequest> folderRequest = platform.lastFolder();
+    REQUIRE(folderRequest.has_value());
+    CHECK(folderRequest->title == "Game data");
+    CHECK(folderRequest->defaultLocation == "/games");
+}
+
+TEST_CASE("The Null platform refuses empty and too long choice boxes even when an answer is scripted")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    platform.setChoiceAnswer(0);
+    CHECK_FALSE(platform.askChoice("Game data", "No buttons",
+        std::span<const std::string_view>{}).has_value());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    sink.clear();
+    REQUIRE(platform.lastChoice().has_value());
+    CHECK(platform.lastChoice()->buttons.empty());
+
+    std::array<std::string_view, kMaxChoiceButtons + 1> tooMany{};
+    for ( std::size_t i = 0; i < tooMany.size(); ++i )
+    {
+        tooMany[i] = "Button";
+    }
+    CHECK_FALSE(platform.askChoice("Game data", "Too many", tooMany).has_value());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    sink.clear();
+    REQUIRE(platform.lastChoice().has_value());
+    CHECK(platform.lastChoice()->buttons.size() == tooMany.size());
+
+    // The answer is still scripted: a legal list now comes back unchanged.
+    const std::array<std::string_view, 1> one{ "OK" };
+    const std::optional<std::size_t> answer = platform.askChoice("Game data", "One", one);
+    REQUIRE(answer.has_value());
+    CHECK(*answer == 0);
+    CHECK(sink.records().empty());
+}
+
+TEST_CASE("The Null platform returns scripted choice and folder answers")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    // A scripted choice comes back as the index of the button, with no
+    // warning, and the request is still recorded.
+    platform.setChoiceAnswer(1);
+    const std::array<std::string_view, 3> buttons{ "One", "Two", "Cancel" };
+    const std::optional<std::size_t> choice =
+        platform.askChoice("Game data", "Pick one", buttons);
+    REQUIRE(choice.has_value());
+    CHECK(*choice == 1);
+    CHECK(sink.records().empty());
+    REQUIRE(platform.lastChoice().has_value());
+    CHECK(platform.lastChoice()->title == "Game data");
+    CHECK(platform.lastChoice()->text == "Pick one");
+    REQUIRE(platform.lastChoice()->buttons.size() == 3);
+    CHECK(platform.lastChoice()->buttons[2] == "Cancel");
+
+    // nullopt restores the default: no box, one warning, nullopt.
+    platform.setChoiceAnswer(std::nullopt);
+    CHECK_FALSE(platform.askChoice("Game data", "Pick one", buttons).has_value());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    sink.clear();
+
+    // Each folder result is returned unchanged and never logs.
+    platform.setFolderAnswer(FolderChoice{ FolderChoiceResult::Chosen, "/games/data" });
+    const FolderChoice chosen = platform.chooseFolder("Game data", "/games");
+    CHECK(chosen.result == FolderChoiceResult::Chosen);
+    CHECK(chosen.path == "/games/data");
+    CHECK(sink.records().empty());
+
+    platform.setFolderAnswer(FolderChoice{ FolderChoiceResult::Cancelled, {} });
+    const FolderChoice cancelled = platform.chooseFolder("Game data", "/games");
+    CHECK(cancelled.result == FolderChoiceResult::Cancelled);
+    CHECK(cancelled.path.empty());
+    CHECK(sink.records().empty());
+
+    platform.setFolderAnswer(FolderChoice{ FolderChoiceResult::Unavailable, {} });
+    const FolderChoice unavailable = platform.chooseFolder("Game data", "/games");
+    CHECK(unavailable.result == FolderChoiceResult::Unavailable);
+    CHECK(unavailable.path.empty());
+    CHECK(sink.records().empty());
+    REQUIRE(platform.lastFolder().has_value());
+    CHECK(platform.lastFolder()->title == "Game data");
+    CHECK(platform.lastFolder()->defaultLocation == "/games");
 }
