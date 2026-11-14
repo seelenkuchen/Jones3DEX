@@ -255,6 +255,9 @@ if (J3D_PLATFORM_BABYLON)
         J3D_TEST
         STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
         STDRENDERREPLAYTEST_VBUFFERFILL_OK=1
+        # Added: keep Unity's malloc/free macros out of C++: inline STL code compiled here would share
+        # one COMDAT with production and free CRT memory through unity_free, corrupting the heap in Release.
+        $<$<COMPILE_LANGUAGE:CXX>:UNITY_FIXTURE_NO_EXTRAS>
     )
 
     target_include_directories(std3DBabylonTests PRIVATE
