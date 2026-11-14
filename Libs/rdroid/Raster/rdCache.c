@@ -11,7 +11,8 @@
 #include <math.h>
 #include <stdlib.h>
 
-#define RDCACHE_VERTBUFFERSIZE RDCACHE_MAXVERTICES * RDCACHE_MAXFACEVERTICES
+#define RDCACHE_VERTBUFFERSIZE (RDCACHE_MAXVERTICES * RDCACHE_MAXFACEVERTICES)
+static_assert(RDCACHE_VERTBUFFERSIZE == 2097152, "RDCACHE_VERTBUFFERSIZE == 2097152");
 
 static size_t rdCache_numProcFaces              = 0;
 static rdCacheProcEntry rdCache_aProcFaces[128] = { 0 };
