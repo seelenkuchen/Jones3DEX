@@ -10,6 +10,7 @@
 #include <Jones3D/Display/JonesConsole.h>
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesFile.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
@@ -147,6 +148,7 @@ void Jones3D_ResetGlobalsBeforeJonesDialog(void)
 
 void Jones3D_ResetGlobalsBeforeJonesConfig(void)
 {
+    JonesDataLocate_Reset(); // Added
     JonesDisplay_ResetGlobals();
     JonesFile_ResetGlobals();
     JonesHud_ResetGlobals();

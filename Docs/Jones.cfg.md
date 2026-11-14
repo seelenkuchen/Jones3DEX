@@ -158,7 +158,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `version` | string | `1.0.0` | Written automatically when a new config file is created. |
-| `installPath` | string | empty | Installation path. Usually engine-managed. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
+| `installPath` | string | empty | Installation path. The game finds its data automatically: `--data <dir>`, then this key, then `<user dir>/data`, the executable and working directories, and known Steam/GOG locations. The found folder is used for the run but only a folder chosen in the first-run picker is written back here. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
 | `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |

@@ -41,7 +41,8 @@ namespace
     void PrintUsage(const char* pProgramName)
     {
         fprintf(stderr,
-            "usage: %s [--version] [--user-dir <dir>] [--load <save.nds>] [--input <script>] "
+            "usage: %s [--version] [--user-dir <dir>] [--load <save.nds>] [--data <dir>] "
+            "[--hash-data <dir>] [--install-data <dir>] [--input <script>] "
             "[--quit-after-script] [--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] "
             "[--present-log <file>]\n",
             pProgramName ? pProgramName : "Jones3D");

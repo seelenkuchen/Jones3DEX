@@ -80,6 +80,54 @@ set_tests_properties(Jones3D.Data PROPERTIES
     TIMEOUT 120
 )
 
+# Added: the game data search, prompt loop and install tool (ADR-0021, M8.4). The candidate list
+# and libraryfolders.vdf parser are pure, and the search and install cases use temporary folders,
+# so the test needs no game assets.
+add_executable(jonesDataLocateTests
+    JonesDataLocateTestRunner.c
+    JonesDataLocateTest.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesDataLocate.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesData.c"
+)
+
+target_include_directories(jonesDataLocateTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+# Added: the Startup-level user-data case uses stdUserDir, which reaches the file utilities; the
+# Babylon column provides them through the adapter context.
+set(STDBABYLON_TEST_MAIN_DIR "${CMAKE_SOURCE_DIR}/Libs/std/Babylon")
+std_use_babylon_test_main(jonesDataLocateTests "${CMAKE_CURRENT_SOURCE_DIR}/JonesDataLocateTestRunner.c")
+
+if (APPLE OR MSVC)
+    target_link_libraries(jonesDataLocateTests PRIVATE
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jonesDataLocateTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+        m
+    )
+endif()
+
+set_target_properties(jonesDataLocateTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    JonesDataLocateTestRunner.c
+    JonesDataLocateTest.c
+)
+
+add_test(NAME Jones3D.DataLocate COMMAND jonesDataLocateTests)
+set_tests_properties(Jones3D.DataLocate PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 120
+)
+
+
 # Added: the video mode lookup JonesMain_FindClosestVideoMode (JonesMainTest.c). JonesMain.c needs
 # the rest of the application layer, so the test links the Jones3DGame objects and the platform
 # helpers of Platform/Null without its main(), like the Babylon column's Jones3D-headless. The

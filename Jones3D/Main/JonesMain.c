@@ -6,6 +6,8 @@
 
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
+#include <Jones3D/Main/JonesData.h>
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesFile.h>
 #include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Main/jonesString.h>
@@ -268,6 +270,38 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     stdConfig_GetString(JONESCONFIG_CFG_SOURCEPATH, JonesMain_state.aCDPath, STD_ARRAYLEN(JonesMain_state.aCDPath), "");
 
     std3D_SetFindAllDevices(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_ALLDEVICES, false));
+
+    // Added: find the player's game data before JonesFile opens the archives (ADR-0021, M8.4).
+    // installPath from Jones.cfg is one of the candidates; the found folder becomes this run's
+    // install path. Only a folder chosen in the folder picker is written back to Jones.cfg.
+    JonesDataLocateResult locateResult;
+    if ( !JonesDataLocate_Startup(JonesMain_state.aInstallPath, &locateResult) )
+    {
+        JonesMain_CloseWindow();
+        return 1;
+    }
+
+    if ( strlen(locateResult.aInstallPath) >= sizeof(JonesMain_state.aInstallPath) )
+    {
+        JonesMain_LogErrorToFile("The game data path is too long.");
+        JonesMain_CloseWindow();
+        return 1;
+    }
+
+    STD_STRCPY(JonesMain_state.aInstallPath, locateResult.aInstallPath);
+
+    // Added: check the data now that it is known (ADR-0021). An unknown release is a warning and
+    // the game continues; a known release is logged by name.
+    char aDataCheckPath[STDUSERDIR_MAXPATH + 32] = { 0 };
+    if ( !stdUserDir_MakePath(aDataCheckPath, sizeof(aDataCheckPath), "datacheck.txt") )
+    {
+        aDataCheckPath[0] = '\0';
+    }
+
+    STDLOG_STATUS("Checking the game data...\n");
+    JonesDataReport dataReport;
+    JonesData_CheckDir(locateResult.aResourceDir, aDataCheckPath[0] ? aDataCheckPath : NULL, &dataReport);
+    JonesData_LogReport(&dataReport);
 
     JonesFile_Open(&JonesMain_hs, JonesMain_state.aInstallPath, JonesMain_state.aCDPath);
 

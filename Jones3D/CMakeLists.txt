@@ -216,6 +216,8 @@ if (J3D_PLATFORM_BABYLON)
     set(JONES3D_WINDOWED_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/mainWindowed.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylon.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonData.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonData.h"
         ${JONES3D_BABYLON_UI_SOURCES}
         ${JONES3D_CONTROL_SCHEME_SOURCES}
         ${JONES3D_BABYLON_MAINSYS_SOURCE}

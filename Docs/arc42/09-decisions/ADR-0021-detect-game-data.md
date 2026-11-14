@@ -19,6 +19,10 @@ partial or modified data shows up later as load errors or crashes.
   and mods stay possible.
 - The table records provenance: which release each checksum comes from.
 
+Implemented in M8 (2026-11-14): the game searches for the data at startup, asks for it with a folder
+picker when it cannot find it, and checks it against the table. `--data`, `--hash-data` and
+`--install-data` cover explicit folders, adding releases to the table, and installing from CDs.
+
 ## Consequences
 
 - Needed for M8's game data installation; the table is built from real releases, never from guesses.

@@ -29,6 +29,10 @@
     install. Existing `Jones.cfg` and savegames are copied there when they are missing, and the old files are kept.
     Put a `portable.txt` beside the executable or in the working directory to keep everything local, or pass
     `--user-dir <dir>`; headless runs stay in the working directory unless given `--user-dir`.
+  - The game finds its data automatically: `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/data`, next
+    to the executable, the working directory, and known Steam/GOG locations. When it cannot find the data it asks
+    for the folder once and checks it against the known releases. `--hash-data <dir>` prints the hash rows for a
+    release, and `--install-data <dir>` copies the files from a disc or folder into `<user dir>/data/Resource`.
 
 ### Upstream fixes (OpenJones3D develop)
   - Renderer fixes from OpenJones3D: orthographic clipping of textured and lit faces, light attenuation on
