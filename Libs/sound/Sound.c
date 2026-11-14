@@ -3359,9 +3359,10 @@ void Sound_StopAllNonStaticSounds(void)
     }
 }
 
-// Added: the banks serialize SoundInfo records through the fixed-width SoundInfoDisk layout, so 64-bit
-// builds store and load the same bytes a 32-bit build stored raw. pLipSyncData keeps the original
-// semantics: a 32-bit build wrote the pointer value itself, so store its truncated form.
+// Added: the banks serialize SoundInfo records through the fixed-width SoundInfoDisk layout, so every
+// record keeps the original 48-byte 32-bit layout on all platforms. The pLipSyncData slot held a raw
+// 32-bit pointer in the original; it is written as 0 because the value never meant anything outside the
+// process that wrote it.
 static void Sound_SoundInfoToDisk(SoundInfoDisk* pDst, const SoundInfo* pSrc)
 {
     pDst->hSnd           = pSrc->hSnd;
@@ -3369,7 +3370,7 @@ static void Sound_SoundInfoToDisk(SoundInfoDisk* pDst, const SoundInfo* pSrc)
     pDst->filePathOffset = pSrc->filePathOffset;
     pDst->nameOffset     = pSrc->nameOffset;
     pDst->dataOffset     = pSrc->dataOffset;
-    pDst->pLipSyncData   = (uint32_t)(uintptr_t)pSrc->pLipSyncData;
+    pDst->pLipSyncData   = 0;
     pDst->sampleRate     = pSrc->sampleRate;
     pDst->sempleBitSize  = pSrc->sempleBitSize;
     pDst->numChannels    = pSrc->numChannels;
@@ -3378,8 +3379,9 @@ static void Sound_SoundInfoToDisk(SoundInfoDisk* pDst, const SoundInfo* pSrc)
     pDst->idx            = pSrc->idx;
 }
 
-// Added: restores the in-memory record from a disk record; the pointer field comes back from the stored
-// 4 bytes, 0 meaning NULL, exactly what a raw 32-bit read of a bank produced.
+// Added: restores the in-memory record from a disk record. The pLipSyncData slot is ignored and the
+// pointer is cleared; it held a raw pointer in the original and never meant anything outside the process
+// that wrote it. Lip-sync data is regenerated on demand.
 static void Sound_SoundInfoFromDisk(SoundInfo* pDst, const SoundInfoDisk* pSrc)
 {
     pDst->hSnd           = pSrc->hSnd;
@@ -3387,7 +3389,7 @@ static void Sound_SoundInfoFromDisk(SoundInfo* pDst, const SoundInfoDisk* pSrc)
     pDst->filePathOffset = pSrc->filePathOffset;
     pDst->nameOffset     = pSrc->nameOffset;
     pDst->dataOffset     = pSrc->dataOffset;
-    pDst->pLipSyncData   = (uint8_t*)(uintptr_t)pSrc->pLipSyncData;
+    pDst->pLipSyncData   = NULL;
     pDst->sampleRate     = pSrc->sampleRate;
     pDst->sempleBitSize  = pSrc->sempleBitSize;
     pDst->numChannels    = pSrc->numChannels;
@@ -3411,8 +3413,9 @@ int J3DAPI Sound_ExportBank(tFileHandle fh, size_t bankNum)
     }
 
     // Write sound infos
-    // Altered: write record by record through the fixed-width disk layout; the bytes match what the
-    // 32-bit build stored raw, including the truncated pLipSyncData pointer value.
+    // Altered: write record by record through the fixed-width disk layout. The pLipSyncData slot is
+    // written as 0; it held a raw pointer in the original and never meant anything outside the process
+    // that wrote it.
     for ( size_t i = 0; i < soundbank_aNumSounds[bankNum]; ++i )
     {
         SoundInfoDisk soundInfoDisk;
@@ -3479,8 +3482,9 @@ int J3DAPI Sound_ImportBank(tFileHandle fh, size_t bankNum)
     }
 
     // Read sound infos, sound data and next handle
-    // Altered: read the infos record by record through the fixed-width disk layout. pLipSyncData comes
-    // back from the stored 4 bytes (0 = NULL), the same bits a raw 32-bit read produced.
+    // Altered: read the infos record by record through the fixed-width disk layout. The pLipSyncData
+    // slot is ignored and the pointer cleared; it held a raw pointer in the original and never meant
+    // anything outside the process that wrote it.
     for ( size_t i = 0; i < soundbank_aNumSounds[bankNum]; ++i )
     {
         SoundInfoDisk soundInfoDisk;
