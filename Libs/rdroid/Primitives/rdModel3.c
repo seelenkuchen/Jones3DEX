@@ -45,6 +45,7 @@ static size_t numGeoLights = 0;
 static rdLight* apGeoLights[RDCAMERA_MAX_LIGHTS] = { 0 };
 
 static bool bDrawMeshBounds                   = false;
+static bool bWarnedMeshOverViewLimit          = false; // Added: log a too-large mesh once, not every frame
 static const rdModel3Mesh* pCurMesh           = NULL;
 static rdLightMode lightingMode               = RD_LIGHTING_NONE;
 static rdVector3 localCamera                  = { 0 };
@@ -1241,6 +1242,17 @@ bool J3DAPI rdModel3_Validate(const rdModel3* pModel3)
         for ( size_t j = 0; j < pModel3->aGeos[i].numMeshes; ++j )
         {
             rdModel3Mesh* pMesh = &pModel3->aGeos[i].aMeshes[j];
+            // Added: the drawing code transforms a mesh's vertices into buffers of these limits.
+            if ( pMesh->numVertices > RDMODEL3_MAX_VERTICES )
+            {
+                return false;
+            }
+
+            if ( pMesh->numTexVertices > RDMODEL3_MAX_TEXVRTICES )
+            {
+                return false;
+            }
+
             for ( size_t k = 0; k < pMesh->numFaces; ++k )
             {
                 rdFace* pFace = &pMesh->aFaces[k];
@@ -1722,6 +1734,18 @@ void J3DAPI rdModel3_DrawMesh(const rdModel3Mesh* pMesh, const rdMatrix34* orien
 
     if ( pMesh->geoMode )
     {
+        // Added: aView holds RDMODEL3_MAX_VERTICES points, so refuse a mesh that would overflow it.
+        if ( pCurMesh->numVertices > STD_ARRAYLEN(aView) )
+        {
+            if ( !bWarnedMeshOverViewLimit )
+            {
+                bWarnedMeshOverViewLimit = true;
+                RDLOG_ERROR("Warning: Mesh '%s' has %zu vertices, more than the view buffer holds (%zu); skipping.\n", pCurMesh->name, pCurMesh->numVertices, STD_ARRAYLEN(aView));
+            }
+
+            return;
+        }
+
         rdVector3 tpos;
         rdMatrix_TransformPoint34(&tpos, &orient->dvec, &rdCamera_g_pCurCamera->viewMatrix); // Transform mesh position to camera view space
         // GrimEngine does this:
