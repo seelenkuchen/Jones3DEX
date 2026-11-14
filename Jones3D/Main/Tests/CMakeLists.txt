@@ -88,6 +88,7 @@ add_executable(jonesDataLocateTests
     JonesDataLocateTest.c
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesDataLocate.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesData.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesInstall.c"
 )
 
 target_include_directories(jonesDataLocateTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
@@ -123,6 +124,51 @@ source_group("Tests" FILES
 
 add_test(NAME Jones3D.DataLocate COMMAND jonesDataLocateTests)
 set_tests_properties(Jones3D.DataLocate PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 120
+)
+
+# Added: the game data install engine (M8 wizard, W2). Source finding, the copy plan and the copy
+# run use temporary folders and a fake host, so the test needs no game assets.
+add_executable(jonesInstallTests
+    JonesInstallTestRunner.c
+    JonesInstallTest.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesInstall.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesDataLocate.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesData.c"
+)
+
+target_include_directories(jonesInstallTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+set(STDBABYLON_TEST_MAIN_DIR "${CMAKE_SOURCE_DIR}/Libs/std/Babylon")
+std_use_babylon_test_main(jonesInstallTests "${CMAKE_CURRENT_SOURCE_DIR}/JonesInstallTestRunner.c")
+
+if (APPLE OR MSVC)
+    target_link_libraries(jonesInstallTests PRIVATE
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jonesInstallTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+        m
+    )
+endif()
+
+set_target_properties(jonesInstallTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    JonesInstallTestRunner.c
+    JonesInstallTest.c
+)
+
+add_test(NAME Jones3D.Install COMMAND jonesInstallTests)
+set_tests_properties(Jones3D.Install PROPERTIES
     LABELS "unit;Jones3D"
     TIMEOUT 120
 )
