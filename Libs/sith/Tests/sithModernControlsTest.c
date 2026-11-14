@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <sith/Devices/sithControl.h>
+#include <sith/Gameplay/sithTime.h>
 #include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithCollision.h>
 #include <sith/Engine/sithModernCamera.h>
@@ -859,6 +860,23 @@ TEST(sithModernControls, UpdateStartSnapsFacingAtOnce)
 
     // From standing the 180-degree change snaps in this one update.
     TEST_ASSERT_FLOAT_WITHIN(0.1f, 180.0f, fabsf(sithModernControlsTest_PlayerYaw()));
+
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
+}
+
+// Added: the inventory and the pause menu pause the game; the Modern layer then neither turns Indy
+// nor produces movement keys, as the original player controls stop on the pause.
+TEST(sithModernControls, UpdateDoesNothingWhileThePauseHolds)
+{
+    sithControl_SetModernControlStyle(true);
+    sithModernControlsTest_ReadKey(STDKEY_DOWN, 1);
+
+    sithTime_Pause();
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+    sithTime_Resume();
+
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, fabsf(sithModernControlsTest_PlayerYaw()));
 
     sithModernControlsTest_ReadKey(STDKEY_DOWN, 0);
 }
@@ -2187,6 +2205,7 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, UpdateSurfaceSwimKeepsJumpForTheLedgeGrab);
     RUN_TEST_CASE(sithModernControls, UpdateSwimLeavesClassicUnchanged);
     RUN_TEST_CASE(sithModernControls, UpdateStartSnapsFacingAtOnce);
+    RUN_TEST_CASE(sithModernControls, UpdateDoesNothingWhileThePauseHolds);
     RUN_TEST_CASE(sithModernControls, UpdateRotatesSmallChangesAt1080);
     RUN_TEST_CASE(sithModernControls, UpdateLeavesRealKeysWhenClassic);
     RUN_TEST_CASE(sithModernControls, UpdateQuickStepCountsOnlyThePressEdge);

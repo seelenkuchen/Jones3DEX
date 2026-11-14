@@ -1,6 +1,7 @@
 #include "sithModernControls.h"
 
 #include <sith/Devices/sithControl.h>
+#include <sith/Gameplay/sithTime.h>
 #include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithModernCamera.h>
 #include <sith/Gameplay/sithPlayer.h>
@@ -768,6 +769,13 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     {
         sithModernControls_bQuickStepLatched = false;
         sithModernControls_ResetLock();
+        return;
+    }
+
+    // Added: a paused game (the inventory or a pause menu) moves and turns nobody, as the original
+    // player controls stop on the pause. The lock and latch are kept for when the game resumes.
+    if ( sithTime_IsPaused() )
+    {
         return;
     }
 
