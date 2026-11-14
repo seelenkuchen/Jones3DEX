@@ -5,6 +5,7 @@
 
 #include <babylon/platform/SdlPlatform.h>
 
+#include "../../src/FileFilter.h"
 #include "SdlEventTranslation.h"
 
 #include <babylon/log/Log.h>
@@ -32,6 +33,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -128,11 +130,11 @@ namespace
         return native;
     }
 
-    // SDL_ShowOpenFolderDialog calls back from the same or another thread, so
-    // chooseFolder() waits on this state under a mutex. It never returns
-    // before the callback recorded an answer, so the state outlives the
-    // callback.
-    struct FolderDialogState
+    // SDL_ShowFileDialogWithProperties calls back from the same or another
+    // thread, so chooseFolder() and chooseFile() wait on this state under a
+    // mutex. They never return before the callback recorded an answer, so the
+    // state outlives the callback.
+    struct PathDialogState
     {
         std::mutex mutex;
         bool done = false;
@@ -142,10 +144,10 @@ namespace
         std::string errorText;
     };
 
-    void SDLCALL folderDialogCallback(void* userdata, const char* const* filelist,
+    void SDLCALL pathDialogCallback(void* userdata, const char* const* filelist,
         int /*filter*/)
     {
-        FolderDialogState& state = *static_cast<FolderDialogState*>(userdata);
+        PathDialogState& state = *static_cast<PathDialogState*>(userdata);
         const std::lock_guard<std::mutex> lock(state.mutex);
         state.done = true;
         if ( filelist == nullptr )
@@ -163,6 +165,103 @@ namespace
         {
             state.path = filelist[0];
         }
+    }
+
+    // Shows a native open dialog of the given type and waits for the answer.
+    // kind names the picker in warnings ("folder" or "file"). The filter
+    // names, patterns and SDL filter array live here until the callback has
+    // recorded its answer, because SDL reads them until then.
+    PathChoice showPathDialog(SDL_FileDialogType type, std::string_view kind,
+        std::string_view title, std::string_view defaultLocation,
+        std::span<const FileFilter> filters)
+    {
+        const std::string aTitle(title);
+        const std::string nativeDefault = toNativePath(defaultLocation);
+
+        std::vector<std::string> filterNames;
+        std::vector<std::string> filterPatterns;
+        std::vector<SDL_DialogFileFilter> sdlFilters;
+        filterNames.reserve(filters.size());
+        filterPatterns.reserve(filters.size());
+        sdlFilters.reserve(filters.size());
+        for ( const FileFilter& filter : filters )
+        {
+            if ( !detail::isValidFileFilterPattern(filter.pattern) )
+            {
+                log::warning("platform: could not show the {} picker '{}': "
+                    "the filter '{}' has the invalid pattern '{}'", kind, aTitle,
+                    filter.name, filter.pattern);
+                return {};
+            }
+            filterNames.push_back(filter.name);
+            filterPatterns.push_back(filter.pattern);
+        }
+        for ( std::size_t i = 0; i < filterNames.size(); ++i )
+        {
+            sdlFilters.push_back(
+                SDL_DialogFileFilter{ filterNames[i].c_str(), filterPatterns[i].c_str() });
+        }
+
+        PathDialogState state;
+
+        // The dialog is launched with properties because the folder helper has
+        // no title and both pickers share the filter and location handling.
+        // Like SDL's own wrappers, the properties may be destroyed as soon as
+        // the call returns: the backend reads them before it starts the
+        // asynchronous dialog.
+        const SDL_PropertiesID props = SDL_CreateProperties();
+        if ( props == 0 )
+        {
+            log::warning("platform: could not show the {} picker '{}': {}",
+                kind, aTitle, SDL_GetError());
+            return {};
+        }
+        SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, aTitle.c_str());
+        if ( !nativeDefault.empty() )
+        {
+            SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_LOCATION_STRING,
+                nativeDefault.c_str());
+        }
+        SDL_SetBooleanProperty(props, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
+        if ( !sdlFilters.empty() )
+        {
+            SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER,
+                sdlFilters.data());
+            SDL_SetNumberProperty(props, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER,
+                static_cast<Sint64>(sdlFilters.size()));
+        }
+        SDL_ShowFileDialogWithProperties(type, pathDialogCallback, &state, props);
+        SDL_DestroyProperties(props);
+
+        // SDL_PumpEvents() leaves the events it collects in SDL's queue, so
+        // none are lost while the modal picker is up; the picker then does not
+        // need a second queue of its own. SDL_WaitEventTimeout() would remove
+        // an event, so the wait is a short sleep instead.
+        for ( ; ; )
+        {
+            {
+                const std::lock_guard<std::mutex> lock(state.mutex);
+                if ( state.done )
+                {
+                    break;
+                }
+            }
+            SDL_PumpEvents();
+            SDL_Delay(10);
+        }
+
+        const std::lock_guard<std::mutex> lock(state.mutex);
+        if ( state.error )
+        {
+            log::warning("platform: could not show the {} picker '{}': {}",
+                kind, aTitle, state.errorText);
+            return {};
+        }
+        if ( state.cancelled )
+        {
+            return PathChoice{ PathChoiceResult::Cancelled, {} };
+        }
+        return PathChoice{ PathChoiceResult::Chosen, fromNativePath(state.path) };
     }
 
     // One window SDL created. SDL_Window* is owned here and destroyed with
@@ -476,67 +575,22 @@ namespace
             return static_cast<std::size_t>(buttonId);
         }
 
-        FolderChoice chooseFolder(std::string_view title,
+        PathChoice chooseFolder(std::string_view title,
             std::string_view defaultLocation) override
         {
             // Native dialogs need no window; createSdlPlatform() already
             // initialized SDL_INIT_VIDEO, which their backends and SDL's event
             // queue use, so this works before createWindow().
-            const std::string aTitle(title);
-            const std::string nativeDefault = toNativePath(defaultLocation);
-            FolderDialogState state;
+            return showPathDialog(SDL_FILEDIALOG_OPENFOLDER, "folder", title,
+                defaultLocation, std::span<const FileFilter>{});
+        }
 
-            // SDL_ShowOpenFolderDialog() has no title, so the dialog is
-            // launched with properties instead. Like SDL's own wrapper, the
-            // properties may be destroyed as soon as the call returns: the
-            // backend reads them before it starts the asynchronous dialog.
-            const SDL_PropertiesID props = SDL_CreateProperties();
-            if ( props == 0 )
-            {
-                log::warning("platform: could not show the folder picker '{}': {}",
-                    aTitle, SDL_GetError());
-                return {};
-            }
-            SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, aTitle.c_str());
-            if ( !nativeDefault.empty() )
-            {
-                SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_LOCATION_STRING,
-                    nativeDefault.c_str());
-            }
-            SDL_SetBooleanProperty(props, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
-            SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFOLDER,
-                folderDialogCallback, &state, props);
-            SDL_DestroyProperties(props);
-
-            // SDL_PumpEvents() leaves the events it collects in SDL's queue,
-            // so none are lost while the modal picker is up; chooseFolder()
-            // then does not need a second queue of its own. SDL_WaitEventTimeout()
-            // would remove an event, so the wait is a short sleep instead.
-            for ( ; ; )
-            {
-                {
-                    const std::lock_guard<std::mutex> lock(state.mutex);
-                    if ( state.done )
-                    {
-                        break;
-                    }
-                }
-                SDL_PumpEvents();
-                SDL_Delay(10);
-            }
-
-            const std::lock_guard<std::mutex> lock(state.mutex);
-            if ( state.error )
-            {
-                log::warning("platform: could not show the folder picker '{}': {}",
-                    aTitle, state.errorText);
-                return {};
-            }
-            if ( state.cancelled )
-            {
-                return FolderChoice{ FolderChoiceResult::Cancelled, {} };
-            }
-            return FolderChoice{ FolderChoiceResult::Chosen, fromNativePath(state.path) };
+        PathChoice chooseFile(std::string_view title,
+            std::string_view defaultLocation,
+            std::span<const FileFilter> filters) override
+        {
+            return showPathDialog(SDL_FILEDIALOG_OPENFILE, "file", title,
+                defaultLocation, filters);
         }
 
         bool rumbleGamepad(GamepadId gamepad, float lowFrequency,

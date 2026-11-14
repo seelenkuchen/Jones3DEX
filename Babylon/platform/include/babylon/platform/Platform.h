@@ -19,22 +19,32 @@
 namespace babylon::platform
 {
 
-    // What chooseFolder() learned: the user picked a folder, dismissed the
-    // picker, or the backend could not show one at all.
-    enum class FolderChoiceResult
+    // What chooseFolder() or chooseFile() learned: the user picked a path,
+    // dismissed the picker, or the backend could not show one at all.
+    enum class PathChoiceResult
     {
         Chosen,
         Cancelled,
         Unavailable
     };
 
-    // One answer from chooseFolder(). path is set only for Chosen and is then
-    // UTF-8 with '/' separators and no trailing separator unless the picker
-    // returned one. Cancelled and Unavailable leave path empty.
-    struct FolderChoice
+    // One answer from chooseFolder() or chooseFile(). path is set only for
+    // Chosen and is then UTF-8 with '/' separators and no trailing separator
+    // unless the picker returned one. Cancelled and Unavailable leave path
+    // empty.
+    struct PathChoice
     {
-        FolderChoiceResult result = FolderChoiceResult::Unavailable;
+        PathChoiceResult result = PathChoiceResult::Unavailable;
         std::string path;
+    };
+
+    // One filter offered by chooseFile(). name is shown to the user;
+    // pattern is the platform's extension list, semicolon-separated and
+    // without the leading dot ("exe", "exe;msi"), or "*" for all files.
+    struct FileFilter
+    {
+        std::string name;
+        std::string pattern;
     };
 
     // The most buttons askChoice() accepts; a longer list is refused rather
@@ -96,8 +106,20 @@ namespace babylon::platform
         // shown; the last case logs one warning with the title. Blocking
         // until the user answers, like askChoice(), and usable before any
         // window exists.
-        [[nodiscard]] virtual FolderChoice chooseFolder(std::string_view title,
+        [[nodiscard]] virtual PathChoice chooseFolder(std::string_view title,
             std::string_view defaultLocation) = 0;
+
+        // Shows a native file picker, parented to no window, starting at
+        // defaultLocation as chooseFolder() does. filters restricts the files
+        // the picker offers; an empty list offers every file. Returns the
+        // chosen file, Cancelled when the user dismissed the picker, or
+        // Unavailable when no picker could be shown or a filter is invalid;
+        // the last case logs one warning with the title. Blocking until the
+        // user answers, like chooseFolder(), and usable before any window
+        // exists.
+        [[nodiscard]] virtual PathChoice chooseFile(std::string_view title,
+            std::string_view defaultLocation,
+            std::span<const FileFilter> filters) = 0;
 
         // Starts a rumble effect on one gamepad. lowFrequency and highFrequency
         // are the two motors, each clamped to 0..1 (0 stops it); durationMs is

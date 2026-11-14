@@ -82,12 +82,12 @@ namespace babylon::platform
         // setFolderAnswer() scripts a different answer, which is returned
         // unchanged. Every call is recorded for lastFolder(), including the
         // default one.
-        [[nodiscard]] FolderChoice chooseFolder(std::string_view title,
+        [[nodiscard]] PathChoice chooseFolder(std::string_view title,
             std::string_view defaultLocation) override;
 
         // The answer chooseFolder() returns next; the default is Unavailable
         // with an empty path.
-        void setFolderAnswer(FolderChoice answer);
+        void setFolderAnswer(PathChoice answer);
 
         // One chooseFolder() call as this backend recorded it.
         struct FolderRequest
@@ -98,6 +98,32 @@ namespace babylon::platform
 
         // The last chooseFolder() call, or nullopt if none was made.
         std::optional<FolderRequest> lastFolder() const;
+
+        // There is no native file picker here. By default the title goes to
+        // one babylon::log::warning line and the result is Unavailable;
+        // setFileAnswer() scripts a different answer, which is returned
+        // unchanged. A filter with an invalid pattern is refused with one
+        // warning, even when an answer is scripted, so it is never reported as
+        // shown. Every call is recorded for lastFile(), including the refused
+        // ones and the default one.
+        [[nodiscard]] PathChoice chooseFile(std::string_view title,
+            std::string_view defaultLocation,
+            std::span<const FileFilter> filters) override;
+
+        // The answer chooseFile() returns next; the default is Unavailable
+        // with an empty path.
+        void setFileAnswer(PathChoice answer);
+
+        // One chooseFile() call as this backend recorded it.
+        struct FileRequest
+        {
+            std::string title;
+            std::string defaultLocation;
+            std::vector<FileFilter> filters;
+        };
+
+        // The last chooseFile() call, or nullopt if none was made.
+        std::optional<FileRequest> lastFile() const;
 
         // There is no device to vibrate: the call is recorded (with its
         // intensities clamped and its duration capped, as the interface
@@ -125,9 +151,11 @@ namespace babylon::platform
         std::optional<RumbleCall> m_lastRumble;
         GamepadType m_gamepadType = GamepadType::Unknown;
         std::optional<std::size_t> m_choiceAnswer;
-        std::optional<FolderChoice> m_folderAnswer;
+        std::optional<PathChoice> m_folderAnswer;
+        std::optional<PathChoice> m_fileAnswer;
         std::optional<ChoiceRequest> m_lastChoice;
         std::optional<FolderRequest> m_lastFolder;
+        std::optional<FileRequest> m_lastFile;
     };
 
 }

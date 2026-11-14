@@ -27,8 +27,8 @@
 
 namespace
 {
-    using babylon::platform::FolderChoice;
-    using babylon::platform::FolderChoiceResult;
+    using babylon::platform::PathChoice;
+    using babylon::platform::PathChoiceResult;
     using babylon::platform::kMaxChoiceButtons;
     using babylon::platform::kMaxWindowDimension;
     using babylon::platform::NullPlatform;
@@ -393,8 +393,8 @@ TEST_CASE("The Null platform refuses choice boxes by default and records every r
 
     // The folder picker has the same default: Unavailable, an empty path and
     // one warning, and the request is recorded.
-    const FolderChoice folder = platform.chooseFolder("Game data", "/games");
-    CHECK(folder.result == FolderChoiceResult::Unavailable);
+    const PathChoice folder = platform.chooseFolder("Game data", "/games");
+    CHECK(folder.result == PathChoiceResult::Unavailable);
     CHECK(folder.path.empty());
     REQUIRE(sink.records().size() == 1);
     CHECK(sink.records()[0].level == babylon::log::Level::Warning);
@@ -469,24 +469,114 @@ TEST_CASE("The Null platform returns scripted choice and folder answers")
     sink.clear();
 
     // Each folder result is returned unchanged and never logs.
-    platform.setFolderAnswer(FolderChoice{ FolderChoiceResult::Chosen, "/games/data" });
-    const FolderChoice chosen = platform.chooseFolder("Game data", "/games");
-    CHECK(chosen.result == FolderChoiceResult::Chosen);
+    platform.setFolderAnswer(PathChoice{ PathChoiceResult::Chosen, "/games/data" });
+    const PathChoice chosen = platform.chooseFolder("Game data", "/games");
+    CHECK(chosen.result == PathChoiceResult::Chosen);
     CHECK(chosen.path == "/games/data");
     CHECK(sink.records().empty());
 
-    platform.setFolderAnswer(FolderChoice{ FolderChoiceResult::Cancelled, {} });
-    const FolderChoice cancelled = platform.chooseFolder("Game data", "/games");
-    CHECK(cancelled.result == FolderChoiceResult::Cancelled);
+    platform.setFolderAnswer(PathChoice{ PathChoiceResult::Cancelled, {} });
+    const PathChoice cancelled = platform.chooseFolder("Game data", "/games");
+    CHECK(cancelled.result == PathChoiceResult::Cancelled);
     CHECK(cancelled.path.empty());
     CHECK(sink.records().empty());
 
-    platform.setFolderAnswer(FolderChoice{ FolderChoiceResult::Unavailable, {} });
-    const FolderChoice unavailable = platform.chooseFolder("Game data", "/games");
-    CHECK(unavailable.result == FolderChoiceResult::Unavailable);
+    platform.setFolderAnswer(PathChoice{ PathChoiceResult::Unavailable, {} });
+    const PathChoice unavailable = platform.chooseFolder("Game data", "/games");
+    CHECK(unavailable.result == PathChoiceResult::Unavailable);
     CHECK(unavailable.path.empty());
     CHECK(sink.records().empty());
     REQUIRE(platform.lastFolder().has_value());
     CHECK(platform.lastFolder()->title == "Game data");
     CHECK(platform.lastFolder()->defaultLocation == "/games");
+}
+
+TEST_CASE("The Null platform refuses file pickers by default and records every request")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    CHECK_FALSE(platform.lastFile().has_value());
+
+    const std::array<babylon::platform::FileFilter, 2> filters{
+        babylon::platform::FileFilter{ "Installers", "exe" },
+        babylon::platform::FileFilter{ "All files", "*" } };
+    const PathChoice file = platform.chooseFile("Game data", "/downloads", filters);
+    CHECK(file.result == PathChoiceResult::Unavailable);
+    CHECK(file.path.empty());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    CHECK(sink.records()[0].message == "Game data: /downloads");
+    sink.clear();
+
+    const std::optional<NullPlatform::FileRequest> request = platform.lastFile();
+    REQUIRE(request.has_value());
+    CHECK(request->title == "Game data");
+    CHECK(request->defaultLocation == "/downloads");
+    REQUIRE(request->filters.size() == 2);
+    CHECK(request->filters[0].name == "Installers");
+    CHECK(request->filters[0].pattern == "exe");
+    CHECK(request->filters[1].name == "All files");
+    CHECK(request->filters[1].pattern == "*");
+}
+
+TEST_CASE("The Null platform returns scripted file answers")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    platform.setFileAnswer(PathChoice{ PathChoiceResult::Chosen, "/downloads/setup.exe" });
+    const PathChoice chosen = platform.chooseFile("Game data", "/downloads",
+        std::span<const babylon::platform::FileFilter>{});
+    CHECK(chosen.result == PathChoiceResult::Chosen);
+    CHECK(chosen.path == "/downloads/setup.exe");
+    CHECK(sink.records().empty());
+
+    platform.setFileAnswer(PathChoice{ PathChoiceResult::Cancelled, {} });
+    const PathChoice cancelled = platform.chooseFile("Game data", "/downloads",
+        std::span<const babylon::platform::FileFilter>{});
+    CHECK(cancelled.result == PathChoiceResult::Cancelled);
+    CHECK(cancelled.path.empty());
+    CHECK(sink.records().empty());
+
+    platform.setFileAnswer(PathChoice{ PathChoiceResult::Unavailable, {} });
+    const PathChoice unavailable = platform.chooseFile("Game data", "/downloads",
+        std::span<const babylon::platform::FileFilter>{});
+    CHECK(unavailable.result == PathChoiceResult::Unavailable);
+    CHECK(unavailable.path.empty());
+    CHECK(sink.records().empty());
+
+    REQUIRE(platform.lastFile().has_value());
+    CHECK(platform.lastFile()->title == "Game data");
+    CHECK(platform.lastFile()->defaultLocation == "/downloads");
+    CHECK(platform.lastFile()->filters.empty());
+}
+
+TEST_CASE("The Null platform refuses an invalid file filter even when an answer is scripted")
+{
+    NullPlatform platform;
+    babylon::log::CaptureSink sink;
+
+    platform.setFileAnswer(PathChoice{ PathChoiceResult::Chosen, "/downloads/setup.exe" });
+    const std::array<babylon::platform::FileFilter, 1> bad{
+        babylon::platform::FileFilter{ "Installers", ";exe" } };
+    const PathChoice refused = platform.chooseFile("Game data", "/downloads", bad);
+    CHECK(refused.result == PathChoiceResult::Unavailable);
+    CHECK(refused.path.empty());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == babylon::log::Level::Warning);
+    sink.clear();
+
+    // The request is recorded, but nothing is shown.
+    REQUIRE(platform.lastFile().has_value());
+    REQUIRE(platform.lastFile()->filters.size() == 1);
+    CHECK(platform.lastFile()->filters[0].pattern == ";exe");
+
+    // A valid filter now returns the still-scripted answer.
+    const std::array<babylon::platform::FileFilter, 1> good{
+        babylon::platform::FileFilter{ "Installers", "exe" } };
+    const PathChoice chosen = platform.chooseFile("Game data", "/downloads", good);
+    CHECK(chosen.result == PathChoiceResult::Chosen);
+    CHECK(chosen.path == "/downloads/setup.exe");
+    CHECK(sink.records().empty());
 }

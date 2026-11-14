@@ -509,7 +509,13 @@ namespace
             return std::nullopt;   // these tests never ask for a dialog
         }
 
-        platform::FolderChoice chooseFolder(std::string_view, std::string_view) override
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
         {
             return {};   // these tests never ask for a dialog
         }
@@ -571,7 +577,13 @@ namespace
             return std::nullopt;   // these tests never ask for a dialog
         }
 
-        platform::FolderChoice chooseFolder(std::string_view, std::string_view) override
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
         {
             return {};   // these tests never ask for a dialog
         }

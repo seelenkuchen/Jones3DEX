@@ -27,8 +27,10 @@ Each module hides one platform decision and is one CMake static-library target
 pluggable sinks) the second. `files` hides the host file system: file access,
 directory listing, base path and per-user writable path (ADR-0019), with an
 SDL3 backend and an in-memory Null backend. `platform` hides the operating
-system layer: windows and one polled queue of OS events (ADR-0009), with the
-same two backends. `input` has no backend of its own: `InputState` folds the
+system layer: windows, native pickers and one polled queue of OS events
+(ADR-0009), with the same two backends. `process` runs an external program
+without a shell, delivers its combined output as lines and stops it on request,
+with an SDL3 backend and a scripted Null backend. `input` has no backend of its own: `InputState` folds the
 polled events into the state a game reads per frame, and `InputScript` replays
 recorded events so headless runs see exactly what a device would (ADR-0018).
 `cvars` holds named, typed settings with defaults, ranges, flags and change

@@ -406,3 +406,25 @@ TEST_CASE("The SDL platform refuses empty and too long choice boxes before showi
     REQUIRE(sink.records().size() == 1);
     CHECK(sink.records()[0].level == Level::Warning);
 }
+
+TEST_CASE("The SDL platform refuses an invalid file filter before showing a picker")
+{
+    // A valid filter would open a real modal picker, so only the refusal is
+    // checked here; it happens before SDL is asked to show anything.
+    const std::unique_ptr<Platform> platform = babylon::platform::createSdlPlatform();
+    if ( platform == nullptr )
+    {
+        FAIL("createSdlPlatform() returned nullptr: run this test with "
+            "the offscreen or dummy video driver");
+    }
+    babylon::log::CaptureSink sink;
+
+    const std::array<babylon::platform::FileFilter, 1> emptyPattern{
+        babylon::platform::FileFilter{ "Installers", "" } };
+    const babylon::platform::PathChoice choice =
+        platform->chooseFile("Babylon test", "", emptyPattern);
+    CHECK(choice.result == babylon::platform::PathChoiceResult::Unavailable);
+    CHECK(choice.path.empty());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == Level::Warning);
+}

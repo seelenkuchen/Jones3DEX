@@ -54,14 +54,14 @@ namespace
                 return false;
             }
 
-            babylon::platform::FolderChoice folder = pPlatform->chooseFolder(kPromptTitle, "");
-            if ( folder.result == babylon::platform::FolderChoiceResult::Unavailable )
+            babylon::platform::PathChoice folder = pPlatform->chooseFolder(kPromptTitle, "");
+            if ( folder.result == babylon::platform::PathChoiceResult::Unavailable )
             {
                 ShowUnavailable(pMessage);
                 return false;
             }
 
-            if ( folder.result == babylon::platform::FolderChoiceResult::Cancelled )
+            if ( folder.result == babylon::platform::PathChoiceResult::Cancelled )
             {
                 continue;
             }
