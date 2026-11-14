@@ -234,6 +234,13 @@ the lighter, down uses the best health item (herbs, then small health pack, then
 health pack, as the original HEALTH function does), and left/right remain previous and next owned
 weapon. Favourite weapons for left/right are deferred.
 
+The Modern style pauses like the original: while the inventory or a pause menu holds the game
+paused, the Modern layer neither turns Indy nor produces movement keys. In the inventory, the
+D-pad and the left stick (past half its travel) move the selection, A selects and B closes it;
+the keyboard, Activate bindings and the Back button work as in the original. The Modern scheme
+binds no gamepad control to walk and turn, so the inventory reads these directly in the Modern
+style only. Classic reads only its bindings.
+
 ### Default schemes
 
 A new install picks the `JONES_STR_DFLTMODERN` ("Modern keyboard and gamepad") scheme when the style

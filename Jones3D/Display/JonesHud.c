@@ -319,6 +319,7 @@ void J3DAPI JonesHud_SetSelectedMenuItem(int menuId, JonesHudMenuItem* pItem);
 void JonesHud_MenuMoveUp(void);
 
 int J3DAPI JonesHud_GetKey(unsigned int keyId);
+static int JonesHud_GetModernMenuSelectKey(void); // Added
 
 int JonesHud_InitializeMenu(void);
 void JonesHud_InitializeMenuSounds(void);
@@ -2239,6 +2240,7 @@ void JonesHud_ProcessInventoryMenu(void)
             }
 
             bActivateKeyPressed |= JonesHud_GetKey(STDKEY_RETURN);
+            bActivateKeyPressed |= JonesHud_GetModernMenuSelectKey(); // Added
             if ( JonesHud_GetKey(STDKEY_NUMPADENTER) | bActivateKeyPressed )
             {
                 JonesHud_MenuActivateItem();
@@ -2563,6 +2565,9 @@ void J3DAPI JonesHud_BindActivateControlKeys(const size_t* aKeyIds, size_t numKe
 // Added: the Modern style reads the left stick itself and gives the D-pad to quick select, so its
 // scheme binds no gamepad control to the walk and turn functions the inventory navigates with. In
 // the Modern style the inventory also takes the D-pad and the left stick of every joystick.
+#define JONESHUD_STICK_RANGE           32767.0f
+#define JONESHUD_STICK_MENU_THRESHOLD  0.5f
+
 static int JonesHud_ReadModernMenuDirection(unsigned int keyId, int* pNumPressed)
 {
     if ( !sithControl_IsModernControlStyle() )
@@ -2607,7 +2612,34 @@ static int JonesHud_ReadModernMenuDirection(unsigned int keyId, int* pNumPressed
     for ( size_t joyNum = 0; joyNum < stdControl_GetNumJoysticks(); ++joyNum )
     {
         bPressed |= stdControl_ReadKey(STDCONTROL_JOYSTICK_GETPOV(joyNum, 0, povDir), pNumPressed);
-        bPressed |= stdControl_ReadAxisAsKey(STDCONTROL_GET_JOYSTICK_AXIS(joyNum, axis) | axisFlags, pNumPressed);
+
+        // The Modern scheme binds no stick axis, so read the raw position as the Modern layer does.
+        float pos = (float)stdControl_ReadAxisRaw(STDCONTROL_GET_JOYSTICK_AXIS(joyNum, axis))
+            / JONESHUD_STICK_RANGE;
+        if ( axisFlags == STDCONTROL_AID_NEGATIVE_AXIS ? pos <= -JONESHUD_STICK_MENU_THRESHOLD
+                                                       : pos >= JONESHUD_STICK_MENU_THRESHOLD )
+        {
+            *pNumPressed = 1;
+            bPressed     = 1;
+        }
+    }
+
+    return bPressed;
+}
+
+// Added: the Modern style selects with the gamepad's A button, as its prompts show; the original
+// reads only the Activate bindings, which put the pad's X button there.
+static int JonesHud_GetModernMenuSelectKey(void)
+{
+    if ( !sithControl_IsModernControlStyle() )
+    {
+        return 0;
+    }
+
+    int bPressed = 0;
+    for ( size_t joyNum = 0; joyNum < stdControl_GetNumJoysticks(); ++joyNum )
+    {
+        bPressed |= JonesHud_GetKey(STDCONTROL_JOYSTICK_GETBUTTON(joyNum, 0));
     }
 
     return bPressed;

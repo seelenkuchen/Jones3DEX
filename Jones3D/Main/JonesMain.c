@@ -28,6 +28,7 @@
 #include <sith/Gameplay/sithOverlayMap.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/Main/sithString.h>
 #include <sith/World/sithModel.h>
@@ -1257,6 +1258,13 @@ void JonesMain_ProcessMenu(void)
         // gamepad Back button as a fallback (M7.13's stopgap).
         bMenuKeyPressed |= stdControl_ReadKey(STDKEY_TAB, &numPressed);
         bMenuKeyPressed |= JonesMain_ReadGamepadButton(6); // Back
+    }
+
+    // Added: in the Modern style the gamepad's B button closes an open inventory, as its prompts
+    // show. It never opens it: B is a game control (roll) while the inventory is closed.
+    if ( jonesCog_g_bMenuVisible && sithControl_IsModernControlStyle() )
+    {
+        bMenuKeyPressed |= JonesMain_ReadGamepadButton(1); // B
     }
 
     int bPauseKeyPressed = stdControl_ReadKey(STDKEY_ESCAPE, &numPressed);
