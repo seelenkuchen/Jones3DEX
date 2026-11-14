@@ -1056,6 +1056,10 @@ void JonesMain_ResumeGame(void)
         sithTime_Resume();
         Sound_Resume();
         JonesMain_bGamePaused = false;
+
+        // Added: the button that resumed the game (A on Resume, B or A in the inventory) must not
+        // also act in the game, such as jumping.
+        sithControl_AwaitKeyRelease();
     }
 }
 

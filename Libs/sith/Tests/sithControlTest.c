@@ -250,6 +250,37 @@ TEST(sithControl, ControlStyleIsModernInQolBuildsOnly)
 #endif
 }
 
+// Added: after a pause, an action still held from the menu reads released until it is let go once;
+// held walking keeps working. Non-QOL builds keep the original reading.
+TEST(sithControl, AwaitKeyReleaseHoldsActionsUntilReleased)
+{
+    sithControl_RegisterAxisFunction(SITHCONTROL_JUMP, SITHCONTROLFUNCTION_KEY);
+    sithControl_BindControl(SITHCONTROL_JUMP, STDKEY_SPACE, (SithControlBindFlag)0);
+
+    sithControlTest_ReadKey(STDKEY_SPACE, 1);
+    sithControlTest_ReadKey(STDKEY_UP, 1);
+    sithControl_AwaitKeyRelease();
+
+    int pressed = -1;
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(0, 1), sithControl_GetKey(SITHCONTROL_JUMP, &pressed));
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_EQUAL_INT(0, pressed);
+#endif
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+
+    // Still held on the next read: still waiting.
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(0, 1), sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+
+    // Released once, then pressed again: a normal press.
+    sithControlTest_ReadKey(STDKEY_SPACE, 0);
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+    sithControlTest_ReadKey(STDKEY_SPACE, 1);
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_JUMP, NULL));
+
+    sithControlTest_ReadKey(STDKEY_SPACE, 0);
+    sithControlTest_ReadKey(STDKEY_UP, 0);
+}
+
 TEST_GROUP_RUNNER(sithControl)
 {
     RUN_TEST_CASE(sithControl, OverrideReportsPressEdgesAndAxes);
@@ -259,4 +290,5 @@ TEST_GROUP_RUNNER(sithControl)
     RUN_TEST_CASE(sithControl, ClearDropsEveryOverrideAndSuppression);
     RUN_TEST_CASE(sithControl, OutOfRangeAndAxisOnlyIdsAreIgnored);
     RUN_TEST_CASE(sithControl, ControlStyleIsModernInQolBuildsOnly);
+    RUN_TEST_CASE(sithControl, AwaitKeyReleaseHoldsActionsUntilReleased);
 }

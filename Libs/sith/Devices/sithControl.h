@@ -52,6 +52,11 @@ void J3DAPI sithControl_SetKeyOverride(SithControlFunction keyId, int bPressed, 
 void J3DAPI sithControl_SuppressKey(SithControlFunction keyId); // Added
 void J3DAPI sithControl_ClearKeyOverrides(void); // Added
 
+// Added: every action key function (all but walk, turn and run) reads released until its real
+// bindings read released once. Called when a pause ends so the button that left a menu doesn't
+// act in the game. A no-op in non-QOL builds. Modern key overrides are not affected.
+void sithControl_AwaitKeyRelease(void); // Added
+
 // Added: the control style. QOL builds start Modern and non-QOL builds always stay Classic.
 bool J3DAPI sithControl_IsModernControlStyle(void); // Added
 void J3DAPI sithControl_SetModernControlStyle(bool bModern); // Added

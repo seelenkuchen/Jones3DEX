@@ -45,6 +45,8 @@ typedef struct sSithControlKeyOverride
 
 static SithControlKeyOverride aKeyOverrides[SITHCONTROL_MAXFUNCTIONS];
 static bool aKeySuppressed[SITHCONTROL_MAXFUNCTIONS];
+// Added: functions that must read released once before they act again, set when a pause ends.
+static bool aKeyAwaitRelease[SITHCONTROL_MAXFUNCTIONS];
 
 // Added: Enhanced starts Modern; the Retail profile never leaves Classic.
 static bool sithControl_bModernControlStyle = J3D_QOL_VALUE(true, false);
@@ -122,6 +124,7 @@ void sithControl_ResetGlobals(void)
     // Added: a reset drops the Modern layer's per-frame state.
     memset(aKeyOverrides, 0, sizeof(aKeyOverrides));
     memset(aKeySuppressed, 0, sizeof(aKeySuppressed));
+    memset(aKeyAwaitRelease, 0, sizeof(aKeyAwaitRelease));
 }
 
 int J3DAPI sithControl_Startup(int bKeyboardForeground)
@@ -470,6 +473,25 @@ void J3DAPI sithControl_ClearKeyOverrides(void)
     }
 }
 
+void sithControl_AwaitKeyRelease(void)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    for ( size_t i = 0; i < SITHCONTROL_MAXFUNCTIONS; ++i )
+    {
+        aKeyAwaitRelease[i] = true;
+    }
+
+    // Held walking, turning and running carry on after the pause; only actions wait.
+    aKeyAwaitRelease[SITHCONTROL_FORWARD]   = false;
+    aKeyAwaitRelease[SITHCONTROL_BACK]      = false;
+    aKeyAwaitRelease[SITHCONTROL_LEFT]      = false;
+    aKeyAwaitRelease[SITHCONTROL_RIGHT]     = false;
+    aKeyAwaitRelease[SITHCONTROL_TURNLEFT]  = false;
+    aKeyAwaitRelease[SITHCONTROL_TURNRIGHT] = false;
+    aKeyAwaitRelease[SITHCONTROL_RUNFWD]    = false;
+#endif
+}
+
 bool J3DAPI sithControl_IsModernControlStyle(void)
 {
     return sithControl_bModernControlStyle;
@@ -674,6 +696,23 @@ int J3DAPI sithControl_GetKey(SithControlFunction keyId, int* pState)
                 value |= stdControl_ReadKey(keyNum, pState);
             }
         }
+    }
+
+    // Added: after a pause, a control still held from the menu (the button that chose Resume,
+    // or the one that closed the inventory) reads released until it is let go once.
+    if ( aKeyAwaitRelease[keyId] )
+    {
+        if ( value )
+        {
+            if ( pState )
+            {
+                *pState = 0;
+            }
+
+            return 0;
+        }
+
+        aKeyAwaitRelease[keyId] = false;
     }
 
     return value;
