@@ -727,7 +727,7 @@ TEST(JonesDataLocate, TestDataOptionBeatsInstallPath)
 
     JonesDataLocateResult result;
     TEST_ASSERT_TRUE(JonesDataLocate_Resolve(&env, &result));
-    TEST_ASSERT_EQUAL_STRING(aDataDir, result.aInstallPath);
+    TEST_ASSERT_TRUE(JonesDataLocateTest_PathsEqual(aDataDir, result.aInstallPath));
     TEST_ASSERT_EQUAL_INT(JONESDATALOCATE_RULE_DATA_OPTION, result.rule);
 }
 
@@ -748,7 +748,7 @@ TEST(JonesDataLocate, TestSearchSkipsIncompleteCandidate)
 
     JonesDataLocateResult result;
     TEST_ASSERT_TRUE(JonesDataLocate_Resolve(&env, &result));
-    TEST_ASSERT_EQUAL_STRING(aComplete, result.aInstallPath);
+    TEST_ASSERT_TRUE(JonesDataLocateTest_PathsEqual(aComplete, result.aInstallPath));
     TEST_ASSERT_EQUAL_INT(JONESDATALOCATE_RULE_INSTALL_PATH, result.rule);
 }
 
@@ -792,13 +792,13 @@ TEST(JonesDataLocate, TestChosenFolderIsUsedAndWrittenToInstallPath)
 
     JonesDataLocateResult result;
     TEST_ASSERT_TRUE(JonesDataLocate_Resolve(&env, &result));
-    TEST_ASSERT_EQUAL_STRING(aChosen, result.aInstallPath);
+    TEST_ASSERT_TRUE(JonesDataLocateTest_PathsEqual(aChosen, result.aInstallPath));
     TEST_ASSERT_EQUAL_INT(JONESDATALOCATE_RULE_CHOSEN, result.rule);
 
     char aInstallPath[JONESDATALOCATE_MAX_PATH];
     TEST_ASSERT_TRUE(stdConfig_GetString(SITH_CFG_INSTALLPATH, aInstallPath,
         sizeof(aInstallPath), ""));
-    TEST_ASSERT_EQUAL_STRING(aChosen, aInstallPath);
+    TEST_ASSERT_TRUE(JonesDataLocateTest_PathsEqual(aChosen, aInstallPath));
 
     JonesDataLocateTest_StopConfig();
 }
@@ -826,7 +826,7 @@ TEST(JonesDataLocate, TestInvalidAnswerAsksAgain)
     JonesDataLocateResult result;
     TEST_ASSERT_TRUE(JonesDataLocate_Resolve(&env, &result));
     TEST_ASSERT_EQUAL_size_t(2, prompt.numCalls);
-    TEST_ASSERT_EQUAL_STRING(aChosen, result.aInstallPath);
+    TEST_ASSERT_TRUE(JonesDataLocateTest_PathsEqual(aChosen, result.aInstallPath));
 }
 
 TEST(JonesDataLocate, TestQuitFails)

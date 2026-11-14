@@ -74,7 +74,9 @@ typedef struct JonesDataLocateEnv
     const JonesDataLocatePathList* pSteamLibraries; /**< Roots plus parsed libraryfolders.vdf entries. */
 } JonesDataLocateEnv;
 
-/** The outcome of a search or of the prompt loop. All storage is inside the struct. */
+/** The outcome of a search or of the prompt loop. All storage is inside the struct. Every path
+ *  uses the separator style of the platform the candidate list was built for ('/' on Linux,
+ *  '\\' on Windows); JonesFile accepts that spelling. */
 typedef struct JonesDataLocateResult
 {
     bool bFound;

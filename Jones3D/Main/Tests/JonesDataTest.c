@@ -424,7 +424,15 @@ TEST(JonesData, TestFindResourceDirSubdirLower)
     JonesDataTest_WriteFile(g_aTempDir, "resource/Jones3D.GOB", "", 0);
     TEST_ASSERT_TRUE(JonesData_FindResourceDir(g_aTempDir, aDir, sizeof(aDir)));
     JonesDataTest_BuildPath(aExpected, sizeof(aExpected), g_aTempDir, "resource");
-    TEST_ASSERT_EQUAL_STRING(aExpected, aDir);
+    if ( JonesDataTest_IsCaseSensitive() )
+    {
+        TEST_ASSERT_EQUAL_STRING(aExpected, aDir);
+    }
+    else
+    {
+        // Added: a case-insensitive file system finds the same folder through "Resource".
+        TEST_ASSERT_EQUAL_INT(0, strcmpi(aExpected, aDir));
+    }
 }
 
 TEST(JonesData, TestFindResourceDirNotFound)
