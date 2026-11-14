@@ -31,6 +31,7 @@
 #include <std/General/stdConffile.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdFnames.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/stdDisplay.h>
 
@@ -38,8 +39,8 @@
 
 static int sithGamesave_state;
 
-static char sithGamesave_aCurFilename[128];
-static char sithGamesave_aLastFilename[128];
+static char sithGamesave_aCurFilename[STDUSERDIR_MAXPATH]; // Altered: room for user-directory paths (M8.2b)
+static char sithGamesave_aLastFilename[STDUSERDIR_MAXPATH]; // Altered: room for user-directory paths (M8.2b)
 static int sithGamesave_aNdsSaveSectionSizes[15];
 
 static char sithGamesave_aPrevLevelFilename[64];

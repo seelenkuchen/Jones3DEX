@@ -223,7 +223,7 @@ namespace
         const char* pSaveName = sithGetCurrentWorldSaveName();
         const char* pPrefix   = sithGetAutoSaveFilePrefix();
 
-        char aFilename[128] = { 0 };
+        char aFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 }; // Altered: room for user-directory paths (M8.2b)
         std::snprintf(aFilename, sizeof(aFilename), "%s%s", pPrefix ? pPrefix : "",
             pSaveName ? pSaveName : "");
         stdFnames_ChangeExtEx(aFilename, STD_ARRAYLEN(aFilename), "nds");

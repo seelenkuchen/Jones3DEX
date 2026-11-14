@@ -33,6 +33,7 @@
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/stdComm.h>
 #include <stdbool.h>
@@ -1487,7 +1488,7 @@ void J3DAPI sithCogFunction_IsServer(SithCog* pCog)
 void J3DAPI sithCogFunction_AutoSavegame(SithCog* pCog)
 {
     J3D_UNUSED(pCog);
-    char aSavePath[128];
+    char aSavePath[STDUSERDIR_MAXPATH]; // Altered: room for user-directory paths (M8.2b)
     const char* pFilename = sithGetCurrentWorldSaveName();
     const char* pPrefix   = sithGetAutoSaveFilePrefix();
     STD_FORMAT(aSavePath, "%s%s", pPrefix, pFilename);

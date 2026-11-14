@@ -41,6 +41,7 @@
 #include <std/General/std.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdControl.h>
+#include <std/General/stdFnames.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUserDir.h>
@@ -1252,6 +1253,31 @@ TEST(JonesControlSchemes, TestUserDirectoryPathsAndSaveMigration)
     sithMakeDirs();
     TEST_ASSERT_TRUE(stdfs::exists(userDir / "SaveGames" / "legacy.nds"));
     TEST_ASSERT_TRUE(stdfs::exists(legacySave));
+
+    // Added: a user directory of about 300 characters still yields complete save, quick save and
+    // screenshot paths (M8.2b).
+    stdfs::path longUserDir = g_tempDir;
+    while ( longUserDir.string().size() < 300 )
+    {
+        longUserDir /= std::string(64, 'p');
+    }
+    const std::string longUserDirString = longUserDir.string();
+    TEST_ASSERT_TRUE(longUserDirString.size() >= 300);
+
+    TEST_ASSERT_TRUE(stdUserDir_Set(longUserDirString.c_str()));
+    sithMain_ResetGlobals();
+    sithSetServices(&g_hostServices);
+
+    const std::string longSaveDir = sithGetSaveGamesDir();
+    TEST_ASSERT_TRUE(longSaveDir == longUserDirString + "\\SaveGames");
+    const std::string longShotsDir = sithGetScreenShotsDir();
+    TEST_ASSERT_TRUE(longShotsDir == longUserDirString + "\\ScreenShots");
+
+    char aQuickName[STDUSERDIR_MAXPATH] = { 0 };
+    STD_FORMAT(aQuickName, "%s.%s", sithGetQuickSaveFilePrefix(), "nds");
+    char aQuickPath[STDUSERDIR_MAXPATH] = { 0 };
+    STD_MAKEPATH(aQuickPath, sithGetSaveGamesDir(), aQuickName);
+    TEST_ASSERT_TRUE(std::string(aQuickPath) == longSaveDir + "\\QUICKSAVE.nds");
 
     sithString_Shutdown();
     stdUserDir_Reset();

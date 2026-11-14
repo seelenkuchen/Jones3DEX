@@ -36,6 +36,7 @@
 #include  <std/General/stdFnames.h>
 #include  <std/General/stdMath.h>
 #include  <std/General/stdMemory.h>
+#include  <std/General/stdUserDir.h>
 #include  <std/General/stdUtil.h>
 #include  <std/General/std3D.h>
 #include  <std/General/stdDisplay.h>
@@ -1605,6 +1606,25 @@ void J3DAPI sithRender_SetExtraThingRenderFunc(int (J3DAPI* pfFunc)(SithThing* p
     sithRender_pExtraThingRenderFunc = pfFunc;
 }
 
+// Added: joins a screenshot directory and name, refusing one that would not fit (M8.2b).
+static bool sithRender_MakeScreenShotPath(char* pOut, size_t outSize, const char* pDir, const char* pName)
+{
+    if ( !pDir || pDir[0] == '\0' )
+    {
+        SITHLOG_ERROR("sithRender: the screenshot directory is unavailable.\n");
+        return false;
+    }
+
+    if ( strlen(pDir) + strlen(pName) + 2u > outSize )
+    {
+        SITHLOG_ERROR("sithRender: the screenshot path is too long for '%s'.\n", pName);
+        return false;
+    }
+
+    stdFnames_MakePath(pOut, (int)outSize, pDir, pName);
+    return true;
+}
+
 int sithRender_MakeScreenShot(void)
 {
     const char* pNameTemplate = sithGetScreenShotFileTemplate();
@@ -1614,8 +1634,11 @@ int sithRender_MakeScreenShot(void)
     STD_FORMAT(aFilename, pNameTemplate, ssnum);
     const char* pDir = sithGetScreenShotsDir();
 
-    char aFilePath[128];
-    stdFnames_MakePath(aFilePath, sizeof(aFilePath), pDir, aFilename);
+    char aFilePath[STDUSERDIR_MAXPATH]; // Altered: room for user-directory paths (M8.2b)
+    if ( !sithRender_MakeScreenShotPath(aFilePath, sizeof(aFilePath), pDir, aFilename) )
+    {
+        return 1;
+    }
 
     while ( stdFileUtil_FileExists(aFilePath) && ssnum < SITHRENDER_MAXSCREENSHOTS )
     {
@@ -1623,7 +1646,10 @@ int sithRender_MakeScreenShot(void)
         STD_FORMAT(aFilename, pNameTemplate, ++ssnum);
 
         pDir = sithGetScreenShotsDir();
-        stdFnames_MakePath(aFilePath, sizeof(aFilePath), pDir, aFilename);
+        if ( !sithRender_MakeScreenShotPath(aFilePath, sizeof(aFilePath), pDir, aFilename) )
+        {
+            return 1;
+        }
     }
 
     if ( ssnum <= SITHRENDER_MAXSCREENSHOTS )
@@ -1636,6 +1662,9 @@ int sithRender_MakeScreenShot(void)
     STD_FORMAT(aFilename, pNameTemplate, ssnum);
 
     pDir = sithGetScreenShotsDir();
-    stdFnames_MakePath(aFilePath, sizeof(aFilePath), pDir, aFilename);
+    if ( !sithRender_MakeScreenShotPath(aFilePath, sizeof(aFilePath), pDir, aFilename) )
+    {
+        return 1;
+    }
     return stdDisplay_SaveScreen(aFilePath);
 }

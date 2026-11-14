@@ -54,7 +54,8 @@ SithMode sithMain_g_sith_mode;
 size_t sithMain_g_curRenderTick;
 tHostServices* sith_g_pHS;
 
-#define SITH_PATHSIZE 128
+// Altered: room for user-directory paths (M8.2b).
+#define SITH_PATHSIZE STDUSERDIR_MAXPATH
 #define SITH_DEFAULTGAMEDIFFICULTY 5
 
 static bool sith_bStartup = false; // Added: Init to false
@@ -372,16 +373,26 @@ void sithOpenPostProcess(void)
         const char* pWorldName = sithGetCurrentWorldSaveName();
         const char* pSaveNamePrefix = sithGetAutoSaveFilePrefix();
 
-        char aFilename[128];
+        char aFilename[SITH_PATHSIZE]; // Altered: room for user-directory paths (M8.2b)
         STD_FORMAT(aFilename, "%s%s", pSaveNamePrefix, pWorldName);
         // Fixed: Use bounded extension replacement for the fixed-size path buffer.
         stdFnames_ChangeExtEx(aFilename, STD_ARRAYLEN(aFilename), "nds");
 
         const char* pSaveGameDir = sithGetSaveGamesDir();
-        char aFilepath[128];
-        stdFnames_MakePath(aFilepath, STD_ARRAYLEN(aFilepath), pSaveGameDir, aFilename);
-
-        sithGamesave_Save(aFilepath, 1);
+        char aFilepath[SITH_PATHSIZE]; // Altered: room for user-directory paths (M8.2b)
+        if ( pSaveGameDir[0] == '\0' )
+        {
+            SITHLOG_ERROR("sithOpenPostProcess: the save directory is unavailable.\n");
+        }
+        else if ( strlen(pSaveGameDir) + strlen(aFilename) + 2u > sizeof(aFilepath) )
+        {
+            SITHLOG_ERROR("sithOpenPostProcess: the save path is too long for '%s'.\n", aFilename);
+        }
+        else
+        {
+            stdFnames_MakePath(aFilepath, STD_ARRAYLEN(aFilepath), pSaveGameDir, aFilename);
+            sithGamesave_Save(aFilepath, 1);
+        }
     }
 
     sithTime_Reset(); // TODO: Why time is reset 2nd time?
@@ -823,7 +834,7 @@ static const char* J3DAPI sithGetPathInternal(char* aOutPath, const char* pSithS
 
     char* pName = stdUtil_ToAString(pwName);
 
-    char aInstallPath[128] = { 0 };
+    char aInstallPath[SITH_PATHSIZE] = { 0 }; // Altered: room for user-directory paths (M8.2b)
     stdConfig_GetString(SITH_CFG_INSTALLPATH, aInstallPath, STD_ARRAYLEN(aInstallPath), "");
 
     if ( strlen(pName) )
