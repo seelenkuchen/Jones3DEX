@@ -128,6 +128,46 @@ set_tests_properties(Jones3D.DataLocate PROPERTIES
 )
 
 
+# Added: JonesFile_OpenResource must build every GOB path from the resource directory, not from the
+# buffer it writes. The test supplies two tiny fake GOBs and a directory-search test double.
+add_executable(jonesFileTests
+    JonesFileTestRunner.c
+    JonesFileTest.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesFile.c"
+)
+
+target_include_directories(jonesFileTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+if (APPLE OR MSVC)
+    target_link_libraries(jonesFileTests PRIVATE
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jonesFileTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+        m
+    )
+endif()
+
+set_target_properties(jonesFileTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    JonesFileTestRunner.c
+    JonesFileTest.c
+)
+
+add_test(NAME Jones3D.File COMMAND jonesFileTests)
+set_tests_properties(Jones3D.File PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 60
+)
+
 # Added: the video mode lookup JonesMain_FindClosestVideoMode (JonesMainTest.c). JonesMain.c needs
 # the rest of the application layer, so the test links the Jones3DGame objects and the platform
 # helpers of Platform/Null without its main(), like the Babylon column's Jones3D-headless. The

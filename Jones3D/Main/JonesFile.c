@@ -282,11 +282,15 @@ void J3DAPI JonesFile_OpenResource(JonesResource* pRsource, const char* pPath)
                 break;
             }
 
-            stdFnames_MakePath(JonesFile_aPathBuf, sizeof(JonesFile_aPathBuf), pPath, fileInfo.aName);
-            pRsource->aGobFiles[pRsource->numGobFiles] = stdGob_Load(JonesFile_aPathBuf, /*numFileHandles*/16, /*bMapFile*/0); // TODO: After file mapping is fixed in stdGob enable file mapping here
+            // Fixed: a local path keeps the base directory intact; JonesFile_aPathBuf was also the
+            // global JonesFile_SetInstallPath passed through here, so the next GOB was looked up
+            // under the previous GOB's file name.
+            char aGobPath[128];
+            stdFnames_MakePath(aGobPath, sizeof(aGobPath), pRsource->aPath, fileInfo.aName);
+            pRsource->aGobFiles[pRsource->numGobFiles] = stdGob_Load(aGobPath, /*numFileHandles*/16, /*bMapFile*/0); // TODO: After file mapping is fixed in stdGob enable file mapping here
             if ( !pRsource->aGobFiles[pRsource->numGobFiles] )
             {
-                STDLOG_ERROR("Error opening gob '%s'.\n", JonesFile_aPathBuf);
+                STDLOG_ERROR("Error opening gob '%s'.\n", aGobPath);
                 break;
             }
 
