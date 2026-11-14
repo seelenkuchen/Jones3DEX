@@ -23,6 +23,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <process.h>
+#include <windows.h>
 #define JONESFILE_TEST_MKDIR(path) _mkdir(path)
 #define JONESFILE_TEST_RMDIR(path) _rmdir(path)
 #define JONESFILE_TEST_GETPID _getpid
@@ -128,7 +129,7 @@ static bool JonesFileTest_IsDirectory(const char* pPath)
 
 static void JonesFileTest_RemoveTree(const char* pDir)
 {
-    char aEntries[64][256];
+    char aEntries[64][512];
     size_t numEntries = 0;
 
 #ifdef _WIN32

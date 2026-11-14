@@ -13,7 +13,6 @@
 #include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 
-#include <errno.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -1237,14 +1236,14 @@ static bool JonesDataLocate_CopyFile(const char* pSource, const char* pDest)
     FILE* pIn = NULL;
     if ( fopen_s(&pIn, pSource, "rb") != 0 )
     {
-        fprintf(stderr, "ERROR: cannot open '%s': %s.\n", pSource, strerror(errno));
+        fprintf(stderr, "ERROR: cannot open '%s'.\n", pSource);
         return false;
     }
 
     FILE* pOut = NULL;
     if ( fopen_s(&pOut, pDest, "wb") != 0 )
     {
-        fprintf(stderr, "ERROR: cannot create '%s': %s.\n", pDest, strerror(errno));
+        fprintf(stderr, "ERROR: cannot create '%s'.\n", pDest);
         fclose(pIn);
         return false;
     }
