@@ -56,6 +56,41 @@ namespace
 
     std::atomic<unsigned int> g_tempCounter{ 0 };
 
+    std::string GetEnv(const char* pName)
+    {
+#ifdef _WIN32
+        char* pValue = nullptr;
+        size_t size = 0;
+        if ( _dupenv_s(&pValue, &size, pName) != 0 || !pValue )
+        {
+            return {};
+        }
+
+        std::string value = pValue;
+        std::free(pValue);
+        return value;
+#else
+        const char* pValue = std::getenv(pName);
+        return pValue ? pValue : "";
+#endif
+    }
+
+    void SetEnv(const char* pName, const std::string& value)
+    {
+#ifdef _WIN32
+        _putenv_s(pName, value.c_str());
+#else
+        if ( value.empty() )
+        {
+            unsetenv(pName);
+        }
+        else
+        {
+            setenv(pName, value.c_str(), 1);
+        }
+#endif
+    }
+
     std::filesystem::path MakeTempRoot()
     {
         std::error_code ec;
@@ -366,8 +401,10 @@ TEST_CASE_FIXTURE(SetupWizardTest, "Sources appear in the model under the fake h
     process.setExists("innoextract", true);
     JonesSetupWizard withInno(platform, process, host, userDir, exeDir);
     withInno.Start();
-    CHECK(FindSourceRow(withInno, JONESINSTALL_SOURCE_GOG_INSTALLER, 0, "")
-        != withInno.Rows().size());
+    const std::size_t gogRow = FindSourceRow(withInno,
+        JONESINSTALL_SOURCE_GOG_INSTALLER, 0, "");
+    REQUIRE(gogRow != withInno.Rows().size());
+    CHECK(withInno.Rows()[gogRow].label.find("(incomplete)") == std::string::npos);
     CHECK(FindRow(withInno, JonesSetupRowKind::ChooseInstaller)
         != withInno.Rows().size());
 
@@ -632,6 +669,132 @@ TEST_CASE_FIXTURE(SetupWizardTest, "A cancel during the copy removes setup-tmp")
     CheckScreenLayout(wizard, "Setup cancelled");
 }
 
+TEST_CASE_FIXTURE(SetupWizardTest, "Rerun skips Location and swaps GameData.new into place")
+{
+    const std::string oldData = Join(userDir, JONESDATALOCATE_GAMEDATA_DIR);
+    WriteText(oldData, "old.txt", "old");
+    const std::string folder = CompleteFolder("rerun-source");
+
+    JonesSetupWizard wizard(platform, process, MakeHost(), userDir, exeDir, true);
+    wizard.Start();
+
+    babylon::ui::NullPainter painter;
+    babylon::ui::Skin skin;
+    const babylon::ui::Screen welcome = BuildTestScreen(wizard, painter, skin);
+    bool bHasBackToGame = false;
+    for ( const babylon::ui::Widget& widget : welcome.widgets )
+    {
+        const babylon::ui::Button* pButton = std::get_if<babylon::ui::Button>(&widget);
+        if ( pButton && pButton->text == "Back to the game" )
+        {
+            bHasBackToGame = true;
+        }
+    }
+    CHECK(bHasBackToGame);
+    CHECK_FALSE(wizard.Back());
+
+    wizard.Continue();
+    REQUIRE(wizard.Step() == JonesSetupStep::Source);
+    REQUIRE(wizard.ChooseFolder(folder));
+    CHECK(wizard.Step() != JonesSetupStep::Location);
+    CHECK(wizard.Step() == JonesSetupStep::Progress);
+    CHECK(wizard.TakeRerunRun());
+
+    wizard.StartInstall();
+
+    CHECK(wizard.Step() == JonesSetupStep::Done);
+    CHECK(wizard.Report().bComplete);
+    CHECK(SamePath(wizard.TargetDataDir(), oldData));
+    CHECK(Exists(Join(Join(oldData, "Resource"), "Jones3D.GOB")));
+    CHECK_FALSE(Exists(Join(oldData, "old.txt")));
+    CHECK_FALSE(Exists(oldData + ".new"));
+    CHECK(Exists(Join(userDir, "datacheck.txt")));
+}
+
+TEST_CASE_FIXTURE(SetupWizardTest, "A rerun from two discs keeps the first disc's files")
+{
+    const std::string oldData = Join(userDir, JONESDATALOCATE_GAMEDATA_DIR);
+    WriteText(oldData, "old.txt", "old");
+
+    const std::string media = Join(root.string(), "rerun-media");
+    const std::string disc1 = Join(media, "disc1");
+    const std::string disc2 = Join(media, "disc2");
+    MakeDisc1(disc1);
+    MakeDisc2(disc2);
+
+#ifdef _WIN32
+    JonesSetupWizard wizard(platform, process, MakeHost({ disc1, disc2 }), userDir, exeDir,
+        true);
+#else
+    JonesSetupWizard wizard(platform, process, MakeHost({ media }), userDir, exeDir, true);
+#endif
+    wizard.Start();
+    wizard.Continue();
+
+    const std::size_t disc1Row = FindSourceRow(wizard, JONESINSTALL_SOURCE_DISC, 1, disc1);
+    REQUIRE(disc1Row != wizard.Rows().size());
+    REQUIRE(wizard.SelectRow(disc1Row));
+    wizard.AcceptLicence();
+    REQUIRE(wizard.TakeRerunRun());
+
+    wizard.StartInstall();
+    CHECK(wizard.Step() == JonesSetupStep::Disc2);
+
+    const std::size_t disc2Row = FindSourceRow(wizard, JONESINSTALL_SOURCE_DISC, 2, disc2);
+    REQUIRE(disc2Row != wizard.Rows().size());
+    CHECK(wizard.SelectRow(disc2Row));
+    CHECK(wizard.TakeDisc2Run());
+
+    wizard.StartInstall();
+
+    CHECK(wizard.Step() == JonesSetupStep::Done);
+    CHECK(wizard.Report().bComplete);
+    CHECK(Exists(Join(Join(oldData, "Resource"), "CD1.GOB")));
+    CHECK(Exists(Join(Join(oldData, "Resource"), "CD2.GOB")));
+    CHECK_FALSE(Exists(Join(oldData, "old.txt")));
+}
+
+TEST_CASE_FIXTURE(SetupWizardTest, "A rerun cancel keeps the old GameData and removes GameData.new")
+{
+    const std::string oldData = Join(userDir, JONESDATALOCATE_GAMEDATA_DIR);
+    WriteText(oldData, "old.txt", "old");
+    const std::string folder = CompleteFolder("rerun-cancel-source");
+
+    JonesSetupWizard wizard(platform, process, MakeHost(), userDir, exeDir, true);
+    wizard.Start();
+    wizard.Continue();
+    REQUIRE(wizard.ChooseFolder(folder));
+    CHECK(wizard.Step() == JonesSetupStep::Progress);
+
+    wizard.SetPump([&wizard]() { wizard.RequestCancel(); });
+    wizard.StartInstall();
+
+    CHECK(wizard.Step() == JonesSetupStep::Cancelled);
+    CHECK(Exists(Join(oldData, "old.txt")));
+    CHECK_FALSE(Exists(oldData + ".new"));
+}
+
+TEST_CASE_FIXTURE(SetupWizardTest, "A rerun error keeps the old GameData and removes GameData.new")
+{
+    const std::string oldData = Join(userDir, JONESDATALOCATE_GAMEDATA_DIR);
+    WriteText(oldData, "old.txt", "old");
+    const std::string folder = CompleteFolder("rerun-error-source");
+
+    JonesSetupWizard wizard(platform, process, MakeHost(), userDir, exeDir, true);
+    wizard.Start();
+    wizard.Continue();
+    REQUIRE(wizard.ChooseFolder(folder));
+
+    std::error_code ec;
+    std::filesystem::remove_all(JonesUtf8Path_From(folder), ec);
+
+    wizard.StartInstall();
+
+    CHECK(wizard.Step() == JonesSetupStep::Error);
+    CHECK(Exists(Join(oldData, "old.txt")));
+    CHECK_FALSE(Exists(oldData + ".new"));
+}
+
 TEST_CASE_FIXTURE(SetupWizardTest, "Next to the game is offered only for a writable different exe folder")
 {
     MakeDirs(userDir);
@@ -744,6 +907,22 @@ TEST_CASE_FIXTURE(SetupWizardTest, "Every screen lays out with a NullPainter")
     empty.BeginInstall();
     CHECK(empty.Step() == JonesSetupStep::Error);
     CheckScreenLayout(empty, "Setup failed");
+}
+
+TEST_CASE("The AppImage helper uses the .AppImage file's folder")
+{
+    const std::string saved = GetEnv("APPIMAGE");
+
+    SetEnv("APPIMAGE", "/opt/games/Jones3D EX.AppImage");
+    CHECK(JonesSetupHost_AppImageDir() == "/opt/games");
+
+    SetEnv("APPIMAGE", "Jones3D.AppImage");
+    CHECK(JonesSetupHost_AppImageDir().empty());
+
+    SetEnv("APPIMAGE", "");
+    CHECK(JonesSetupHost_AppImageDir().empty());
+
+    SetEnv("APPIMAGE", saved);
 }
 
 TEST_CASE("The progress bar fill matches the fraction and contrasts with its track")

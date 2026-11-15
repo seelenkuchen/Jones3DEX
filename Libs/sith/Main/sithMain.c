@@ -120,6 +120,15 @@ void sithMain_ResetGlobals(void)
     memset(sith_aTmpAutoSaveFilePrefix, 0, sizeof(sith_aTmpAutoSaveFilePrefix));
     memset(sith_aTmpScreenShotDirPath, 0, sizeof(sith_aTmpScreenShotDirPath));
     memset(sith_aScreenShotsFileName, 0, sizeof(sith_aScreenShotsFileName));
+
+    // Added: open/debug state and the level name buffers are per-run state.
+    sith_bOpen                  = false;
+    sith_bDrawUnknown           = 0;
+    sith_bDrawPlayerMoveBounds  = false;
+    sith_bDrawThingMoveBounds   = false;
+    sith_performanceLevel       = 0;
+    memset(sith_aLevelNdsFileNameBuf, 0, sizeof(sith_aLevelNdsFileNameBuf));
+    memset(sith_aNdsLevelFilenameBuf, 0, sizeof(sith_aNdsLevelFilenameBuf));
 }
 
 void J3DAPI sithSetServices(tHostServices* pHS)

@@ -77,6 +77,18 @@ void sithCog_ResetGlobals(void)
 {
     STD_ZEROMEM(&sithCog_g_pSymbolTable, sizeof(sithCog_g_pSymbolTable));
     STD_ZEROMEM(&sithCog_g_pMasterCog, sizeof(sithCog_g_pMasterCog));
+
+    // Added: a second run must not inherit the first run's startup/open flags, script table or
+    // sector, surface and thing link lists.
+    sithCog_bCogStartup = false;
+    sithCog_bCogOpen    = false;
+    sithCog_pHashtable  = NULL;
+    numSectorLinks      = 0;
+    numSurfLinks        = 0;
+    numThingLinks       = 0;
+    STD_ZEROMEM(aCogLinkSectors, sizeof(aCogLinkSectors));
+    STD_ZEROMEM(aCogLinkSurfaces, sizeof(aCogLinkSurfaces));
+    STD_ZEROMEM(aThingLinks, sizeof(aThingLinks));
 }
 
 int sithCog_Startup(void)

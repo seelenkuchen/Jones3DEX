@@ -296,6 +296,8 @@ void J3DAPI sithPhysics_UpdateJeepFx(SithThing* pThing, SithVehicleEngineFxState
 
 void sithPhysics_ResetGlobals(void)
 {
+    // Added: the jeep's remembered gear is run state.
+    sithPhysics_jeepSndGear = 0;
 }
 
 void J3DAPI sithPhysics_Startup(void)

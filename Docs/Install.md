@@ -68,17 +68,21 @@ The source copy is only read. The wizard never moves or deletes it.
 The wizard copies the game files into a folder named `GameData`:
 
 - **Your user folder** (recommended): `<user folder>/GameData`.
-- **Next to the game**: `<folder with Jones3D>/GameData`.
+- **Next to the game**: `<folder with Jones3D>/GameData`. In an AppImage this is the folder that
+  holds the `.AppImage` file, not the temporary read-only mount inside it.
 
 A complete `GameData` next to the program also makes that folder the place for settings and saves, so
 everything stays together. See [Settings, saves and logs](#settings-saves-and-logs).
 
 ### Running the setup again
 
-The wizard opens only when the game finds no complete data. To run it again, delete or move the
-`GameData` folder and start the game.
+From the main menu, open **Options > Game data** and choose **Run setup again...**. The tab also shows
+the release the startup check identified and the folder in use. The game closes its own window, opens the
+setup wizard and starts again when the wizard finishes. Run setup again is disabled while a level is
+loaded; return to the main menu first.
 
-There is no setup entry in the game menu yet.
+A rerun installs into `<user folder>/GameData.new` and replaces `GameData` only after the copy completes.
+**Cancel**, an error or **Back to the game** keeps the old data. Your settings and saves are kept.
 
 ### GOG installer files
 

@@ -2259,4 +2259,7 @@ int J3DAPI sithCogFunction_RegisterFunctions(SithCogSymbolTable* pTable)
 }
 
 void sithCogFunction_ResetGlobals(void)
-{}
+{
+    // Added: the debug print toggle is state and must not carry into a second run.
+    bPrintEnabled = false;
+}

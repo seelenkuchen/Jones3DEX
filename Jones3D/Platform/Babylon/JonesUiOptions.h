@@ -1,6 +1,6 @@
 // Added: the Babylon column's one tabbed Options screen (ADR-0028); see JonesUiOptions.cpp.
-// Gameplay, Controls, Display and Sound share one screen, switched with Q/E, LB/RB or a click on
-// the tab strip. Each tab reuses the standalone screen's rows and apply logic.
+// Gameplay, Controls, Display, Sound and Game data share one screen, switched with Q/E, LB/RB or a
+// click on the tab strip. Each tab reuses the standalone screen's rows and apply logic.
 #ifndef JONES3D_PLATFORM_BABYLON_JONESUIOPTIONS_H
 #define JONES3D_PLATFORM_BABYLON_JONESUIOPTIONS_H
 #ifndef __cplusplus
@@ -27,6 +27,13 @@ struct JonesUiOptionsData
     JonesDisplaySettings* pDisplaySettings = nullptr;
     JonesSoundSettings* pSoundSettings = nullptr;
     JonesControlsConfig* pControlsConfig = nullptr;
+
+    // Added: the read-only Game data tab. pRelease is the startup data check's release name (null
+    // when unidentified), pInstallPath the folder this run opened, and bLevelRunning disables
+    // "Run setup again..." while a level is loaded.
+    const char* pRelease = nullptr;
+    const char* pInstallPath = nullptr;
+    bool bLevelRunning = false;
 };
 
 // Runs the tabbed Options screen through ui and returns 1 on OK, 2 on back. The standalone
@@ -38,8 +45,9 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
 // Added: the blocking wrapper used by the main and pause menus. It loads the settings, registers
 // the Cinzel tab and Jost row fonts, creates the Options skin, runs the screen over the menu
 // background (darkened when one is given) and applies the sound and display changes. Returns the
-// dialog result: 1 applied, 2 cancelled.
-int JonesUiOptions_Show(const JonesUiModalBackground* pBackground);
+// dialog result: 1 applied, 2 cancelled. bLevelRunning tells the Game data tab that the pause menu
+// opened Options, so "Run setup again..." stays disabled until the game is not running a level.
+int JonesUiOptions_Show(const JonesUiModalBackground* pBackground, bool bLevelRunning = false);
 
 #ifdef J3D_TEST
 // Test support: builds one tab's screen with the given data, for the row and help checks.

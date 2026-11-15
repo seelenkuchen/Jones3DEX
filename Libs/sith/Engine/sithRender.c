@@ -190,6 +190,12 @@ void sithRender_ResetGlobals(void)
     STD_ZEROMEM(&sithRender_g_numAlphaThingPoly, sizeof(sithRender_g_numAlphaThingPoly));
     STD_ZEROMEM(&sithRender_g_numVisibleAdjoins, sizeof(sithRender_g_numVisibleAdjoins));
     STD_ZEROMEM(&sithRender_g_numVisibleSectors, sizeof(sithRender_g_numVisibleSectors));
+
+    // Added: renderer settings changed during play start at their declared defaults again.
+    sithRender_bPVSCull = true;
+    sithRender_culledSectorTraversalMode = SITHRENDER_CULLEDSECTOR_TRAVERSALMODE_DEFAULT;
+    sithRender_maxThingCollectDistance = SITHRENDER_MAXTHINGCOLLECTDISTANCE_DEFAULT;
+    sithRender_maxLightCollectDistance = SITHRENDER_MAXLIGHTCOLLECTDISTANCE_DEFAULT;
 }
 
 int sithRender_Startup(void)

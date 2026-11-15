@@ -59,7 +59,9 @@ model, for its flow and source choices only; no code is taken from it.
   terminal and no hand-made files are needed for a first start.
 - Copying always uses disk space for a second copy when the player keeps the store install. The
   original is untouched and can be removed by the player.
-- The setup can be run again only by removing or moving `GameData`; there is no menu entry yet.
+- The setup runs again from **Options > Game data > Run setup again...** on the main menu. A rerun copies
+  into `<user dir>/GameData.new` and swaps it in only on success, so neither deleting folders by hand nor
+  losing the old data is needed. The entry is disabled while a level is loaded.
 - Source discovery moves into the wizard. Store layout changes now need changes in
   `JonesInstall_FindSources` instead of the startup search.
 - The AppImage carries innoextract and its third-party licences. Windows players need their own

@@ -17,6 +17,7 @@ static unsigned int JonesControl_joystickChangeCount = 0; // Added: last hot-plu
 
 void JonesControl_ResetGlobals(void)
 {
+    JonesControl_bStartup = false; // Added: a second run must register its callbacks again
     JonesControl_joystickChangeCount = 0; // Added
 }
 

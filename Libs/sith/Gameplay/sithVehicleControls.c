@@ -152,7 +152,10 @@ void J3DAPI sithVehicleControls_ExitRaft(SithThing* pRaftPlayer);
 void J3DAPI sithVehicleControls_UpdateRaftPaddleSoundFx(SithThing* pThing);
 
 void sithVehicleControls_ResetGlobals(void)
-{}
+{
+    // Added: the raft's alternating row side starts at -1.
+    sithVehicleControls_raftRowSide = -1;
+}
 
 const SithMineCarControlsState* sithVehicleControls_GetMineCarState(void)
 {

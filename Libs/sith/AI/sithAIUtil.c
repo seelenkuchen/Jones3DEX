@@ -99,6 +99,28 @@ static int sithAIUtil_thingInViewTypeMask               = 0;
 void sithAIUtil_ResetGlobals(void)
 {
     memset(&sithAIUtil_g_bRenderAIWpnts, 0, sizeof(sithAIUtil_g_bRenderAIWpnts));
+
+    // Added: per-frame and per-search scratch state must not survive a run.
+    STD_ZEROMEM(sithAIUtil_aAIWpnts, sizeof(sithAIUtil_aAIWpnts));
+    STD_ZEROMEM(sithAIUtil_aWpntOwners, sizeof(sithAIUtil_aWpntOwners));
+    STD_ZEROMEM(sithAIUtil_aWpntDistances, sizeof(sithAIUtil_aWpntDistances));
+    sithAIUtil_activeWpntLayer = 0;
+    sithAIUtil_secLastUpdate   = 0.0f;
+
+    sithAIUtil_mkPointCurFlags = 0;
+    sithAIUtil_pMkPointCurLocal = NULL;
+    rdVector_Zero3(&sithAIUtil_mkPointCurDir);
+    rdVector_Zero3(&sithAIUtil_mkPointCurPYR);
+    rdVector_Zero3(&sithAIUtil_mkPointCurRVec);
+
+    sithAIUtil_thingsInViewFovX = 0.0f;
+    sithAIUtil_thingsInViewFovY = 0.0f;
+    sithAIUtil_numVisitedSectors = 0;
+    sithAIUtil_numThingsInView   = 0;
+    sithAIUtil_sizeThingsInView  = 0;
+    sithAIUtil_aThingsInView     = NULL;
+    sithAIUtil_maxDistanceToThingsInView = 0.0f;
+    sithAIUtil_thingInViewTypeMask = 0;
 }
 
 void J3DAPI sithAIUtil_UpdateTargetSight(SithAIControlBlock* pLocal, SithAIUtilFireFlags flags)

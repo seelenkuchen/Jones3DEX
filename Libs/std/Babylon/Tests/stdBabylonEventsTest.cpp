@@ -145,6 +145,23 @@ TEST(stdBabylonEvents, PumpedKeyEventsReachTheInputState)
     TEST_ASSERT_FALSE(stdBabylonEvents_InputState().keyDown(babylon::platform::Key::W));
 }
 
+TEST(stdBabylonEvents, ResetClearsTheRecordedQuitAndInput)
+{
+    PushEvent(babylon::platform::KeyChanged{ pWindow->id(), babylon::platform::Key::W, true, false });
+    PushEvent(babylon::platform::WindowCloseRequested{ pWindow->id() });
+    PushEvent(babylon::platform::WindowFocusChanged{ pWindow->id(), true });
+    TEST_ASSERT_EQUAL_UINT(3u, (unsigned)stdBabylonEvents_Pump());
+
+    TEST_ASSERT_TRUE(stdBabylonEvents_PeekQuitRequest());
+    TEST_ASSERT_TRUE(stdBabylonEvents_InputState().keyDown(babylon::platform::Key::W));
+
+    stdBabylonEvents_Reset();
+
+    TEST_ASSERT_FALSE(stdBabylonEvents_PeekQuitRequest());
+    TEST_ASSERT_FALSE(stdBabylonEvents_InputState().keyDown(babylon::platform::Key::W));
+    TEST_ASSERT_FALSE(stdBabylonEvents_TakeFocusChange().has_value());
+}
+
 TEST(stdBabylonEvents, WithoutAGameWindowCloseAndFocusAreIgnoredButQuitIsRecorded)
 {
     context.pWindow = nullptr;
@@ -170,5 +187,6 @@ TEST_GROUP_RUNNER(stdBabylonEvents)
     RUN_TEST_CASE(stdBabylonEvents, OtherWindowCloseIsIgnored);
     RUN_TEST_CASE(stdBabylonEvents, GameWindowFocusChangesComeOutOldestFirst);
     RUN_TEST_CASE(stdBabylonEvents, PumpedKeyEventsReachTheInputState);
+    RUN_TEST_CASE(stdBabylonEvents, ResetClearsTheRecordedQuitAndInput);
     RUN_TEST_CASE(stdBabylonEvents, WithoutAGameWindowCloseAndFocusAreIgnoredButQuitIsRecorded);
 }

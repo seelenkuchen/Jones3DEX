@@ -25,6 +25,7 @@ void sithTime_ResetGlobals(void)
     memset(&sithTime_g_secGameTime, 0, sizeof(sithTime_g_secGameTime));
     memset(&sithTime_g_clockTime, 0, sizeof(sithTime_g_clockTime));
     memset(&sithTime_g_bPaused, 0, sizeof(sithTime_g_bPaused));
+    sithTime_msecPauseStartTime = 0;
 }
 
 void sithTime_Advance(void)

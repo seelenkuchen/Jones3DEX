@@ -65,6 +65,13 @@ void JonesMain_ShowEndCredits(void);
 StdDisplayEnvironment* JonesMain_GetDisplayEnvironment(void);
 JonesDisplaySettings* JonesMain_GetDisplaySettings(void);
 
+// Added: the release name the startup data check identified, or NULL when the files did not match
+// a known release. The returned pointer stays valid for the run.
+const char* JonesMain_GetDataRelease(void);
+
+// Added: the game data folder this run found and opened, as passed to JonesFile_Open.
+const char* JonesMain_GetInstallPath(void);
+
 // Added: the level whose load-screen map the main menu shows behind its panel: the level of the
 // last save the config remembers, or the first level when there is none. Never null.
 const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void);

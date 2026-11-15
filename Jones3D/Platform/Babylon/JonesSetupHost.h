@@ -42,4 +42,9 @@ void JonesSetupHost_Init(JonesSetupHost& host);
 void JonesSetupHost_BuildPathList(JonesInstallPathList* pOut,
     const std::vector<std::string>& paths, bool bCaseInsensitive);
 
+// Added: the folder holding the AppImage file when APPIMAGE is set, else an empty string. The
+// AppImage runtime mounts the program under a temporary, read-only usr/bin; the .AppImage file's
+// folder is where a "next to the game" install belongs and where the data search should look.
+std::string JonesSetupHost_AppImageDir(void);
+
 #endif // JONES3D_PLATFORM_BABYLON_JONESSETUPHOST_H

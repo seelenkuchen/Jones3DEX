@@ -145,8 +145,9 @@ int JonesUiPauseMenu_RunPauseMenu(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
                 return true;
 
             case kJonesPauseSettings:
-                // Added: one tabbed Options screen replaces the Settings hub (ADR-0028).
-                static_cast<void>(JonesUiOptions_Show(nullptr));
+                // Added: one tabbed Options screen replaces the Settings hub (ADR-0028). A level
+                // is loaded here, so the Game data tab keeps "Run setup again..." disabled.
+                static_cast<void>(JonesUiOptions_Show(nullptr, true));
                 return true;
 
             case kJonesPauseStatistics:
