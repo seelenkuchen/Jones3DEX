@@ -18,6 +18,7 @@
 #include <babylon/render/Sampler.h>
 #include <babylon/render/Texture.h>
 #include <babylon/shaders/stdBabylonShaders.h>
+#include <babylon/platform/Window.h>
 
 #include <cstdint>
 #include <cstring>
@@ -28,6 +29,7 @@
 
 #include <std/General/std.h>
 
+#include "stdBabylon.h"
 #include "stdRenderBabylon.h"
 
 namespace
@@ -52,7 +54,13 @@ namespace
         uint64_t backBufferVersion = 0;
 
         render::PipelineHandle presentPipeline;
+        render::PipelineHandle capturePipeline; // Bgra8, for RenderPresentToTexture
         render::SamplerHandle presentSampler; // also the post passes' sampler
+
+        // The pass a caller records on top of the presented frame, and the
+        // offscreen target of stdRenderBabylon_RenderPresentToTexture.
+        StdRenderBabylonPresentOverlay presentOverlay = nullptr;
+        void* presentOverlayUser = nullptr;
 
         // The post-processing chain: one pipeline per pass, in order, with the number of inputs its
         // shader reads, and the two targets the passes write in turn (made at the first presenting
@@ -372,6 +380,7 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_DestroyDeferred();
 
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.capturePipeline);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
     stdRenderBabylon_state = StdRenderBabylonState{};
 }
@@ -610,11 +619,36 @@ namespace
             if ( bPresent )
             {
                 stdRenderBabylon_RecordPostChain(list);
-            }
 
-            if ( bPresent && stdRenderBabylon_state.pDevice->info().hasSwapchain )
-            {
-                stdRenderBabylon_RecordPresent(list);
+                if ( stdRenderBabylon_state.pDevice->info().hasSwapchain )
+                {
+                    stdRenderBabylon_RecordPresent(list);
+                }
+
+                if ( stdRenderBabylon_state.presentOverlay )
+                {
+                    StdRenderBabylonOverlayTarget target;
+                    target.texture = {};
+                    target.format  = stdRenderBabylon_state.pDevice->info().hasSwapchain
+                        ? stdRenderBabylon_state.pDevice->info().swapchainFormat
+                        : render::TextureFormat::Bgra8;
+                    target.width  = stdRenderBabylon_state.width;
+                    target.height = stdRenderBabylon_state.height;
+
+                    StdBabylonContext* pContext = stdBabylon_GetContext();
+                    if ( pContext && pContext->pWindow )
+                    {
+                        const babylon::platform::Size size = pContext->pWindow->size();
+                        target.width  = size.width > 0 ? static_cast<std::uint32_t>(size.width) : 0;
+                        target.height = size.height > 0 ? static_cast<std::uint32_t>(size.height) : 0;
+                    }
+
+                    if ( target.width > 0 && target.height > 0 )
+                    {
+                        static_cast<void>(stdRenderBabylon_state.presentOverlay(
+                            stdRenderBabylon_state.presentOverlayUser, list, target));
+                    }
+                }
             }
 
             const bool bDrawsBackBuffer = stdRenderBabylon_DrawsBackBuffer(list);
@@ -649,6 +683,96 @@ bool stdRenderBabylon_PresentFrame()
 {
     (void)stdRenderBabylon_GetFrame();
     return stdRenderBabylon_Submit(true);
+}
+
+void stdRenderBabylon_SetPresentOverlay(StdRenderBabylonPresentOverlay pfn, void* pUser)
+{
+    stdRenderBabylon_state.presentOverlay     = pfn;
+    stdRenderBabylon_state.presentOverlayUser = pfn ? pUser : nullptr;
+}
+
+bool stdRenderBabylon_HasPresentOverlay()
+{
+    return stdRenderBabylon_state.presentOverlay != nullptr;
+}
+
+bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
+    std::uint32_t width, std::uint32_t height)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: not open.\n");
+        return false;
+    }
+    if ( stdRenderBabylon_state.colorTarget.isNull() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: no back buffer.\n");
+        return false;
+    }
+    if ( stdRenderBabylon_state.frame )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: a frame is being recorded.\n");
+        return false;
+    }
+    if ( target.isNull() || width == 0 || height == 0 )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: bad target or size %ux%u.\n",
+            width, height);
+        return false;
+    }
+    if ( stdRenderBabylon_state.capturePipeline.isNull() )
+    {
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdBabylon::shaders::presentFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+        stdRenderBabylon_state.capturePipeline =
+            stdRenderBabylon_state.pDevice->createPipeline(desc);
+    }
+    if ( stdRenderBabylon_state.capturePipeline.isNull()
+        || !stdRenderBabylon_EnsurePresentSampler() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: no present pipeline.\n");
+        return false;
+    }
+
+    render::CommandList list = stdRenderBabylon_state.pDevice->beginFrame();
+
+    render::PassDesc pass;
+    pass.colorTargets.push_back(render::ColorAttachment{ target, 0,
+        render::LoadOp::DontCare, render::StoreOp::Store, {} });
+    if ( !list.beginPass(pass) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the pass.\n");
+        return false;
+    }
+
+    list.setPipeline(stdRenderBabylon_state.capturePipeline);
+    list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_PresentSource(),
+        stdRenderBabylon_state.presentSampler);
+    list.draw(3);
+    if ( !list.endPass() )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the pass did not end.\n");
+        return false;
+    }
+
+    if ( stdRenderBabylon_state.presentOverlay )
+    {
+        const StdRenderBabylonOverlayTarget overlayTarget{ target,
+            render::TextureFormat::Bgra8, width, height };
+        static_cast<void>(stdRenderBabylon_state.presentOverlay(
+            stdRenderBabylon_state.presentOverlayUser, list, overlayTarget));
+    }
+
+    if ( !stdRenderBabylon_state.pDevice->submit(list) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the device refused the frame.\n");
+        return false;
+    }
+
+    return true;
 }
 
 uint64_t stdRenderBabylon_GetBackBufferVersion()

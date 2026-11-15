@@ -220,6 +220,16 @@ namespace
     }
 }
 
+namespace
+{
+    // A present overlay with nothing to add, so SaveScreen still takes the
+    // window-sized capture path.
+    bool NoOverlay(void*, render::CommandList&, const StdRenderBabylonOverlayTarget&)
+    {
+        return false;
+    }
+}
+
 TEST_GROUP(stdDisplayBabylon);
 
 TEST_SETUP(stdDisplayBabylon)
@@ -763,6 +773,32 @@ TEST(stdDisplayBabylon, SaveScreenWritesTheBackBufferAsBmp)
     TEST_ASSERT_EQUAL_HEX8_ARRAY(aRows, bmp.data() + 54u, 24u);
 }
 
+TEST(stdDisplayBabylon, SaveScreenCapturesTheWindowWithThePresentOverlay)
+{
+    stdDisplayBabylonTest_pWindow = stdDisplayBabylonTest_platform.createWindow(
+        babylon::platform::WindowDesc{ "test", { 20, 10 } });
+    TEST_ASSERT_NOT_NULL(stdDisplayBabylonTest_pWindow.get());
+    Context().pWindow = stdDisplayBabylonTest_pWindow.get();
+
+    OpenWindowed(16u, 8u);
+    stdRenderBabylon_SetPresentOverlay(NoOverlay, nullptr);
+    TEST_ASSERT_TRUE(stdRenderBabylon_HasPresentOverlay());
+
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SaveScreen(kScreenshotPath));
+    std::ifstream file(kScreenshotPath, std::ios::binary);
+    const std::vector<uint8_t> bmp((std::istreambuf_iterator<char>(file)),
+        std::istreambuf_iterator<char>());
+
+    // The window is 20 x 10 pixels while the back buffer is 16 x 8: the
+    // capture path was used, with its size and header.
+    const size_t stride = (20u * 3u + 3u) & ~size_t(3u);
+    TEST_ASSERT_EQUAL_size_t(54u + stride * 10u, bmp.size());
+    TEST_ASSERT_EQUAL_UINT32(20u, (uint32_t)(bmp[18] | (bmp[19] << 8) | (bmp[20] << 16) | (bmp[21] << 24)));
+    TEST_ASSERT_EQUAL_UINT32(10u, (uint32_t)(bmp[22] | (bmp[23] << 8) | (bmp[24] << 16) | (bmp[25] << 24)));
+
+    stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
+}
+
 TEST(stdDisplayBabylon, UpdateSubmitsTheScenesStd3DRecorded)
 {
     OpenWindowed(16u, 16u);
@@ -808,6 +844,7 @@ TEST_GROUP_RUNNER(stdDisplayBabylon)
     RUN_TEST_CASE(stdDisplayBabylon, PartialFillsUseDX9Rects);
     RUN_TEST_CASE(stdDisplayBabylon, SoftwareVBuffersFillAndConvertByteExact);
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenWritesTheBackBufferAsBmp);
+    RUN_TEST_CASE(stdDisplayBabylon, SaveScreenCapturesTheWindowWithThePresentOverlay);
     RUN_TEST_CASE(stdDisplayBabylon, UpdateSubmitsTheScenesStd3DRecorded);
 }
 
