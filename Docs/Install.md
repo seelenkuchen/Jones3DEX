@@ -6,8 +6,6 @@ contains no game data. You need your own copy of the game from GOG, Steam or the
 ## What you need
 
 - A copy of *Indiana Jones and the Infernal Machine*.
-- The game data files `Jones3D.GOB`, `CD1.GOB` and `CD2.GOB`. The intro movies `jonesopn*.snm` are
-  optional.
 - On Linux: a 64-bit system with glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or newer) and
   a Vulkan driver.
 - On Windows: 64-bit Windows 10 or newer.
@@ -33,68 +31,63 @@ The AppImage needs a Vulkan driver from your distribution. If the game does not 
 Download `Jones3D_EX-<version>-windows-x64.zip` and extract it into any folder. Run `Jones3D.exe` from
 there.
 
-The zip has no installer. Settings and saves go to the user directory (below); the extracted files
-stay in their folder.
+The zip has no installer. The first start opens the setup wizard (below), which copies the game files next
+to your settings or next to the program.
 
-## First start
+## First start: the setup wizard
 
-On first start Jones3D EX looks for the game data itself. It tries, in order:
+Start the game. If it finds no complete game files, it opens the **Jones3D EX Setup** window before the
+game window. Follow its steps:
 
-1. The folder given with `--data`.
-2. The `installPath` saved in `Jones.cfg`.
-3. Its own data folder in the user directory: `<user dir>/data`, or `data` in portable mode.
-4. The folder the program is in, then the working directory.
-5. Steam libraries, then GOG and other store folders.
+1. **Welcome.** Read the short introduction and choose **Continue**.
+2. **Source.** Choose where the game files are:
+   - an installed Steam or GOG copy the wizard found in the usual places;
+   - a GOG offline installer file in your download folder;
+   - a CD in the drive;
+   - **Choose a game folder...** for any other copy;
+   - **Choose a GOG installer file...** for an installer somewhere else;
+   - **Search again** after you inserted a CD or installed the game.
 
-The first folder that has `Jones3D.GOB`, `CD1.GOB` and `CD2.GOB` is used. A folder may hold the
-files itself or in its `Resource` folder.
+   A row marked `(incomplete)` is missing at least one of the game files. Choosing an installed copy or
+   a folder that is incomplete shows which files are missing.
+3. **Licence agreement.** A GOG installer and a CD show their licence. Read it and choose **I accept**.
+   Installed copies and folders skip this step.
+4. **Location.** Choose **Your user folder (recommended)** or **Next to the game**. The second choice is
+   offered only when the program's folder is writable. If the source has saved games, a **Copy saved
+   games** tick appears; leave it on to bring them along.
+5. **Installing.** The wizard unpacks a GOG installer or copies the files and shows its progress. Choose
+   **Cancel** to stop.
+6. **Disc 2.** A CD install that needs the second disc asks for it. Insert the disc, choose **Search
+   again** if it is not listed, or choose **Choose a folder...**.
+7. **Done.** Choose **Start the game**.
 
-When no complete folder is found, a window titled `Jones3D EX` says: "Jones3D EX needs the game data
-from your copy of Indiana Jones and the Infernal Machine (GOG, Steam or CD): Jones3D.GOB, CD1.GOB
-and CD2.GOB." For an incomplete folder it adds the folder and the missing files, then says: "Choose
-the game's folder or the Resource folder inside it." The buttons are `Choose folder...` and `Quit`.
-Escape and closing the window choose `Quit`, which closes the game. If the folder picker cannot be
-shown, the game shows the message and the hint `Start Jones3D EX with --data <folder>.` and exits.
+The source copy is only read. The wizard never moves or deletes it.
 
-The store search looks for `Indiana Jones and the Infernal Machine` in:
+### Where the files go
 
-- `<Steam library>/steamapps/common/` for the Steam roots and every library listed in
-  `steamapps/libraryfolders.vdf`. On Linux the roots are `~/.steam/steam`, `~/.local/share/Steam`
-  and `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`; on Windows
-  `%ProgramFiles(x86)%\Steam` and `%ProgramFiles%\Steam`.
-- `C:\GOG Games` and `%ProgramFiles(x86)%\GOG Galaxy\Games` on Windows.
-- `~/GOG Games`, `~/Games` and `~/Games/Heroic` on Linux.
+The wizard copies the game files into a folder named `GameData`:
 
-You can also point at the data directly:
+- **Your user folder** (recommended): `<user folder>/GameData`.
+- **Next to the game**: `<folder with Jones3D>/GameData`.
 
-```bash
-./Jones3D_EX-<version>-x86_64.AppImage --data "/path/to/Indiana Jones and the Infernal Machine"
-```
+A complete `GameData` next to the program also makes that folder the place for settings and saves, so
+everything stays together. See [Settings, saves and logs](#settings-saves-and-logs).
 
-`--data` applies to that run only. A folder chosen in the prompt is saved as `installPath` in
-`Jones.cfg`; a folder found automatically or given with `--data` is not saved.
+### Running the setup again
 
-## Copying the data from a CD
+The wizard opens only when the game finds no complete data. To run it again, delete or move the
+`GameData` folder and start the game.
 
-When the data is on a CD that you don't want to keep in the drive, or in a folder that may move, copy
-the files into the user directory:
+There is no setup entry in the game menu yet.
 
-```bash
-Jones3D --install-data "/media/cdrom"
-```
+### GOG installer files
 
-or, for the AppImage:
+On Linux the AppImage includes the program that unpacks GOG installers (`innoextract`), so
+**Choose a GOG installer file...** and the installer files in your download folder work out of the box.
 
-```bash
-./Jones3D_EX-<version>-x86_64.AppImage --install-data "/media/cdrom"
-```
-
-Run the command once for each CD. Each run copies the known files it finds into
-`<user dir>/data/Resource/` and prints `copied` or `unchanged` for each one. Files already copied with
-the same size are skipped, and the source is never moved. A single disc run is usually incomplete, so the
-command exits 1 until the last disc is copied; it exits 0 only when `Jones3D.GOB`, `CD1.GOB` and
-`CD2.GOB` are all in place. It never starts the game. In portable mode the copy goes into `data/`
-under the folder in use.
+The Windows zip does not include `innoextract`. Use an installed Steam or GOG copy, a CD, or a plain
+game folder. If you have `innoextract` in your `PATH`, the wizard also offers GOG installer files on
+Windows.
 
 ## Settings, saves and logs
 
@@ -105,19 +98,21 @@ The game writes these to a per-user directory:
 | User directory | `~/.local/share/Jones3DEX` | `%APPDATA%\Jones3DEX` |
 
 The game keeps `Jones.cfg`, `SaveGames/`, `ScreenShots/`, `KeySets/`, `JonesLog.txt`,
-`JonesError.txt` and `datacheck.txt` (the data check's cache) there. A game data copy made with
-`--install-data` is in `data/`.
+`JonesError.txt` and `datacheck.txt` (the data check's cache) there. The game data the wizard installed
+is in `GameData/`.
 
 When the user directory has no `Jones.cfg`, the game copies the one in the working directory there.
 When it has no `.nds` savegame, it copies the saves from the old save folder next to the data. It
 copies; it does not move or delete anything.
 
-### Portable mode
+### Keeping everything next to the game
 
-To keep settings and saves beside the game instead, create a file named `portable.txt` (it can be
-empty) in the folder you start Jones3D EX from. For a zip install, a `portable.txt` next to
-`Jones3D.exe` also works. Jones3D EX uses the working directory when `portable.txt` is there, else the
-executable's folder when it is there. `--user-dir <folder>` chooses another folder for one run.
+Choose **Next to the game** in the setup wizard. The wizard puts `GameData` beside the program, and later
+starts use that folder for settings and saves too. This needs a writable program folder; the option is
+not offered otherwise.
+
+To move an existing setup, move the whole folder, including `GameData` and the user files, or move
+`GameData` alone and copy `Jones.cfg` and your saves from `SaveGames/` into the new user directory.
 
 ## Game data check
 
@@ -126,35 +121,36 @@ SHA-256 hashes, with the table. The table knows the GOG English release today an
 complete set that does not match a release gets one warning per differing file, or a warning that the
 files come from different known releases; the game still starts.
 
-The first check of the full data takes a few seconds. It is cached in `datacheck.txt` in the user
-directory, so later starts are quick.
+The setup wizard checks the files it copied and writes the cache, so the first game start does not hash
+them again. Later starts are quick too.
 
-A Steam or CD copy may therefore show the unknown-data warning but plays normally. To have it added,
-run:
+A Steam or CD copy may therefore show the unknown-data warning but plays normally. To have it added, run
+the developer command in [Developer options](#developer-options) and include its output in a report,
+together with where the copy came from (GOG, Steam, CD, language). Do not attach the game files
+themselves.
 
-```bash
-Jones3D --hash-data "/path/to/Indiana Jones and the Infernal Machine"
-```
+## Developer options
 
-or the same option on the AppImage. It prints one `{ "name", size, "sha256" },` row for each known
-file it finds and exits 0; it exits 1 with an error when it cannot read the data. Include that output
-in a report, together with where the copy came from (GOG, Steam, CD, language). Do not attach the game
-files themselves.
-
-## Command-line options
+These options are for development and problem reports. Players do not need them.
 
 | Option | What it does |
 |---|---|
 | `--version` | Prints the version and exits. |
 | `--data <folder>` | Uses the game data in this folder for this run. It wins over the saved `installPath` and is not saved. |
-| `--install-data <folder>` | Copies the known game files it finds into `<user dir>/data/Resource`, checks the set and exits. Exits 0 only when the set is complete, 1 otherwise; run it once per CD. |
 | `--hash-data <folder>` | Prints the size and SHA-256 rows for the known files it finds and exits. Exits 0, or 1 when it cannot read the data. |
 | `--user-dir <folder>` | Uses this folder for settings, saves, screenshots, key sets and logs. |
 | `--load <save>` | Starts with that savegame loaded. |
 
-The headless runner `Jones3D-headless` takes `--data`, `--hash-data`, `--install-data`, `--user-dir`
-and `--load` too. Without `--user-dir` it writes to the working directory. With `--load` it loads the
-save only when `startMode` is 1 (load game); the windowed game starts that save directly.
+The headless runner `Jones3D-headless` takes `--data`, `--hash-data`, `--user-dir` and `--load`. Without
+`--user-dir` it writes to the working directory. With `--load` it loads the save only when `startMode`
+is 1 (load game); the windowed game starts that save directly.
+
+`--data` applies to that run only. `installPath` in `Jones.cfg` is still read when it is set, but the
+game no longer sets it.
+
+Data paths up to 576 bytes work on Linux. Windows still limits paths to 260 characters.
+
+The old `--install-data` option and `portable.txt` are gone. The setup wizard replaces both.
 
 ## Troubleshooting
 
@@ -163,12 +159,19 @@ save only when `startMode` is 1 (load game); the windowed game starts that save 
 - **The AppImage doesn't start.** The type-2 AppImage runtime works without `libfuse2` on most systems.
   If yours still asks for FUSE, run it with `--appimage-extract-and-run`:
   `./Jones3D_EX-<version>-x86_64.AppImage --appimage-extract-and-run`.
-- **The game cannot find the data.** Check that `Jones3D.GOB`, `CD1.GOB` and `CD2.GOB` are in the folder
-  or in its `Resource` folder, then start with `--data "<folder>"`.
+- **The setup wizard does not find the game.** Check that `Jones3D.GOB`, `CD1.GOB` and `CD2.GOB` are in
+  the folder or in its `Resource` folder, then choose **Choose a game folder...** and pick it.
+- **The wizard does not offer a GOG installer file.** On Windows, `innoextract` is not included. Use an
+  installed copy, a CD or a plain game folder, or put `innoextract` in your `PATH`.
+- **No file dialog is available.** On Linux the file dialog comes from the desktop portal
+  (`xdg-desktop-portal` with your desktop's backend) or `zenity`. Install one of them, or choose **Search
+  again** after putting the game where the wizard looks: an installed Steam or GOG copy, a GOG installer
+  in the download folder, or a CD.
 - **The log says the data is unknown.** That is a warning, not an error. If you want the release added,
   see [Game data check](#game-data-check).
 
 ## See also
 
 - [`Jones.cfg` reference](Jones.cfg.md)
+- [ADR-0034: the setup wizard](arc42/09-decisions/ADR-0034-setup-wizard.md)
 - [ADR-0032: packages and game data location](arc42/09-decisions/ADR-0032-packages-and-game-data-location.md)

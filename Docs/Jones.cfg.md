@@ -10,8 +10,8 @@ The windowed game writes `Jones.cfg` to a per-user directory, so it runs from a 
 shared install. The directory is chosen once at startup, in this order:
 
 1. `--user-dir <dir>` on the command line.
-2. Portable mode: a file named `portable.txt` (it can be empty) in the working directory keeps the
-   working directory; a `portable.txt` beside the executable keeps the executable's directory.
+2. The executable's directory, when its `GameData` folder holds the complete game data. This is the setup
+   wizard's **Next to the game** choice.
 3. The platform user directory: `~/.local/share/Jones3DEX/` (or `$XDG_DATA_HOME/Jones3DEX/`) on Linux,
    `%APPDATA%\Jones3DEX\` on Windows, and `~/Library/Application Support/Jones3DEX/` on macOS.
 
@@ -161,7 +161,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `version` | string | `1.0.0` | Written automatically when a new config file is created. |
-| `installPath` | string | empty | Installation path. The game finds its data automatically: `--data <dir>`, then this key, then `<user dir>/data` (`data` in portable mode), the executable's folder, the working directory, Steam libraries, then GOG/store folders. The found folder is used for the run, but only a folder chosen in the folder picker is written back here. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
+| `installPath` | string | empty | Installation path. One candidate of the startup data search: `--data <dir>`, then this key, then `<user dir>/GameData`, the executable's folder, `<executable folder>/GameData`, then the working directory. The game no longer sets this key; the setup wizard installs into `GameData` instead. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
 | `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |

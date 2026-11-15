@@ -38,3 +38,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0031](ADR-0031-babylon-font-and-image-modules.md) | Babylon font and image modules for the menu assets | Accepted |
 | [ADR-0032](ADR-0032-packages-and-game-data-location.md) | Packages and game data location | Accepted |
 | [ADR-0033](ADR-0033-babylon-ui-render-painter.md) | A Babylon UI render painter | Accepted |
+| [ADR-0034](ADR-0034-setup-wizard.md) | A setup wizard for the game data | Accepted |

@@ -1,6 +1,7 @@
 # ADR-0019: Writes go to a user directory; the game keeps its search order
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0034](ADR-0034-setup-wizard.md)
 - **Date:** 2026-11-03
 
 ## Context
@@ -34,12 +35,13 @@ users can share one install.
 
 ## Implementation
 
-Implemented in M8 (2026-11-14): the windowed Babylon game writes `Jones.cfg`, savegames, screenshots, key
-sets, `JonesLog.txt`, `JonesError.txt` and the `datacheck.txt` cache to the directory chosen by
-`--user-dir`, a `portable.txt` in the working directory or beside the executable (the working directory
-is checked first), or else `FileSystem::userPath("", "Jones3DEX")`
-(`~/.local/share/Jones3DEX/` on Linux, `%APPDATA%\Jones3DEX\` on Windows,
-`~/Library/Application Support/Jones3DEX/` on macOS). An existing `Jones.cfg` in the working directory is
-copied there when the user directory has none, and existing `.nds` saves are copied from the old save
-folder when it has none; the old files are kept. Headless runs default to the working directory and
-accept `--user-dir`.
+Implemented in M8 (2026-11-14, amended 2026-11-15): the windowed Babylon game writes `Jones.cfg`,
+savegames, screenshots, key sets, `JonesLog.txt`, `JonesError.txt` and the `datacheck.txt` cache to the
+directory chosen by `--user-dir`, the executable's directory when its `GameData` folder holds the complete
+game data (the setup wizard's **Next to the game** choice), or else
+`FileSystem::userPath("", "Jones3DEX")` (`~/.local/share/Jones3DEX/` on Linux, `%APPDATA%\Jones3DEX\` on
+Windows, `~/Library/Application Support/Jones3DEX/` on macOS). A complete `GameData` beside the executable
+is the data marker that selects the executable's directory; it replaces `portable.txt`
+([ADR-0034](ADR-0034-setup-wizard.md)). An existing `Jones.cfg` in the working directory is copied there
+when the user directory has none, and existing `.nds` saves are copied from the old save folder when it has
+none; the old files are kept. Headless runs default to the working directory and accept `--user-dir`.

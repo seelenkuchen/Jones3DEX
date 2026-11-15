@@ -1,6 +1,10 @@
 # ADR-0032: Packages and game data location
 
-- **Status:** Accepted
+> **Note:** Partly superseded by [ADR-0034](ADR-0034-setup-wizard.md). The setup wizard now installs the
+> game data into `GameData` and replaces `portable.txt`; the package decisions remain, while the data
+> location, search and install parts are superseded.
+
+- **Status:** Accepted, partly superseded by [ADR-0034](ADR-0034-setup-wizard.md)
 - **Date:** 2026-11-14
 
 ## Context
@@ -29,16 +33,20 @@ Linux package built on Ubuntu 22.04 (glibc 2.35) cannot link it.
   `~/.local/share/Jones3DEX` on Linux and `%APPDATA%\Jones3DEX` on Windows. **Portable mode** keeps everything in
   the folder instead: a `portable.txt` in the working directory selects the working directory, else one next to
   the executable selects the executable's directory. `--user-dir` overrides the choice for one run.
+  (Superseded by ADR-0034.)
 - **Data search order**, first folder with `Jones3D.GOB`, `CD1.GOB` and `CD2.GOB` wins: `--data <dir>`,
   `installPath` from `Jones.cfg`, `<user dir>/data` (`data` in portable mode), the executable's directory, the
   working directory, Steam libraries, then GOG and other store folders. A folder may hold the files in its
   `Resource` subfolder. The folder found this way becomes the run's install path. Only a folder the player picks
   in the folder picker is written back to `installPath`.
+  (Superseded by ADR-0034.)
 - **Point, don't copy:** the game uses an existing GOG, Steam or CD install where it is. `--install-data <dir>`
   copies the known files into `<user dir>/data/Resource` for discs and moving installs, one disc at a time; the
   source is never moved.
+  (Superseded by ADR-0034.)
 - **First start without usable data** names the required files and offers a folder picker in the windowed build.
   Quitting, or a headless run without `--data`, fails cleanly with a non-zero exit status.
+  (Superseded by ADR-0034.)
 - **The release workflow** builds both artifacts on `v*` tags and on `workflow_dispatch`, runs the unit tests and
   uploads the artifacts to the workflow run. It has read-only permissions and neither creates a GitHub release nor
   publishes anything; the owner attaches the artifacts by hand for now.
