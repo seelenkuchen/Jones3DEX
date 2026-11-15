@@ -34,13 +34,16 @@
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Play/JonesControl.h>
 #include <Jones3D/Platform/Babylon/JonesControlSchemes.h>
+#include <Jones3D/Platform/Babylon/JonesUiButtonLayout.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
+#include <Jones3D/Platform/Babylon/JonesUiOptions.h>
 #include <Jones3D/types.h>
 
 #include <sith/Devices/sithControl.h>
 #include <sith/Main/sithMain.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonEvents.h>
 #include <std/General/std.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdControl.h>
@@ -152,7 +155,13 @@ namespace
 
         bool showMessageBox(std::string_view, std::string_view) override
         {
+            ++m_messages;
             return false;
+        }
+
+        int MessageCount() const
+        {
+            return m_messages;
         }
 
         std::optional<std::size_t> askChoice(std::string_view, std::string_view,
@@ -207,6 +216,11 @@ namespace
             m_events.push_back(platform::Event{ platform::GamepadAxisMoved{ 1, axis, value } });
         }
 
+        void PushQuit()
+        {
+            m_events.push_back(platform::Event{ platform::QuitRequested{} });
+        }
+
         void PushKeyRepeated(platform::Key key, int count)
         {
             for ( int cur = 0; cur < count; ++cur )
@@ -219,6 +233,7 @@ namespace
         std::deque<platform::Event> m_events;
         bool m_delivering = false;
         int m_emptyPolls  = 0;
+        int m_messages    = 0;
     };
 
     // One temp key-sets directory, config and Babylon context for a case.
@@ -1105,4 +1120,405 @@ TEST_CASE("the headless wrapper answers cancel without blocking")
     ControlsTestContext testContext;
 
     CHECK(jonesConfig_ShowControlOptions(nullptr) == 2);
+}
+
+
+namespace
+{
+    // One loaded custom scheme ready for a button-layout screen. The caller owns config.
+    bool LoadSchemeForLayout(ControlsTestContext& testContext, JonesControlsConfig& config,
+        std::size_t& index)
+    {
+        testContext.WriteSchemeFile("ui-layout", HandWrittenScheme());
+        if ( !LoadConfig(config) )
+        {
+            return false;
+        }
+        index = FindScheme(config, "ui-layout");
+        return index < config.numSchemes;
+    }
+}
+
+TEST_CASE("binding on the controller screen replaces only the pad binding")
+{
+    sithControl_SetModernControlStyle(false);
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = index;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    // Walk Forward -> Bind -> gamepad South -> Back.
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushGamepadButton(platform::GamepadButton::South);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+
+    std::size_t controller = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_WALKFORWARD, JonesUiButtonLayoutDevice::Controller, controller));
+    CHECK(controller == STDCONTROL_JOYSTICK_GETBUTTON(0, 0));
+
+    std::size_t keyboard = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_WALKFORWARD, JonesUiButtonLayoutDevice::KeyboardMouse, keyboard));
+    CHECK(keyboard < STDCONTROL_MAX_KEYBOARD_BUTTONS);
+
+    const std::string written = testContext.ReadSchemeFile("ui-layout");
+    CHECK(written.find("BUTTON1") != std::string::npos);
+    jonesConfig_FreeControlConfigEntry(&config);
+    sithControl_SetModernControlStyle(true);
+}
+
+TEST_CASE("escape cancels a binding capture and leaves the scheme file alone")
+{
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = index;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    // Bind, cancel the capture, then leave with Back.
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+    std::size_t controller = 0;
+    CHECK_FALSE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_WALKFORWARD, JonesUiButtonLayoutDevice::Controller, controller));
+    jonesConfig_FreeControlConfigEntry(&config);
+}
+
+TEST_CASE("a pad control bound to another action asks before it moves")
+{
+    sithControl_SetModernControlStyle(false);
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    const std::size_t padSouth = STDCONTROL_JOYSTICK_GETBUTTON(0, 0);
+    REQUIRE(JonesControlSchemes_AddBinding(&config.aSchemes[index], JONESCONTROL_ACTION_JUMP,
+        padSouth) == 1);
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = index;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    // Walk Forward -> Bind -> South asks to move it from Jump -> Yes -> Back.
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushGamepadButton(platform::GamepadButton::South);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+
+    std::size_t controller = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_WALKFORWARD, JonesUiButtonLayoutDevice::Controller, controller));
+    CHECK(controller == padSouth);
+    CHECK_FALSE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_JUMP, JonesUiButtonLayoutDevice::Controller, controller));
+    jonesConfig_FreeControlConfigEntry(&config);
+    sithControl_SetModernControlStyle(true);
+}
+
+TEST_CASE("reset binds restores the device defaults after a yes")
+{
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    const std::size_t padEast = STDCONTROL_JOYSTICK_GETBUTTON(0, 1);
+    REQUIRE(JonesControlSchemes_AddBinding(&config.aSchemes[index], JONESCONTROL_ACTION_JUMP,
+        padEast) == 1);
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = index;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    // Reset, confirm with Yes, then Back.
+    testContext.platform.PushGamepadButton(platform::GamepadButton::North);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+
+    // The hand-written scheme has no pad bindings, so resetting Jump puts its default pad
+    // control back (and not East).
+    std::size_t controller = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_JUMP, JonesUiButtonLayoutDevice::Controller, controller));
+
+    JonesControlsScheme defaults{};
+    REQUIRE(JonesControlSchemes_SetDefaultScheme(&defaults,
+        JonesUiControls_DefaultSchemeIndex()) == 1);
+    std::size_t expected = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(defaults,
+        JONESCONTROL_ACTION_JUMP, JonesUiButtonLayoutDevice::Controller, expected));
+    CHECK(controller == expected);
+    jonesConfig_FreeControlConfigEntry(&config);
+}
+
+TEST_CASE("back refuses while a required action has no binding")
+{
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+
+    // Remove Crawl's only binding: it is required in both control styles.
+    JonesControlsScheme& scheme = config.aSchemes[index];
+    REQUIRE(JonesControlSchemes_GetNumBindings(&scheme, JONESCONTROL_ACTION_CRAWL) == 1);
+    REQUIRE(JonesControlSchemes_RemoveBinding(&scheme, JONESCONTROL_ACTION_CRAWL, 0) == 1);
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    const std::string before = testContext.ReadSchemeFile("ui-layout");
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = index;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+    // Simulate a change so Back runs the required-binding check.
+    model.bChanged = true;
+
+    // Back is refused; a quit then closes the loop as the game would after the dialog.
+    testContext.platform.PushKey(platform::Key::Escape);
+    testContext.platform.PushQuit();
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+    CHECK(testContext.ReadSchemeFile("ui-layout") == before);
+    stdBabylonEvents_Reset();
+    jonesConfig_FreeControlConfigEntry(&config);
+}
+
+
+TEST_CASE("the Options Controls tab opens the Button Layout screen and keeps Options open")
+{
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+
+    JonesUiOptionsData data;
+    data.pControlsConfig = &config;
+    data.pSoundSettings = &sound;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayout_ResetLayoutFramesForTest();
+
+    // Controls tab, down to Controller, open it, Back to Options, open it again to prove focus
+    // returned to the same row, Back again, then close Options.
+    testContext.platform.PushKey(platform::Key::E);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+
+    CHECK(JonesUiButtonLayout_GetLayoutRunsForTest() == 2u);
+    CHECK(JonesUiButtonLayout_GetLayoutFramesForTest() > 1u);
+    CHECK(JonesUiButtonLayout_GetLastDeviceForTest()
+        == JonesUiButtonLayoutDevice::Controller);
+    CHECK(ui.screenCount() == 0u);
+
+    jonesConfig_FreeControlConfigEntry(&config);
+}
+
+
+TEST_CASE("Modern stick-owned rows do not capture a binding")
+{
+    sithControl_SetModernControlStyle(true);
+    ControlsTestContext testContext;
+
+    JonesControlsScheme scheme{};
+    JonesControlsConfig config{};
+    config.numSchemes = 1;
+    config.aSchemes = &scheme;
+    config.selectedShemeIdx = 0;
+    testContext.StartControls();
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = 0;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    // Walk Forward is stick-owned: Bind shows a message, and the South press that follows must
+    // not become a binding.
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushGamepadButton(platform::GamepadButton::South);
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+
+    std::size_t controller = 0;
+    CHECK_FALSE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[0],
+        JONESCONTROL_ACTION_WALKFORWARD, JonesUiButtonLayoutDevice::Controller, controller));
+    CHECK(model.rows[JONESCONTROL_ACTION_WALKFORWARD].stickOwnership
+        == JonesUiStickOwnership::Left);
+
+    sithControl_SetModernControlStyle(true);
+}
+
+
+TEST_CASE("Back on an unchanged built-in scheme closes without nagging")
+{
+    sithControl_SetModernControlStyle(true);
+    ControlsTestContext testContext;
+
+    JonesControlsConfig config;
+    REQUIRE(LoadConfig(config));
+    REQUIRE(config.numSchemes > 0);
+    config.selectedShemeIdx = 0;
+    testContext.StartControls();
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = 0;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    testContext.platform.PushKey(platform::Key::Escape);
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+
+    CHECK(testContext.platform.MessageCount() == 0);
+    CHECK(model.bChanged == false);
+    CHECK(model.schemeIndex == 0);
+    jonesConfig_FreeControlConfigEntry(&config);
+    sithControl_SetModernControlStyle(true);
+}
+
+
+TEST_CASE("the Controls tab keeps its row order after the Controller screen closes")
+{
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesUiOptionsData data;
+    data.pControlsConfig = &config;
+    data.pSoundSettings = &sound;
+
+    JonesUiControlsModel model;
+    REQUIRE(JonesUiControls_InitModel(model, config));
+
+    JonesUiControlsLayout layout;
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+    REQUIRE(ui.setViewport(1280, 800));
+
+    const babylon::ui::Screen screen =
+        JonesUiOptions_BuildTabScreenForTest(1, data, &layout);
+    const babylon::ui::ScreenId screenId = ui.push(screen);
+    REQUIRE(screenId != babylon::ui::kInvalidScreen);
+
+    const std::vector<std::string> expected = {
+        "Scheme", "New", "Delete", "Controller", "Keyboard & Mouse", "Mouse camera",
+        "Rumble", "Apply",
+    };
+    const std::vector<std::string> known = {
+        "Scheme", "New", "Delete", "Controller", "Keyboard & Mouse", "Mouse camera",
+        "Rumble", "Apply", "Reset to defaults",
+    };
+
+    const auto labels = [&]()
+    {
+        painter.clearRecorded();
+        ui.draw();
+        std::vector<std::string> found;
+        for ( const babylon::ui::RecordedCall& call : painter.recorded() )
+        {
+            if ( const auto* pText = std::get_if<babylon::ui::RecordedDrawText>(&call) )
+            {
+                if ( std::find(known.begin(), known.end(), pText->text) != known.end() )
+                {
+                    found.push_back(pText->text);
+                }
+            }
+        }
+        if ( found.size() > expected.size() )
+        {
+            found.resize(expected.size());
+        }
+        return found;
+    };
+
+    CHECK(labels() == expected);
+
+    // Back from the nested Controller screen runs UpdateScreenWidgets on the same tab.
+    testContext.platform.PushKey(platform::Key::Escape);
+    REQUIRE(JonesUiControls_HandleAction(ui, screenId, 14, &painter, model, layout));
+
+    CHECK(labels() == expected);
+    const std::optional<babylon::ui::WidgetValue> first = ui.widgetValue(screenId,
+        layout.scheme);
+    REQUIRE(first.has_value());
+    CHECK(std::holds_alternative<std::int64_t>(*first));
+
+    JonesUiControls_FreeModel(model);
+    jonesConfig_FreeControlConfigEntry(&config);
 }

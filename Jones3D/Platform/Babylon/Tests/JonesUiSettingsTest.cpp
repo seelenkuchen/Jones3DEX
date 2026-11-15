@@ -1003,14 +1003,23 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
     // Added: the Controls tab has the mouse camera row, which the player could not see before.
     const babylon::ui::Screen controlsTab = JonesUiOptions_BuildTabScreenForTest(1, data);
     bool bHasMouseCamera = false;
+    bool bHasController = false;
+    bool bHasKeyboard = false;
     for ( const babylon::ui::Widget& widget : controlsTab.widgets )
     {
         if ( const babylon::ui::Toggle* pToggle = std::get_if<babylon::ui::Toggle>(&widget) )
         {
             bHasMouseCamera = bHasMouseCamera || pToggle->text == "Mouse camera";
         }
+        if ( const babylon::ui::Button* pButton = std::get_if<babylon::ui::Button>(&widget) )
+        {
+            bHasController = bHasController || pButton->text == "Controller";
+            bHasKeyboard = bHasKeyboard || pButton->text == "Keyboard & Mouse";
+        }
     }
     CHECK(bHasMouseCamera);
+    CHECK(bHasController);
+    CHECK(bHasKeyboard);
 
     // ADR-0028: the Display tab drops the row, while the stored level is still read and written.
     CHECK_FALSE(bHasPerformance);

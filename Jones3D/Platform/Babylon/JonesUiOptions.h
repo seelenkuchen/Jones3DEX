@@ -36,6 +36,8 @@ struct JonesUiOptionsData
     bool bLevelRunning = false;
 };
 
+struct JonesUiControlsLayout;
+
 // Runs the tabbed Options screen through ui and returns 1 on OK, 2 on back. The standalone
 // screens' entry points stay available. pPainter may be null, which runs without drawing.
 int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
@@ -52,7 +54,7 @@ int JonesUiOptions_Show(const JonesUiModalBackground* pBackground, bool bLevelRu
 #ifdef J3D_TEST
 // Test support: builds one tab's screen with the given data, for the row and help checks.
 babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
-    const JonesUiOptionsData& data);
+    const JonesUiOptionsData& data, JonesUiControlsLayout* pControlsLayout = nullptr);
 #endif
 
 #endif // JONES3D_PLATFORM_BABYLON_JONESUIOPTIONS_H

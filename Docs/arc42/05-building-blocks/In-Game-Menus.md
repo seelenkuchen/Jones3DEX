@@ -31,7 +31,8 @@ the Performance row; `graphics.performanceLevel` and the level stored in savegam
 | Save, Load | Pause menu, main menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Save folder list with thumbnail, level display name and date; the thumbnail row is hidden when a save has none; the default save name uses the level display name; overwrite and load warnings |
 | Exit | Pause menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiSaveLoad.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSaveLoad.cpp) | Offers to save first |
 | Gameplay tab | Options | [`JonesUiGameplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiGameplaySettings.cpp) | Original options, the read-only profile, the Control style row (`engine.input.controlStyle`: Modern or Classic) and the enhancements that are runtime keys |
-| Controls tab | Options | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, one rebind list for keys and gamepad, the **Mouse camera** and Rumble toggles, reset to defaults; deeper edit and capture screens open from the tab. Writes `controls.configFile`, `controls.mouse` and `engine.input.rumble` and applies the active scheme. The gamepad is always on, so there is no controller toggle. A new Enhanced install starts with the mouse camera on |
+| Controls tab | Options | [`JonesUiControls.cpp`](../../../Jones3D/Platform/Babylon/JonesUiControls.cpp) | Scheme picker, New, Delete, **Controller** and **Keyboard & Mouse** rows, the **Mouse camera** and Rumble toggles. Writes `controls.configFile`, `controls.mouse` and `engine.input.rumble` and applies the active scheme. The gamepad is always on, so there is no controller toggle. A new Enhanced install starts with the mouse camera on |
+| Button Layout | Controls tab, Controller or Keyboard & Mouse | [`JonesUiButtonLayout.cpp`](../../../Jones3D/Platform/Babylon/JonesUiButtonLayout.cpp) | One framed row per action with its input icon, a scrolling list, a pad diagram with action callouts, Bind, Reset Binds and Back. Back keeps the changes and writes/rebinds the scheme; it skips validation and writes when nothing changed, and a built-in scheme becomes a custom copy only on a change. Modern stick-owned movement/camera rows show a lock, and the required-action check keeps the original weapon and optional artifact-hot-key exemptions (ADR-0036) |
 | Display tab | Options | [`JonesUiDisplaySettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiDisplaySettings.cpp) | Resolution, window mode, renderer options (Advanced Display merged in). No Performance row; the stored `graphics.performanceLevel` is written back unchanged |
 | Sound tab | Options | [`JonesUiSoundSettings.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSoundSettings.cpp) | Master volume, reverse stereo, output device |
 | Statistics | Pause menu, and HUD menu when `engine.ui.hud.systemIcons` is true | [`JonesUiEndScreens.cpp`](../../../Jones3D/Platform/Babylon/JonesUiEndScreens.cpp) | |
@@ -74,8 +75,8 @@ classic movement model. Start stays unbound because the pause menu reads it dire
 - Menus draw after the game frame is presented to the window, at the window's native pixel size, independent
   of the game render resolution ([ADR-0035](../09-decisions/ADR-0035-native-resolution-menus.md)).
 - The Options screen keeps each tab's changes when the player leaves it: Apply and Back/Esc/the pad's B
-  both save and close, as in a modern game (ADR-0028). The nested control-scheme editor's Back also keeps
-  its edits; its explicit Cancel row discards them. The Options background is the menu image or game frame,
+  both save and close, as in a modern game (ADR-0028). The Button Layout screens' Back also keeps their
+  edits and applies them. The Options background is the menu image or game frame,
   darkened by the overlay; it has no panel box.
 - Every screen opened while a `JonesUiContext` is held reuses that session's background and dims it once; a
   screen never captures the screen before it, nested or sequential.

@@ -22,14 +22,16 @@
 //   the same action (JONES_STR_SAMEMAP), asks before moving one bound to another action
 //   (Reassign Key, line 6806-6954), and refuses a ninth binding (JONES_STR_EXCEED).
 //
-// The one list here holds both keyboard and controller controls, so the original's separate key and
-// controller lists and its "key only"/"button only" checks do not apply. The rest of the contract,
-// the files and the config keys are unchanged.
+// The standalone editor's one list holds both keyboard and controller controls, so the original's
+// separate key and controller lists and its "key only"/"button only" checks do not apply. The Options
+// tab opens the separate Button Layout screens (ADR-0036). The rest of the contract, the files and
+// the config keys are unchanged.
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Play/JonesControl.h>
 #include <Jones3D/Platform/Babylon/JonesControlSchemes.h>
+#include <Jones3D/Platform/Babylon/JonesUiButtonLayout.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 
@@ -52,7 +54,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -70,6 +71,8 @@ namespace
     constexpr babylon::ui::ActionId kJonesControlsActionDelete = 11;
     constexpr babylon::ui::ActionId kJonesControlsActionEdit   = 12;
     constexpr babylon::ui::ActionId kJonesControlsActionReset  = 13;
+    constexpr babylon::ui::ActionId kJonesControlsActionController = 14;
+    constexpr babylon::ui::ActionId kJonesControlsActionKeyboard   = 15;
 
     constexpr babylon::ui::ActionId kJonesEditActionAccept = 20;
     constexpr babylon::ui::ActionId kJonesAssignActionRemove = 30;
@@ -105,6 +108,8 @@ namespace
     constexpr const char* kJonesControlsRemoveText     = "Remove";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsOkText         = "OK";
     constexpr const char* kJonesControlsFallbackTitle  = "Control Options";   // TODO: [COMPAT]
+    constexpr const char* kJonesControlsControllerText = "Controller";        // TODO: [COMPAT]
+    constexpr const char* kJonesControlsKeyboardText   = "Keyboard & Mouse";  // TODO: [COMPAT]
 
     // Added: English fallbacks for the original messages, used only when no game string table is
     // loaded (a unit test or the startup before the strings open).
@@ -179,7 +184,7 @@ namespace
     }
 
     // Added: the default scheme for a new install follows the control style.
-    std::size_t JonesUiControls_DefaultSchemeIndex(void)
+    std::size_t DefaultSchemeIndexInternal(void)
     {
         return JonesControlSchemes_GetDefaultSchemeIndex();
     }
@@ -355,9 +360,16 @@ namespace
             static_cast<void>(ui.setWidget(screenId, layout.list,
                 BuildBindList(config, selected)));
         }
-        static_cast<void>(ui.setWidget(screenId, layout.edit, EditButton(config, selected)));
-        static_cast<void>(ui.setWidget(screenId, layout.reset, babylon::ui::Button{
-            kJonesControlsResetText, kJonesControlsActionReset, bCustom }));
+        if ( layout.edit != babylon::ui::kNoWidget )
+        {
+            static_cast<void>(ui.setWidget(screenId, layout.edit,
+                EditButton(config, selected)));
+        }
+        if ( layout.reset != babylon::ui::kNoWidget )
+        {
+            static_cast<void>(ui.setWidget(screenId, layout.reset, babylon::ui::Button{
+                kJonesControlsResetText, kJonesControlsActionReset, bCustom }));
+        }
     }
 
     JonesUiControlsLayout MainScreenLayout()
@@ -405,7 +417,7 @@ namespace
         const char* pWanted = aConfigured;
         if ( !pWanted[0] )
         {
-            pWanted = JonesControlSchemes_GetDefaultSchemeName(JonesUiControls_DefaultSchemeIndex());
+            pWanted = JonesControlSchemes_GetDefaultSchemeName(DefaultSchemeIndexInternal());
         }
 
         if ( pWanted )
@@ -423,7 +435,7 @@ namespace
     }
 
     // Inserts a new custom scheme in name order among the custom schemes (original line 5598-5677).
-    bool InsertScheme(JonesControlsConfig& config, const JonesControlsScheme& scheme,
+    bool InsertSchemeAt(JonesControlsConfig& config, const JonesControlsScheme& scheme,
         std::size_t& selected)
     {
         const std::size_t numDefaults = JonesControlSchemes_GetNumDefaultSchemes();
@@ -701,9 +713,17 @@ namespace
         std::string missing;
         for ( std::size_t cur = 0; cur < JONESCONTROL_ACTION_NUMACTIONS; ++cur )
         {
-            const bool bWeapon = cur >= JONESCONTROL_ACTION_FISTS && cur <= JONESCONTROL_ACTION_BAZOOKA;
-            if ( !bWeapon && JonesControlSchemes_GetNumBindings(&scheme,
-                    (JonesControlActions)cur) == 0 )
+            // The original editor exempts the weapon keys. The artifact hot keys are optional and
+            // the Modern style drives the movement actions from a stick, so neither is required.
+            const bool bWeapon = cur >= JONESCONTROL_ACTION_FISTS
+                && cur <= JONESCONTROL_ACTION_BAZOOKA;
+            const bool bArtifactHotKey = cur >= JONESCONTROL_ACTION_IMP1
+                && cur <= JONESCONTROL_ACTION_IMP5;
+            const bool bStickOwned =
+                JonesUiControls_GetModernStickOwnership((JonesControlActions)cur)
+                    != JonesUiStickOwnership::None;
+            if ( !bWeapon && !bArtifactHotKey && !bStickOwned
+                && JonesControlSchemes_GetNumBindings(&scheme, (JonesControlActions)cur) == 0 )
             {
                 missing += CapActionName((JonesControlActions)cur);
                 missing += "\n";
@@ -1120,6 +1140,9 @@ babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsM
     const bool bCustom = IsCustomScheme(config, selected);
 
     layout = JonesUiControlsLayout{};
+    layout.list = babylon::ui::kNoWidget;
+    layout.edit = babylon::ui::kNoWidget;
+    layout.reset = babylon::ui::kNoWidget;
     layout.scheme = screen.widgets.size();
     screen.widgets.emplace_back(BuildSchemeChoice(config, selected));
 
@@ -1131,8 +1154,15 @@ babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsM
     screen.widgets.emplace_back(babylon::ui::Button{
         kJonesControlsDeleteText, kJonesControlsActionDelete, bCustom });
 
-    layout.list = screen.widgets.size();
-    screen.widgets.emplace_back(BuildBindList(config, selected));
+    layout.controller = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Button{
+        kJonesControlsControllerText, kJonesControlsActionController,
+        selected < config.numSchemes });
+
+    layout.keyboard = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Button{
+        kJonesControlsKeyboardText, kJonesControlsActionKeyboard,
+        selected < config.numSchemes });
 
     layout.mouse = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Toggle{
@@ -1141,13 +1171,6 @@ babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsM
     layout.rumble = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Toggle{
         kJonesControlsRumbleText, std::string(), true, model.bRumble });
-
-    layout.edit = screen.widgets.size();
-    screen.widgets.emplace_back(EditButton(config, selected));
-
-    layout.reset = screen.widgets.size();
-    screen.widgets.emplace_back(babylon::ui::Button{
-        kJonesControlsResetText, kJonesControlsActionReset, bCustom });
 
     screen.initialFocus = layout.scheme;
     return screen;
@@ -1183,7 +1206,7 @@ bool JonesUiControls_HandleAction(babylon::ui::Ui& ui, babylon::ui::ScreenId scr
             }
 
             std::size_t inserted = 0;
-            if ( InsertScheme(model.working, scheme, inserted) )
+            if ( InsertSchemeAt(model.working, scheme, inserted) )
             {
                 model.selected = inserted;
                 model.working.selectedShemeIdx = (int)model.selected;
@@ -1233,9 +1256,33 @@ bool JonesUiControls_HandleAction(babylon::ui::Ui& ui, babylon::ui::ScreenId scr
             if ( IsCustomScheme(model.working, model.selected) )
             {
                 JonesControlSchemes_ResetToDefault(&model.working.aSchemes[model.selected],
-                    JonesUiControls_DefaultSchemeIndex());
+                    DefaultSchemeIndexInternal());
                 model.working.aSchemes[model.selected].bModified = 1;
             }
+            return true;
+        }
+
+        case kJonesControlsActionController:
+        case kJonesControlsActionKeyboard:
+        {
+            if ( model.selected >= model.working.numSchemes )
+            {
+                return true;
+            }
+
+            JonesUiButtonLayoutModel layoutModel;
+            layoutModel.pConfig = &model.working;
+            layoutModel.schemeIndex = model.selected;
+            layoutModel.device = action == kJonesControlsActionController
+                ? JonesUiButtonLayoutDevice::Controller
+                : JonesUiButtonLayoutDevice::KeyboardMouse;
+            static_cast<void>(JonesUiButtonLayout_RunScreen(ui, pPainter, layoutModel));
+            if ( layoutModel.schemeIndex != model.selected )
+            {
+                model.selected = layoutModel.schemeIndex;
+                model.working.selectedShemeIdx = (int)model.selected;
+            }
+            UpdateScreenWidgets(ui, screenId, model, layout);
             return true;
         }
 
@@ -1399,6 +1446,59 @@ extern "C" int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd)
     JonesUiContext_Release(pUiContext);
     jonesConfig_FreeControlConfigEntry(&config);
     return result;
+}
+
+bool JonesUiControls_AskReassign(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    JonesControlActions owner, JonesControlActions target, std::size_t controlId)
+{
+    return AskReassign(ui, pPainter, owner, target, controlId);
+}
+
+JonesUiStickOwnership JonesUiControls_GetModernStickOwnership(JonesControlActions action)
+{
+    if ( !sithControl_IsModernControlStyle() )
+    {
+        return JonesUiStickOwnership::None;
+    }
+
+    switch ( action )
+    {
+        case JONESCONTROL_ACTION_WALKFORWARD:
+        case JONESCONTROL_ACTION_WALKBACK:
+        case JONESCONTROL_ACTION_TURNLEFT:
+        case JONESCONTROL_ACTION_TURNRIGHT:
+        case JONESCONTROL_ACTION_STEPLEFT:
+        case JONESCONTROL_ACTION_STEPRIGHT:
+        case JONESCONTROL_ACTION_RUN:
+            return JonesUiStickOwnership::Left;
+
+        case JONESCONTROL_ACTION_LOOK:
+            return JonesUiStickOwnership::Right;
+
+        default:
+            return JonesUiStickOwnership::None;
+    }
+}
+
+std::string JonesUiControls_GetMissingActions(const JonesControlsScheme& scheme)
+{
+    return MissingActions(scheme);
+}
+
+void JonesUiControls_ShowControlMessage(const std::string& text)
+{
+    ShowMessage(text);
+}
+
+bool JonesUiControls_InsertScheme(JonesControlsConfig& config,
+    const JonesControlsScheme& scheme, std::size_t& selected)
+{
+    return InsertSchemeAt(config, scheme, selected);
+}
+
+std::size_t JonesUiControls_DefaultSchemeIndex(void)
+{
+    return JonesControlSchemes_GetDefaultSchemeIndex();
 }
 
 #ifdef J3D_TEST

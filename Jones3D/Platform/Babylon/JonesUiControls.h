@@ -20,6 +20,7 @@
 #include <babylon/ui/Ui.h>
 
 #include <cstddef>
+#include <string>
 #include <vector>
 
 // The original new-scheme name check, in the order it ran: empty, a character the Windows file
@@ -34,6 +35,18 @@ enum class JonesUiControlsNameStatus
 
 JonesUiControlsNameStatus JonesUiControls_ValidateSchemeName(const char* pName,
     const JonesControlsConfig& config);
+
+// Added: which stick the Modern control style owns an action with, or None when the action is
+// free or the Classic style is active. The one check lives here so a later per-device Modern
+// switch only changes this function.
+enum class JonesUiStickOwnership
+{
+    None,
+    Left,
+    Right,
+};
+
+JonesUiStickOwnership JonesUiControls_GetModernStickOwnership(JonesControlActions action);
 
 // Maps one babylon::ui binding to the game control id the scheme files use. Returns true and writes
 // pControlId for a key, mouse button, gamepad button, POV direction or gamepad axis direction the
@@ -55,8 +68,9 @@ struct JonesUiControlsModel
 };
 
 // The widget indices of one Controls layout. kNoWidget means the row is not
-// present. Both the standalone screen and the Options tab show the Mouse
-// camera row; the Options tab adds the bind list.
+// present. The standalone screen shows the bind list and the Edit and Reset
+// rows; the Options tab shows the Controller and Keyboard & Mouse entry rows
+// instead, and keeps the Mouse camera row.
 struct JonesUiControlsLayout
 {
     std::size_t scheme = 0;
@@ -65,8 +79,10 @@ struct JonesUiControlsLayout
     std::size_t list = babylon::ui::kNoWidget;
     std::size_t mouse = babylon::ui::kNoWidget;
     std::size_t rumble = 0;
-    std::size_t edit = 0;
-    std::size_t reset = 0;
+    std::size_t edit = babylon::ui::kNoWidget;
+    std::size_t reset = babylon::ui::kNoWidget;
+    std::size_t controller = babylon::ui::kNoWidget;
+    std::size_t keyboard = babylon::ui::kNoWidget;
     std::size_t ok = babylon::ui::kNoWidget;
     std::size_t back = babylon::ui::kNoWidget;
 };
@@ -97,6 +113,19 @@ void JonesUiControls_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
 // Applies the model on OK and adopts its list into config. Returns 1. On a
 // failed apply it returns 2 and leaves config alone.
 int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& config);
+
+// Added: helpers the button-layout screens share with the Controls editor. AskReassign opens the
+// original reassign question and returns true on Yes. GetMissingActions returns the capitalised
+// action names that still have no binding, one per line (empty when every required action is
+// bound). ShowControlMessage opens the same message dialog the editor uses. InsertScheme inserts a
+// custom scheme in name order and returns its new index in selected.
+bool JonesUiControls_AskReassign(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+    JonesControlActions owner, JonesControlActions target, std::size_t controlId);
+std::string JonesUiControls_GetMissingActions(const JonesControlsScheme& scheme);
+void JonesUiControls_ShowControlMessage(const std::string& text);
+bool JonesUiControls_InsertScheme(JonesControlsConfig& config,
+    const JonesControlsScheme& scheme, std::size_t& selected);
+std::size_t JonesUiControls_DefaultSchemeIndex(void);
 
 // Runs the main Controls screen through ui. config is the loaded scheme list; the runner works on a
 // copy. On OK it deletes the schemes marked for removal, writes every modified custom scheme, writes
