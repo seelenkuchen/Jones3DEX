@@ -28,8 +28,25 @@
 #include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Platform/Null/JonesHeadless.h>
 
+#ifdef _WIN32
+// Added: windows.h stays out of this composition root (the platform boundary), so name the one
+// kernel32 entry point the UTF-8 startup check needs. Windows builds are 64-bit, where every
+// function uses one calling convention.
+extern "C" __declspec(dllimport) unsigned int __stdcall GetACP(void);
+#endif
+
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    // Added: the executable's manifest turns on the UTF-8 code page; warn once when it did not
+    // take (Windows before 10 1903), because the game passes non-ASCII char* paths to the CRT.
+    if ( GetACP() != 65001 )
+    {
+        fprintf(stderr,
+            "WARNING: UTF-8 code page not active; paths with non-ASCII characters may fail\n");
+    }
+#endif
+
     // Added: --version prints the build's version and exits before any engine code runs.
     for ( int i = 1; i < argc; ++i )
     {

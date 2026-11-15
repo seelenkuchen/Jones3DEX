@@ -221,6 +221,10 @@ if (JONES3D_SANITIZE)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+# Added: the UTF-8 application manifest helper. Windows executables carry the manifest so the
+# UCRT's char* file APIs use the UTF-8 code page, matching the UTF-8 paths the game passes around.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WindowsManifest.cmake")
+
 # Add Libs subdirectory
 add_subdirectory(Libs)
 
@@ -229,6 +233,37 @@ add_subdirectory(Jones3D)
 
 if (JONES3D_BUILD_PROGRAMS)
     add_subdirectory(Programs)
+endif()
+
+# Added: give every executable of the game and the Libs tests the UTF-8 manifest. Babylon's own
+# test programs take Babylon's copy through babylon_add_module_tests(), so skip targets whose
+# sources live under Babylon/: Babylon must not depend on files outside its own tree.
+if (WIN32)
+    function(jones3d_add_windows_manifests directory)
+        get_property(jones3d_dir_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(jones3d_target IN LISTS jones3d_dir_targets)
+            get_target_property(jones3d_target_type "${jones3d_target}" TYPE)
+            if (NOT jones3d_target_type STREQUAL "EXECUTABLE")
+                continue()
+            endif()
+
+            get_target_property(jones3d_target_source_dir "${jones3d_target}" SOURCE_DIR)
+            string(FIND "${jones3d_target_source_dir}" "${PROJECT_SOURCE_DIR}/Babylon"
+                jones3d_babylon_pos)
+            if (jones3d_babylon_pos EQUAL 0)
+                continue()
+            endif()
+
+            j3d_add_windows_manifest("${jones3d_target}")
+        endforeach()
+
+        get_property(jones3d_dir_subdirs DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+        foreach(jones3d_subdir IN LISTS jones3d_dir_subdirs)
+            jones3d_add_windows_manifests("${jones3d_subdir}")
+        endforeach()
+    endfunction()
+
+    jones3d_add_windows_manifests("${PROJECT_SOURCE_DIR}")
 endif()
 
 if (CMAKE_CONFIGURATION_TYPES)

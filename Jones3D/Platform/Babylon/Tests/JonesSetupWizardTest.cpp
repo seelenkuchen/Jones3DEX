@@ -223,6 +223,10 @@ namespace
         std::string userDir;
         std::string exeDir;
         std::string downloads;
+        // Added: the Windows Steam and GOG folders live under %ProgramFiles(x86)%, not the home
+        // directory; the fixture points the host at these temp folders so the search stays sandboxed.
+        std::string programFiles;
+        std::string programFilesX86;
         JonesInstallPathList volumeRoots = {};
 
         SetupWizardTest()
@@ -233,6 +237,8 @@ namespace
             userDir = (root / "user").string();
             exeDir = (root / "exe").string();
             downloads = Join(home, "Downloads");
+            programFiles = (root / "programfiles").string();
+            programFilesX86 = (root / "programfilesx86").string();
 
             fs = babylon::files::createSdlFileSystem();
             REQUIRE(fs);
@@ -270,20 +276,30 @@ namespace
             std::filesystem::remove_all(root, ec);
         }
 
-        JonesInstallHost MakeHost(const std::string& pVolumeRoot = std::string())
+        JonesInstallHost MakeHost(const std::vector<std::string>& pVolumeRoots = {})
         {
             JonesInstallHost host = {};
             host.platform = JONESINSTALL_PLATFORM_LINUX;
 #ifdef _WIN32
             host.platform = JONESINSTALL_PLATFORM_WINDOWS;
+            host.pProgramFiles = programFiles.c_str();
+            host.pProgramFilesX86 = programFilesX86.c_str();
 #endif
             host.pHome = home.c_str();
             host.pXdgDownloadDir = downloads.c_str();
-            if ( !pVolumeRoot.empty() )
+            volumeRoots = JonesInstallPathList();
+            for ( const std::string& rootPath : pVolumeRoots )
             {
-                volumeRoots = JonesInstallPathList();
+                if ( volumeRoots.numPaths >= JONESINSTALL_MAX_HOST_PATHS )
+                {
+                    break;
+                }
+
                 std::snprintf(volumeRoots.aPaths[volumeRoots.numPaths++],
-                    JONESINSTALL_MAX_PATH, "%s", pVolumeRoot.c_str());
+                    JONESINSTALL_MAX_PATH, "%s", rootPath.c_str());
+            }
+            if ( volumeRoots.numPaths > 0 )
+            {
                 host.pVolumeRoots = &volumeRoots;
             }
 
@@ -316,9 +332,15 @@ namespace
 
 TEST_CASE_FIXTURE(SetupWizardTest, "Sources appear in the model under the fake home")
 {
-    // The finder looks for the retail folder name, so place the complete set there.
+    // The finder looks for the retail folder name, so place the complete set there. Windows
+    // searches %ProgramFiles(x86)%\Steam and %ProgramFiles%\Steam; Linux searches ~/.steam.
+#ifdef _WIN32
+    const std::string steamGame = Join(programFilesX86,
+        "Steam/steamapps/common/Indiana Jones and the Infernal Machine");
+#else
     const std::string steamGame = Join(home,
         ".steam/steam/steamapps/common/Indiana Jones and the Infernal Machine");
+#endif
     WriteRequiredSet(Join(steamGame, "Resource"));
 
     JonesInstallHost host = MakeHost();
@@ -447,7 +469,13 @@ TEST_CASE_FIXTURE(SetupWizardTest, "A disc copy reads the licence, asks for disc
     MakeDisc1(disc1);
     MakeDisc2(disc2);
 
-    JonesSetupWizard wizard(platform, process, MakeHost(media), userDir, exeDir);
+    // Windows only finds a disc at a volume root itself; Linux also checks the immediate
+    // subdirectories of a mount base, so the shared media folder works there.
+#ifdef _WIN32
+    JonesSetupWizard wizard(platform, process, MakeHost({ disc1, disc2 }), userDir, exeDir);
+#else
+    JonesSetupWizard wizard(platform, process, MakeHost({ media }), userDir, exeDir);
+#endif
     wizard.Start();
     wizard.Continue();
 
