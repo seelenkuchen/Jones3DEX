@@ -157,6 +157,13 @@ using StdRenderBabylonPresentOverlay = bool (*)(void* pUser,
 void stdRenderBabylon_SetPresentOverlay(StdRenderBabylonPresentOverlay pfn, void* pUser);
 bool stdRenderBabylon_HasPresentOverlay();
 
+// Added: a second overlay for the gameplay HUD, such as an interaction prompt drawn while no menu
+// is open. It uses the same callback contract and target as the present overlay and runs first, so
+// a menu overlay (and its dim layer) covers it. The game installs at most one of each. Open and
+// Close clear both.
+void stdRenderBabylon_SetHudOverlay(StdRenderBabylonPresentOverlay pfn, void* pUser);
+bool stdRenderBabylon_HasHudOverlay();
+
 // Draws what the last presenting submit presents (the post-processing chain's output, or the back
 // buffer) and the present overlay into target with one submit, without presenting. target must be
 // a Bgra8 color target of width x height; the caller reads it back and destroys it. Use this for

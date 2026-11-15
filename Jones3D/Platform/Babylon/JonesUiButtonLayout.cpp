@@ -295,13 +295,20 @@ namespace
         using babylon::platform::GamepadButton;
 
         std::string prefix;
-        if ( std::strcmp(pSet, "switch") == 0 )
+        const bool bSwitch = std::strcmp(pSet, "switch") == 0;
+        const bool bSteamDeck = std::strcmp(pSet, "steamdeck") == 0;
+        const bool bPlayStation = std::strcmp(pSet, "ps5") == 0;
+        if ( bSwitch )
         {
             prefix = "prompts/switch/Switch_";
         }
-        else if ( std::strcmp(pSet, "steamdeck") == 0 )
+        else if ( bSteamDeck )
         {
             prefix = "prompts/steamdeck/SteamDeck_";
+        }
+        else if ( bPlayStation )
+        {
+            prefix = "prompts/ps5/PS5_";
         }
         else
         {
@@ -324,21 +331,21 @@ namespace
         const std::size_t dpadLeft = ControllerControlId(GamepadButton::DpadLeft);
         const std::size_t dpadRight = ControllerControlId(GamepadButton::DpadRight);
 
-        if ( controlId == south ) return prefix + "A.png";
-        if ( controlId == east ) return prefix + "B.png";
-        if ( controlId == west ) return prefix + "X.png";
-        if ( controlId == north ) return prefix + "Y.png";
+        if ( controlId == south ) return prefix + (bPlayStation ? "Cross.png" : bSwitch ? "B.png" : "A.png");
+        if ( controlId == east ) return prefix + (bPlayStation ? "Circle.png" : bSwitch ? "A.png" : "B.png");
+        if ( controlId == west ) return prefix + (bPlayStation ? "Square.png" : bSwitch ? "Y.png" : "X.png");
+        if ( controlId == north ) return prefix + (bPlayStation ? "Triangle.png" : bSwitch ? "X.png" : "Y.png");
         if ( controlId == lb )
-            return prefix + (std::strcmp(pSet, "xbox") == 0 ? "LB.png" : "L1.png");
+            return prefix + (bPlayStation ? "L1.png" : std::strcmp(pSet, "xbox") == 0 ? "LB.png" : "L1.png");
         if ( controlId == rb )
-            return prefix + (std::strcmp(pSet, "xbox") == 0 ? "RB.png" : "R1.png");
+            return prefix + (bPlayStation ? "R1.png" : std::strcmp(pSet, "xbox") == 0 ? "RB.png" : "R1.png");
         if ( controlId == back )
-            return prefix + (std::strcmp(pSet, "xbox") == 0 ? "View.png" : "Minus.png");
+            return prefix + (bPlayStation ? "Share.png" : std::strcmp(pSet, "xbox") == 0 ? "View.png" : "Minus.png");
         if ( controlId == start )
-            return prefix + (std::strcmp(pSet, "xbox") == 0 ? "Menu.png" : "Plus.png");
+            return prefix + (bPlayStation ? "Options.png" : std::strcmp(pSet, "xbox") == 0 ? "Menu.png" : "Plus.png");
         if ( controlId == ls ) return prefix + "Left_Stick_Click.png";
         if ( controlId == rs ) return prefix + "Right_Stick_Click.png";
-        if ( controlId == guide ) return prefix + (std::strcmp(pSet, "xbox") == 0 ? "Share.png" : "Home.png");
+        if ( controlId == guide ) return prefix + (bPlayStation ? "Touch_Pad.png" : std::strcmp(pSet, "xbox") == 0 ? "Share.png" : "Home.png");
         if ( controlId == dpadUp ) return prefix + "Dpad_Up.png";
         if ( controlId == dpadDown ) return prefix + "Dpad_Down.png";
         if ( controlId == dpadLeft ) return prefix + "Dpad_Left.png";
@@ -356,9 +363,9 @@ namespace
             return prefix + "Right_Stick.png";
         }
         if ( controlId == JONESCONFIG_JOYAXISKID_AIR )
-            return prefix + (std::strcmp(pSet, "xbox") == 0 ? "LT.png" : "L2.png");
+            return prefix + (bPlayStation ? "L2.png" : std::strcmp(pSet, "xbox") == 0 ? "LT.png" : "L2.png");
         if ( controlId == JONESCONFIG_JOYAXISKID_GROUND )
-            return prefix + (std::strcmp(pSet, "xbox") == 0 ? "RT.png" : "R2.png");
+            return prefix + (bPlayStation ? "R2.png" : std::strcmp(pSet, "xbox") == 0 ? "RT.png" : "R2.png");
         return std::string();
     }
 
@@ -670,6 +677,18 @@ namespace
         painter.fillRect(babylon::ui::Rect{ x, thumbY, kScrollWidth, thumbHeight },
             kScrollThumb);
     }
+}
+
+std::string JonesUiButtonLayout_GetPromptIconPath(std::size_t controlId,
+    JonesUiButtonLayoutDevice device, const char* pControllerSet)
+{
+    if ( device == JonesUiButtonLayoutDevice::KeyboardMouse )
+    {
+        const std::string file = KeyboardIconPath(controlId);
+        return file.empty() ? std::string() : std::string("prompts/keyboard/") + file;
+    }
+
+    return ControllerIconPath(controlId, pControllerSet && *pControllerSet ? pControllerSet : "xbox");
 }
 
 bool JonesUiButtonLayout_IsDeviceControl(std::size_t controlId,

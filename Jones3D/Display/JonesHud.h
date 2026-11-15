@@ -32,6 +32,10 @@ J3D_EXTERN_C_START
 // replaces the HUD menu's system items and still opens every one of them; true brings them back.
 #define JONESHUD_CFG_HUD_SYSTEMICONS                    "engine.ui.hud.systemIcons"
 
+// Added: the interaction prompt (Use / Pick up). Presentation only; Enhanced defaults to on and
+// the Retail profile keeps it off. The Gameplay screen writes it.
+#define JONESHUD_CFG_HUD_INTERACTIONPROMPTS             "ui.hud.interactionPrompts"
+
 #define JONESHUD_CFG_ITEM_CHANGED_SHOW_DURATION         "ui.hud.itemChanged.showDuration"
 #define JONESHUD_CFG_ITEM_CHANGED_SLIDE_EASE_IN_RATE    "ui.hud.itemChanged.slideEaseInRate"
 #define JONESHUD_CFG_ITEM_CHANGED_SLIDE_SPEED_RATE      "ui.hud.itemChanged.slideSpeedRate"
@@ -76,6 +80,17 @@ int JonesHud_IsMenuEnabled(void);
 // returns whether the HUD menu should show its system items. JonesHud_Open calls it; tests call it
 // without loading the HUD's assets.
 bool JonesHud_LoadSystemIconsConfig(void);
+
+// Added: reads ui.hud.interactionPrompts, with the Enhanced default on and Retail always off,
+// and writes the default when the key is absent. The Gameplay Options row sets it.
+bool JonesHud_LoadInteractionPromptsConfig(void);
+void JonesHud_EnableInteractionPrompts(int bEnable);
+bool JonesHud_IsInteractionPromptsEnabled(void);
+
+// Added: updates the cached Use/Pick up target once per game frame. Called by JonesMain_ProcessGame
+// after the HUD and before the present, so the headless, Null and windowed runs all run the query
+// even when no HUD frame is drawn, and logs a line when the target changes.
+void JonesHud_UpdateInteractionPrompt(void);
 
 // Added: the HUD menu's system-column item id after engine.ui.hud.systemIcons is applied. -1
 // hides the column, which is what JonesHud_ResetMenuItems uses to leave it out of the menu ring.

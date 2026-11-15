@@ -15,6 +15,7 @@
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesHudPromptOverlay.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
@@ -132,6 +133,7 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
         // Altered: a quit from the main menu is a normal exit, only a real startup failure is an
         // error. The mapping tells the main menu's own result from the recovered failure result.
         const int startupExitCode = JonesBabylon_StartupExitCode(startupResult);
+        JonesHudPromptOverlay_Shutdown();
         JonesMain_Shutdown();
         if ( startupExitCode )
         {
@@ -139,6 +141,10 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
         }
         return startupExitCode;
     }
+
+    // Added: the interaction prompt draws in the present overlay at native resolution. The display
+    // is open now; a later display restart clears the render state, so the loop reinstalls it.
+    JonesHudPromptOverlay_EnsureInstalled();
 
     // wkernel_Run: the main loop until JonesMain_Process() answers, with its result handling and
     // its return codes: -1 (engine quit) ends the run nonzero, 1 (finish: a quit request or a
@@ -148,6 +154,7 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
     while ( 1 )
     {
         int result = JonesMain_Process();
+        JonesHudPromptOverlay_EnsureInstalled();
 
         // Added: Alt+Enter toggles windowed/fullscreen while the game runs. The game loop has
         // pumped and read the frame's input, so the held key state is current here.
@@ -174,6 +181,7 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
         }
     }
 
+    JonesHudPromptOverlay_Shutdown();
     JonesMain_Shutdown();
 
     printf("stopped: %s\n", pStopReason ? pStopReason : "unknown reason");

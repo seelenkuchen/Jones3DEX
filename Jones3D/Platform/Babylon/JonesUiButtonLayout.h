@@ -65,6 +65,12 @@ struct JonesUiButtonLayoutModel
 // The number of list rows that fit between the header and the prompt bar.
 inline constexpr std::size_t kJonesUiButtonLayoutVisibleRows = 8;
 
+// Added: the Data/ui-relative Xelu prompt icon for a control, such as the interaction prompt
+// needs. pControllerSet is "xbox", "ps5", "switch" or "steamdeck"; null or empty means Xbox. An
+// empty result means the set has no icon for that control.
+std::string JonesUiButtonLayout_GetPromptIconPath(std::size_t controlId,
+    JonesUiButtonLayoutDevice device, const char* pControllerSet);
+
 // True for a control id the given screen's device can bind: keyboard keys and mouse buttons for
 // Keyboard & Mouse, gamepad buttons, POV and axes for Controller.
 bool JonesUiButtonLayout_IsDeviceControl(std::size_t controlId,

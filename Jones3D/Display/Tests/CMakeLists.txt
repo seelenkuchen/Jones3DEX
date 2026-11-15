@@ -1,6 +1,6 @@
 # Added: the HUD regressions compile the real JonesHud.c, Sound.c and sithSoundMixer.c with
 # synthetic driver buffers and a test clock, then link the engine libraries for everything else.
-add_executable(jonesHudTests JonesHudTest.c)
+add_executable(jonesHudTests JonesHudTest.c "${CMAKE_CURRENT_SOURCE_DIR}/../JonesHudPrompt.c")
 target_include_directories(jonesHudTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 target_compile_definitions(jonesHudTests PRIVATE J3D_TEST)
 

@@ -23,6 +23,13 @@
     separate Cancel row is gone, and the nested control-scheme editor's Back also keeps its edits.
   - The Controls tab shows a **Mouse camera** row. It is on by default for a new Enhanced install; the
     Retail profile keeps the original off default.
+  - A small **Use** or **Pick up** hint appears at the bottom centre of the screen when Indy can interact.
+    It appears only when a COG linked to the target handles the activation message, so a decorative
+    COG-linked thing does not offer a dead prompt. It uses the Xelu icon of the key or pad button bound to
+    Activate for the last used device and follows rebinding. Options > Gameplay has an **Interaction
+    prompts** row (`ui.hud.interactionPrompts`), on by default in Enhanced and locked off in Retail. It
+    draws at the window's native resolution and never changes the simulation. The developer log records
+    each prompt change with the target and the handler COG names.
   - Options > Controls opens separate **Controller** and **Keyboard & Mouse** Button Layout screens: one
     framed row per action with its input icon, a scrolling list and a pad diagram with action callouts.
     Bind replaces that device's binding, Reset Binds restores its defaults after a question, and Back keeps

@@ -29,6 +29,7 @@
 #include <babylon/ui/Ui.h>
 
 #include <Jones3D/Display/JonesDisplay.h>
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
@@ -719,6 +720,23 @@ TEST_CASE("the sound screen back writes nothing")
     CHECK(std::string(aOutput) == "device-a");
 }
 
+TEST_CASE("loading a config without the interaction prompt key leaves it absent")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
+    CHECK(JonesHud_LoadInteractionPromptsConfig() == J3D_QOL_VALUE(true, false));
+    CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
+
+    // A normal run shutdown writes the config; a missing key must stay missing.
+    stdConfig_Shutdown();
+    stdJSON_Shutdown();
+    REQUIRE(stdJSON_Startup());
+    REQUIRE(stdConfig_Startup(kConfigPath));
+    CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
+}
+
 TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
 {
     SettingsTestContext testContext;
@@ -746,8 +764,9 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
-    // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading, 10 fire flash,
-    // 11 external materials, 12 external keyframes, 13 OK, 14 back.
+    // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading,
+    // 10 interaction prompts, 11 fire flash, 12 external materials, 13 external keyframes,
+    // 14 OK, 15 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -761,6 +780,8 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Enter); // reticle on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // blood on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // interaction prompts off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // fire flash off
     testContext.platform.PushKey(platform::Key::Down);
@@ -784,6 +805,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
     CHECK(JonesReticle_IsEnabled());
     CHECK(sithWeapon_IsBloodSplatterEnabled());
+    CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
@@ -866,6 +888,7 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
 
     REQUIRE(JonesUiGameplay_RunGameplayScreen(ui, &painter, false) == 1);
 
+    CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
