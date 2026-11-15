@@ -7,6 +7,11 @@
 #include <stdBackendTypes.h>
 
 J3D_EXTERN_C_START
+
+// Added: the longest path the game data chain builds: the install folder plus its Resource folder
+// and the file name joined to it (M8 wizard). The install folder itself may use STDUSERDIR_MAXPATH.
+#define STD_MAX_DATAPATH 576 // STDUSERDIR_MAXPATH + 64
+
 // Added: Opaque platform handles. Only the platform layer knows what they point to and casts them.
 typedef struct sSysHandle* tSysHandle;
 typedef struct sSysWindow* tSysWindow;
@@ -245,7 +250,7 @@ J3D_ASSERT_SIZE32(sizeof(GobFileHandle) == 16, "sizeof(GobFileHandle) == 16");
 
 struct sGob
 {
-    char aFilePath[128];
+    char aFilePath[STD_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
     tFileHandle hGobFile;
     GobFileDirectory directory;
     tHashTable* pDirHash;
@@ -257,7 +262,7 @@ struct sGob
     tSysHandle hFile;
     tSysHandle hMapFile;
 };
-J3D_ASSERT_SIZE32(sizeof(Gob) == 172, "sizeof(Gob) == 172");
+J3D_ASSERT_SIZE32(sizeof(Gob) == 620, "sizeof(Gob) == 620"); // Altered: room for long data paths (M8 wizard)
 
 typedef struct sGobFileHandles
 {
@@ -270,10 +275,10 @@ typedef struct sFindFileData
 {
     float unknown;
     int nFoundFiles;
-    char aSearchFilter[128];
+    char aSearchFilter[STD_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
     tSysHandle handle;
 } FindFileData;
-J3D_ASSERT_SIZE32(sizeof(FindFileData) == 140, "sizeof(FindFileData) == 140");
+J3D_ASSERT_SIZE32(sizeof(FindFileData) == 588, "sizeof(FindFileData) == 588"); // Altered: room for long data paths (M8 wizard)
 
 typedef struct sHostServices
 {
