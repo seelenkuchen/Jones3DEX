@@ -5,20 +5,26 @@
   - Release packages: a Linux AppImage and a Windows zip, both without game data. The AppImage runs from
     one file and installs nothing; the zip is extracted into a folder and needs no Visual C++
     redistributable. Players point either at their own copy of the game.
+  - On a first start without game data the windowed game opens the **Jones3D EX Setup** wizard before its
+    own window. It finds installed Steam and GOG copies, GOG offline installer files in the download
+    folders, the two CDs and any folder you choose, shows the source's licence, and copies the files into
+    `GameData` with progress, cancel and a disc 2 step. The source is only read.
+  - The wizard installs into `<user dir>/GameData` by default, or `<executable folder>/GameData` for **Next
+    to the game**, which needs a writable program folder. A complete `GameData` beside the executable also
+    makes that folder the user directory. The old saved games can be copied during setup.
   - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on
-    Linux, `%APPDATA%\Jones3DEX\` on Windows) instead of next to the game data, so it runs from a read-only
-    or shared install. An existing `Jones.cfg` and existing savegames are copied there when they are missing,
-    and the old files are kept. Put a `portable.txt` in the working directory or beside the executable to
-    keep everything local, or pass `--user-dir <dir>`; headless runs stay in the working directory unless
+    Linux, `%APPDATA%\Jones3DEX\` on Windows), so it runs from a read-only or shared install. An existing
+    `Jones.cfg` and existing savegames are copied there when they are missing, and the old files are kept.
+    Pass `--user-dir <dir>` to choose another folder; headless runs stay in the working directory unless
     given `--user-dir`.
-  - The game finds its data automatically: `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/data`,
-    next to the executable, the working directory, then Steam and GOG/store locations. When it cannot find
-    the data it names the missing files and offers a folder picker, and only a picked folder is saved to
-    `installPath`. `--hash-data <dir>` prints the hash rows for a release, and `--install-data <dir>` copies
-    a disc's files into `<user dir>/data/Resource`, one disc at a time. Both tools run without a display.
+  - The startup data search is now `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/GameData`,
+    next to the executable, `<executable folder>/GameData`, then the working directory. The game no longer
+    searches stores or asks for a folder itself. `--data`, `--hash-data <dir>` and `--user-dir <dir>` remain
+    developer options; `--hash-data` prints the hash rows for a release and runs without a display.
+  - Removed `--install-data` and `portable.txt`: the setup wizard installs the data now.
   - At startup the game checks the game files against a table of known releases by size and SHA-256. A known
     release is logged by name and an unknown one gets a warning naming the files; the game still starts. The
-    result is cached in the user directory, so later starts are quick.
+    setup wizard writes the cache in the user directory, so the first start after installing is quick.
 
 ### Hard fork of OpenJones3D
   - The project continues as **Jones3D EX**, an enhanced source port on the new Babylon Engine. See the

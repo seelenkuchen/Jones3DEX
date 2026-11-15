@@ -665,6 +665,36 @@ covers the cutscene stream's pushed blocks, gain, queue limit and pacing. Every 
 through `Sound_GetTimeMsec()`, which `J3D_TEST` overrides with `Sound_TestSetTimeMsec()`; the sound tests use
 that clock instead of the platform clock, so the ADR-0027 cases run the same in every column.
 
+<a name="setup-wizard-tests"></a>
+
+### 🧙 Setup Wizard And GOG Installer Tests
+
+The setup wizard's model and screen builders are covered by `Jones3D.SetupWizard`
+(`Jones3DSetupWizardTests`), built from `JonesSetupWizardTest.cpp` and the wizard, window, host, GOG
+installer, install engine, data check and data locate sources. The model cases use `NullPlatform`,
+`NullProcess` and temporary folders holding fake game data; the screen cases lay every step out with a
+`NullPainter`. The suite needs no window, GPU, installer or game assets. It covers the source rows and
+incomplete sources, both pickers and **Search again**, the GOG and disc licence paths, **Next to the
+game**, copy-saves, the GOG two-phase extraction, progress and cancel, disc 2, the done check and the
+exact screen layout.
+
+`Jones3D.GogInstaller` (`Jones3DGogInstallerTests`) covers finding innoextract, reading an installer's
+EULA, parsing innoextract's progress and file lines, extraction through `NullProcess`, and the
+not-started, failed and cancelled outcomes.
+
+There is no headless walkthrough of the wizard: its window loop needs a platform window and a GPU device,
+and the fallback still needs a platform's dialogs. For an end-to-end check, run the windowed program on a
+virtual display from an empty working directory, with an empty user directory and no `--data`:
+
+```bash
+Xvfb :99 -screen 0 1024x768x24 &
+DISPLAY=:99 <build>/Jones3D/Jones3D --user-dir /tmp/jones3d-setup-walkthrough
+```
+
+The wizard should open before the game window. Walk the source selection, licence (for a disc or GOG
+installer), location, progress, disc 2 and done steps, then check the installed `GameData` and start the
+game. With no game data to select, only the source and quit paths can be checked this way.
+
 <a name="original-engine-io-test-vectors"></a>
 
 ## 📦 Original-Engine I/O Test Vectors
