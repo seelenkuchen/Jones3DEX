@@ -102,3 +102,67 @@ add_custom_command(TARGET Jones3DUiPainterTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${JONES3D_UI_TEST_ROOT}/Data" "$<TARGET_FILE_DIR:Jones3DUiPainterTests>/Data"
     COMMENT "Copying Data/ next to Jones3DUiPainterTests")
+
+# Added: the setup wizard's model and screen builders (M8 wizard, W4a). The model tests use
+# NullPlatform, NullProcess and temporary folders holding fake game data; the screen test lays
+# every screen out with a NullPainter, so neither needs a GPU or game assets.
+add_executable(Jones3DSetupWizardTests
+    JonesSetupWizardTest.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesSetupWizard.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesSetupWindow.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesSetupHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesGogInstaller.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../Main/JonesInstall.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../Main/JonesData.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../../Main/JonesDataLocate.c"
+)
+
+target_compile_definitions(Jones3DSetupWizardTests PRIVATE J3D_TEST)
+
+target_include_directories(Jones3DSetupWizardTests PRIVATE
+    "${JONES3D_UI_TEST_ROOT}"
+)
+
+get_property(JONES3D_SETUP_TEST_LIBS TARGET Libs PROPERTY INTERFACE_LINK_LIBRARIES)
+
+if (APPLE OR MSVC)
+    target_link_libraries(Jones3DSetupWizardTests PRIVATE
+        ${JONES3D_SETUP_TEST_LIBS}
+        babylon::ui
+        babylon::uirender
+        babylon::process
+        babylon::render
+        babylon::font
+        babylon::image
+        babylon_doctest
+        $<IF:$<TARGET_EXISTS:SDL3::SDL3-static>,SDL3::SDL3-static,SDL3::SDL3>
+    )
+else()
+    target_link_libraries(Jones3DSetupWizardTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_SETUP_TEST_LIBS}
+        -Wl,--end-group
+        babylon::ui
+        babylon::uirender
+        babylon::process
+        babylon::render
+        babylon::font
+        babylon::image
+        babylon_doctest
+        $<IF:$<TARGET_EXISTS:SDL3::SDL3-static>,SDL3::SDL3-static,SDL3::SDL3>
+        m
+    )
+endif()
+
+set_target_properties(Jones3DSetupWizardTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+    LINKER_LANGUAGE CXX
+)
+
+add_test(NAME Jones3D.SetupWizard COMMAND Jones3DSetupWizardTests)
+set_tests_properties(Jones3D.SetupWizard PROPERTIES
+    LABELS "unit;Jones3D"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    TIMEOUT 120
+)

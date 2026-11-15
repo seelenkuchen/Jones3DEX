@@ -865,7 +865,8 @@ TEST(JonesDataLocate, TestStartupFindsUserDataRule)
     char aDataDir[JONESDATALOCATE_MAX_PATH];
     char aResourceDir[JONESDATALOCATE_MAX_PATH];
     JonesDataLocateTest_BuildPath(aUserDir, sizeof(aUserDir), g_aTempDir, "user");
-    JonesDataLocateTest_BuildPath(aDataDir, sizeof(aDataDir), aUserDir, "data");
+    JonesDataLocateTest_BuildPath(aDataDir, sizeof(aDataDir), aUserDir,
+        JONESDATALOCATE_GAMEDATA_DIR);
     JonesDataLocateTest_BuildPath(aResourceDir, sizeof(aResourceDir), aDataDir, "Resource");
     JonesDataLocateTest_MakeDirs(aResourceDir);
     JonesDataLocateTest_WriteRequiredSet(aResourceDir);

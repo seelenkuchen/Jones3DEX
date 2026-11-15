@@ -218,6 +218,16 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylon.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonData.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonData.h"
+        # Added: the setup wizard, its host values and the GOG installer adapter (M8 wizard).
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWizard.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWizard.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWindow.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWindow.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupHost.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupHost.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesGogInstaller.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesGogInstaller.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUtf8Path.h"
         ${JONES3D_BABYLON_UI_SOURCES}
         ${JONES3D_CONTROL_SCHEME_SOURCES}
         ${JONES3D_BABYLON_MAINSYS_SOURCE}
@@ -263,7 +273,8 @@ if (J3D_PLATFORM_BABYLON)
         target_link_libraries(Jones3D PRIVATE m)
     endif()
 
-    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image)
+    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image
+        babylon::uirender babylon::process)
 endif()
 
 if (JONES3D_BUILD_TESTS)

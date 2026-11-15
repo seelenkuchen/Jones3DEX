@@ -38,6 +38,7 @@
 #include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesSetupWindow.h>
 
 namespace
 {
@@ -329,6 +330,51 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    // Added: before the game window exists, check whether the game files are there. The probe
+    // needs only the file system, exactly like the --hash-data path; with no prompt handler a
+    // missing install fails instead of opening a native dialog. When nothing is found the setup
+    // window installs the data first, and the game starts with the user directory it chose.
+    std::string runUserDir = userDirPath;
+    {
+        StdBabylonContext dataContext = {};
+        dataContext.pFileSystem = pFileSystem.get();
+        stdBabylon_SetContext(&dataContext);
+
+        if ( !stdUserDir_Set(runUserDir.c_str()) )
+        {
+            fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
+                STDUSERDIR_MAXPATH - 1);
+            stdBabylon_SetContext(nullptr);
+            return 1;
+        }
+
+        JonesDataLocateResult dataResult = {};
+        const bool bHasGameData = JonesDataLocate_Startup("", &dataResult);
+        stdBabylon_SetContext(nullptr);
+
+        if ( !bHasGameData )
+        {
+            std::string exeDir = pFileSystem->basePath();
+            while ( !exeDir.empty() && (exeDir.back() == '/' || exeDir.back() == '\\') )
+            {
+                exeDir.pop_back();
+            }
+
+            fprintf(stderr, "Game data: not found, opening the setup window.\n");
+
+            std::string setupUserDir;
+            std::string setupDataDir;
+            const JonesSetupResult setupResult = JonesSetupWindow_Run(*pPlatform,
+                *pFileSystem, runUserDir, exeDir, setupUserDir, setupDataDir);
+            if ( setupResult != JonesSetupResult::Installed )
+            {
+                return 0;
+            }
+
+            runUserDir = setupUserDir;
+        }
+    }
+
     const babylon::platform::WindowDesc desc{ "Jones3D EX", { 640, 480 }, false };
     std::unique_ptr<babylon::platform::Window> pWindow = pPlatform->createWindow(desc);
     if ( !pWindow )
@@ -385,7 +431,7 @@ int main(int argc, char** argv)
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), pPlatform.get(),
         nullptr, pWindow.get(), &cvars, pRenderDevice.get(), pAudioDevice.get() };
     stdBabylon_SetContext(&context);
-    int exitCode = JonesBabylon_Run(tourArgc, argv, userDirPath.c_str());
+    int exitCode = JonesBabylon_Run(tourArgc, argv, runUserDir.c_str());
     stdBabylon_SetContext(nullptr);
 
     // Added: close the present log and forget the tour after the run that used it.

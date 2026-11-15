@@ -1121,7 +1121,8 @@ static void JonesDataLocate_FillEnvironment(JonesDataLocateEnvironmentStorage* p
     platform = JONESDATALOCATE_PLATFORM_WINDOWS;
 #endif
 
-    if ( !stdUserDir_MakePath(pStorage->aUserData, sizeof(pStorage->aUserData), "data") )
+    if ( !stdUserDir_MakePath(pStorage->aUserData, sizeof(pStorage->aUserData),
+            JONESDATALOCATE_GAMEDATA_DIR) )
     {
         pStorage->aUserData[0] = '\0';
     }

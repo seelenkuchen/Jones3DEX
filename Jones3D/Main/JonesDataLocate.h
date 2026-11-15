@@ -1,5 +1,5 @@
 // Added: finds the player's game data (ADR-0021, M8.4). The search order is the --data option,
-// installPath from Jones.cfg, <user dir>/data, the executable and working directories, and a set
+// installPath from Jones.cfg, <user dir>/GameData, the executable and working directories, and a set
 // of known Steam and GOG locations. The module is game-layer code: it never calls Babylon. A
 // windowed adapter registers a prompt handler for the folder picker; without one the module
 // reports the problem on stderr and fails.
@@ -11,6 +11,9 @@
 #include <stddef.h>
 
 J3D_EXTERN_C_START
+
+/** Folder name of the game files below the chosen base or the user directory. */
+#define JONESDATALOCATE_GAMEDATA_DIR "GameData"
 
 /** Longest candidate, install or resource path kept, including the terminating NUL. */
 #define JONESDATALOCATE_MAX_PATH 1024
@@ -65,7 +68,7 @@ typedef struct JonesDataLocateEnv
     JonesDataLocatePlatform platform;
     const char* pDataOption;      /**< --data, the first rule. */
     const char* pInstallPath;     /**< installPath from Jones.cfg. */
-    const char* pUserDataDir;     /**< <user dir>/data, or "data" in portable mode. */
+    const char* pUserDataDir;     /**< <user dir>/GameData, or "GameData" in portable mode. */
     const char* pExecutableDir;   /**< Folder holding the executable. */
     const char* pWorkingDir;      /**< Current working directory. */
     const char* pHome;            /**< Player's home directory. */
