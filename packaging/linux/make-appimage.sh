@@ -2,7 +2,12 @@
 # Builds Jones3D_EX-<version>-x86_64.AppImage from an installed game component:
 #
 #   cmake --install build --prefix staging --component game
-#   packaging/linux/make-appimage.sh staging build/out 0.5.0
+#   INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0
+#
+# When INNOEXTRACT_DIR is set it must contain innoextract and a licenses/
+# directory, as produced by packaging/linux/build-innoextract.sh. The game's
+# setup wizard looks for innoextract next to the Jones3D executable first (both
+# are in usr/bin in the AppImage), then in PATH.
 #
 # appimagetool comes from $APPIMAGETOOL when set, else the pinned release below
 # is downloaded into the user's cache and checked against its SHA-256. It runs
@@ -44,6 +49,19 @@ if [ ! -d "$prefix/Data" ]; then
     exit 1
 fi
 
+innoextract_dir=${INNOEXTRACT_DIR:-}
+if [ -n "$innoextract_dir" ]; then
+    if [ ! -x "$innoextract_dir/innoextract" ]; then
+        echo "error: no executable innoextract in $innoextract_dir" >&2
+        exit 1
+    fi
+    if [ ! -d "$innoextract_dir/licenses" ]; then
+        echo "error: no licenses/ directory in $innoextract_dir" >&2
+        exit 1
+    fi
+    innoextract_dir=$(CDPATH= cd -- "$innoextract_dir" && pwd)
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 mkdir -p "$out_dir"
@@ -57,12 +75,22 @@ mkdir -p "$appdir/usr/bin" \
     "$appdir/usr/share/applications" \
     "$appdir/usr/share/doc/jones3d-ex" \
     "$appdir/usr/share/licenses/jones3d-ex" \
+    "$appdir/usr/share/licenses/jones3d-ex/innoextract" \
     "$appdir/usr/share/icons/hicolor/scalable/apps" \
     "$appdir/usr/share/icons/hicolor/256x256/apps"
 
 # The game finds Data/ next to its executable (ADR-0031), so both move to usr/bin.
 cp "$prefix/Jones3D" "$appdir/usr/bin/Jones3D"
 cp -R "$prefix/Data" "$appdir/usr/bin/Data"
+
+# The setup wizard unpacks the GOG installer with innoextract, looking beside
+# the game executable first and then in PATH. The copy is linked only against
+# libc and libm, so it needs no wrapper or bundled libraries.
+if [ -n "$innoextract_dir" ]; then
+    cp "$innoextract_dir/innoextract" "$appdir/usr/bin/innoextract"
+    chmod 755 "$appdir/usr/bin/innoextract"
+    cp -R "$innoextract_dir/licenses/." "$appdir/usr/share/licenses/jones3d-ex/innoextract/"
+fi
 
 if [ -d "$prefix/licenses" ]; then
     cp -R "$prefix/licenses/." "$appdir/usr/share/licenses/jones3d-ex/"

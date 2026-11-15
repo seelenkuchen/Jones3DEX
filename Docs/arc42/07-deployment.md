@@ -45,8 +45,13 @@ workflow run. It does not create a release or publish anything.
 
 | Artifact | Contents | Built by | Runs on |
 |---|---|---|---|
-| `Jones3D_EX-<version>-x86_64.AppImage` | The windowed program, `Data/`, `licenses/`, `README.md` and `CHANGELOG.md`, in an AppDir | `packaging/linux/make-appimage.sh` in the `linux-appimage` job on Ubuntu 24.04 | x86-64 Linux with glibc 2.39 or newer and a Vulkan driver |
+| `Jones3D_EX-<version>-x86_64.AppImage` | The windowed program, `Data/`, a static `innoextract`, `licenses/`, `README.md` and `CHANGELOG.md`, in an AppDir | `packaging/linux/make-appimage.sh` in the `linux-appimage` job on Ubuntu 24.04 | x86-64 Linux with glibc 2.39 or newer and a Vulkan driver |
 | `Jones3D_EX-<version>-windows-x64.zip` | `Jones3D.exe`, `Data/`, `licenses/`, `README.md` and `CHANGELOG.md` at the archive root | CPack's ZIP generator in the `windows-zip` job on `windows-2025-vs2026` | 64-bit Windows 10 or newer |
+
+The AppImage also carries innoextract 1.9 for the setup wizard, which unpacks the GOG installer. It is a
+separate program, not linked into the game, and its licenses (innoextract's zlib, Boost's BSL-1.0, liblzma's
+0BSD, zlib's zlib and bzip2's BSD-style terms) are under `usr/share/licenses/jones3d-ex/innoextract/`. The
+wizard looks for it beside the game executable first, then in `PATH`.
 
 `cmake --install --component game` produces the tree both start from. The headless runner is a tools
 component and is not packaged. On Linux the same CPack setup can also make a

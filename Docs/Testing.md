@@ -966,7 +966,8 @@ builds the Babylon column in Release on Linux and Windows and runs the unit suit
 
 - `linux-appimage` on `ubuntu-24.04` configures with `-DJONES3D_PLATFORM_BABYLON=ON -DCMAKE_BUILD_TYPE=Release`,
   builds, lists and runs `ctest -L unit` with Mesa's lavapipe (`BABYLON_REQUIRE_GPU=1`), installs the game
-  component, and builds the AppImage with `packaging/linux/make-appimage.sh`.
+  component, builds innoextract with `packaging/linux/build-innoextract.sh`, and builds the AppImage with
+  `packaging/linux/make-appimage.sh`. It extracts the AppImage and runs the bundled innoextract to check it.
 - `windows-zip` on `windows-2025-vs2026` configures the Babylon column with MSVC x64, builds in Release,
   lists and runs `ctest -C Release -L unit`, and packs the game component with CPack into the Windows zip.
 
@@ -985,17 +986,24 @@ ctest --test-dir build/native --output-on-failure -L check
 python3 Scripts/checkboundary.py --check
 ```
 
-Then install the game component and build the AppImage from it:
+Then install the game component, build innoextract for the AppImage, and build the AppImage from it:
 
 ```bash
 cmake --install build --prefix staging --component game
-packaging/linux/make-appimage.sh staging build/out 0.5.0
+packaging/linux/build-innoextract.sh build/innoextract
+INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0
 APPIMAGE_EXTRACT_AND_RUN=1 build/out/Jones3D_EX-0.5.0-x86_64.AppImage --version
+build/out/Jones3D_EX-0.5.0-x86_64.AppImage --appimage-extract
+squashfs-root/usr/bin/innoextract --version
+ldd squashfs-root/usr/bin/innoextract
 ```
 
-`APPIMAGE_EXTRACT_AND_RUN=1` runs the AppImage without FUSE. The headless runner is in the `tools`
-component and is not packaged. On Windows, `cpack --config build/CPackConfig.cmake -C Release -B build/out`
-makes the zip. No package contains game data.
+`APPIMAGE_EXTRACT_AND_RUN=1` runs the AppImage without FUSE. The extracted
+`usr/bin/innoextract` is the copy the setup wizard uses to unpack the GOG
+installer; `ldd` should list only the C runtime, or the libraries bundled with
+it. The headless runner is in the `tools` component and is not packaged. On
+Windows, `cpack --config build/CPackConfig.cmake -C Release -B build/out` makes
+the zip. No package contains game data.
 
 <a name="intermittent-failures"></a>
 
