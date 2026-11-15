@@ -1,10 +1,10 @@
-# Added: the GPU test of the game's babylon::ui painter (ADR-0026 amendment), beside the
-# std/render-on-Babylon tests. It compiles the painter and the first skin itself, links the Babylon
-# column's std/rdroid stack and the SDL GPU device, and runs only with the Babylon column.
+# Added: the GPU and logic tests of the game's menus (ADR-0026, ADR-0035), beside the
+# std/render-on-Babylon tests. They compile the menu assets, skin, context and screens, link the
+# Babylon column's std stack and the SDL GPU device, and run only with the Babylon column.
 set(JONES3D_UI_TEST_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../..")
 
 add_executable(Jones3DUiPainterTests
-    JonesUiPainterTest.cpp
+    JonesUiRenderTest.cpp
     JonesUiModalTest.cpp
     JonesUiPromptsTest.cpp
     JonesUiSaveLoadTest.cpp
@@ -15,7 +15,7 @@ add_executable(Jones3DUiPainterTests
     JonesUiStoreTest.cpp
     JonesUiControlsTest.cpp
     JonesUiActionIdsTest.cpp
-    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPainter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiAssets.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPrompts.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiModal.cpp"
@@ -58,6 +58,7 @@ if (APPLE OR MSVC)
     target_link_libraries(Jones3DUiPainterTests PRIVATE
         ${JONES3D_UI_TEST_LIBS}
         babylon::ui
+        babylon::uirender
         babylon::render
         babylon::font
         babylon::image
@@ -72,6 +73,7 @@ else()
         ${JONES3D_UI_TEST_LIBS}
         -Wl,--end-group
         babylon::ui
+        babylon::uirender
         babylon::render
         babylon::font
         babylon::image
@@ -96,8 +98,8 @@ set_tests_properties(Jones3D.UiPainter PROPERTIES
     TIMEOUT 120
 )
 
-# Added: the painter's TrueType and PNG cases read the committed assets through the file system's
-# base path, so the test executable needs Data/ beside it just like the game (ADR-0031).
+# Added: the menu asset cases read the committed Data/ui files through the file system's base path,
+# so the test executable needs Data/ beside it just like the game (ADR-0031).
 add_custom_command(TARGET Jones3DUiPainterTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${JONES3D_UI_TEST_ROOT}/Data" "$<TARGET_FILE_DIR:Jones3DUiPainterTests>/Data"

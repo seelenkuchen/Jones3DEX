@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's Controls screen (ADR-0026). They use a temporary
 // key-sets directory with hand-written .kfg files, a config, a started sithControl and a platform
 // that delivers one scripted event per modal frame, so the screen runs exactly as in the game loop
-// without a window or a GPU. The drawing sample lives in JonesUiPainterTest.cpp.
+// without a window or a GPU. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdint>

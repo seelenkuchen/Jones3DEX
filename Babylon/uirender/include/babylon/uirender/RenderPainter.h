@@ -121,7 +121,7 @@ namespace babylon::uirender
         // on top of a frame another module owns. list must not be inside a pass
         // and must stay valid until end(). The target rules are those of the
         // other begin(). Nothing about the target is submitted by the painter.
-        [[nodiscard]] bool begin(render::CommandList& list, std::uint32_t targetWidth,
+        [[nodiscard]] bool begin(render::CommandList& frameList, std::uint32_t targetWidth,
             std::uint32_t targetHeight, const FrameTarget& target = {});
 
         // Records the frame: into its own command list and a Device::submit()

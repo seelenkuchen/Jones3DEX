@@ -2,7 +2,7 @@
 // platform that delivers one scripted event per frame and a Null painter, so the screens run
 // exactly as in the game loop without a window or a GPU. The resolution list is built from a
 // synthetic display environment and the output-device list from a Null audio device with several
-// outputs. The drawing sample lives in JonesUiPainterTest.cpp.
+// outputs. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdint>

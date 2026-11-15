@@ -2,7 +2,7 @@
 // The cart functions are checked against hand-computed cases from the original
 // jonesConfig_AddStoreCartItem/RemoveStoreCartItem/ClearStoreCart and the purchase message of
 // jonesConfig_InitPurchaseMessageBox. The screen is driven by one scripted platform event per
-// frame for one purchase and one cancel. The drawing sample lives in JonesUiPainterTest.cpp.
+// frame for one purchase and one cancel. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdint>

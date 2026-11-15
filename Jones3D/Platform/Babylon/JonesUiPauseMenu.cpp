@@ -222,20 +222,8 @@ extern "C" int J3DAPI jonesConfig_ShowPauseMenu(tSysWindow hWnd)
     static_cast<void>(JonesUiPauseMenu_CaptureThumbnail(NULL));
 
     // The pause menu uses the main menu's Cinzel list at 22 canvas units.
-    constexpr const char* kPauseMenuFontFile = "fonts/Cinzel[wght].ttf";
-    constexpr float kPauseMenuFontSize       = 22.0f;
-
-    babylon::ui::FontId cinzel = pUiContext->painter.registerTtfFontFile(
-        *pContext->pFileSystem, kPauseMenuFontFile, kPauseMenuFontSize);
-    if ( cinzel == 0 )
-    {
-        STDLOG_WARNING("Pause menu: '%s' unavailable, using the rdFont skin.\n",
-            kPauseMenuFontFile);
-    }
-
-    const babylon::ui::FontId menuFont = cinzel != 0 ? cinzel : pUiContext->font;
-    const babylon::ui::Skin menuSkin =
-        JonesUiPauseMenu_CreateSkin(menuFont, &pUiContext->painter, pUiContext->promptFont);
+    const babylon::ui::Skin menuSkin = JonesUiPauseMenu_CreateSkin(pUiContext->titleFont,
+        &pUiContext->painter, pUiContext->promptFont);
 
     // Keep today's dim from the modal loop and add the main menu's lower-left shade over it. When
     // the context already owns a background (an earlier screen in the same session), the modal

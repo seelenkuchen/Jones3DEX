@@ -40,6 +40,7 @@
 #include <std/General/std.h>
 #include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
+#include <std/General/stdUtil.h>
 
 #include <babylon/ui/Screen.h>
 #include <babylon/ui/Types.h>

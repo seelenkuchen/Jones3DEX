@@ -15,7 +15,6 @@
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
-#include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Platform/Babylon/JonesUiSoundSettings.h>
 
@@ -30,10 +29,12 @@
 #include <babylon/ui/Ui.h>
 #include <babylon/ui/UiEvent.h>
 #include <babylon/ui/Widget.h>
+#include <babylon/uirender/RenderPainter.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -625,52 +626,24 @@ babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
 
 namespace
 {
-    // Cover-scales the menu image to the canvas, like the modal loop, so a darkened background
-    // keeps the image's aspect.
-    babylon::ui::Rect CoverRect(const babylon::ui::Size& canvas,
-        const JonesUiModalBackground& background)
-    {
-        babylon::ui::Rect rect;
-        if ( !(background.width > 0.0f) || !(background.height > 0.0f) )
-        {
-            rect.width  = canvas.width;
-            rect.height = canvas.height;
-            return rect;
-        }
-
-        const float scaleX = canvas.width / background.width;
-        const float scaleY = canvas.height / background.height;
-        const float scale  = scaleX > scaleY ? scaleX : scaleY;
-        rect.width  = background.width * scale;
-        rect.height = background.height * scale;
-        rect.x = (canvas.width - rect.width) * 0.5f;
-        rect.y = (canvas.height - rect.height) * 0.5f;
-        return rect;
-    }
-
-    // Wraps the menu background so the Options screen draws it darkened (ADR-0028).
+    // Wraps the menu background so the Options screen draws it darkened (ADR-0028). The overlay
+    // draws the image and the dim at native resolution; draw stays in the game renderer.
     JonesUiModalBackground DarkenBackground(const JonesUiModalBackground& background,
-        JonesUiPainter& painter, babylon::ui::Ui& ui)
+        babylon::ui::Painter& painter, babylon::ui::Ui& ui)
     {
-        JonesUiModalBackground dark;
         if ( background.image == 0 && !background.draw )
         {
-            return dark;
+            return JonesUiModalBackground{};
         }
 
         const babylon::ui::Color dim = ui.skin().dim;
-        dark = background;
-        dark.image = 0;
-        dark.draw = [background, &painter, &ui, dim]()
+        const std::function<void()> previousOverlay = background.overlay;
+        JonesUiModalBackground dark = background;
+        dark.overlay = [&painter, &ui, dim, previousOverlay]()
         {
-            if ( background.draw )
+            if ( previousOverlay )
             {
-                background.draw();
-            }
-            else if ( background.image != 0 )
-            {
-                painter.drawImage(background.image,
-                    CoverRect(ui.canvasSize(), background));
+                previousOverlay();
             }
 
             const babylon::ui::Size canvas = ui.canvasSize();
@@ -694,25 +667,10 @@ int JonesUiOptions_Show(const JonesUiModalBackground* pBackground, bool bLevelRu
         return kJonesOptionsCancel;
     }
 
-    // Cinzel for the tabs and Jost for the rows and help, at 16 canvas units like the main menu's
-    // Cinzel. A missing font falls back to the shared rdFont.
-    constexpr const char* kOptionsTabFontFile = "fonts/Cinzel[wght].ttf";
-    constexpr const char* kOptionsRowFontFile = "fonts/Jost[wght].ttf";
-    constexpr float kOptionsTabFontSize = 22.0f;
-    constexpr float kOptionsRowFontSize = 16.0f;
-
-    JonesUiPainter& painter = pUiContext->painter;
-    const babylon::ui::FontId cinzel = painter.registerTtfFontFile(*pContext->pFileSystem,
-        kOptionsTabFontFile, kOptionsTabFontSize);
-    const babylon::ui::FontId jost = painter.registerTtfFontFile(*pContext->pFileSystem,
-        kOptionsRowFontFile, kOptionsRowFontSize);
-    if ( cinzel == 0 || jost == 0 )
-    {
-        STDLOG_WARNING("Options: a UI font is unavailable, using the rdFont skin.\n");
-    }
-
-    const babylon::ui::FontId tabFont = cinzel != 0 ? cinzel : pUiContext->font;
-    const babylon::ui::FontId rowFont = jost != 0 ? jost : pUiContext->font;
+    // Cinzel for the tabs and Jost for the rows and help, from the context's one font set.
+    babylon::uirender::RenderPainter& painter = pUiContext->painter;
+    const babylon::ui::FontId tabFont = pUiContext->titleFont;
+    const babylon::ui::FontId rowFont = pUiContext->rowFont;
     const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
     const babylon::ui::Skin optionsSkin = JonesUiSkin_CreateOptions(tabFont, rowFont,
         rowFont, &painter);

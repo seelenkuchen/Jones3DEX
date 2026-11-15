@@ -468,14 +468,14 @@ namespace babylon::uirender
         // Bakes entry at canvasPixelHeight canvas units and scale device pixels
         // per canvas unit. Only a successful bake changes the entry, so a
         // failed re-bake leaves the previous atlas and its scale in place.
-        bool bakeFont(FontEntry& entry, float canvasPixelHeight, float scale)
+        bool bakeFont(FontEntry& entry, float canvasPixelHeight, float pixelScale)
         {
             if ( !entry.font )
             {
                 return false;
             }
 
-            const float bakePixelHeight = canvasPixelHeight * scale;
+            const float bakePixelHeight = canvasPixelHeight * pixelScale;
             if ( !(bakePixelHeight > 0.0f) || !std::isfinite(bakePixelHeight) )
             {
                 log::warning("RenderPainter: bad font pixel height");
@@ -532,7 +532,7 @@ namespace babylon::uirender
             entry.atlas           = texture;
             entry.atlasWidth      = atlas->width;
             entry.atlasHeight     = atlas->height;
-            entry.bakeScale       = scale;
+            entry.bakeScale       = pixelScale;
             entry.bakePixelHeight = bakePixelHeight;
             entry.glyphs          = atlas->glyphs;
             entry.ascent          = atlas->ascent;
@@ -875,7 +875,7 @@ namespace babylon::uirender
             list   = nullptr;
         }
 
-        bool recordFrame(render::CommandList& list)
+        bool recordFrame(render::CommandList& frameList)
         {
             if ( vertices.size()
                 > std::numeric_limits<std::uint32_t>::max() / sizeof(Vertex) )
@@ -902,7 +902,7 @@ namespace babylon::uirender
                         return false;
                     }
                 }
-                list.updateBuffer(vertexBuffer, 0,
+                frameList.updateBuffer(vertexBuffer, 0,
                     std::as_bytes(std::span<const Vertex>(vertices.data(), vertices.size())));
             }
 
@@ -914,12 +914,12 @@ namespace babylon::uirender
             attachment.store  = render::StoreOp::Store;
             attachment.clear  = target.clear;
             pass.colorTargets = { attachment };
-            if ( !list.beginPass(pass) )
+            if ( !frameList.beginPass(pass) )
             {
                 return false;
             }
 
-            list.setViewport(render::Viewport{ 0.0f, 0.0f,
+            frameList.setViewport(render::Viewport{ 0.0f, 0.0f,
                 static_cast<float>(targetWidth), static_cast<float>(targetHeight),
                 0.0f, 1.0f });
 
@@ -930,7 +930,7 @@ namespace babylon::uirender
                 {
                     if ( format == currentPipelineFormat )
                     {
-                        list.setPipeline(pipeline);
+                        frameList.setPipeline(pipeline);
                         pipelineSet = true;
                         break;
                     }
@@ -940,23 +940,23 @@ namespace babylon::uirender
                     log::warning("RenderPainter: the frame's pipeline is missing");
                     return false;
                 }
-                list.bindVertexBuffer(0, vertexBuffer);
+                frameList.bindVertexBuffer(0, vertexBuffer);
 
                 render::TextureHandle boundTexture;
                 for ( const Batch& batch : batches )
                 {
-                    list.setScissor(batch.scissor);
+                    frameList.setScissor(batch.scissor);
                     if ( batch.texture != boundTexture )
                     {
-                        list.bindTexture(render::ShaderStage::Fragment, 0, batch.texture,
+                        frameList.bindTexture(render::ShaderStage::Fragment, 0, batch.texture,
                             sampler);
                         boundTexture = batch.texture;
                     }
-                    list.draw(batch.vertexCount, batch.firstVertex);
+                    frameList.draw(batch.vertexCount, batch.firstVertex);
                 }
             }
 
-            if ( !list.endPass() )
+            if ( !frameList.endPass() )
             {
                 return false;
             }
@@ -965,12 +965,12 @@ namespace babylon::uirender
 
         bool submitFrame()
         {
-            render::CommandList list = device.beginFrame();
-            if ( !recordFrame(list) )
+            render::CommandList frameList = device.beginFrame();
+            if ( !recordFrame(frameList) )
             {
                 return false;
             }
-            return device.submit(list);
+            return device.submit(frameList);
         }
     };
 
@@ -1115,10 +1115,10 @@ namespace babylon::uirender
         return m_state->startFrame(targetWidth, targetHeight, target, nullptr);
     }
 
-    bool RenderPainter::begin(render::CommandList& list, std::uint32_t targetWidth,
+    bool RenderPainter::begin(render::CommandList& frameList, std::uint32_t targetWidth,
         std::uint32_t targetHeight, const FrameTarget& target)
     {
-        return m_state->startFrame(targetWidth, targetHeight, target, &list);
+        return m_state->startFrame(targetWidth, targetHeight, target, &frameList);
     }
 
     bool RenderPainter::end()

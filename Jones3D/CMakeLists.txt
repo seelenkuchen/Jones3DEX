@@ -28,11 +28,11 @@ target_link_libraries(Jones3DGame PUBLIC Libs)
 # Platform/Null main(). Link groups/repeated libs resolve the static-library cycles.
 file(GLOB JONES3D_NULL_SOURCES CONFIGURE_DEPENDS Platform/Null/*.c)
 
-# Added: the game's babylon::ui painter and first skin (ADR-0026 amendment). They are part of the
-# Babylon column only, compiled into its executables and its painter test.
+# Added: the menu skin, assets, context and screens (ADR-0026, ADR-0035). They are part of the
+# Babylon column only, compiled into its executables and its UI tests.
 set(JONES3D_BABYLON_UI_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiAssets.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiAssets.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPrompts.cpp"
@@ -208,7 +208,7 @@ endif()
 
 if (J3D_PLATFORM_BABYLON)
     # Added: the painter's TrueType and PNG support (ADR-0031).
-    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::font babylon::image babylon::process)
+    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::uirender babylon::font babylon::image babylon::process)
 endif()
 
 # Added: the windowed Jones3D of the Babylon column: the Platform/Babylon composition root

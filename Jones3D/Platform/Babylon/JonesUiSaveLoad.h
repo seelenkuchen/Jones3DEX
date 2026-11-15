@@ -21,7 +21,10 @@
 #include <string>
 #include <vector>
 
-class JonesUiPainter;
+namespace babylon::uirender
+{
+    class RenderPainter;
+}
 
 // One save in the save directory. fileName is the bare name with its .nds extension, displayName
 // the same without the extension, levelName the level's display name (or the file name when the
@@ -69,23 +72,23 @@ babylon::ui::Image JonesUiSave_ThumbnailImage(babylon::ui::ImageId image);
 
 // Runs the Save screen. Writes the chosen engine path to pOutPath and returns 1, or returns 2
 // when the player cancels. pImagePainter may be null, which skips thumbnails (the logic tests);
-// the windowed wrappers pass the shared JonesUiPainter so the selected save's thumbnail is shown.
+// the windowed wrappers pass the shared RenderPainter so the selected save's thumbnail is shown.
 int JonesUiSave_RunSaveScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
-    const char* pLevelName, const std::tm& now, char* pOutPath);
+    babylon::uirender::RenderPainter* pImagePainter, babylon::files::FileSystem& fileSystem,
+    const char* pSaveDir, const char* pLevelName, const std::tm& now, char* pOutPath);
 
 // Runs the Load screen. Returns 1 with the chosen engine path, or 2 on cancel. bWarnBeforeLoad
 // shows the original in-game warning (JONES_STR_PROGRESS1) before the path is accepted.
 int JonesUiLoad_RunLoadScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
-    bool bWarnBeforeLoad, char* pOutPath);
+    babylon::uirender::RenderPainter* pImagePainter, babylon::files::FileSystem& fileSystem,
+    const char* pSaveDir, bool bWarnBeforeLoad, char* pOutPath);
 
 // Runs the Exit screen and returns 1 (exit), 1187 (save first, then exit) or 2 (cancel). On 1187
 // pSavePath holds the path written by the nested Save screen. A cancelled nested Save cancels the
 // exit, as in the original dialog.
 int JonesUiExit_RunExitScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
-    const char* pLevelName, const std::tm& now, char* pSavePath);
+    babylon::uirender::RenderPainter* pImagePainter, babylon::files::FileSystem& fileSystem,
+    const char* pSaveDir, const char* pLevelName, const std::tm& now, char* pSavePath);
 
 #ifdef J3D_TEST
 // Test support: appends every screen this module builds, for the action-id audit.
