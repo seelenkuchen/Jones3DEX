@@ -193,7 +193,24 @@ void sithVoice_TestGetState(SithVoiceTestState* pState)
 #endif
 
 void sithVoice_ResetGlobals(void)
-{}
+{
+    // Added: lip-sync and subtitle state is per-run state, not a startup default.
+    sithVoice_bStartup       = false;
+    sithVoice_bOpen          = false;
+    sithVoice_bShowText      = false;
+    sithVoice_bThingHasSwapHead = false;
+    sithVoice_msecLipSyncOffset = 50;
+    sithVoice_secHeadSwapInterval = 0.1f;
+    sithVoice_curHeadHeight  = 0;
+    sithVoice_lastHeadHeight = -1;
+    sithVoice_sameHeadHightCounter = 0;
+    sithVoice_secNextHeadSwapTime  = 0.0f;
+    sithVoice_curSubtitleDrawIndex = 0;
+    sithVoice_numSubtitleInfos     = 0;
+    sithVoice_pTextFont            = NULL;
+    STD_ZEROMEM(sithVoice_aVoiceHeadHeights, sizeof(sithVoice_aVoiceHeadHeights));
+    STD_ZEROMEM(sithVoice_aSubtitleInfos, sizeof(sithVoice_aSubtitleInfos));
+}
 
 int sithVoice_Startup(void)
 {

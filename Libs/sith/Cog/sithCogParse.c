@@ -35,7 +35,22 @@ static SithCogSyntaxNode* pSyntaxTree;
 static SithCogSymbolTable* pCurrentSymbols;
 
 void sithCogParse_ResetGlobals(void)
-{}
+{
+    // Added: the parser keeps its symbol and label counters and the syntax tree in file statics;
+    // a second in-process run must start at label 1 with no symbols or nodes left over.
+    // yyin is not cleared by stdConffile_Close, so a later reset must restart the lexer buffer;
+    // only the very first reset, before yylex ever ran, may skip the restart.
+    bSkipYYRestart = yyin == (tFileHandle)0;
+
+    sithCogParse_FreeParseTree();
+    pCurrentScript  = NULL;
+    pCurrentSymbols = NULL;
+    pCurrentRoot    = NULL;
+    pCurrentCode    = NULL;
+    codepos         = 0;
+    nextlabel       = 1;
+    STD_FILLMEM(aLabelTable, -1, sizeof(aLabelTable));
+}
 
 void sithCogParse_FreeParseTree(void)
 {

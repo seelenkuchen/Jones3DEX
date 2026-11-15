@@ -261,6 +261,14 @@ void sithWorld_ResetGlobals(void)
     memset(&sithWorld_g_pStaticWorld, 0, sizeof(sithWorld_g_pStaticWorld));
     memset(&sithWorld_g_pLastLoadedWorld, 0, sizeof(sithWorld_g_pLastLoadedWorld));
     memset(&sithWorld_g_bLoading, 0, sizeof(sithWorld_g_bLoading));
+
+    // Added: load-time caches and callbacks are per-run state.
+    bValidCopyright = false;
+    STD_ZEROMEM(aCopyrightBuf, sizeof(aCopyrightBuf));
+    pfLoadProgressCallback = NULL;
+    aCurSection[0] = '\0';
+    numTextSectionParseHandlers = 0;
+    STD_ZEROMEM(aTextSectioParseHandlers, sizeof(aTextSectioParseHandlers));
 }
 
 int sithWorld_Startup(void)

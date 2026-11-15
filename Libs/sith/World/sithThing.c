@@ -281,6 +281,17 @@ void sithThing_ResetGlobals(void)
     STD_ZEROMEM(&sithThing_prevQuetzAttachInfo, sizeof(sithThing_prevQuetzAttachInfo));
     STD_ZEROMEM(&sithThing_curQuetzAttachInfo, sizeof(sithThing_curQuetzAttachInfo));
     sithThing_bQuetzTurningSharp = false;
+
+    // Added: GUID and signature counters, the callback and the startup flag are per-run state.
+    bThingStartup             = false;
+    sithThing_pfUnknownFunc   = NULL;
+    sithThing_curSignature    = 1;
+    sithThing_guidEntropy     = 1;
+    sithThing_numFreeThings   = 0;
+    sithThing_numUnsyncedThings = 0;
+    STD_ZEROMEM(sithThing_aFreeThingIdxs, sizeof(sithThing_aFreeThingIdxs));
+    STD_ZEROMEM(sithThing_apUnsyncedThings, sizeof(sithThing_apUnsyncedThings));
+    STD_ZEROMEM(sithThing_aSyncFlags, sizeof(sithThing_aSyncFlags));
 }
 
 int J3DAPI sithThing_WriteThingsListBinary(tFileHandle fh, const SithWorld* pWorld, size_t numThings, const SithThing* aThings)

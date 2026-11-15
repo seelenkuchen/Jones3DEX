@@ -51,6 +51,12 @@ void stdBabylonEvents_RequestQuit();
 // The oldest recorded focus change of the game window (true = gained), or nullopt.
 std::optional<bool> stdBabylonEvents_TakeFocusChange();
 
+// Clears the pump's per-run state: the input state, the last pumped events, the quit request and
+// the recorded focus changes. The composition root calls it before every run, so a quit request
+// that ended the previous run (Options > Run setup again posts one) cannot close the next menu.
+// The platform's own event queue is not drained.
+void stdBabylonEvents_Reset();
+
 #ifdef J3D_TEST
 void stdBabylonEvents_ResetForTest(); // clears the state, the quit flag and the focus queue
 #endif

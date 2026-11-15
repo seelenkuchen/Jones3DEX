@@ -21,7 +21,12 @@ static int sithSector_aSyncFlags[16];
 static size_t sithSector_numModifiedSectors = 0; // Added Init to 0
 
 void sithSector_ResetGlobals(void)
-{}
+{
+    // Added: the modified-sector list is run state.
+    sithSector_numModifiedSectors = 0;
+    STD_ZEROMEM(sithSector_aModifiedSectors, sizeof(sithSector_aModifiedSectors));
+    STD_ZEROMEM(sithSector_aSyncFlags, sizeof(sithSector_aSyncFlags));
+}
 
 int J3DAPI sithSector_WriteSectorsListText(const SithWorld* pWorld)
 {

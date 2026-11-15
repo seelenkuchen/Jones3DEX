@@ -85,6 +85,18 @@ void sithCamera_ResetGlobals(void)
     STD_ZEROMEM(&sithCamera_g_camLookSpot, sizeof(sithCamera_g_camLookSpot));
 
     sithModernCamera_ResetGlobals(); // Added: the Modern free camera's orbit state
+    // Added: the external camera's offset scratch starts at its declared defaults.
+    sithCamera_vecExtCameraLookOffset = sithCamera_vecExtCameraDefaultLookOffset;
+    sithCamera_vecExtCameraPrevLookOffset = (rdVector3){ 0 };
+    sithCamera_vecExtCameraOffset = sithCamera_vecExtCameraDefaultOffset;
+    sithCamera_vecOffsetCamType40 = (rdVector3){ { 0.0f }, { 1.0f }, { 1.0f } };
+    STD_ZEROMEM(&sithCamera_idleCamOrient, sizeof(sithCamera_idleCamOrient));
+    sithCamera_bFocusThingInvisible = 0;
+    sithCamera_secFocusThingFadeInTime = 0.0f;
+    sithCamera_secLookOffsetTranslateDelta = 0.0f;
+    sithCamera_bUpdateCameraOffset = 0;
+    sithCamera_bStartup = 0;
+    sithCamera_bOpen = 0;
 }
 
 int sithCamera_Startup(void)

@@ -125,6 +125,16 @@ void sithControl_ResetGlobals(void)
     memset(aKeyOverrides, 0, sizeof(aKeyOverrides));
     memset(aKeySuppressed, 0, sizeof(aKeySuppressed));
     memset(aKeyAwaitRelease, 0, sizeof(aKeyAwaitRelease));
+
+    // Added: startup/open flags, callbacks, function flags and idle time must not carry over.
+    bControlStartup = false;
+    bControlOpen    = false;
+    msecPlayerIdleTime = 0;
+    numControlCallbacks = 0;
+    memset(aControlCallbacks, 0, sizeof(aControlCallbacks));
+    memset(aControlFlags, 0, sizeof(aControlFlags));
+    memset(aControlBindings, 0, sizeof(aControlBindings));
+    sithControl_bModernControlStyle = J3D_QOL_VALUE(true, false);
 }
 
 int J3DAPI sithControl_Startup(int bKeyboardForeground)

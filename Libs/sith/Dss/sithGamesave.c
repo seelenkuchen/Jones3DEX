@@ -66,7 +66,17 @@ int J3DAPI sithGamesave_WriteThumbnail(tFileHandle fh);
 int J3DAPI sithGamesave_SeekThumbnail(tFileHandle fh);
 
 void sithGamesave_ResetGlobals(void)
-{}
+{
+    // Added: a save in progress and the statistics lock must not carry into a second run.
+    sithGamesave_state            = SITHGAMESAVE_NONE;
+    sithGamesave_bStatisticsLocked = 0;
+    sithGamesave_pfSaveGameCallback = NULL;
+    STD_ZEROMEM(sithGamesave_aCurFilename, sizeof(sithGamesave_aCurFilename));
+    STD_ZEROMEM(sithGamesave_aLastFilename, sizeof(sithGamesave_aLastFilename));
+    STD_ZEROMEM(sithGamesave_aPrevLevelFilename, sizeof(sithGamesave_aPrevLevelFilename));
+    STD_ZEROMEM(sithGamesave_aNdsSaveSectionSizes, sizeof(sithGamesave_aNdsSaveSectionSizes));
+    STD_ZEROMEM(&sithGamesave_gameStatistics, sizeof(sithGamesave_gameStatistics));
+}
 
 SithGameStatistics* sithGamesave_GetGameStatistics(void)
 {

@@ -10,6 +10,7 @@
 #include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Play/jonesCog.h>
 #include <Jones3D/Play/jonesInventory.h>
+#include <sith/Cog/sithCogParse.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Gameplay/sithTime.h>
@@ -419,6 +420,19 @@ TEST(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255)
     TEST_ASSERT_EQUAL_UINT(0, stats.elapsedTime & 0xFF);
 }
 
+TEST(JonesMain, TestCogParserLabelsStartOverAfterReset)
+{
+    // The label and syntax-tree counters are file statics, so a second in-process run needs the
+    // reset to bring them back to their start values.
+    sithCogParse_ResetGlobals();
+    TEST_ASSERT_EQUAL_UINT32(1u, sithCogParse_GetNextLabel());
+    TEST_ASSERT_EQUAL_UINT32(2u, sithCogParse_GetNextLabel());
+    TEST_ASSERT_EQUAL_UINT32(3u, sithCogParse_GetNextLabel());
+
+    sithCogParse_ResetGlobals();
+    TEST_ASSERT_EQUAL_UINT32(1u, sithCogParse_GetNextLabel());
+}
+
 TEST(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime)
 {
     sithTime_g_msecGameTime = 12000;
@@ -459,5 +473,6 @@ TEST_GROUP_RUNNER(JonesMain)
     RUN_TEST_CASE(JonesMain, TestNullPauseMenuAnswersAtOnce);
     RUN_TEST_CASE(JonesMain, TestPauseMenuStaysClosedForDeadOrDyingPlayer);
     RUN_TEST_CASE(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255);
+    RUN_TEST_CASE(JonesMain, TestCogParserLabelsStartOverAfterReset);
     RUN_TEST_CASE(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime);
 }

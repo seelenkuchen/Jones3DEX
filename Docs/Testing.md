@@ -363,6 +363,11 @@ cd <game>/Resource
 <build>/Jones3D/Jones3D-headless --load ../SaveGames/<save>.nds --frames 1000 --state state.txt
 ```
 
+The developer check `--runs 2` runs the whole game twice in one process, resetting
+every global between runs; a second in-process run must give the same trace as the
+first. `--state` is written from the last run only, so compare it with the state of a
+`--runs 1` run. `--runs` accepts 1 to 3 and is not a player option.
+
 Every column builds `Jones3D-headless`: the Null column, the Babylon column
 (`-DJONES3D_PLATFORM_BABYLON=ON`) on Linux and macOS, and the Babylon column on 64-bit
 Windows. In the Babylon column `--render null|gpu` picks what `std3D` draws with: `null`,

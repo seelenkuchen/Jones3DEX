@@ -82,7 +82,18 @@ int J3DAPI sithOverlayMap_EasterEggConsoleCallback(const SithConsoleCommand* pFu
 int J3DAPI sithOverlayMap_CanDrawSurfaceEdge(SithSurface* pSurface, int vertIdx, int nextVertIdx);
 
 void sithOverlayMap_ResetGlobals(void)
-{}
+{
+    // Added: map zoom and hint selection are run state; 75 and -1 are the declared starts.
+    sithOverlayMap_bOpened = false;
+    sithOverlayMap_bShowHints = false;
+    sithOverlayMap_bMapVisible = false;
+    sithOverlayMap_bNoSeenHintsCount = false;
+    sithOverlayMap_curScale = 75.0f;
+    sithOverlayMap_vertexScale = 0.0f;
+    sithOverlayMap_curHintNum = -1;
+    sithOverlayMap_pCurWorld = NULL;
+    sithOverlayMap_pLocalPlayer = NULL;
+}
 
 int J3DAPI sithOverlayMap_EasterEggConsoleCallback(const SithConsoleCommand* pFunc, const char* pArg)
 {

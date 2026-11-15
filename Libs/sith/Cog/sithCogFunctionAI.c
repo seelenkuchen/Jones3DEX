@@ -1232,7 +1232,12 @@ void J3DAPI sithCogFunctionAI_AISpat(SithCog* pCog)
 }
 
 void sithCogFunctionAI_ResetGlobals(void)
-{}
+{
+    // Added: the "things in view" cursor is per-run state, not a startup default.
+    STD_ZEROMEM(sithCogFunctionAI_aThingsInView, sizeof(sithCogFunctionAI_aThingsInView));
+    sithCogFunctionAI_numThingsInView = 0;
+    sithCogFunctionAI_curThingInView  = 0;
+}
 
 int J3DAPI sithCogFunctionAI_RegisterFunctions(SithCogSymbolTable* pTable)
 {

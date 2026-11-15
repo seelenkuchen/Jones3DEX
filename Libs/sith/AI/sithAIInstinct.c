@@ -240,6 +240,10 @@ static float sithAIInstinct_snakeFollowNearRange = 0.0f; // Range below which a 
 
 void sithAIInstinct_ResetGlobals(void)
 {
+    // Added: the snake instinct remembers its last facing and slither sound across frames.
+    sithAIInstinct_snakeLastDotFwd      = 1.0f;
+    sithAIInstinct_snakeSlitherDir      = 0.0f;
+    sithAIInstinct_snakeFollowNearRange = 0.0f;
 }
 
 void J3DAPI sithAIInstinct_InitInstincts()

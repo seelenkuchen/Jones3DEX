@@ -37,7 +37,24 @@ int J3DAPI sithConsole_CreateCommandTable(size_t size);
 void sithConsole_FreeCommandTable(void);
 
 void sithConsole_ResetGlobals(void)
-{}
+{
+    // Added: the console's flags, buffers and callback pointers are per-run state.
+    bOpen = false;
+    bStarted = false;
+    consoleflags = 0;
+    STD_ZEROMEM(aBuffers, sizeof(aBuffers));
+    bufferSize = 0;
+    curFlushIndex = 0;
+    endPrintIndex = 0;
+    curPrintIndex = 0;
+    pCommandTable = NULL;
+    apCommands = NULL;
+    maxRegisteredCommands = 0;
+    numRegistredCommands = 0;
+    pfPrintString = NULL;
+    pfPrintWString = NULL;
+    pfFlushFunc = NULL;
+}
 
 int sithConsole_Startup(void)
 {

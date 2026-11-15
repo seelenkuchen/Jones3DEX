@@ -80,6 +80,9 @@ void sithAI_Shutdown(void)
     SITH_ASSERTREL(aRegisteredInstincts && pRegisteredInstinctHashtbl);
     STDFREE(aRegisteredInstincts);
     stdHashtbl_Free(pRegisteredInstinctHashtbl);
+    aRegisteredInstincts       = NULL;
+    pRegisteredInstinctHashtbl = NULL;
+    numRegisteredInstincts     = 0;
     bStartup = false;
 }
 

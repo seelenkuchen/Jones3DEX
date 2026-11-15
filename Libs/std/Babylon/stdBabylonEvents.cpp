@@ -167,12 +167,17 @@ std::optional<bool> stdBabylonEvents_TakeFocusChange()
     return bGained;
 }
 
-#ifdef J3D_TEST
-void stdBabylonEvents_ResetForTest()
+void stdBabylonEvents_Reset()
 {
     inputState = babylon::input::InputState();
     lastEvents.clear();
     quitRequested = false;
     focusChanges.clear();
+}
+
+#ifdef J3D_TEST
+void stdBabylonEvents_ResetForTest()
+{
+    stdBabylonEvents_Reset();
 }
 #endif

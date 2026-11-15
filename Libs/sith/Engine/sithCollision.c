@@ -55,7 +55,15 @@ int J3DAPI sithCollision_sub_4DB3CA(SithThing* pThing1, SithThing* pThing2);
 int J3DAPI sithCollision_CanCrossAdjoin(SithSurfaceAdjoinFlag adjflags, int colflags);
 
 void sithCollision_ResetGlobals(void)
-{}
+{
+    // Added: the collision scratch state and the jeep damage factor start over.
+    stackLevel = -1;
+    sithCollision_dword_17F1090 = 0;
+    rdVector_Zero3(&sithCollision_vec17F10A0);
+    sithCollision_jeepDamage = 1.0f;
+    STD_ZEROMEM(sithCollision_aNumSearchedSectors, sizeof(sithCollision_aNumSearchedSectors));
+    STD_ZEROMEM(sithCollision_aNumStackCollisions, sizeof(sithCollision_aNumStackCollisions));
+}
 
 void sithCollision_Startup(void)
 {

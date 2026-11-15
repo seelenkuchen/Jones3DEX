@@ -94,6 +94,7 @@ static size_t JonesMain_curLevelNum;
 
 static tHostServices JonesMain_hs = { 0 }; // Added: Init to 0
 static JonesState JonesMain_state = { 0 }; // Added: Init to 0
+static const char* JonesMain_pDataRelease = NULL; // Added: release named by the startup data check
 
 static bool JonesMain_bRefreshDisplayDevice = false; // Added: Init to false
 static bool JonesMain_bVideoModeError       = false; // Added: Init to false
@@ -176,6 +177,46 @@ void JonesMain_ResetGlobals(void)
     char JonesMain_g_aErrorBuffer_tmp[1024] = "Unknown error";
     memcpy(&JonesMain_g_aErrorBuffer, &JonesMain_g_aErrorBuffer_tmp, sizeof(JonesMain_g_aErrorBuffer));
     memset(&JonesMain_g_mainMutex, 0, sizeof(JonesMain_g_mainMutex));
+    JonesMain_pDataRelease = NULL;
+
+    // Added: the run's own state must start over in a second in-process run. The capture request
+    // stays set on purpose; JonesBabylon_Run and the headless runner apply it per run.
+    JonesMain_bStartup          = false;
+    JonesMain_pfCurProcess      = NULL;
+    JonesMain_pfProcess         = NULL;
+    JonesMain_curLevelNum       = 0;
+    JonesMain_bRefreshDisplayDevice = false;
+    JonesMain_bVideoModeError   = false;
+    JonesMain_pDisplayEnv       = NULL;
+    JonesMain_pStartupDisplayEnv = NULL;
+    JonesMain_pLogFile          = NULL;
+    JonesMain_bGamePaused       = false;
+    JonesMain_bAssertTriggered  = false;
+    JonesMain_bAppActivated     = false;
+    JonesMain_bSystemSuspended  = false;
+    JonesMain_bPrintFramerate   = false;
+    JonesMain_frameRate         = 0.0f;
+    JonesMain_frameCount        = 0;
+    JonesMain_prevFrameCount    = 0;
+    JonesMain_frameTime         = 0;
+    JonesMain_prevFrameTime     = 0;
+    JonesMain_bPrintQuickSave   = false;
+    JonesMain_curGamesaveState  = 0;
+    JonesMain_bMenuToggled      = false;
+    JonesMain_bPauseMenuToggled = false;
+    JonesMain_bEndCredits       = false;
+    JonesMain_hSndCredits       = 0;
+    JonesMain_hCreditsMusic     = 0;
+    JonesMain_bSkipIntro        = false;
+    JonesMain_introVideoMode    = 0;
+    JonesMain_bNoProcessWndEvents = false;
+
+    STD_ZEROMEM(&JonesMain_hs, sizeof(JonesMain_hs));
+    STD_ZEROMEM(&JonesMain_state, sizeof(JonesMain_state));
+    STD_ZEROMEM(&JonesMain_curVideoMode, sizeof(JonesMain_curVideoMode));
+    STD_ZEROMEM(&JonesMain_circBuf, sizeof(JonesMain_circBuf));
+    STD_ZEROMEM(JonesMain_aNdsFilename, sizeof(JonesMain_aNdsFilename));
+    STD_ZEROMEM(JonesMain_aToggleMenuKeyIds, sizeof(JonesMain_aToggleMenuKeyIds));
 }
 
 // Added: where Jones.cfg lives (ADR-0019). "" user directory keeps the original relative path.
@@ -304,6 +345,7 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     JonesDataReport dataReport;
     JonesData_CheckDir(locateResult.aResourceDir, aDataCheckPath[0] ? aDataCheckPath : NULL, &dataReport);
     JonesData_LogReport(&dataReport);
+    JonesMain_pDataRelease = dataReport.pRelease;
 
     JonesFile_Open(&JonesMain_hs, JonesMain_state.aInstallPath, JonesMain_state.aCDPath);
 
@@ -1945,6 +1987,16 @@ StdDisplayEnvironment* JonesMain_GetDisplayEnvironment(void)
 JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
 {
     return &JonesMain_state.displaySettings;
+}
+
+const char* JonesMain_GetDataRelease(void)
+{
+    return JonesMain_pDataRelease;
+}
+
+const char* JonesMain_GetInstallPath(void)
+{
+    return JonesMain_state.aInstallPath;
 }
 
 // Added: the level whose load-screen map the main menu shows behind its panel (ADR-0026).
