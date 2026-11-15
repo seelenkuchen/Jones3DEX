@@ -64,6 +64,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesGogInstaller.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesGogInstaller.h"
 )
 
 # Added: the Babylon column's control scheme files (M7.17a), shared by the headless and windowed
@@ -206,7 +208,7 @@ endif()
 
 if (J3D_PLATFORM_BABYLON)
     # Added: the painter's TrueType and PNG support (ADR-0031).
-    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::font babylon::image)
+    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::font babylon::image babylon::process)
 endif()
 
 # Added: the windowed Jones3D of the Babylon column: the Platform/Babylon composition root
@@ -263,7 +265,7 @@ if (J3D_PLATFORM_BABYLON)
         target_link_libraries(Jones3D PRIVATE m)
     endif()
 
-    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image)
+    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image babylon::process)
 endif()
 
 if (JONES3D_BUILD_TESTS)

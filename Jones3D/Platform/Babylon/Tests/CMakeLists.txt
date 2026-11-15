@@ -102,3 +102,31 @@ add_custom_command(TARGET Jones3DUiPainterTests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${JONES3D_UI_TEST_ROOT}/Data" "$<TARGET_FILE_DIR:Jones3DUiPainterTests>/Data"
     COMMENT "Copying Data/ next to Jones3DUiPainterTests")
+
+# The GOG installer driver is driven by babylon::process::NullProcess, so its test needs no
+# installer, innoextract program or window.
+add_executable(Jones3DGogInstallerTests
+    JonesGogInstallerTest.cpp
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesGogInstaller.cpp"
+)
+
+target_include_directories(Jones3DGogInstallerTests PRIVATE
+    "${JONES3D_UI_TEST_ROOT}"
+)
+
+target_link_libraries(Jones3DGogInstallerTests PRIVATE
+    babylon::process
+    babylon_doctest
+)
+
+set_target_properties(Jones3DGogInstallerTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+    LINKER_LANGUAGE CXX
+)
+
+add_test(NAME Jones3D.GogInstaller COMMAND Jones3DGogInstallerTests)
+set_tests_properties(Jones3D.GogInstaller PROPERTIES
+    LABELS "unit;Jones3D"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    TIMEOUT 120
+)
