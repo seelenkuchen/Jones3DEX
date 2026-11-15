@@ -39,3 +39,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0032](ADR-0032-packages-and-game-data-location.md) | Packages and game data location | Accepted |
 | [ADR-0033](ADR-0033-babylon-ui-render-painter.md) | A Babylon UI render painter | Accepted |
 | [ADR-0034](ADR-0034-setup-wizard.md) | A setup wizard for the game data | Accepted |
+| [ADR-0035](ADR-0035-native-resolution-menus.md) | Menus render at the window's native resolution | Accepted |

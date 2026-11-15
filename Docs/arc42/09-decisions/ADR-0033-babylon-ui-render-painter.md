@@ -37,3 +37,10 @@ allowlist, which is an architecture change (ADR-0015).
 - Fonts are baked once per pixel height for printable ASCII, Latin-1 and U+2022; there is no runtime glyph
   cache or additional script coverage yet.
 - The module is presentation only; retail and simulation behavior are unaffected.
+
+## Amendment (2026-11-15)
+
+The last decision bullet is superseded by [ADR-0035](ADR-0035-native-resolution-menus.md). The game menus now
+use `RenderPainter` on the swapchain present overlay at native window resolution; `JonesUiPainter` has been
+removed. `RenderPainter` gained target-scale font baking, list-mode recording into a caller's command list,
+image release, and the ui's glyph fallbacks. The module remains presentation only.

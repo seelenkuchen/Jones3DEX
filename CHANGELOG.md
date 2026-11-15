@@ -2,6 +2,10 @@
 ### M8: Release
   - This is version 0.5.0, the first Jones3D EX release; `Jones3D-headless --version` and
     `Jones3D --version` print it.
+  - The setup wizard and every in-game menu (main menu, Options and its tabs, pause, save/load, store,
+    statistics, level completed, game over and message boxes) now draw at the window's native resolution, so
+    menu text stays sharp on large displays and at any game render resolution. The layout, skins, fonts,
+    prompts and sounds are unchanged.
   - Release packages: a Linux AppImage and a Windows zip, both without game data. The AppImage runs from
     one file and installs nothing; the zip is extracted into a folder and needs no Visual C++
     redistributable. Players point either at their own copy of the game.
