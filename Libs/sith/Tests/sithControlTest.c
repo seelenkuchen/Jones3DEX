@@ -232,21 +232,49 @@ TEST(sithControl, OutOfRangeAndAxisOnlyIdsAreIgnored)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, sithControl_GetKeyAsAxis(SITHCONTROL_PITCH));
 }
 
-TEST(sithControl, ControlStyleIsModernInQolBuildsOnly)
+TEST(sithControl, ControlStyleIsPerDeviceAndModernInQolBuildsOnly)
 {
 #ifdef J3D_QOL_IMPROVEMENTS
+    // Added: the Enhanced defaults are keyboard and mouse Classic, gamepad Modern. The movement
+    // translator is on in every QOL build, whatever the two styles say.
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernMovementEnabled());
+
+    sithControl_SetModernKeyboardStyle(true);
+    TEST_ASSERT_TRUE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    sithControl_SetModernGamepadStyle(false);
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
     TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
 
+    sithControl_SetModernKeyboardStyle(false);
+    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    // Both styles Classic still keeps the Enhanced translator; only Retail turns it off.
+    TEST_ASSERT_TRUE(sithControl_IsModernMovementEnabled());
+
+    // The old call sets both devices and the movement layer, for the tests and the non-QOL fallback.
+    sithControl_SetModernControlStyle(true);
+    TEST_ASSERT_TRUE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernMovementEnabled());
     sithControl_SetModernControlStyle(false);
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
-
-    sithControl_SetModernControlStyle(true);
-    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernMovementEnabled());
 #else
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
     TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernMovementEnabled());
 
-    sithControl_SetModernControlStyle(true);
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    sithControl_SetModernKeyboardStyle(true);
+    sithControl_SetModernGamepadStyle(true);
+    sithControl_SetModernMovementEnabled(true);
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernMovementEnabled());
 #endif
 }
 
@@ -289,6 +317,6 @@ TEST_GROUP_RUNNER(sithControl)
     RUN_TEST_CASE(sithControl, SuppressionDoesNotHideAnOverride);
     RUN_TEST_CASE(sithControl, ClearDropsEveryOverrideAndSuppression);
     RUN_TEST_CASE(sithControl, OutOfRangeAndAxisOnlyIdsAreIgnored);
-    RUN_TEST_CASE(sithControl, ControlStyleIsModernInQolBuildsOnly);
+    RUN_TEST_CASE(sithControl, ControlStyleIsPerDeviceAndModernInQolBuildsOnly);
     RUN_TEST_CASE(sithControl, AwaitKeyReleaseHoldsActionsUntilReleased);
 }

@@ -745,9 +745,9 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 control style,
-    // 6 reticle, 7 blood, 8 profile (disabled), 9 profile note, 10 enhancements heading,
-    // 11 fire flash, 12 external materials, 13 external keyframes, 14 OK, 15 back.
+    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
+    // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading, 10 fire flash,
+    // 11 external materials, 12 external keyframes, 13 OK, 14 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -757,10 +757,6 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Right); // difficulty 0 -> 1
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // default to run on
-    testContext.platform.PushKey(platform::Key::Down);
-#ifdef J3D_QOL_IMPROVEMENTS
-    testContext.platform.PushKey(platform::Key::Right); // control style Modern -> Classic
-#endif
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // reticle on
     testContext.platform.PushKey(platform::Key::Down);
@@ -786,15 +782,6 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 1);
     CHECK((sithControl_g_controlOptions & 0x02) != 0);
     CHECK(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
-#ifdef J3D_QOL_IMPROVEMENTS
-    CHECK_FALSE(sithControl_IsModernControlStyle());
-    char aControlStyle[16] = { 0 };
-    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aControlStyle,
-        sizeof(aControlStyle), ""));
-    CHECK(std::string(aControlStyle) == "classic");
-#else
-    CHECK_FALSE(sithControl_IsModernControlStyle());
-#endif
     CHECK(JonesReticle_IsEnabled());
     CHECK(sithWeapon_IsBloodSplatterEnabled());
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
@@ -847,10 +834,6 @@ TEST_CASE("the gameplay screen back writes nothing")
     CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 0);
     CHECK((sithControl_g_controlOptions & 0x02) == 0);
     CHECK_FALSE(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, true));
-#ifdef J3D_QOL_IMPROVEMENTS
-    CHECK(sithControl_IsModernControlStyle());
-#endif
-    CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
     CHECK_FALSE(JonesReticle_IsEnabled());
     CHECK_FALSE(sithWeapon_IsBloodSplatterEnabled());
     CHECK(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, false));
@@ -1025,26 +1008,48 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
     CHECK_FALSE(bHasPerformance);
     CHECK(bHasPerformance == false);
 
-    // Added: the Gameplay tab has the Control style row with both values and help.
-    const babylon::ui::Screen gameplay = JonesUiOptions_BuildTabScreenForTest(0, data);
-    bool bHasControlStyle = false;
-    for ( std::size_t i = 0; i < gameplay.widgets.size(); ++i )
+    // Added: the Control style rows moved to the Controls tab, next to Mouse camera.
+    bool bHasKeyboardStyle = false;
+    bool bHasGamepadStyle = false;
+    for ( std::size_t i = 0; i < controlsTab.widgets.size(); ++i )
     {
         if ( const babylon::ui::Choice* choice =
-                std::get_if<babylon::ui::Choice>(&gameplay.widgets[i]) )
+                std::get_if<babylon::ui::Choice>(&controlsTab.widgets[i]) )
         {
-            if ( choice->text == "Control style" )
+            if ( choice->text == "Keyboard & mouse style" )
             {
-                bHasControlStyle = true;
+                bHasKeyboardStyle = true;
                 REQUIRE(choice->options.size() == 2u);
                 CHECK(choice->options[0] == "Modern");
                 CHECK(choice->options[1] == "Classic");
-                REQUIRE(gameplay.help.size() == gameplay.widgets.size());
-                CHECK(!gameplay.help[i].empty());
+                CHECK(choice->enabled);
+                REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
+                CHECK(!controlsTab.help[i].empty());
+            }
+            if ( choice->text == "Gamepad style" )
+            {
+                bHasGamepadStyle = true;
+                REQUIRE(choice->options.size() == 2u);
+                CHECK(choice->options[0] == "Modern");
+                CHECK(choice->options[1] == "Classic");
+                CHECK(choice->enabled);
+                REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
+                CHECK(!controlsTab.help[i].empty());
             }
         }
     }
-    CHECK(bHasControlStyle);
+    CHECK(bHasKeyboardStyle);
+    CHECK(bHasGamepadStyle);
+
+    // The Gameplay tab no longer has a Control style row.
+    const babylon::ui::Screen gameplay = JonesUiOptions_BuildTabScreenForTest(0, data);
+    for ( const babylon::ui::Widget& widget : gameplay.widgets )
+    {
+        if ( const babylon::ui::Choice* choice = std::get_if<babylon::ui::Choice>(&widget) )
+        {
+            CHECK(choice->text != "Control style");
+        }
+    }
 }
 
 TEST_CASE("the Game data tab shows the release and folder and disables setup during a level")
@@ -1148,6 +1153,108 @@ TEST_CASE("Q and E switch options tabs and keep a changed value")
     CHECK(sithVoice_GetShowText() == 1);
     CHECK(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("the Controls tab reads and writes the per-device control styles")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    // Start the opposite way so both directions are exercised.
+    sithControl_SetModernKeyboardStyle(true);
+    sithControl_SetModernGamepadStyle(false);
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Controls tab focus order (the scheme list is empty, so the Controller and Keyboard & Mouse
+    // buttons are disabled): Scheme, New, Mouse camera, Keyboard & mouse style, Gamepad style,
+    // Rumble, Apply.
+    testContext.platform.PushKey(platform::Key::E);     // Controls
+    testContext.platform.PushKey(platform::Key::Down);  // New
+    testContext.platform.PushKey(platform::Key::Down);  // Mouse camera
+    testContext.platform.PushKey(platform::Key::Down);  // Keyboard & mouse style
+    testContext.platform.PushKey(platform::Key::Right); // Modern -> Classic
+    testContext.platform.PushKey(platform::Key::Down);  // Gamepad style
+    testContext.platform.PushKey(platform::Key::Left);  // Classic -> Modern
+    testContext.platform.PushKey(platform::Key::Down);  // Rumble
+    testContext.platform.PushKey(platform::Key::Down);  // Apply
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK_FALSE(sithControl_IsModernKeyboardStyle());
+    CHECK(sithControl_IsModernGamepadStyle());
+
+    char aStyle[16] = { 0 };
+    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, aStyle,
+        sizeof(aStyle), ""));
+    CHECK(std::string(aStyle) == "classic");
+    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, aStyle,
+        sizeof(aStyle), ""));
+    CHECK(std::string(aStyle) == "modern");
+    // The old single key is no longer written.
+    CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+}
+
+TEST_CASE("the retail profile locks the Controls tab style rows")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = false;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    const babylon::ui::Screen controlsTab = JonesUiOptions_BuildTabScreenForTest(1, data);
+    bool bKeyboardLocked = false;
+    bool bGamepadLocked  = false;
+    for ( const babylon::ui::Widget& widget : controlsTab.widgets )
+    {
+        if ( const babylon::ui::Choice* choice = std::get_if<babylon::ui::Choice>(&widget) )
+        {
+            if ( choice->text == "Keyboard & mouse style" )
+            {
+                bKeyboardLocked = !choice->enabled;
+            }
+            if ( choice->text == "Gamepad style" )
+            {
+                bGamepadLocked = !choice->enabled;
+            }
+        }
+    }
+
+    CHECK(bKeyboardLocked);
+    CHECK(bGamepadLocked);
 }
 
 TEST_CASE("the options Display tab still writes the stored performance level unchanged")

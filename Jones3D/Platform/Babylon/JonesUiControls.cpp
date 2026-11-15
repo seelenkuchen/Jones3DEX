@@ -101,6 +101,10 @@ namespace
     constexpr const char* kJonesControlsNewText        = "New";               // TODO: [COMPAT]
     constexpr const char* kJonesControlsDeleteText     = "Delete";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsMouseText      = "Mouse camera";      // TODO: [COMPAT]
+    constexpr const char* kJonesControlsKeyboardStyleText = "Keyboard & mouse style"; // TODO: [COMPAT]
+    constexpr const char* kJonesControlsGamepadStyleText  = "Gamepad style";  // TODO: [COMPAT]
+    constexpr const char* kJonesControlsModernText     = "Modern";            // TODO: [COMPAT]
+    constexpr const char* kJonesControlsClassicText    = "Classic";           // TODO: [COMPAT]
     constexpr const char* kJonesControlsRumbleText     = "Rumble";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsResetText      = "Reset to defaults"; // TODO: [COMPAT]
     constexpr const char* kJonesControlsNameText       = "Name";              // TODO: [COMPAT]
@@ -397,6 +401,19 @@ namespace
         }
 
         value = std::get<bool>(*pValue);
+        return true;
+    }
+
+    bool ReadChoice(const babylon::ui::Ui& ui, babylon::ui::ScreenId screenId,
+        std::size_t index, std::size_t& value)
+    {
+        const std::optional<babylon::ui::WidgetValue> pValue = ui.widgetValue(screenId, index);
+        if ( !pValue || !std::holds_alternative<std::int64_t>(*pValue) )
+        {
+            return false;
+        }
+
+        value = (std::size_t)std::max<std::int64_t>(0, std::get<std::int64_t>(*pValue));
         return true;
     }
 
@@ -1120,6 +1137,8 @@ bool JonesUiControls_InitModel(JonesUiControlsModel& model, JonesControlsConfig&
         ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
         : J3D_QOL_VALUE(true, false);
     model.bRumble  = stdControl_IsRumbleEnabled();
+    model.bKeyboardModern = sithControl_IsModernKeyboardStyle();
+    model.bGamepadModern  = sithControl_IsModernGamepadStyle();
     return true;
 }
 
@@ -1167,6 +1186,25 @@ babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsM
     layout.mouse = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Toggle{
         kJonesControlsMouseText, std::string(), true, model.bMouse });
+
+    // Added: the two per-device control styles live next to the mouse camera row. They are
+    // Enhanced options, so a Retail profile or a non-QOL build locks them.
+#ifdef J3D_QOL_IMPROVEMENTS
+    const bool bStyleEnabled = true;
+#else
+    const bool bStyleEnabled = false;
+#endif
+    layout.keyboardStyle = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Choice{
+        kJonesControlsKeyboardStyleText, std::string(),
+        { kJonesControlsModernText, kJonesControlsClassicText }, bStyleEnabled,
+        model.bKeyboardModern ? 0u : 1u });
+
+    layout.gamepadStyle = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Choice{
+        kJonesControlsGamepadStyleText, std::string(),
+        { kJonesControlsModernText, kJonesControlsClassicText }, bStyleEnabled,
+        model.bGamepadModern ? 0u : 1u });
 
     layout.rumble = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Toggle{
@@ -1299,6 +1337,24 @@ void JonesUiControls_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
     {
         static_cast<void>(ReadToggle(ui, screen, layout.mouse, model.bMouse));
     }
+
+    if ( layout.keyboardStyle != babylon::ui::kNoWidget )
+    {
+        std::size_t style = model.bKeyboardModern ? 0u : 1u;
+        if ( ReadChoice(ui, screen, layout.keyboardStyle, style) )
+        {
+            model.bKeyboardModern = style == 0;
+        }
+    }
+
+    if ( layout.gamepadStyle != babylon::ui::kNoWidget )
+    {
+        std::size_t style = model.bGamepadModern ? 0u : 1u;
+        if ( ReadChoice(ui, screen, layout.gamepadStyle, style) )
+        {
+            model.bGamepadModern = style == 0;
+        }
+    }
 }
 
 int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& config)
@@ -1327,6 +1383,29 @@ int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& conf
     static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, model.bMouse));
     static_cast<void>(stdConfig_SetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, model.bRumble));
     stdControl_EnableRumble(model.bRumble);
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Added: the per-device styles are stored individually; the old single key is no longer
+    // written and stays only as a migration source. A key is written only when the player changed
+    // that style here, so opening Options and pressing Apply never rewrites a config that still
+    // relies on the old key.
+    const bool bKeyboardChanged = model.bKeyboardModern != sithControl_IsModernKeyboardStyle();
+    const bool bGamepadChanged  = model.bGamepadModern != sithControl_IsModernGamepadStyle();
+    sithControl_SetModernKeyboardStyle(model.bKeyboardModern);
+    sithControl_SetModernGamepadStyle(model.bGamepadModern);
+    if ( bKeyboardChanged )
+    {
+        static_cast<void>(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE,
+            model.bKeyboardModern ? "modern" : "classic"));
+    }
+    if ( bGamepadChanged )
+    {
+        static_cast<void>(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE,
+            model.bGamepadModern ? "modern" : "classic"));
+    }
+#else
+    sithControl_SetModernControlStyle(false);
+#endif
 
     JonesControl_EnableJoystickAxes();
 
@@ -1456,7 +1535,9 @@ bool JonesUiControls_AskReassign(babylon::ui::Ui& ui, babylon::ui::Painter* pPai
 
 JonesUiStickOwnership JonesUiControls_GetModernStickOwnership(JonesControlActions action)
 {
-    if ( !sithControl_IsModernControlStyle() )
+    // Added: only the Modern gamepad style drives actions from a stick. Modern keyboard and mouse
+    // still reads the real key bindings, so its rows stay normal.
+    if ( !sithControl_IsModernGamepadStyle() )
     {
         return JonesUiStickOwnership::None;
     }

@@ -488,10 +488,11 @@ SithModernControlMode J3DAPI sithModernControls_GetMode(const SithThing* pPlayer
     return SITHMODERNCONTROL_MODE_CAMERA_RELATIVE;
 }
 
-// Added: the transition skip applies only when the Modern style actually owns the state.
+// Added: the transition skip applies only while the Enhanced movement translator runs, which is
+// every QOL build; only the Retail profile keeps the original transitions.
 bool J3DAPI sithModernControls_IsCameraRelative(const SithThing* pPlayer)
 {
-    if ( !sithControl_IsModernControlStyle() )
+    if ( !sithControl_IsModernMovementEnabled() )
     {
         return false;
     }
@@ -762,7 +763,7 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 {
     sithControl_ClearKeyOverrides();
 
-    if ( !sithControl_IsModernControlStyle()
+    if ( !sithControl_IsModernMovementEnabled()
         || !pPlayer
         || pPlayer != sithPlayer_g_pLocalPlayerThing
         || pPlayer->moveType != SITH_MT_PHYSICS )
@@ -771,6 +772,13 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         sithModernControls_ResetLock();
         return;
     }
+
+    // Added: the styles select the camera and mouse extras only. Keyboard Classic is the keyboard
+    // behaviour before this option existed: the same movement keys feed the camera-relative
+    // translator, the camera has no mouse orbit and the mouse keeps the classic turn/walk bindings.
+    // Keyboard Modern adds the A/D sidestep keys to the translator and lets the mouse orbit the free
+    // camera. The translator itself runs in every QOL build; only Retail keeps the original tank.
+    const bool bKeyboardModern = sithControl_IsModernKeyboardStyle();
 
     // Added: a paused game (the inventory or a pause menu) moves and turns nobody, as the original
     // player controls stop on the pause. The lock and latch are kept for when the game resumes.
@@ -811,6 +819,8 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
     // Added: the target lock is read in every move state; only camera-relative states apply it.
     sithModernControls_UpdateLock(pPlayer, mode, cameraYaw, secDeltaTime);
 
+    // Added: a held physical sidestep key counts only its press edge, as before. The Modern and
+    // Classic keyboard styles share this because the translator owns the movement in both.
     sithModernControls_SuppressHeldStepKeys(sithModernControls_IsLockActive());
 
     if ( mode == SITHMODERNCONTROL_MODE_NONE )
@@ -818,13 +828,34 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         return;
     }
 
-    float stickX, stickY, stickMagnitude;
+    float stickX = 0.0f;
+    float stickY = 0.0f;
+    float stickMagnitude = 0.0f;
     sithModernControls_ReadStick(&stickX, &stickY, &stickMagnitude);
 
     int bForward   = sithControl_GetKey(SITHCONTROL_FORWARD, NULL) != 0;
     int bBack      = sithControl_GetKey(SITHCONTROL_BACK, NULL) != 0;
     int bTurnLeft  = sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL) != 0;
     int bTurnRight = sithControl_GetKey(SITHCONTROL_TURNRIGHT, NULL) != 0;
+    int bLeft      = 0;
+    int bRight     = 0;
+
+    // Added: the Modern keyboard style adds the A/D sidestep bindings as lateral movement in the
+    // camera-relative states. Classic keeps them as the original sidestep, and the tank-style states
+    // keep their real meaning in both styles.
+    if ( bKeyboardModern && mode != SITHMODERNCONTROL_MODE_RELATIVE )
+    {
+        bLeft  = sithControl_GetKey(SITHCONTROL_LEFT, NULL) != 0;
+        bRight = sithControl_GetKey(SITHCONTROL_RIGHT, NULL) != 0;
+        if ( bLeft )
+        {
+            sithControl_SuppressKey(SITHCONTROL_LEFT);
+        }
+        if ( bRight )
+        {
+            sithControl_SuppressKey(SITHCONTROL_RIGHT);
+        }
+    }
 
     bool bRunOption   = (sithControl_g_controlOptions & 2) != 0;
     bool bRunKey      = sithControl_GetKey(SITHCONTROL_RUNFWD, NULL) != 0;
@@ -835,7 +866,7 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
         bKeyboardRun = false;
     }
 
-    float keyX = (float)(bTurnRight - bTurnLeft);
+    float keyX = (float)((bTurnRight + bRight) - (bTurnLeft + bLeft));
     float keyY = (float)(bForward - bBack);
     float keyMagnitude = sqrtf(keyX * keyX + keyY * keyY);
 
@@ -1045,7 +1076,7 @@ void J3DAPI sithModernControls_Update(SithThing* pPlayer, float secDeltaTime)
 // thrust under the player physics' drag is the target, and the extra velocity is capped there.
 void J3DAPI sithModernControls_ApplyGroundAcceleration(SithThing* pPlayer, float secDeltaTime)
 {
-    if ( !sithControl_IsModernControlStyle()
+    if ( !sithControl_IsModernMovementEnabled()
         || !pPlayer
         || pPlayer != sithPlayer_g_pLocalPlayerThing
         || pPlayer->moveType != SITH_MT_PHYSICS

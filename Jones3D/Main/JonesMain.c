@@ -1405,7 +1405,7 @@ void JonesMain_ProcessMenu(void)
 
     // Added: in the Modern style the gamepad's B button closes an open inventory, as its prompts
     // show. It never opens it: B is a game control (roll) while the inventory is closed.
-    if ( jonesCog_g_bMenuVisible && sithControl_IsModernControlStyle() )
+    if ( jonesCog_g_bMenuVisible && sithControl_IsModernGamepadStyle() )
     {
         bMenuKeyPressed |= JonesMain_ReadGamepadButton(1); // B
     }

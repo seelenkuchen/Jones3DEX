@@ -262,7 +262,17 @@ bool J3DAPI sithModernCamera_Update(const SithCamera* pCamera, const SithThing* 
         sithModernCamera_bInitialized = true;
     }
 
-    sithModernCamera_EnableStickAxes(numJoysticks);
+    // Added: the right stick only orbits in the Modern gamepad style. The mouse axes always read as
+    // before; the keyboard and mouse style decides whether they are bound to MOUSETURN/PITCH
+    // (Modern orbit) or to the classic turn/walk functions (Classic, where they read 0 here).
+    float stickX = 0.0f;
+    float stickY = 0.0f;
+    if ( sithControl_IsModernGamepadStyle() )
+    {
+        sithModernCamera_EnableStickAxes(numJoysticks);
+        stickX = sithModernCamera_ReadStickAxis(numJoysticks, STDCONTROL_JOYSTICK_AXIS_RX);
+        stickY = sithModernCamera_ReadStickAxis(numJoysticks, STDCONTROL_JOYSTICK_AXIS_RY);
+    }
 
     // Added: a held target lock owns the camera yaw and eases it toward Indy -> target.
     float lockYaw;
@@ -272,8 +282,6 @@ bool J3DAPI sithModernCamera_Update(const SithCamera* pCamera, const SithThing* 
         return true;
     }
 
-    float stickX = sithModernCamera_ReadStickAxis(numJoysticks, STDCONTROL_JOYSTICK_AXIS_RX);
-    float stickY = sithModernCamera_ReadStickAxis(numJoysticks, STDCONTROL_JOYSTICK_AXIS_RY);
     float mouseX = sithControl_GetAxis(SITHCONTROL_MOUSETURN);
     float mouseY = sithControl_GetAxis(SITHCONTROL_PITCH);
 

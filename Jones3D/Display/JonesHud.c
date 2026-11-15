@@ -2609,7 +2609,7 @@ void J3DAPI JonesHud_BindActivateControlKeys(const size_t* aKeyIds, size_t numKe
 
 static int JonesHud_ReadModernMenuDirection(unsigned int keyId, int* pNumPressed)
 {
-    if ( !sithControl_IsModernControlStyle() )
+    if ( !sithControl_IsModernGamepadStyle() )
     {
         return 0;
     }
@@ -2670,7 +2670,7 @@ static int JonesHud_ReadModernMenuDirection(unsigned int keyId, int* pNumPressed
 // reads only the Activate bindings, which put the pad's X button there.
 static int JonesHud_GetModernMenuSelectKey(void)
 {
-    if ( !sithControl_IsModernControlStyle() )
+    if ( !sithControl_IsModernGamepadStyle() )
     {
         return 0;
     }

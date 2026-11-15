@@ -1167,7 +1167,7 @@ void JonesUiButtonLayout_Draw(const JonesUiButtonLayoutModel& model,
             const bool bHasIcon = assets.icons.find(anchor.controlId) != assets.icons.end()
                 && assets.icons.at(anchor.controlId) != 0;
             const char* pOverrideText = nullptr;
-            if ( sithControl_IsModernControlStyle() )
+            if ( sithControl_IsModernGamepadStyle() )
             {
                 if ( std::find(anchor.controls.begin(), anchor.controls.end(),
                         JONESCONFIG_JOYAXISKID_UP) != anchor.controls.end() )

@@ -46,30 +46,95 @@ int JonesControl_Startup(void)
     stdControl_EnableRumble(bRumble);
 
 #ifdef J3D_QOL_IMPROVEMENTS
-    // Added: the Modern control style is the Enhanced default. A missing key is written with its
-    // default, and an unknown value falls back to Modern.
-    char aControlStyle[16] = { 0 };
-    stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aControlStyle,
-        sizeof(aControlStyle), "modern");
+    // Added: the styles are per device: the keyboard and mouse default to Classic and the gamepad
+    // to Modern. The old single key is only read, for migration: "classic" sets both Classic,
+    // "modern" or a missing key gives the defaults. The new keys win when they are present. A new
+    // install writes both; an existing config that only has the old key is not rewritten until the
+    // player changes a style in Options (which writes that key).
+    bool bKeyboardModern = false;
+    bool bGamepadModern  = true;
+    const bool bHasOldStyle = stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE);
 
-    bool bModern = true;
-    if ( streq(aControlStyle, "classic") )
+    if ( bHasOldStyle )
     {
-        bModern = false;
-    }
-    else if ( !streq(aControlStyle, "modern") )
-    {
-        SITHLOG_STATUS("Unknown control style \"%s\"; using modern.\n", aControlStyle);
+        char aOldStyle[16] = { 0 };
+        stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aOldStyle,
+            sizeof(aOldStyle), "modern");
+        if ( streq(aOldStyle, "classic") )
+        {
+            bKeyboardModern = false;
+            bGamepadModern  = false;
+        }
+        else if ( !streq(aOldStyle, "modern") )
+        {
+            SITHLOG_STATUS("Unknown control style \"%s\"; using the per-device defaults.\n",
+                aOldStyle);
+        }
     }
 
-    sithControl_SetModernControlStyle(bModern);
-    if ( !stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE) )
+    const bool bHasKeyboardStyle = stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE);
+    if ( bHasKeyboardStyle )
     {
-        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-            bModern ? "modern" : "classic");
+        char aStyle[16] = { 0 };
+        stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, aStyle,
+            sizeof(aStyle), "classic");
+        if ( streq(aStyle, "modern") )
+        {
+            bKeyboardModern = true;
+        }
+        else
+        {
+            bKeyboardModern = false;
+            if ( !streq(aStyle, "classic") )
+            {
+                SITHLOG_STATUS("Unknown keyboard control style \"%s\"; using classic.\n",
+                    aStyle);
+            }
+        }
+    }
+
+    const bool bHasGamepadStyle = stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE);
+    if ( bHasGamepadStyle )
+    {
+        char aStyle[16] = { 0 };
+        stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, aStyle,
+            sizeof(aStyle), "modern");
+        if ( streq(aStyle, "classic") )
+        {
+            bGamepadModern = false;
+        }
+        else
+        {
+            bGamepadModern = true;
+            if ( !streq(aStyle, "modern") )
+            {
+                SITHLOG_STATUS("Unknown gamepad control style \"%s\"; using modern.\n",
+                    aStyle);
+            }
+        }
+    }
+
+    sithControl_SetModernKeyboardStyle(bKeyboardModern);
+    sithControl_SetModernGamepadStyle(bGamepadModern);
+    sithControl_SetModernMovementEnabled(true);
+
+    // Added: write a missing new key only on a new install or after Options already wrote one.
+    const bool bWriteNewKeys = !bHasOldStyle || bHasKeyboardStyle || bHasGamepadStyle;
+    if ( !bHasKeyboardStyle && bWriteNewKeys )
+    {
+        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE,
+            bKeyboardModern ? "modern" : "classic");
+    }
+
+    if ( !bHasGamepadStyle && bWriteNewKeys )
+    {
+        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE,
+            bGamepadModern ? "modern" : "classic");
     }
 #else
-    // Retail always keeps the original tank controls and neither reads nor writes the key.
+    // Retail always keeps the original tank controls and neither reads nor writes the keys.
     sithControl_SetModernControlStyle(false);
 #endif
 

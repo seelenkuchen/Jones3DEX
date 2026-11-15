@@ -64,13 +64,15 @@ struct JonesUiControlsModel
     std::size_t selected = 0;
     bool bMouse = false;
     bool bRumble = false;
+    bool bKeyboardModern = false; // Added: keyboard and mouse style, 0 Modern/1 Classic on screen
+    bool bGamepadModern = false;  // Added: gamepad style, 0 Modern/1 Classic on screen
     std::vector<std::string> deleteFiles;
 };
 
 // The widget indices of one Controls layout. kNoWidget means the row is not
 // present. The standalone screen shows the bind list and the Edit and Reset
 // rows; the Options tab shows the Controller and Keyboard & Mouse entry rows
-// instead, and keeps the Mouse camera row.
+// instead, and keeps the Mouse camera row plus the two per-device style rows.
 struct JonesUiControlsLayout
 {
     std::size_t scheme = 0;
@@ -78,6 +80,8 @@ struct JonesUiControlsLayout
     std::size_t deleteScheme = 0;
     std::size_t list = babylon::ui::kNoWidget;
     std::size_t mouse = babylon::ui::kNoWidget;
+    std::size_t keyboardStyle = babylon::ui::kNoWidget;
+    std::size_t gamepadStyle = babylon::ui::kNoWidget;
     std::size_t rumble = 0;
     std::size_t edit = babylon::ui::kNoWidget;
     std::size_t reset = babylon::ui::kNoWidget;

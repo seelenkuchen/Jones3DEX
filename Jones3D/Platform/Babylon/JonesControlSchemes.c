@@ -2256,15 +2256,13 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
         ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
         : J3D_QOL_VALUE(true, false);
 
-    // Added: in Modern the scheme's step rows become quick-step modifiers, so the old held
-    // sidestep bindings never survive a rebind. The two rows share SITHCONTROL_QUICKSTEP, so it
-    // is unbound once here instead of before each row.
-    bool bModern = sithControl_IsModernControlStyle();
-    if ( bModern )
-    {
-        sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
-        sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
-    }
+    // Added: the styles are per device. A scheme's step rows become quick-step modifiers in the
+    // Enhanced keyboard styles and on a Modern gamepad, and stay held sidesteps on a Classic one, so
+    // both real step functions and the shared modifier are unbound once here; each control is then
+    // bound by its device's style.
+    const bool bGamepadModern = sithControl_IsModernGamepadStyle();
+    sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
+    sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
     sithControl_UnbindFunction(SITHCONTROL_QUICKSTEP);
 
     // Altered: enable/disable the mouse before the action loop, not after it. sithControl_RebindMouse
@@ -2425,14 +2423,13 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
             if ( functionId != (SithControlFunction)-1 )
             {
-                // Added: Modern turns both scheme step rows into quick-step modifiers. The
-                // physical controls keep their row, but a held direction now combines with the
-                // modifier instead of stepping on a held key. Classic keeps the original rows.
-                bool bQuickStep = bModern
-                    && (functionId == SITHCONTROL_STPLEFT || functionId == SITHCONTROL_STPRIGHT);
-                SithControlFunction bindFunction = bQuickStep ? SITHCONTROL_QUICKSTEP : functionId;
+                // Added: a step row changes meaning per device. A Classic keyboard keeps the held
+                // sidestep; a Modern keyboard turns the row into the quick-step modifier. The same
+                // split applies to the gamepad. Both functions were unbound above.
+                const bool bStepRow = functionId == SITHCONTROL_STPLEFT
+                    || functionId == SITHCONTROL_STPRIGHT;
 
-                if ( !bQuickStep )
+                if ( !bStepRow )
                 {
                     sithControl_UnbindFunction(functionId);
                     if ( functionId == SITHCONTROL_FORWARD )
@@ -2444,25 +2441,36 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                 for ( size_t i = 1; i <= JONESCONTROL_ACTION_GETNUMBINDS(pConfig->aActions[actionId]); ++i )
                 {
                     size_t controlId = pConfig->aActions[actionId][i];
+                    const bool bKeyboardControl = JonesControlSchemes_IsKeyboardControl(controlId)
+                        || JonesControlSchemes_IsMouseButton(controlId);
 
-                    // Added: in Modern the left trigger locks a target; Run comes from the stick
-                    // magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind time.
-                    // Classic keeps the same scheme data and LT stays Run.
-                    SithControlFunction bindFunctionId = bindFunction;
-                    if ( sithControl_IsModernControlStyle()
+                    SithControlFunction bindFunctionId = functionId;
+                    if ( bStepRow )
+                    {
+                        // Added: the keyboard keeps the pre-option quick-step rows in every
+                        // Enhanced style, so "Classic" is exactly today's keyboard behaviour. The
+                        // gamepad follows its own style. The owner reserves LB for a weapon wheel,
+                        // so in Modern a step-left gamepad control stays unbound; RB (the
+                        // step-right row) is the quick-step modifier.
+                        const bool bQuickStep = bKeyboardControl
+                            ? sithControl_IsModernMovementEnabled() : bGamepadModern;
+                        if ( bQuickStep && functionId == SITHCONTROL_STPLEFT
+                            && !bKeyboardControl )
+                        {
+                            continue;
+                        }
+
+                        bindFunctionId = bQuickStep ? SITHCONTROL_QUICKSTEP : functionId;
+                    }
+
+                    // Added: in Modern the gamepad left trigger locks a target; Run comes from the
+                    // stick magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind
+                    // time. Classic keeps the same scheme data and LT stays Run.
+                    if ( bGamepadModern
                         && bindFunctionId == SITHCONTROL_ACT1
                         && controlId == JONESCONFIG_JOYAXISKID_GROUND )
                     {
                         bindFunctionId = SITHCONTROL_TARGETLOCK;
-                    }
-
-                    // Added: the owner reserves LB for a weapon wheel, so in Modern a step-left row's
-                    // gamepad controls are not bound; RB (the step-right row) is the quick-step modifier.
-                    if ( bQuickStep && functionId == SITHCONTROL_STPLEFT
-                        && !JonesControlSchemes_IsKeyboardControl(controlId)
-                        && !JonesControlSchemes_IsMouseButton(controlId) )
-                    {
-                        continue;
                     }
 
                     if ( JonesControlSchemes_IsKeyboardControl(controlId) )

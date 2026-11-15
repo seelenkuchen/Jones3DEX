@@ -916,67 +916,128 @@ TEST(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys)
 }
 #endif
 
-TEST(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle)
+TEST(JonesControlSchemes, TestStartupWritesPerDeviceStyleDefaults)
 {
     TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
 
 #ifdef J3D_QOL_IMPROVEMENTS
-    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    // Added: a missing key gives the owner's defaults: keyboard and mouse Classic, gamepad Modern.
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
+
     char aStyle[16] = { 0 };
-    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE,
         aStyle, sizeof(aStyle), ""));
     TEST_ASSERT_EQUAL_STRING("modern", aStyle);
-#else
-    // Retail never reads or writes the key, so it stays absent and the style stays Classic.
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    // The old single key is no longer written.
     TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+#else
+    // Retail never reads or writes the keys, so they stay absent and both styles stay Classic.
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+    TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
 #endif
 }
 
-TEST(JonesControlSchemes, TestStartupReadsClassicControlStyle)
+TEST(JonesControlSchemes, TestStartupMigratesOldClassicStyleToBoth)
+{
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+    // Added: an existing old-style config is not rewritten by startup.
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
+#else
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupMigratesOldModernStyleToDefaults)
 {
 #ifdef J3D_QOL_IMPROVEMENTS
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        "classic"));
+        "modern"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
-
-    char aStyle[16] = { 0 };
-    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        aStyle, sizeof(aStyle), ""));
-    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
+    // Added: an existing old-style config is not rewritten by startup.
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
 #else
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        "classic"));
+        "modern"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
-
-    // Retail leaves the key as it found it.
-    char aStyle[16] = { 0 };
-    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        aStyle, sizeof(aStyle), ""));
-    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
 #endif
 }
 
-TEST(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern)
+TEST(JonesControlSchemes, TestStartupMapsUnknownControlStyleToDefaults)
 {
 #ifdef J3D_QOL_IMPROVEMENTS
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
         "turbo"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
 #else
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
         "turbo"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupNewKeysWinOverOldKey)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, "modern"));
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_TRUE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+#else
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, "modern"));
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, "modern"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
 #endif
 }
 
@@ -1310,9 +1371,11 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme);
     RUN_TEST_CASE(JonesControlSchemes, TestClassicBinderKeepsStepRows);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
-    RUN_TEST_CASE(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle);
-    RUN_TEST_CASE(JonesControlSchemes, TestStartupReadsClassicControlStyle);
-    RUN_TEST_CASE(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupWritesPerDeviceStyleDefaults);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMigratesOldClassicStyleToBoth);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMigratesOldModernStyleToDefaults);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMapsUnknownControlStyleToDefaults);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupNewKeysWinOverOldKey);
     RUN_TEST_CASE(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard);
     RUN_TEST_CASE(JonesControlSchemes, TestHeadlessStartupDoesNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuFallbackWhenSchemeBindsNothing);

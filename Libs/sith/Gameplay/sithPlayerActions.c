@@ -61,7 +61,7 @@ static const float sithPlayerActions_raftActivateSearchRadius = 0.07f;
 float J3DAPI sithPlayerActions_GetSidestepPlaybackSpeed(const SithThing* pThing)
 {
     if ( pThing == sithPlayer_g_pLocalPlayerThing
-        && sithControl_IsModernControlStyle()
+        && sithControl_IsModernMovementEnabled()
         && sithModernControls_IsLockActive() )
     {
         return SITHPLAYERACTIONS_LOCKED_SIDESTEP_SPEED;

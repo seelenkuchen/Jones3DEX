@@ -236,9 +236,6 @@ namespace
         screen.help[layout.rotateMap] = "Rotate the overhead map to follow the player's facing.";
         screen.help[layout.difficulty] = "Choose how hard combat and puzzles are.";
         screen.help[layout.defaultRun] = "Start running by default when the player moves.";
-        screen.help[layout.controlStyle] =
-            "Modern: the stick moves Indy relative to the camera and the right stick turns the "
-            "camera. Classic: the original tank controls.";
         screen.help[layout.reticle] = "Draw an aim reticle for the equipped weapon.";
         screen.help[layout.blood] = "Show blood splatter effects when enemies are hit.";
         screen.help[layout.profile] =
@@ -253,7 +250,7 @@ namespace
     }
 
     babylon::ui::Screen BuildControlsTab(const JonesUiControlsModel& model,
-        JonesUiControlsLayout& layout)
+        JonesUiControlsLayout& layout, bool bEnhancedProfile)
     {
         babylon::ui::Screen screen = JonesUiControls_BuildOptionsTabScreen(model, layout);
         layout.ok = screen.widgets.size();
@@ -264,6 +261,28 @@ namespace
         screen.backResult = kJonesOptionsOk;
         SetTabs(screen, kJonesOptionsControlsTab);
 
+        // Added: the per-device styles are Enhanced options. The row stays visible in Retail but
+        // cannot be changed, like the Profile and enhancement rows.
+        if ( !bEnhancedProfile )
+        {
+            if ( layout.keyboardStyle < screen.widgets.size() )
+            {
+                if ( babylon::ui::Choice* pChoice =
+                        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.keyboardStyle]) )
+                {
+                    pChoice->enabled = false;
+                }
+            }
+            if ( layout.gamepadStyle < screen.widgets.size() )
+            {
+                if ( babylon::ui::Choice* pChoice =
+                        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.gamepadStyle]) )
+                {
+                    pChoice->enabled = false;
+                }
+            }
+        }
+
         screen.help.assign(screen.widgets.size(), std::string());
         screen.help[layout.scheme] =
             "Choose the control scheme used for the keyboard and gamepad bindings.";
@@ -272,6 +291,18 @@ namespace
         screen.help[layout.controller] = "Change the gamepad button bindings.";
         screen.help[layout.keyboard] = "Change the keyboard and mouse bindings.";
         screen.help[layout.mouse] = "Turn the camera with the mouse.";
+        if ( layout.keyboardStyle < screen.help.size() )
+        {
+            screen.help[layout.keyboardStyle] =
+                "How Indy moves with the keyboard: Classic keeps the camera following Indy; "
+                "Modern lets you turn the camera with the mouse.";
+        }
+        if ( layout.gamepadStyle < screen.help.size() )
+        {
+            screen.help[layout.gamepadStyle] =
+                "How Indy moves with a gamepad: Classic keeps the camera following Indy; "
+                "Modern gives you a free camera on the right stick.";
+        }
         screen.help[layout.rumble] = "Turn gamepad vibration on or off.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
@@ -537,7 +568,7 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 break;
 
             case kJonesOptionsControlsTab:
-                screen = BuildControlsTab(controlsModel, controlsLayout);
+                screen = BuildControlsTab(controlsModel, controlsLayout, data.bEnhancedProfile);
                 break;
 
             case kJonesOptionsDisplayTab:
@@ -571,6 +602,12 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
     }
 
     JonesUiGameplay_Apply(gameplayValues, data.bEnhancedProfile);
+    if ( !data.bEnhancedProfile )
+    {
+        // Added: the per-device styles are Enhanced options; Retail keeps both Classic.
+        controlsModel.bKeyboardModern = false;
+        controlsModel.bGamepadModern  = false;
+    }
     if ( data.pControlsConfig )
     {
         static_cast<void>(JonesUiControls_Apply(controlsModel, *data.pControlsConfig));
@@ -611,7 +648,7 @@ babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
             }
             JonesUiControlsLayout local;
             JonesUiControlsLayout& layout = pControlsLayout ? *pControlsLayout : local;
-            babylon::ui::Screen screen = BuildControlsTab(model, layout);
+            babylon::ui::Screen screen = BuildControlsTab(model, layout, data.bEnhancedProfile);
             JonesUiControls_FreeModel(model);
             return screen;
         }
