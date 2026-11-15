@@ -96,7 +96,7 @@ namespace
     constexpr const char* kJonesControlsSchemeText     = "Scheme";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsNewText        = "New";               // TODO: [COMPAT]
     constexpr const char* kJonesControlsDeleteText     = "Delete";            // TODO: [COMPAT]
-    constexpr const char* kJonesControlsMouseText      = "Mouse";             // TODO: [COMPAT]
+    constexpr const char* kJonesControlsMouseText      = "Mouse camera";      // TODO: [COMPAT]
     constexpr const char* kJonesControlsRumbleText     = "Rumble";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsResetText      = "Reset to defaults"; // TODO: [COMPAT]
     constexpr const char* kJonesControlsNameText       = "Name";              // TODO: [COMPAT]
@@ -506,7 +506,10 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Button{
             ResolveLabel("JONES_STR_CANCEL", "Cancel"), kJonesDialogCancel, true });
 
-        screen.backResult   = kJonesDialogCancel;
+        // Altered: Back keeps the edits, as leaving the Options screen does. The explicit Cancel
+        // row stays for players who want to discard them and as the mouse path out of a built-in
+        // scheme's read-only view.
+        screen.backResult   = kJonesDialogOk;
         screen.initialFocus = kJonesEditList;
         return screen;
     }
@@ -714,42 +717,74 @@ namespace
         JonesControlsScheme& scheme, std::size_t schemeIndex)
     {
         const bool bEditable = schemeIndex >= JonesControlSchemes_GetNumDefaultSchemes();
-        const babylon::ui::Screen screen = BuildEditScreen(scheme, bEditable);
 
-        const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
-            babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
+        for ( ;; )
         {
-            const babylon::ui::ActionPressed* pAction =
-                std::get_if<babylon::ui::ActionPressed>(&event);
-            if ( !pAction || pAction->screen != screenId )
-            {
-                return false;
-            }
+            const babylon::ui::Screen screen = BuildEditScreen(scheme, bEditable);
 
-            if ( pAction->action == kJonesEditActionAccept )
+            const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
+                babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
             {
-                const std::size_t row = pAction->item > 0 ? (std::size_t)(pAction->item - 1)
-                    : kJonesEditList;
-                if ( row < JONESCONTROL_ACTION_NUMACTIONS )
+                const babylon::ui::ActionPressed* pAction =
+                    std::get_if<babylon::ui::ActionPressed>(&event);
+                if ( !pAction || pAction->screen != screenId )
                 {
-                    static_cast<void>(RunAssignScreen(uiRef, pPainter, scheme,
-                        (JonesControlActions)row, bEditable));
-                    RefreshEditList(uiRef, screenId, scheme);
+                    return false;
                 }
 
-                return true;
-            }
+                if ( pAction->action == kJonesEditActionAccept )
+                {
+                    const std::size_t row = pAction->item > 0 ? (std::size_t)(pAction->item - 1)
+                        : kJonesEditList;
+                    if ( row < JONESCONTROL_ACTION_NUMACTIONS )
+                    {
+                        static_cast<void>(RunAssignScreen(uiRef, pPainter, scheme,
+                            (JonesControlActions)row, bEditable));
+                        RefreshEditList(uiRef, screenId, scheme);
+                    }
 
-            if ( pAction->action != kJonesDialogOk )
+                    return true;
+                }
+
+                if ( pAction->action != kJonesDialogOk )
+                {
+                    return false;
+                }
+
+                if ( !bEditable )
+                {
+                    return true;
+                }
+
+                const std::string missing = MissingActions(scheme);
+                if ( !missing.empty() )
+                {
+                    std::string text = ResolveLabel("JONES_STR_NO_MAPNG",
+                        kJonesControlsNoMappingText);
+                    text += "\n";
+                    text += missing;
+                    ShowMessage(text);
+                    return true;
+                }
+
+                scheme.bModified = 1;
+                static_cast<void>(uiRef.pop(kJonesDialogOk));
+                return true;
+            };
+
+            const int result = JonesUiModal_RunHandled(ui, pPainter, screen, Identity, handler);
+            if ( result != kJonesDialogOk )
             {
-                return false;
+                return result;
             }
 
             if ( !bEditable )
             {
-                return true;
+                return kJonesDialogOk;
             }
 
+            // Back closes with the OK result and skips the handler; run its missing-binding check
+            // now. A failed check shows the message and opens the editor again.
             const std::string missing = MissingActions(scheme);
             if ( !missing.empty() )
             {
@@ -757,15 +792,12 @@ namespace
                 text += "\n";
                 text += missing;
                 ShowMessage(text);
-                return true;
+                continue;
             }
 
             scheme.bModified = 1;
-            static_cast<void>(uiRef.pop(kJonesDialogOk));
-            return true;
-        };
-
-        return JonesUiModal_RunHandled(ui, pPainter, screen, Identity, handler);
+            return kJonesDialogOk;
+        }
     }
 
     // Added: clears a TextEntry through a Label because setWidget keeps an unbound value of the
@@ -1061,7 +1093,11 @@ bool JonesUiControls_InitModel(JonesUiControlsModel& model, JonesControlsConfig&
 
     model.selected = InitialSelection(model.working);
     model.working.selectedShemeIdx = (int)model.selected;
-    model.bMouse   = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: the same Enhanced first-run default as JonesControl_Startup reads, so the row shows
+    // the value the game actually starts with. An existing value wins.
+    model.bMouse   = stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_MOUSE)
+        ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
+        : J3D_QOL_VALUE(true, false);
     model.bRumble  = stdControl_IsRumbleEnabled();
     return true;
 }
@@ -1096,6 +1132,10 @@ babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsM
 
     layout.list = screen.widgets.size();
     screen.widgets.emplace_back(BuildBindList(config, selected));
+
+    layout.mouse = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Toggle{
+        kJonesControlsMouseText, std::string(), true, model.bMouse });
 
     layout.rumble = screen.widgets.size();
     screen.widgets.emplace_back(babylon::ui::Toggle{

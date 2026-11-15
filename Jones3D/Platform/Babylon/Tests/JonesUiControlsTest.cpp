@@ -1021,6 +1021,8 @@ TEST_CASE("the mouse toggle writes its Jones.cfg key and the controller key is u
 
     // A stale controller key in the file must not be read or rewritten by the screen.
     REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, true));
+    // Pin the original off value so this case tests turning the mouse camera on.
+    REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false));
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
@@ -1036,6 +1038,29 @@ TEST_CASE("the mouse toggle writes its Jones.cfg key and the controller key is u
 
     CHECK(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false));
     CHECK(stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_CONTROLLER, false));
+}
+
+TEST_CASE("a missing mouse camera key follows the Enhanced default and an existing key wins")
+{
+    ControlsTestContext testContext;
+
+    JonesControlsConfig config;
+    REQUIRE(LoadConfig(config));
+
+    REQUIRE_FALSE(stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_MOUSE));
+
+    JonesUiControlsModel model;
+    REQUIRE(JonesUiControls_InitModel(model, config));
+    CHECK(model.bMouse == (J3D_QOL_VALUE(true, false) != 0));
+    JonesUiControls_FreeModel(model);
+
+    // An existing key, even the original off value, is never replaced by the new default.
+    REQUIRE(stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false));
+    REQUIRE(JonesUiControls_InitModel(model, config));
+    CHECK_FALSE(model.bMouse);
+    JonesUiControls_FreeModel(model);
+
+    jonesConfig_FreeControlConfigEntry(&config);
 }
 
 TEST_CASE("the rumble row switches the setting and the adapter at once")

@@ -55,8 +55,8 @@ struct JonesUiControlsModel
 };
 
 // The widget indices of one Controls layout. kNoWidget means the row is not
-// present. The standalone screen has a Mouse row; the Options tab has a bind
-// list instead.
+// present. Both the standalone screen and the Options tab show the Mouse
+// camera row; the Options tab adds the bind list.
 struct JonesUiControlsLayout
 {
     std::size_t scheme = 0;
@@ -79,7 +79,7 @@ bool JonesUiControls_InitModel(JonesUiControlsModel& model, JonesControlsConfig&
 void JonesUiControls_FreeModel(JonesUiControlsModel& model);
 
 // Builds the Options Controls tab: scheme, New, Delete, the bind list,
-// Rumble, Edit and Reset, without OK or Cancel.
+// Mouse camera, Rumble, Edit and Reset, without OK or Cancel.
 babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsModel& model,
     JonesUiControlsLayout& layout);
 

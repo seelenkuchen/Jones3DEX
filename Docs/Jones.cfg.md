@@ -172,8 +172,8 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `controls.configFile` | string | empty | Selected input preset name. Usually set by the control dialog. |
-| `controls.mouse` | bool | `false` | Enables mouse control. |
+| `controls.configFile` | string | default scheme | Selected input preset name. A new install is written with the default scheme of the active control style: `Modern keyboard and gamepad` in Modern, `Keyboard and gamepad` in Classic. A remembered value always wins. Usually changed by the Controls tab. |
+| `controls.mouse` | bool | `true` (Enhanced), `false` (Retail) | Mouse camera. A new Enhanced install is written with `true`; the Retail profile and non-QOL builds keep the original `false`. The Controls tab's **Mouse camera** row changes it. |
 | `engine.input.rumble` | bool | `true` | Gamepad rumble. Presentation only, on by default in both profiles; the Controls screen's Rumble row changes it. |
 | `engine.input.controlStyle` | string | `modern` | `modern` or `classic`. QOL builds only: modern is the Enhanced default, an unknown value falls back to modern, and the Gameplay tab's Control style row changes it. Modern gives camera-relative movement, mouse and right-stick free camera, quick-step, quick-select and target lock, and picks the "Modern keyboard and gamepad" default scheme for a new install; classic keeps the original tank controls and the "Keyboard and gamepad" default scheme. A remembered `controls.configFile` is never replaced. Non-QOL builds always use classic and neither read nor write the key. |
 | `gameplay.defaultRun` | bool | `false` | Makes running the default movement mode. |
@@ -199,8 +199,8 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `graphics.mipmapFilter` | int | `2` | Uses the `graphics.mipmapFilter` enum above. |
 | `graphics.display` | string | auto | Selected display adapter name. Usually engine-managed. |
 | `graphics.device` | string | auto | Selected 3D device name. Usually engine-managed. |
-| `graphics.width` | int | `640` | Requested render width. |
-| `graphics.height` | int | `480` | Requested render height. |
+| `graphics.width` | int | desktop width | Requested render width. A new windowed install is written with the current desktop mode's width, so the first run is fullscreen at the display's resolution; headless and Null runs keep `640`. An existing value always wins. |
+| `graphics.height` | int | desktop height | Requested render height. A new windowed install is written with the current desktop mode's height; headless and Null runs keep `480`. An existing value always wins. |
 | `graphics.bpp` | int | `32` | Requested color depth. |
 | `graphics.refreshRate` | int | `60` | Requested refresh rate. If the display doesn't offer that rate, the closest available rate at the configured size and bit depth is used. |
 | `graphics.performanceLevel` | int | `4` | Performance preset used by the display dialog. |

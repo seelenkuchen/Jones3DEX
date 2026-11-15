@@ -966,6 +966,8 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
         }
 
         REQUIRE(screen.help.size() == screen.widgets.size());
+        bool bHasApply = false;
+        bool bHasCancel = false;
         for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
         {
             if ( isInteractive(screen.widgets[i]) )
@@ -977,8 +979,38 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
             {
                 bHasPerformance = bHasPerformance || choice->text == "Performance";
             }
+            if ( const babylon::ui::Button* pButton =
+                    std::get_if<babylon::ui::Button>(&screen.widgets[i]) )
+            {
+                if ( pButton->action == 2 )
+                {
+                    bHasCancel = true;
+                }
+                if ( pButton->action == 1 )
+                {
+                    bHasApply = true;
+                    CHECK(pButton->text == "Apply");
+                }
+            }
+        }
+
+        // Leaving a tab keeps its changes, so the Cancel row is gone and the accept row is Apply.
+        CHECK(bHasApply);
+        CHECK_FALSE(bHasCancel);
+        CHECK(screen.backResult == 1);
+    }
+
+    // Added: the Controls tab has the mouse camera row, which the player could not see before.
+    const babylon::ui::Screen controlsTab = JonesUiOptions_BuildTabScreenForTest(1, data);
+    bool bHasMouseCamera = false;
+    for ( const babylon::ui::Widget& widget : controlsTab.widgets )
+    {
+        if ( const babylon::ui::Toggle* pToggle = std::get_if<babylon::ui::Toggle>(&widget) )
+        {
+            bHasMouseCamera = bHasMouseCamera || pToggle->text == "Mouse camera";
         }
     }
+    CHECK(bHasMouseCamera);
 
     // ADR-0028: the Display tab drops the row, while the stored level is still read and written.
     CHECK_FALSE(bHasPerformance);
@@ -1100,8 +1132,7 @@ TEST_CASE("Q and E switch options tabs and keep a changed value")
     testContext.platform.PushKey(platform::Key::E);     // Display
     testContext.platform.PushKey(platform::Key::Q);     // Controls
     testContext.platform.PushKey(platform::Key::Q);     // Gameplay
-    testContext.platform.PushKey(platform::Key::Up);    // wrap to Back
-    testContext.platform.PushKey(platform::Key::Up);    // OK
+    testContext.platform.PushKey(platform::Key::Up);    // wrap to Apply
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
@@ -1145,12 +1176,57 @@ TEST_CASE("the options Display tab still writes the stored performance level unc
     testContext.platform.PushKey(platform::Key::Enter); // windowed on
     testContext.platform.PushKey(platform::Key::Up);
     testContext.platform.PushKey(platform::Key::Up);
-    testContext.platform.PushKey(platform::Key::Up);    // wrap to Back
-    testContext.platform.PushKey(platform::Key::Up);    // OK
+    testContext.platform.PushKey(platform::Key::Up);    // wrap to Apply
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
     CHECK(display.bWindowMode == 1);
     CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, -1) == 4);
+}
+
+TEST_CASE("leaving the options screen with back applies the changes")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    sithVoice_ShowText(0);
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Toggle Show Text on the Gameplay tab, switch to Display and turn windowed on, then leave
+    // with Escape instead of the Apply row.
+    testContext.platform.PushKey(platform::Key::Enter); // show text on
+    testContext.platform.PushKey(platform::Key::E);     // Controls
+    testContext.platform.PushKey(platform::Key::E);     // Display
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // windowed on
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK(sithVoice_GetShowText() == 1);
+    CHECK(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
+    CHECK(display.bWindowMode == 1);
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
+    CHECK(ui.screenCount() == 0u);
 }

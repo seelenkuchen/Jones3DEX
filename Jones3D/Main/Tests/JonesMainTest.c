@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <Jones3D/Display/JonesConsole.h>
+#include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
@@ -57,6 +58,47 @@ static void JonesMainTest_BuildDisplayInfo(StdDisplayInfo* pDisplay, StdVideoMod
     STD_ZEROMEM(pDisplay, sizeof(StdDisplayInfo));
     pDisplay->numModes = numModes;
     pDisplay->aModes   = aModes;
+}
+
+TEST(JonesMain, TestFirstRunModeUsesTheDesktopForMissingKeys)
+{
+    StdVideoMode desktop;
+    JonesMainTest_BuildMode(&desktop, 1920, 1080, 32, 60);
+
+    int width  = 0;
+    int height = 0;
+    JonesDisplay_ResolveFirstRunMode(&desktop, 0, 0, 0, 0, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(1920, width);
+    TEST_ASSERT_EQUAL_INT(1080, height);
+}
+
+TEST(JonesMain, TestFirstRunModeKeepsAnExistingJonesCfgSize)
+{
+    StdVideoMode desktop;
+    JonesMainTest_BuildMode(&desktop, 1920, 1080, 32, 60);
+
+    int width  = 0;
+    int height = 0;
+    JonesDisplay_ResolveFirstRunMode(&desktop, 1, 1280, 1, 720, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(1280, width);
+    TEST_ASSERT_EQUAL_INT(720, height);
+
+    // Each key is independent: only a missing one takes the desktop's value.
+    JonesDisplay_ResolveFirstRunMode(&desktop, 1, 1280, 0, 0, &width, &height);
+    TEST_ASSERT_EQUAL_INT(1280, width);
+    TEST_ASSERT_EQUAL_INT(1080, height);
+}
+
+TEST(JonesMain, TestFirstRunModeWithoutADesktopKeeps640x480)
+{
+    int width  = 0;
+    int height = 0;
+    JonesDisplay_ResolveFirstRunMode(NULL, 0, 0, 0, 0, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(640, width);
+    TEST_ASSERT_EQUAL_INT(480, height);
 }
 
 TEST(JonesMain, TestExactMatchAtRequestedRateAfterOtherRate)
@@ -452,6 +494,9 @@ TEST(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime)
 
 TEST_GROUP_RUNNER(JonesMain)
 {
+    RUN_TEST_CASE(JonesMain, TestFirstRunModeUsesTheDesktopForMissingKeys);
+    RUN_TEST_CASE(JonesMain, TestFirstRunModeKeepsAnExistingJonesCfgSize);
+    RUN_TEST_CASE(JonesMain, TestFirstRunModeWithoutADesktopKeeps640x480);
     RUN_TEST_CASE(JonesMain, TestExactMatchAtRequestedRateAfterOtherRate);
     RUN_TEST_CASE(JonesMain, TestZeroRefreshRateCountsAsExact);
     RUN_TEST_CASE(JonesMain, TestReportedMissingRefreshRateBug);

@@ -23,7 +23,19 @@ void JonesControl_ResetGlobals(void)
 
 int JonesControl_Startup(void)
 {
-    int bMouseControl = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: the mouse camera is on by default in the Enhanced profile; the Retail profile keeps
+    // the original off default. An existing Jones.cfg value always wins, and a missing key is
+    // written with its default so the file carries it.
+    const bool bHasMouse = stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_MOUSE);
+    int bMouseControl = bHasMouse
+        ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
+        : J3D_QOL_VALUE(true, false);
+#ifdef J3D_QOL_IMPROVEMENTS
+    if ( !bHasMouse )
+    {
+        (void)stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, bMouseControl);
+    }
+#endif
     // Added: rumble is on unless the player turned it off; a missing key is written with its
     // default so the next save carries it (presentation only, ADR-0028).
     bool bRumble = stdConfig_GetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true);

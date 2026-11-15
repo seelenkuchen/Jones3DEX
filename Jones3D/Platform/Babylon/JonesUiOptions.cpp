@@ -80,6 +80,32 @@ namespace
         screen.activeTab = std::min(active, kJonesOptionsNumTabs - 1);
     }
 
+    // Added: the row that accepts the whole Options screen. It stays for mouse users, who cannot
+    // click the prompt bar's Back.
+    constexpr const char* kJonesOptionsApplyText = "Apply"; // TODO: [COMPAT]
+
+    // Altered: leaving a tab keeps its changes, as Back does in a modern game (ADR-0028). The
+    // standalone builder's accept row becomes Apply and its Cancel row goes; Back closes the tab
+    // with the OK result, so the caller applies the same way it does for the button.
+    void KeepChangesOnBack(babylon::ui::Screen& screen, std::size_t ok, std::size_t back)
+    {
+        if ( ok < screen.widgets.size() )
+        {
+            if ( babylon::ui::Button* pButton =
+                    std::get_if<babylon::ui::Button>(&screen.widgets[ok]) )
+            {
+                pButton->text = kJonesOptionsApplyText;
+            }
+        }
+
+        if ( back < screen.widgets.size() )
+        {
+            screen.widgets.erase(screen.widgets.begin() + (std::ptrdiff_t)back);
+        }
+
+        screen.backResult = kJonesOptionsOk;
+    }
+
     int Identity(babylon::ui::ResultCode code)
     {
         return (int)code;
@@ -113,12 +139,6 @@ namespace
 
         const float width = rowsWidth - markerInset;
         return width > 1.0f ? width : 1.0f;
-    }
-
-    std::string Label(const char* pKey, const char* pFallback)
-    {
-        const std::string text = JonesUiContext_ResolveString(pKey);
-        return text == pKey ? std::string(pFallback) : text;
     }
 
     std::size_t Utf8CodePointLength(unsigned char lead)
@@ -206,6 +226,8 @@ namespace
         babylon::ui::Screen screen = JonesUiGameplay_BuildScreen(bEnhancedProfile, values,
             layout);
         SetTabs(screen, kJonesOptionsGameplayTab);
+        KeepChangesOnBack(screen, layout.ok, layout.back);
+        layout.back = babylon::ui::kNoWidget;
 
         screen.help.assign(screen.widgets.size(), std::string());
         screen.help[layout.showText] = "Show spoken dialogue as text on screen.";
@@ -226,7 +248,6 @@ namespace
         screen.help[layout.externalKeyframes] =
             "Load animation keyframes from external CND files.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
-        screen.help[layout.back] = "Close Options without applying changes.";
         return screen;
     }
 
@@ -236,13 +257,10 @@ namespace
         babylon::ui::Screen screen = JonesUiControls_BuildOptionsTabScreen(model, layout);
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
-            Label("OK", "OK"), kJonesOptionsOk, true });
+            kJonesOptionsApplyText, kJonesOptionsOk, true });
+        layout.back = babylon::ui::kNoWidget;
 
-        layout.back = screen.widgets.size();
-        screen.widgets.emplace_back(babylon::ui::Button{
-            JonesUiContext_ResolveString("JONES_STR_CANCEL"), kJonesOptionsCancel, true });
-
-        screen.backResult = kJonesOptionsCancel;
+        screen.backResult = kJonesOptionsOk;
         SetTabs(screen, kJonesOptionsControlsTab);
 
         screen.help.assign(screen.widgets.size(), std::string());
@@ -252,11 +270,11 @@ namespace
         screen.help[layout.deleteScheme] = "Delete the selected custom control scheme.";
         screen.help[layout.list] =
             "Select an action to open the scheme editor and change its bindings.";
+        screen.help[layout.mouse] = "Turn the camera with the mouse.";
         screen.help[layout.rumble] = "Turn gamepad vibration on or off.";
         screen.help[layout.edit] = "Edit the bindings of the selected scheme.";
         screen.help[layout.reset] = "Reset the selected custom scheme to its default bindings.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
-        screen.help[layout.back] = "Close Options without applying changes.";
         return screen;
     }
 
@@ -267,6 +285,8 @@ namespace
         // written unchanged, so existing configs and savegames keep their level.
         babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, false);
         SetTabs(screen, kJonesOptionsDisplayTab);
+        KeepChangesOnBack(screen, layout.ok, layout.back);
+        layout.back = babylon::ui::kNoWidget;
 
         screen.help.assign(screen.widgets.size(), std::string());
         if ( layout.bitDepth )
@@ -286,7 +306,6 @@ namespace
         screen.help[layout.litFaces] =
             "Light world faces when the display reopens.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
-        screen.help[layout.back] = "Close Options without applying changes.";
         return screen;
     }
 
@@ -295,13 +314,14 @@ namespace
     {
         babylon::ui::Screen screen = JonesUiSound_BuildScreen(model, values, layout);
         SetTabs(screen, kJonesOptionsSoundTab);
+        KeepChangesOnBack(screen, layout.ok, layout.back);
+        layout.back = babylon::ui::kNoWidget;
 
         screen.help.assign(screen.widgets.size(), std::string());
         screen.help[layout.volume] = "Set the master sound volume.";
         screen.help[layout.reverse] = "Swap the left and right audio channels.";
         screen.help[layout.outputDevice] = "Choose the audio output device.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
-        screen.help[layout.back] = "Close Options without applying changes.";
         return screen;
     }
 
@@ -332,14 +352,10 @@ namespace
             kJonesOptionsRunSetup, !data.bLevelRunning });
 
         const std::size_t ok = screen.widgets.size();
-        screen.widgets.emplace_back(babylon::ui::Button{ Label("OK", "OK"), kJonesOptionsOk,
-            true });
+        screen.widgets.emplace_back(babylon::ui::Button{ kJonesOptionsApplyText,
+            kJonesOptionsOk, true });
 
-        const std::size_t back = screen.widgets.size();
-        screen.widgets.emplace_back(babylon::ui::Button{
-            JonesUiContext_ResolveString("JONES_STR_CANCEL"), kJonesOptionsCancel, true });
-
-        screen.backResult = kJonesOptionsCancel;
+        screen.backResult = kJonesOptionsOk;
         SetTabs(screen, kJonesOptionsGameDataTab);
 
         screen.help.assign(screen.widgets.size(), std::string());
@@ -347,7 +363,6 @@ namespace
             ? "Available from the main menu. Your settings and saves are kept."
             : "Choose a new copy of the game. Your settings and saves are kept.";
         screen.help[ok] = "Apply every change on all tabs and close Options.";
-        screen.help[back] = "Close Options without applying changes.";
         return screen;
     }
 
@@ -414,36 +429,54 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
     std::size_t active = kJonesOptionsGameplayTab;
     int result = kJonesOptionsCancel;
 
+    // Reads the active tab's row values while its screen is open. Called on every value change
+    // and before a tab or the whole screen closes, so Back applies the same values OK does.
+    const auto readActiveTab = [&](babylon::ui::Ui& uiRef, babylon::ui::ScreenId screenId)
+    {
+        switch ( active )
+        {
+            case kJonesOptionsGameplayTab:
+                JonesUiGameplay_ReadValues(uiRef, screenId, gameplayLayout, gameplayValues);
+                break;
+
+            case kJonesOptionsControlsTab:
+                JonesUiControls_ReadValues(uiRef, screenId, controlsLayout, controlsModel);
+                break;
+
+            case kJonesOptionsDisplayTab:
+                JonesUiDisplay_ReadValues(uiRef, screenId, displayLayout, displayValues);
+                break;
+
+            case kJonesOptionsSoundTab:
+                JonesUiSound_ReadValues(uiRef, screenId, soundLayout, soundValues);
+                break;
+
+            default:
+                break;
+        }
+    };
+
     const JonesUiModalEventHandler handler = [&](babylon::ui::Ui& uiRef,
         babylon::ui::ScreenId screenId, const babylon::ui::UiEvent& event) -> bool
     {
+        // Added: keep the active tab's model current, so Back (which closes the screen without an
+        // action event) still applies the values the player just changed.
+        if ( const babylon::ui::ValueChanged* pChanged =
+                std::get_if<babylon::ui::ValueChanged>(&event) )
+        {
+            if ( pChanged->screen == screenId )
+            {
+                readActiveTab(uiRef, screenId);
+            }
+            return false;
+        }
+
         const babylon::ui::TabChanged* pTab = std::get_if<babylon::ui::TabChanged>(&event);
         if ( pTab && pTab->screen == screenId )
         {
             // Keep the leaving tab's row values in its model; they are rebuilt when the player
             // returns, and applied only when the whole Options screen is accepted.
-            switch ( active )
-            {
-                case kJonesOptionsGameplayTab:
-                    JonesUiGameplay_ReadValues(uiRef, screenId, gameplayLayout,
-                        gameplayValues);
-                    break;
-
-                case kJonesOptionsControlsTab:
-                    JonesUiControls_ReadValues(uiRef, screenId, controlsLayout, controlsModel);
-                    break;
-
-                case kJonesOptionsDisplayTab:
-                    JonesUiDisplay_ReadValues(uiRef, screenId, displayLayout, displayValues);
-                    break;
-
-                case kJonesOptionsSoundTab:
-                    JonesUiSound_ReadValues(uiRef, screenId, soundLayout, soundValues);
-                    break;
-
-                default:
-                    break;
-            }
+            readActiveTab(uiRef, screenId);
 
             const std::size_t next = std::min(pTab->tab, kJonesOptionsNumTabs - 1);
             static_cast<void>(uiRef.pop(
@@ -475,28 +508,7 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
 
             // Read the accepting tab before the modal loop pops it. The other tabs were read
             // when the player left them.
-            switch ( active )
-            {
-                case kJonesOptionsGameplayTab:
-                    JonesUiGameplay_ReadValues(uiRef, screenId, gameplayLayout,
-                        gameplayValues);
-                    break;
-
-                case kJonesOptionsControlsTab:
-                    JonesUiControls_ReadValues(uiRef, screenId, controlsLayout, controlsModel);
-                    break;
-
-                case kJonesOptionsDisplayTab:
-                    JonesUiDisplay_ReadValues(uiRef, screenId, displayLayout, displayValues);
-                    break;
-
-                case kJonesOptionsSoundTab:
-                    JonesUiSound_ReadValues(uiRef, screenId, soundLayout, soundValues);
-                    break;
-
-                default:
-                    break;
-            }
+            readActiveTab(uiRef, screenId);
 
             // The default action handling pops the screen with the action id (1).
             return false;

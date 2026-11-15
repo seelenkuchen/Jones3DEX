@@ -252,6 +252,15 @@ namespace
                 {
                     stdDisplay_AddVideoMode((uint32_t)windowSize.width, (uint32_t)windowSize.height, *pFormat);
                 }
+
+                // Added: the display's desktop mode, so a first fullscreen run and the Display tab
+                // can pick the size the window actually covers.
+                const babylon::platform::Size desktopSize = pContext->pWindow->desktopSize();
+                if ( desktopSize.width > 0 && desktopSize.height > 0
+                    && (uint32_t)desktopSize.width <= maxSize && (uint32_t)desktopSize.height <= maxSize )
+                {
+                    stdDisplay_AddVideoMode((uint32_t)desktopSize.width, (uint32_t)desktopSize.height, *pFormat);
+                }
             }
         }
 
@@ -1049,6 +1058,30 @@ int J3DAPI stdDisplay_GetCurrentVideoMode(StdVideoMode* pDisplayMode)
     }
 
     std::memcpy(pDisplayMode, stdDisplay_state.pCurVideoMode, sizeof(StdVideoMode));
+    return 0;
+}
+
+int J3DAPI stdDisplay_GetDesktopMode(StdVideoMode* pDestMode)
+{
+    if ( !pDestMode )
+    {
+        return 1;
+    }
+
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    if ( !pContext || !pContext->pWindow )
+    {
+        return 1;
+    }
+
+    const babylon::platform::Size desktopSize = pContext->pWindow->desktopSize();
+    if ( desktopSize.width <= 0 || desktopSize.height <= 0 )
+    {
+        return 1;
+    }
+
+    stdDisplay_FillMode(pDestMode, (uint32_t)desktopSize.width, (uint32_t)desktopSize.height,
+        stdColor_cfRGB8888);
     return 0;
 }
 

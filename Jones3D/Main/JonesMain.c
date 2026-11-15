@@ -2813,9 +2813,33 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
         }
     }
 
+    // Added: a first start has no resolution keys. The desktop mode fills only the missing ones,
+    // so an existing Jones.cfg always wins; the headless/Null column keeps 640x480.
+    const int bHasWidth  = stdConfig_Contains(JONESDISPLAY_CFG_GRAPHICS_WIDTH);
+    const int bHasHeight = stdConfig_Contains(JONESDISPLAY_CFG_GRAPHICS_HEIGHT);
+    const int configWidth  = bHasWidth ? stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_WIDTH, 640) : 0;
+    const int configHeight = bHasHeight ? stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_HEIGHT, 480) : 0;
+
+    StdVideoMode desktopMode;
+    StdVideoMode* pDesktopMode = stdDisplay_GetDesktopMode(&desktopMode) == 0 ? &desktopMode : NULL;
+
+    int firstRunWidth  = 640;
+    int firstRunHeight = 480;
+    JonesDisplay_ResolveFirstRunMode(pDesktopMode, bHasWidth, configWidth, bHasHeight,
+        configHeight, &firstRunWidth, &firstRunHeight);
+
+    if ( !bHasWidth )
+    {
+        stdConfig_SetInt(JONESDISPLAY_CFG_GRAPHICS_WIDTH, firstRunWidth);
+    }
+    if ( !bHasHeight )
+    {
+        stdConfig_SetInt(JONESDISPLAY_CFG_GRAPHICS_HEIGHT, firstRunHeight);
+    }
+
     JonesMain_curVideoMode.aspectRatio                    = 1.0f;
-    JonesMain_curVideoMode.rasterInfo.width               = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_WIDTH, 640);
-    JonesMain_curVideoMode.rasterInfo.height              = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_HEIGHT, 480);
+    JonesMain_curVideoMode.rasterInfo.width               = (uint32_t)firstRunWidth;
+    JonesMain_curVideoMode.rasterInfo.height              = (uint32_t)firstRunHeight;
     JonesMain_curVideoMode.rasterInfo.colorInfo.bpp       = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_BPP, 32);          // Altered: Changed 16 bpp to 32
     JonesMain_curVideoMode.refreshRate                    = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_REFRESHRATE, 60); // Added
     JonesMain_curVideoMode.rasterInfo.colorInfo.colorMode = STDCOLOR_RGB;

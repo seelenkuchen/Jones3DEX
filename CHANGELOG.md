@@ -15,6 +15,12 @@
   - **Options > Game data** shows the release and folder in use and runs the setup again without deleting
     folders by hand. A rerun copies into `GameData.new` and keeps the old data on Cancel or an error; the
     entry is disabled while a level is loaded, so it is a main-menu action.
+  - Leaving Options with Back, Esc or the gamepad's B now keeps the changes, like the **Apply** row. The
+    separate Cancel row is gone, and the nested control-scheme editor's Back also keeps its edits.
+  - The Controls tab shows a **Mouse camera** row. It is on by default for a new Enhanced install; the
+    Retail profile keeps the original off default.
+  - A new install starts fullscreen at the display's current desktop resolution instead of 640x480. Headless
+    runs keep 640x480, and an existing `Jones.cfg` size always wins.
   - In an AppImage, **Next to the game** installs beside the `.AppImage` file instead of into the temporary
     read-only mount, and the startup data search looks there too.
   - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on

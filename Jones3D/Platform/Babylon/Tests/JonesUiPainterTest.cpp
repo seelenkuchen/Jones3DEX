@@ -2084,9 +2084,10 @@ TEST_CASE("the Jones controls screen draws the action list")
     REQUIRE(JonesControlSchemes_SetDefaultScheme(&scheme, 0) == 1);
     std::snprintf(scheme.aName, sizeof(scheme.aName), "%s", "Sample scheme");
 
-    // The default ScriptedPlatform draws one frame and then closes with Escape.
+    // The default ScriptedPlatform draws one frame and then closes with Escape; Back keeps the
+    // scheme's edits, so the edit screen closes with its OK result.
     const int result = JonesUiControls_RunEditScreen(ui, &painter, scheme, 3);
-    CHECK(result == 2);
+    CHECK(result == 1);
 
     std::uint32_t width  = stdRenderBabylon_GetBackBufferWidth();
     std::uint32_t height = stdRenderBabylon_GetBackBufferHeight();

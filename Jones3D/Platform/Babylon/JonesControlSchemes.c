@@ -2250,7 +2250,11 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
         return;
     }
 
-    int bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: the same Enhanced first-run default as JonesControl_Startup reads. An existing
+    // Jones.cfg value wins, even the original off value.
+    int bMouse = stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_MOUSE)
+        ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
+        : J3D_QOL_VALUE(true, false);
 
     // Added: in Modern the scheme's step rows become quick-step modifiers, so the old held
     // sidestep bindings never survive a rebind. The two rows share SITHCONTROL_QUICKSTEP, so it
