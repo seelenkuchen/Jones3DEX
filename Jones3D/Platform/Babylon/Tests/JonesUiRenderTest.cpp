@@ -10,6 +10,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <utility>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -17,6 +20,11 @@
 
 #include <Jones3D/Platform/Babylon/JonesUiAssets.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
+#include <Jones3D/Platform/Babylon/JonesUiButtonLayout.h>
+
+#include <std/General/stdControl.h>
+
+#include <sith/Devices/sithControl.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
 #include <babylon/cvars/Registry.h>
@@ -347,4 +355,284 @@ TEST_CASE("The present overlay layers background, overlay and screen")
     }
 
     gpu->device->destroyTexture(target);
+}
+
+namespace
+{
+    // Writes a top-first RGBA image as a 24-bit bottom-up BMP, the format the reviewer opens.
+    bool WriteBmp(const char* pPath, const std::vector<std::byte>& pixels,
+        std::uint32_t width, std::uint32_t height)
+    {
+        const std::uint32_t rowBytes = width * 3u;
+        const std::uint32_t padding = (4u - rowBytes % 4u) % 4u;
+        const std::uint32_t imageBytes = (rowBytes + padding) * height;
+        const std::uint32_t fileBytes = 14u + 40u + imageBytes;
+
+        std::vector<std::uint8_t> header(fileBytes, 0u);
+        header[0] = 'B';
+        header[1] = 'M';
+        const auto put32 = [&header](std::size_t offset, std::uint32_t value)
+        {
+            header[offset + 0u] = (std::uint8_t)(value & 0xFFu);
+            header[offset + 1u] = (std::uint8_t)((value >> 8u) & 0xFFu);
+            header[offset + 2u] = (std::uint8_t)((value >> 16u) & 0xFFu);
+            header[offset + 3u] = (std::uint8_t)((value >> 24u) & 0xFFu);
+        };
+        put32(2u, fileBytes);
+        put32(10u, 54u);
+        put32(14u, 40u);
+        put32(18u, width);
+        put32(22u, height);
+        header[26u] = 1u;
+        header[28u] = 24u;
+        put32(34u, imageBytes);
+
+        for ( std::uint32_t y = 0; y < height; ++y )
+        {
+            const std::uint32_t sourceY = height - 1u - y;
+            std::size_t row = 54u + (std::size_t)y * (rowBytes + padding);
+            for ( std::uint32_t x = 0; x < width; ++x )
+            {
+                const std::size_t source = ((std::size_t)sourceY * width + x) * 4u;
+                header[row + 0u] = (std::uint8_t)pixels[source + 2u];
+                header[row + 1u] = (std::uint8_t)pixels[source + 1u];
+                header[row + 2u] = (std::uint8_t)pixels[source + 0u];
+                row += 3u;
+            }
+        }
+
+        std::ofstream file(pPath, std::ios::binary | std::ios::trunc);
+        if ( !file )
+        {
+            return false;
+        }
+        file.write(reinterpret_cast<const char*>(header.data()),
+            (std::streamsize)header.size());
+        return file.good();
+    }
+
+    void AddControllerSampleScheme(JonesControlsConfig& config, JonesControlsScheme& scheme)
+    {
+        std::memset(&scheme, 0, sizeof(scheme));
+        std::snprintf(scheme.aName, sizeof(scheme.aName), "%s", "Sample");
+        config.numSchemes = 1;
+        config.aSchemes = &scheme;
+        config.selectedShemeIdx = 0;
+
+        using babylon::platform::GamepadButton;
+        using babylon::platform::GamepadAxis;
+        const auto button = [](GamepadButton value)
+        {
+            std::size_t id = 0;
+            switch ( value )
+            {
+                case GamepadButton::South: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 0); break;
+                case GamepadButton::East: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 1); break;
+                case GamepadButton::West: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 2); break;
+                case GamepadButton::North: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 3); break;
+                case GamepadButton::LeftShoulder: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 4); break;
+                case GamepadButton::RightShoulder: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 5); break;
+                case GamepadButton::DpadUp: id = STDCONTROL_JOYSTICK_GETPOVUP(0, 0); break;
+                case GamepadButton::DpadDown: id = STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0); break;
+                case GamepadButton::DpadLeft: id = STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0); break;
+                case GamepadButton::DpadRight: id = STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0); break;
+                default: id = STDCONTROL_JOYSTICK_GETBUTTON(0, 0); break;
+            }
+            return id;
+        };
+
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_JUMP, button(GamepadButton::South));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_ROLL, button(GamepadButton::East));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_ACTIVATE, button(GamepadButton::West));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_TOGGLEWEAPON, button(GamepadButton::North));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_STEPLEFT, button(GamepadButton::LeftShoulder));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_STEPRIGHT, button(GamepadButton::RightShoulder));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_MAP, button(GamepadButton::DpadUp));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_HEALTH, button(GamepadButton::DpadDown));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_PREVWEAPON, button(GamepadButton::DpadLeft));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_NEXTWEAPON, button(GamepadButton::DpadRight));
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_WALKFORWARD, JONESCONFIG_JOYAXISKID_UP);
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_WALKBACK, JONESCONFIG_JOYAXISKID_DOWN);
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_TURNLEFT, JONESCONFIG_JOYAXISKID_LEFT);
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_TURNRIGHT, JONESCONFIG_JOYAXISKID_RIGHT);
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_LOOK, JONESCONTROLSCHEMES_JOYAXIS_RX_POS);
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_RUN, JONESCONFIG_JOYAXISKID_AIR);
+        JonesControlSchemes_AddBinding(&scheme, JONESCONTROL_ACTION_CRAWL, JONESCONFIG_JOYAXISKID_GROUND);
+
+        // Keyboard and mouse bindings so the Keyboard & Mouse sample has rows with text.
+        const std::pair<JonesControlActions, const char*> aKeys[] = {
+            { JONESCONTROL_ACTION_WALKFORWARD, "W" },
+            { JONESCONTROL_ACTION_WALKBACK, "S" },
+            { JONESCONTROL_ACTION_TURNLEFT, "A" },
+            { JONESCONTROL_ACTION_TURNRIGHT, "D" },
+            { JONESCONTROL_ACTION_JUMP, "SPACE" },
+            { JONESCONTROL_ACTION_ROLL, "C" },
+            { JONESCONTROL_ACTION_ACTIVATE, "E" },
+            { JONESCONTROL_ACTION_TOGGLEWEAPON, "Q" },
+            { JONESCONTROL_ACTION_STEPLEFT, "Z" },
+            { JONESCONTROL_ACTION_STEPRIGHT, "X" },
+            { JONESCONTROL_ACTION_MAP, "TAB" },
+            { JONESCONTROL_ACTION_HEALTH, "H" },
+            { JONESCONTROL_ACTION_ACTIVATE, "MOUSE1" },
+            { JONESCONTROL_ACTION_LOOK, "MOUSE2" },
+        };
+        for ( const auto& [action, pKey] : aKeys )
+        {
+            std::size_t id = 0;
+            if ( JonesControlSchemes_ParseControlName(pKey, &id) )
+            {
+                JonesControlSchemes_AddBinding(&scheme, action, id);
+            }
+        }
+        // Toggle light, interface, health and the other actions stay unbound for the sample.
+        (void)GamepadAxis::LeftX;
+    }
+
+    std::optional<JonesUiButtonLayoutAssets> LoadButtonLayoutAssets(
+        uirender::RenderPainter& painter, files::FileSystem& files,
+        JonesUiButtonLayoutDevice device)
+    {
+        JonesUiButtonLayoutAssets assets;
+        if ( device == JonesUiButtonLayoutDevice::KeyboardMouse )
+        {
+            assets.mouse = JonesUiAssets_LoadPng(painter, files,
+                "prompts/keyboard/Mouse_Simple_Key_Dark.png");
+            const std::pair<const char*, const char*> aKeys[] = {
+                { "W", "W_Key_Dark.png" }, { "S", "S_Key_Dark.png" },
+                { "A", "A_Key_Dark.png" }, { "D", "D_Key_Dark.png" },
+                { "SPACE", "Space_Key_Dark.png" }, { "C", "C_Key_Dark.png" },
+                { "E", "E_Key_Dark.png" }, { "Q", "Q_Key_Dark.png" },
+                { "Z", "Z_Key_Dark.png" }, { "X", "X_Key_Dark.png" },
+                { "TAB", "Tab_Key_Dark.png" }, { "H", "H_Key_Dark.png" },
+                { "MOUSE1", "Mouse_Left_Key_Dark.png" },
+                { "MOUSE2", "Mouse_Right_Key_Dark.png" },
+            };
+            for ( const auto& [pName, pFile] : aKeys )
+            {
+                std::size_t id = 0;
+                if ( JonesControlSchemes_ParseControlName(pName, &id) )
+                {
+                    assets.icons[id] = JonesUiAssets_LoadPng(painter, files,
+                        (std::string("prompts/keyboard/") + pFile).c_str());
+                }
+            }
+            return assets;
+        }
+
+        assets.diagram = JonesUiAssets_LoadPng(painter, files,
+            "prompts/xbox/XboxSeriesX_Diagram_Simple.png");
+        const std::size_t controls[] = {
+            STDCONTROL_JOYSTICK_GETBUTTON(0, 0), STDCONTROL_JOYSTICK_GETBUTTON(0, 1),
+            STDCONTROL_JOYSTICK_GETBUTTON(0, 2), STDCONTROL_JOYSTICK_GETBUTTON(0, 3),
+            STDCONTROL_JOYSTICK_GETBUTTON(0, 4), STDCONTROL_JOYSTICK_GETBUTTON(0, 5),
+            STDCONTROL_JOYSTICK_GETPOVUP(0, 0), STDCONTROL_JOYSTICK_GETPOVDOWN(0, 0),
+            STDCONTROL_JOYSTICK_GETPOVLEFT(0, 0), STDCONTROL_JOYSTICK_GETPOVRIGHT(0, 0),
+            JONESCONFIG_JOYAXISKID_UP, JONESCONFIG_JOYAXISKID_DOWN,
+            JONESCONFIG_JOYAXISKID_LEFT, JONESCONFIG_JOYAXISKID_RIGHT,
+            JONESCONFIG_JOYAXISKID_AIR, JONESCONFIG_JOYAXISKID_GROUND,
+            JONESCONTROLSCHEMES_JOYAXIS_RX_POS,
+        };
+        const char* const aFiles[] = {
+            "prompts/xbox/XboxSeriesX_A.png", "prompts/xbox/XboxSeriesX_B.png",
+            "prompts/xbox/XboxSeriesX_X.png", "prompts/xbox/XboxSeriesX_Y.png",
+            "prompts/xbox/XboxSeriesX_LB.png", "prompts/xbox/XboxSeriesX_RB.png",
+            "prompts/xbox/XboxSeriesX_Dpad_Up.png", "prompts/xbox/XboxSeriesX_Dpad_Down.png",
+            "prompts/xbox/XboxSeriesX_Dpad_Left.png", "prompts/xbox/XboxSeriesX_Dpad_Right.png",
+            "prompts/xbox/XboxSeriesX_Left_Stick.png", "prompts/xbox/XboxSeriesX_Left_Stick.png",
+            "prompts/xbox/XboxSeriesX_Left_Stick.png", "prompts/xbox/XboxSeriesX_Left_Stick.png",
+            "prompts/xbox/XboxSeriesX_LT.png", "prompts/xbox/XboxSeriesX_RT.png",
+            "prompts/xbox/XboxSeriesX_Right_Stick.png",
+        };
+        for ( std::size_t cur = 0; cur < std::size(controls); ++cur )
+        {
+            assets.icons[controls[cur]] = JonesUiAssets_LoadPng(painter, files, aFiles[cur]);
+        }
+        return assets;
+    }
+
+    bool RenderButtonLayoutSample(JonesUiButtonLayoutDevice device, const char* pPath)
+    {
+        std::optional<GpuCase> gpu = CreateGpuCase();
+        if ( !gpu )
+        {
+            SkipWithoutGpu();
+            return false;
+        }
+
+        uirender::RenderPainter painter(*gpu->device);
+        static_cast<void>(painter.setPixelScale(800.0f / 480.0f));
+
+        const ui::FontId titleFont = JonesUiAssets_LoadFont(painter, *gpu->files,
+            "fonts/Cinzel[wght].ttf", 22.0f);
+        const ui::FontId rowFont = JonesUiAssets_LoadFont(painter, *gpu->files,
+            "fonts/Jost[wght].ttf", 16.0f);
+        REQUIRE(titleFont != 0);
+        REQUIRE(rowFont != 0);
+
+        JonesControlsScheme scheme;
+        JonesControlsConfig config;
+        AddControllerSampleScheme(config, scheme);
+
+        JonesUiButtonLayoutModel model;
+        model.pConfig = &config;
+        model.schemeIndex = 0;
+        model.device = device;
+        model.focus = 2;
+        JonesUiButtonLayout_RefreshRows(model);
+
+        // English display names for the sample, since the test has no game string table.
+        const char* const aNames[] = {
+            "Walk Forward", "Walk Back", "Turn Left", "Turn Right", "Step Left",
+            "Step Right", "Crawl", "Run", "Roll", "Jump", "Look", "Activate",
+            "Toggle Weapon", "Previous Weapon", "Next Weapon", "Toggle Light", "Fists",
+            "Whip", "Mauser", "PPSh-41", "Pistol", "Simonov", "Tokarev", "Toz-34",
+            "Bazooka", "Machete", "Satchel", "Grenade", "Map", "Interface", "Health",
+            "Imp 1", "Imp 2", "Imp 3", "Imp 4", "Imp 5", "Chalk",
+        };
+        for ( std::size_t cur = 0; cur < model.rows.size() && cur < std::size(aNames); ++cur )
+        {
+            model.rows[cur].name = aNames[cur];
+        }
+
+        const std::optional<JonesUiButtonLayoutAssets> assets =
+            LoadButtonLayoutAssets(painter, *gpu->files, device);
+        REQUIRE(assets.has_value());
+
+        const ui::Skin skin = JonesUiSkin_Create(titleFont, rowFont, &painter, rowFont);
+
+        constexpr std::uint32_t kWidth = 1280u;
+        constexpr std::uint32_t kHeight = 800u;
+        const render::TextureHandle target = gpu->device->createTexture(render::TextureDesc{
+            kWidth, kHeight, 1, render::TextureFormat::Rgba8,
+            render::TextureUsage::ColorTarget });
+        REQUIRE_FALSE(target.isNull());
+
+        uirender::FrameTarget frameTarget;
+        frameTarget.texture = target;
+        frameTarget.format  = render::TextureFormat::Rgba8;
+        frameTarget.load    = render::LoadOp::Clear;
+        frameTarget.clear   = render::ClearColor{ 0.02f, 0.02f, 0.03f, 1.0f };
+
+        REQUIRE(painter.begin(kWidth, kHeight, frameTarget));
+        const ui::Size canvas{ 480.0f * (float)kWidth / (float)kHeight, 480.0f };
+        JonesUiButtonLayout_Draw(model, painter, canvas, skin, *assets);
+        REQUIRE(painter.end());
+
+        const std::vector<std::byte> pixels = gpu->device->readTexture(target, 0);
+        REQUIRE(pixels.size() == (std::size_t)kWidth * kHeight * 4u);
+        const bool bWritten = WriteBmp(pPath, pixels, kWidth, kHeight);
+        gpu->device->destroyTexture(target);
+        REQUIRE(bWritten);
+        MESSAGE("wrote ", pPath);
+        return true;
+    }
+}
+
+TEST_CASE("the Button Layout screens render offscreen samples")
+{
+    sithControl_SetModernControlStyle(true);
+    static_cast<void>(RenderButtonLayoutSample(JonesUiButtonLayoutDevice::Controller,
+        "../../../../ui-button-layout-controller.bmp"));
+    static_cast<void>(RenderButtonLayoutSample(JonesUiButtonLayoutDevice::KeyboardMouse,
+        "../../../../ui-button-layout-keyboard.bmp"));
 }

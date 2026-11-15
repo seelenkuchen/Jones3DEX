@@ -269,12 +269,10 @@ namespace
             "Choose the control scheme used for the keyboard and gamepad bindings.";
         screen.help[layout.newScheme] = "Create a new custom control scheme.";
         screen.help[layout.deleteScheme] = "Delete the selected custom control scheme.";
-        screen.help[layout.list] =
-            "Select an action to open the scheme editor and change its bindings.";
+        screen.help[layout.controller] = "Change the gamepad button bindings.";
+        screen.help[layout.keyboard] = "Change the keyboard and mouse bindings.";
         screen.help[layout.mouse] = "Turn the camera with the mouse.";
         screen.help[layout.rumble] = "Turn gamepad vibration on or off.";
-        screen.help[layout.edit] = "Edit the bindings of the selected scheme.";
-        screen.help[layout.reset] = "Reset the selected custom scheme to its default bindings.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
@@ -502,6 +500,16 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 return true;
             }
 
+            // Added: the Controls tab's own rows (New, Delete, Controller, Keyboard & Mouse,
+            // Reset) open their nested screens through the shared handler. Without this the modal
+            // loop treats the action id as the screen's close result and Options closes at once.
+            if ( active == kJonesOptionsControlsTab
+                && JonesUiControls_HandleAction(uiRef, screenId, pAction->action, pPainter,
+                    controlsModel, controlsLayout) )
+            {
+                return true;
+            }
+
             if ( pAction->action != kJonesOptionsOk )
             {
                 return false;
@@ -582,7 +590,7 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
 
 #ifdef J3D_TEST
 babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
-    const JonesUiOptionsData& data)
+    const JonesUiOptionsData& data, JonesUiControlsLayout* pControlsLayout)
 {
     switch ( tab )
     {
@@ -601,7 +609,8 @@ babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
             {
                 static_cast<void>(JonesUiControls_InitModel(model, *data.pControlsConfig));
             }
-            JonesUiControlsLayout layout;
+            JonesUiControlsLayout local;
+            JonesUiControlsLayout& layout = pControlsLayout ? *pControlsLayout : local;
             babylon::ui::Screen screen = BuildControlsTab(model, layout);
             JonesUiControls_FreeModel(model);
             return screen;

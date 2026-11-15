@@ -23,6 +23,10 @@
     separate Cancel row is gone, and the nested control-scheme editor's Back also keeps its edits.
   - The Controls tab shows a **Mouse camera** row. It is on by default for a new Enhanced install; the
     Retail profile keeps the original off default.
+  - Options > Controls opens separate **Controller** and **Keyboard & Mouse** Button Layout screens: one
+    framed row per action with its input icon, a scrolling list and a pad diagram with action callouts.
+    Bind replaces that device's binding, Reset Binds restores its defaults after a question, and Back keeps
+    and applies the changes. This replaces the old one-list rebind editor (ADR-0036).
   - A new install starts fullscreen at the display's current desktop resolution instead of 640x480. Headless
     runs keep 640x480, and an existing `Jones.cfg` size always wins.
   - In an AppImage, **Next to the game** installs beside the `.AppImage` file instead of into the temporary
