@@ -62,10 +62,15 @@ class JonesSetupWizard
 public:
     JonesSetupWizard(babylon::platform::Platform& platform,
         babylon::process::Process& process, const JonesInstallHost& host,
-        std::string userDir, std::string exeDir);
+        std::string userDir, std::string exeDir, bool bRerun = false,
+        std::string toolDir = std::string());
 
     // Starts on the welcome screen and collects the sources the finder can see.
     void Start();
+
+    // True when the wizard replaces an existing install: the Location screen is skipped, the copy
+    // goes to <user dir>/GameData.new and is swapped into GameData when it completes.
+    bool Rerun() const;
 
     JonesSetupStep Step() const;
     const std::vector<JonesSetupRow>& Rows() const;
@@ -117,6 +122,10 @@ public:
     // True once a disc 2 row selected a source and the copy has not started yet.
     bool TakeDisc2Run();
 
+    // True once a rerun source was chosen and the copy has not started yet. The window uses it to
+    // begin the install without showing the Location screen.
+    bool TakeRerunRun();
+
     void BeginInstall();
     void RunInstall();
     void StartInstall();
@@ -142,6 +151,12 @@ public:
 #endif
 
 private:
+    // The folder the install copies into: TargetDataDir() for a first install, or its ".new"
+    // neighbour for a rerun, which only replaces the live folder after a successful copy.
+    std::string TargetInstallDir() const;
+    void RemoveRerunTarget();
+    bool FinalizeRerunTarget(std::string& outError);
+
     void RefreshSources();
     void BuildDisc2Rows();
     bool SelectSource(const JonesInstallSource& source);
@@ -168,12 +183,14 @@ private:
     JonesInstallHost m_host;
     std::string m_userDir;
     std::string m_exeDir;
+    std::string m_toolDir;
     std::string m_innoextractPath;
 
     JonesSetupStep m_step = JonesSetupStep::Welcome;
     std::vector<JonesSetupRow> m_rows;
     JonesInstallSource m_source = {};
     bool m_bHasSource = false;
+    bool m_bRerun = false;
     bool m_bNextToGame = false;
     bool m_bLicenceShown = false;
     bool m_bCopySaves = true;
@@ -186,6 +203,7 @@ private:
     bool m_bCancel = false;
     std::function<void()> m_pump;
     bool m_bDisc2Ready = false;
+    bool m_bRerunReady = false;
     double m_phaseLow = 0.0;
     double m_phaseHigh = 1.0;
 

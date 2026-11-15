@@ -12,6 +12,11 @@
   - The wizard installs into `<user dir>/GameData` by default, or `<executable folder>/GameData` for **Next
     to the game**, which needs a writable program folder. A complete `GameData` beside the executable also
     makes that folder the user directory. The old saved games can be copied during setup.
+  - **Options > Game data** shows the release and folder in use and runs the setup again without deleting
+    folders by hand. A rerun copies into `GameData.new` and keeps the old data on Cancel or an error; the
+    entry is disabled while a level is loaded, so it is a main-menu action.
+  - In an AppImage, **Next to the game** installs beside the `.AppImage` file instead of into the temporary
+    read-only mount, and the startup data search looks there too.
   - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on
     Linux, `%APPDATA%\Jones3DEX\` on Windows), so it runs from a read-only or shared install. An existing
     `Jones.cfg` and existing savegames are copied there when they are missing, and the old files are kept.

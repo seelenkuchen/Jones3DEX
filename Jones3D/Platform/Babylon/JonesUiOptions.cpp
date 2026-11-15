@@ -10,6 +10,7 @@
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
+#include <Jones3D/Platform/Babylon/JonesBabylon.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
@@ -41,16 +42,18 @@ namespace
 {
     constexpr int kJonesOptionsOk     = 1;
     constexpr int kJonesOptionsCancel = 2;
+    constexpr babylon::ui::ActionId kJonesOptionsRunSetup = 3;
 
     // A tab switch closes the current tab's screen with one of these results; the outer loop
     // builds that tab next. They stay clear of the dialog results 1 and 2.
     constexpr babylon::ui::ResultCode kJonesOptionsTabResultBase = 100;
-    constexpr std::size_t kJonesOptionsNumTabs = 4;
+    constexpr std::size_t kJonesOptionsNumTabs = 5;
 
     constexpr std::size_t kJonesOptionsGameplayTab = 0;
     constexpr std::size_t kJonesOptionsControlsTab = 1;
     constexpr std::size_t kJonesOptionsDisplayTab  = 2;
     constexpr std::size_t kJonesOptionsSoundTab    = 3;
+    constexpr std::size_t kJonesOptionsGameDataTab = 4;
 
     // Added: the tab titles and the screen title. The original game has no key for plain tab
     // names, so the English text is used until one exists.
@@ -60,12 +63,14 @@ namespace
     constexpr const char* kJonesOptionsControlsText = "Controls"; // TODO: [COMPAT]
     constexpr const char* kJonesOptionsDisplayText  = "Display";  // TODO: [COMPAT]
     constexpr const char* kJonesOptionsSoundText    = "Sound";    // TODO: [COMPAT]
+    constexpr const char* kJonesOptionsGameDataText = "Game data"; // TODO: [COMPAT]
 
     const char* const kJonesOptionsTabNames[kJonesOptionsNumTabs] = {
         kJonesOptionsGameplayText,
         kJonesOptionsControlsText,
         kJonesOptionsDisplayText,
         kJonesOptionsSoundText,
+        kJonesOptionsGameDataText,
     };
 
     void SetTabs(babylon::ui::Screen& screen, std::size_t active)
@@ -80,10 +85,119 @@ namespace
         return (int)code;
     }
 
+    // The width the tabbed screen gives a row's text, matching Ui's Top-panel layout: the help
+    // column and the focus marker are removed, not only the canvas margin and panel padding.
+    float OptionsTextWidth(const babylon::ui::Ui& ui, const babylon::ui::Painter* pPainter)
+    {
+        const babylon::ui::Skin& skin = ui.skin();
+        const float canvasWidth = ui.canvasSize().width;
+        const float available = std::max(0.0f, canvasWidth - 2.0f * skin.canvasMargin);
+        const float panelWidth = skin.fixedPanelWidth > 0.0f
+            ? std::min(canvasWidth * skin.fixedPanelWidth, available) : available;
+        const float innerWidth = std::max(0.0f, panelWidth - 2.0f * skin.panelPadding);
+
+        float rowsWidth = innerWidth;
+        const float helpRatio = std::min(skin.helpColumnWidth, 0.9f);
+        if ( helpRatio > 0.0f )
+        {
+            const float helpWidth = std::max(0.0f, innerWidth * helpRatio - 4.0f);
+            rowsWidth = std::max(0.0f, innerWidth - helpWidth - 8.0f);
+        }
+
+        float markerInset = 0.0f;
+        if ( pPainter && !skin.focusMarker.empty() )
+        {
+            markerInset = pPainter->measureText(skin.textFont, skin.focusMarker).width
+                + skin.markerSpacing;
+        }
+
+        const float width = rowsWidth - markerInset;
+        return width > 1.0f ? width : 1.0f;
+    }
+
     std::string Label(const char* pKey, const char* pFallback)
     {
         const std::string text = JonesUiContext_ResolveString(pKey);
         return text == pKey ? std::string(pFallback) : text;
+    }
+
+    std::size_t Utf8CodePointLength(unsigned char lead)
+    {
+        if ( (lead >> 5) == 0x6 )
+        {
+            return 2;
+        }
+        if ( (lead >> 4) == 0xE )
+        {
+            return 3;
+        }
+        if ( (lead >> 3) == 0x1E )
+        {
+            return 4;
+        }
+        return 1;
+    }
+
+    // Elides the middle of a long path, keeping its start and its last component. The pieces are
+    // measured so the result fits maxWidth; without a painter or a width the text is unchanged.
+    std::string ElideMiddle(babylon::ui::Painter* pPainter, babylon::ui::FontId font,
+        const std::string& text, float maxWidth)
+    {
+        if ( !pPainter || text.empty() || maxWidth <= 0.0f
+            || pPainter->measureText(font, text).width <= maxWidth )
+        {
+            return text;
+        }
+
+        const std::string ellipsis = "...";
+        const float ellipsisWidth = pPainter->measureText(font, ellipsis).width;
+        const std::size_t separator = text.find_last_of("/\\");
+        const std::string suffix = separator == std::string::npos
+            ? text : text.substr(separator + 1);
+
+        if ( !suffix.empty()
+            && pPainter->measureText(font, ellipsis + suffix).width <= maxWidth )
+        {
+            const float prefixBudget = maxWidth - ellipsisWidth
+                - pPainter->measureText(font, suffix).width;
+            std::string prefix;
+            std::size_t cur = 0;
+            while ( cur < text.size()
+                && (separator == std::string::npos || cur < separator) )
+            {
+                const std::size_t length = Utf8CodePointLength(
+                    static_cast<unsigned char>(text[cur]));
+                const std::size_t next = std::min(text.size(), cur + length);
+                const std::string candidate = text.substr(0, next);
+                if ( pPainter->measureText(font, candidate).width > prefixBudget )
+                {
+                    break;
+                }
+
+                prefix = candidate;
+                cur = next;
+            }
+
+            return prefix + ellipsis + suffix;
+        }
+
+        std::vector<std::size_t> starts;
+        for ( std::size_t cur = 0; cur < text.size(); )
+        {
+            starts.push_back(cur);
+            cur += Utf8CodePointLength(static_cast<unsigned char>(text[cur]));
+        }
+
+        for ( std::size_t index = 1; index <= starts.size(); ++index )
+        {
+            const std::string candidate = ellipsis + text.substr(starts[index - 1]);
+            if ( pPainter->measureText(font, candidate).width <= maxWidth )
+            {
+                return candidate;
+            }
+        }
+
+        return ellipsis;
     }
 
     babylon::ui::Screen BuildGameplayTab(bool bEnhancedProfile,
@@ -190,6 +304,68 @@ namespace
         screen.help[layout.back] = "Close Options without applying changes.";
         return screen;
     }
+
+    babylon::ui::Screen BuildGameDataTab(const JonesUiOptionsData& data,
+        babylon::ui::Painter* pPainter, babylon::ui::FontId font, float rowTextWidth)
+    {
+        babylon::ui::Screen screen;
+
+        const char* pRelease = data.pRelease && data.pRelease[0] ? data.pRelease : "Unknown";
+        const char* pFolder = data.pInstallPath && data.pInstallPath[0]
+            ? data.pInstallPath : "Unknown";
+
+        // A Label draws its value right-aligned in the same row as the label, so the path may only
+        // use the space left after "Folder" and the column gap.
+        float folderWidth = rowTextWidth;
+        if ( pPainter )
+        {
+            const float labelWidth = pPainter->measureText(font, "Folder").width;
+            folderWidth = std::max(1.0f, rowTextWidth - labelWidth - 8.0f);
+        }
+
+        screen.widgets.emplace_back(babylon::ui::Label{ "Release", pRelease });
+        screen.widgets.emplace_back(babylon::ui::Label{ "Folder",
+            ElideMiddle(pPainter, font, pFolder, folderWidth) });
+
+        const std::size_t runSetup = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Button{ "Run setup again...",
+            kJonesOptionsRunSetup, !data.bLevelRunning });
+
+        const std::size_t ok = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Button{ Label("OK", "OK"), kJonesOptionsOk,
+            true });
+
+        const std::size_t back = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Button{
+            JonesUiContext_ResolveString("JONES_STR_CANCEL"), kJonesOptionsCancel, true });
+
+        screen.backResult = kJonesOptionsCancel;
+        SetTabs(screen, kJonesOptionsGameDataTab);
+
+        screen.help.assign(screen.widgets.size(), std::string());
+        screen.help[runSetup] = data.bLevelRunning
+            ? "Available from the main menu. Your settings and saves are kept."
+            : "Choose a new copy of the game. Your settings and saves are kept.";
+        screen.help[ok] = "Apply every change on all tabs and close Options.";
+        screen.help[back] = "Close Options without applying changes.";
+        return screen;
+    }
+
+    bool ConfirmRunSetup(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
+        const JonesUiModalBackground& background)
+    {
+        babylon::ui::Screen screen;
+        screen.title = "Run setup again?";
+        screen.widgets.emplace_back(babylon::ui::Label{
+            "Jones3D EX closes the game and opens the setup.", std::string() });
+        screen.widgets.emplace_back(babylon::ui::Label{
+            "Your settings and saves are kept.", std::string() });
+        screen.widgets.emplace_back(babylon::ui::Button{ "Open setup", 1, true });
+        screen.widgets.emplace_back(babylon::ui::Button{ "Cancel", 2, true });
+        screen.backResult = 2;
+        screen.initialFocus = 0;
+        return JonesUiModal_Run(ui, pPainter, screen, Identity, background) == 1;
+    }
 }
 
 int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
@@ -261,8 +437,11 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                     JonesUiDisplay_ReadValues(uiRef, screenId, displayLayout, displayValues);
                     break;
 
-                default:
+                case kJonesOptionsSoundTab:
                     JonesUiSound_ReadValues(uiRef, screenId, soundLayout, soundValues);
+                    break;
+
+                default:
                     break;
             }
 
@@ -275,7 +454,21 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
         if ( const babylon::ui::ActionPressed* pAction =
                 std::get_if<babylon::ui::ActionPressed>(&event) )
         {
-            if ( pAction->screen != screenId || pAction->action != kJonesOptionsOk )
+            if ( pAction->screen != screenId )
+            {
+                return false;
+            }
+
+            if ( pAction->action == kJonesOptionsRunSetup )
+            {
+                if ( !data.bLevelRunning && ConfirmRunSetup(uiRef, pPainter, background) )
+                {
+                    JonesBabylon_RequestSetup();
+                }
+                return true;
+            }
+
+            if ( pAction->action != kJonesOptionsOk )
             {
                 return false;
             }
@@ -297,8 +490,11 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                     JonesUiDisplay_ReadValues(uiRef, screenId, displayLayout, displayValues);
                     break;
 
-                default:
+                case kJonesOptionsSoundTab:
                     JonesUiSound_ReadValues(uiRef, screenId, soundLayout, soundValues);
+                    break;
+
+                default:
                     break;
             }
 
@@ -327,8 +523,13 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 screen = BuildDisplayTab(displayModel, displayValues, displayLayout);
                 break;
 
-            default:
+            case kJonesOptionsSoundTab:
                 screen = BuildSoundTab(soundModel, soundValues, soundLayout);
+                break;
+
+            default:
+                screen = BuildGameDataTab(data, pPainter,
+                    pPainter ? ui.skin().textFont : 0, OptionsTextWidth(ui, pPainter));
                 break;
         }
 
@@ -405,7 +606,7 @@ babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
             return BuildDisplayTab(model, values, layout);
         }
 
-        default:
+        case kJonesOptionsSoundTab:
         {
             JonesSoundSettings fallback{};
             fallback.maxSoundVolume = 1.0f;
@@ -415,6 +616,9 @@ babylon::ui::Screen JonesUiOptions_BuildTabScreenForTest(std::size_t tab,
             JonesUiSoundLayout layout;
             return BuildSoundTab(model, values, layout);
         }
+
+        default:
+            return BuildGameDataTab(data, nullptr, 0, 0.0f);
     }
 }
 #endif
@@ -476,7 +680,7 @@ namespace
     }
 }
 
-int JonesUiOptions_Show(const JonesUiModalBackground* pBackground)
+int JonesUiOptions_Show(const JonesUiModalBackground* pBackground, bool bLevelRunning)
 {
     StdBabylonContext* pContext = stdBabylon_GetContext();
     if ( !pContext || !pContext->pWindow || !pContext->pFileSystem )
@@ -541,6 +745,9 @@ int JonesUiOptions_Show(const JonesUiModalBackground* pBackground)
     data.pDisplaySettings = pDisplaySettings;
     data.pSoundSettings   = &soundSettings;
     data.pControlsConfig  = bControlsLoaded ? &controlsConfig : nullptr;
+    data.pRelease         = JonesMain_GetDataRelease();
+    data.pInstallPath     = JonesMain_GetInstallPath();
+    data.bLevelRunning    = bLevelRunning;
 
     // A nested Options screen keeps the session's background; temporarily replace it with the
     // darkened version and put it back for the menu after the loop.

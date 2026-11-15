@@ -33,6 +33,18 @@ namespace
 #endif
     }
 
+    std::string AppImageDir()
+    {
+        const std::string image = ReadEnvironment("APPIMAGE");
+        if ( image.empty() )
+        {
+            return {};
+        }
+
+        const std::filesystem::path parent = JonesUtf8Path_From(image).parent_path();
+        return parent.empty() ? std::string() : JonesUtf8Path_To(parent);
+    }
+
     std::string HomeDirectory()
     {
         const std::string userProfile = ReadEnvironment("USERPROFILE");
@@ -160,6 +172,11 @@ namespace
         *pOutFreeBytes = static_cast<int64_t>(space.available);
         return true;
     }
+}
+
+std::string JonesSetupHost_AppImageDir(void)
+{
+    return AppImageDir();
 }
 
 void JonesSetupHost_Init(JonesSetupHost& host)

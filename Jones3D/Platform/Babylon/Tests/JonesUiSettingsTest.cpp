@@ -387,6 +387,17 @@ extern "C" void JonesMain_RefreshDisplayDevice(void)
 {
 }
 
+// Added: the real getters live in Jones3D/Main/JonesMain.c, which this executable does not link.
+extern "C" const char* JonesMain_GetDataRelease(void)
+{
+    return nullptr;
+}
+
+extern "C" const char* JonesMain_GetInstallPath(void)
+{
+    return "";
+}
+
 TEST_CASE("the display resolution list is deduplicated by size")
 {
     StdDisplayEnvironment env;
@@ -941,12 +952,12 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
             || std::holds_alternative<babylon::ui::TextEntry>(widget);
     };
 
-    const char* const aTabs[] = { "Gameplay", "Controls", "Display", "Sound" };
+    const char* const aTabs[] = { "Gameplay", "Controls", "Display", "Sound", "Game data" };
     bool bHasPerformance = false;
-    for ( std::size_t tab = 0; tab < 4; ++tab )
+    for ( std::size_t tab = 0; tab < 5; ++tab )
     {
         const babylon::ui::Screen screen = JonesUiOptions_BuildTabScreenForTest(tab, data);
-        REQUIRE(screen.tabs.size() == 4u);
+        REQUIRE(screen.tabs.size() == 5u);
         CHECK(screen.activeTab == tab);
         CHECK(screen.title == "Options");
         for ( std::size_t i = 0; i < screen.tabs.size(); ++i )
@@ -993,6 +1004,66 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
         }
     }
     CHECK(bHasControlStyle);
+}
+
+TEST_CASE("the Game data tab shows the release and folder and disables setup during a level")
+{
+    JonesUiOptionsData data;
+    data.pRelease     = "GOG.com 1.0";
+    data.pInstallPath = "/home/player/Jones3DEX/GameData";
+
+    const babylon::ui::Screen screen = JonesUiOptions_BuildTabScreenForTest(4, data);
+    REQUIRE(screen.tabs.size() == 5u);
+    CHECK(screen.tabs[4] == "Game data");
+    CHECK(screen.activeTab == 4u);
+
+    bool bHasRelease = false;
+    bool bHasFolder = false;
+    bool bHasSetupButton = false;
+    for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
+    {
+        if ( const babylon::ui::Label* pLabel =
+                std::get_if<babylon::ui::Label>(&screen.widgets[i]) )
+        {
+            if ( pLabel->text == "Release" )
+            {
+                bHasRelease = true;
+                CHECK(pLabel->value == "GOG.com 1.0");
+            }
+            if ( pLabel->text == "Folder" )
+            {
+                bHasFolder = true;
+                CHECK(pLabel->value.find("GameData") != std::string::npos);
+            }
+        }
+
+        if ( const babylon::ui::Button* pButton =
+                std::get_if<babylon::ui::Button>(&screen.widgets[i]) )
+        {
+            if ( pButton->text == "Run setup again..." )
+            {
+                bHasSetupButton = true;
+                CHECK(pButton->enabled);
+                REQUIRE(screen.help.size() == screen.widgets.size());
+                CHECK_FALSE(screen.help[i].empty());
+            }
+        }
+    }
+
+    CHECK(bHasRelease);
+    CHECK(bHasFolder);
+    CHECK(bHasSetupButton);
+
+    data.bLevelRunning = true;
+    const babylon::ui::Screen paused = JonesUiOptions_BuildTabScreenForTest(4, data);
+    for ( const babylon::ui::Widget& widget : paused.widgets )
+    {
+        const babylon::ui::Button* pButton = std::get_if<babylon::ui::Button>(&widget);
+        if ( pButton && pButton->text == "Run setup again..." )
+        {
+            CHECK_FALSE(pButton->enabled);
+        }
+    }
 }
 
 TEST_CASE("Q and E switch options tabs and keep a changed value")

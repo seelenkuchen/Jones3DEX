@@ -339,6 +339,27 @@ TEST_CASE("the Babylon close message makes the next loop check report quit")
     CHECK(wkernel_PeekProcessEvents() == 0);
 }
 
+TEST_CASE("a setup request is recorded until the composition root clears it")
+{
+    StartModeTestContext testContext;
+    while ( stdBabylonEvents_TakeQuitRequest() )
+    {
+    }
+
+    CHECK_FALSE(JonesBabylon_IsSetupRequested());
+    JonesBabylon_RequestSetup();
+    CHECK(JonesBabylon_IsSetupRequested());
+
+    // The request ends the run through the same close a main-menu quit posts.
+    CHECK(wkernel_PeekProcessEvents() == 1);
+
+    JonesBabylon_ClearSetupRequested();
+    CHECK_FALSE(JonesBabylon_IsSetupRequested());
+    while ( stdBabylonEvents_TakeQuitRequest() )
+    {
+    }
+}
+
 TEST_CASE("a main-menu quit during startup exits cleanly")
 {
     StartModeTestContext testContext;

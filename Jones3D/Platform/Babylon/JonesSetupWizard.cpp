@@ -144,7 +144,13 @@ namespace
         std::string label = JonesInstall_SourceKindName(source.kind);
         label += " - ";
         label += source.aPath;
-        if ( !source.bComplete && source.kind != JONESINSTALL_SOURCE_DISC )
+
+        // Added: only an installed copy or a chosen folder can be incomplete. A disc is split over
+        // its two discs and a GOG installer still has to be unpacked, so neither is marked.
+        const bool bCanBeIncomplete = source.kind == JONESINSTALL_SOURCE_STEAM
+            || source.kind == JONESINSTALL_SOURCE_GOG_INSTALLED
+            || source.kind == JONESINSTALL_SOURCE_FOLDER;
+        if ( !source.bComplete && bCanBeIncomplete )
         {
             label += " (incomplete)";
         }
@@ -199,14 +205,18 @@ namespace
 
 JonesSetupWizard::JonesSetupWizard(babylon::platform::Platform& platform,
     babylon::process::Process& process, const JonesInstallHost& host,
-    std::string userDir, std::string exeDir)
+    std::string userDir, std::string exeDir, bool bRerun, std::string toolDir)
     : m_platform(platform)
     , m_process(process)
     , m_host(host)
     , m_userDir(StripTrailingSeparators(std::move(userDir)))
     , m_exeDir(StripTrailingSeparators(std::move(exeDir)))
+    , m_toolDir(toolDir.empty() ? m_exeDir : StripTrailingSeparators(std::move(toolDir)))
+    , m_bRerun(bRerun)
 {
-    m_innoextractPath = JonesGogInstaller_FindInnoextract(m_process, m_exeDir,
+    // Added: innoextract stays next to the real executable; the AppImage install folder can be
+    // elsewhere than the mounted usr/bin the program itself runs from.
+    m_innoextractPath = JonesGogInstaller_FindInnoextract(m_process, m_toolDir,
         m_host.platform == JONESINSTALL_PLATFORM_WINDOWS);
 }
 
@@ -214,7 +224,13 @@ void JonesSetupWizard::Start()
 {
     m_message.clear();
     m_step = JonesSetupStep::Welcome;
+    RemoveRerunTarget();
     RefreshSources();
+}
+
+bool JonesSetupWizard::Rerun() const
+{
+    return m_bRerun;
 }
 
 JonesSetupStep JonesSetupWizard::Step() const
@@ -266,12 +282,23 @@ const std::string& JonesSetupWizard::ExeDir() const
 
 std::string JonesSetupWizard::TargetBase() const
 {
+    if ( m_bRerun )
+    {
+        return m_userDir;
+    }
+
     return m_bNextToGame && !m_exeDir.empty() ? m_exeDir : m_userDir;
 }
 
 std::string JonesSetupWizard::TargetDataDir() const
 {
     return JoinPath(m_host.platform, TargetBase(), JONESDATALOCATE_GAMEDATA_DIR);
+}
+
+std::string JonesSetupWizard::TargetInstallDir() const
+{
+    return JoinPath(m_host.platform, TargetBase(), m_bRerun
+        ? JONESDATALOCATE_GAMEDATA_DIR ".new" : JONESDATALOCATE_GAMEDATA_DIR);
 }
 
 std::string JonesSetupWizard::SelectedUserDir() const
@@ -395,7 +422,15 @@ void JonesSetupWizard::AcceptLicence()
 {
     if ( m_step == JonesSetupStep::Licence )
     {
-        m_step = JonesSetupStep::Location;
+        if ( m_bRerun )
+        {
+            BeginInstall();
+            m_bRerunReady = true;
+        }
+        else
+        {
+            m_step = JonesSetupStep::Location;
+        }
     }
 }
 
@@ -630,6 +665,13 @@ bool JonesSetupWizard::TakeDisc2Run()
     return bReady;
 }
 
+bool JonesSetupWizard::TakeRerunRun()
+{
+    const bool bReady = m_bRerunReady;
+    m_bRerunReady = false;
+    return bReady;
+}
+
 void JonesSetupWizard::BeginInstall()
 {
     if ( !m_bHasSource )
@@ -640,6 +682,7 @@ void JonesSetupWizard::BeginInstall()
 
     m_bCancel = false;
     m_bDisc2Ready = false;
+    m_bRerunReady = false;
     m_progress = JonesSetupProgressState();
     m_progress.phase = m_source.kind == JONESINSTALL_SOURCE_GOG_INSTALLER
         ? "Unpacking the installer" : "Copying the game files";
@@ -773,7 +816,7 @@ bool JonesSetupWizard::SelectSource(const JonesInstallSource& source)
     {
         JonesInstallPlan plan = {};
         static_cast<void>(JonesInstall_BuildPlan(m_host.platform, source.aPath,
-            TargetDataDir().c_str(), false, &plan));
+            TargetInstallDir().c_str(), false, &plan));
 
         m_message = "This folder doesn't contain the game files.";
         if ( plan.aMissing[0] )
@@ -784,6 +827,10 @@ bool JonesSetupWizard::SelectSource(const JonesInstallSource& source)
         }
         return false;
     }
+
+    // A new source starts a new copy; a disc 2 continuation goes through PrepareDisc2Row instead
+    // and keeps the files the first disc already copied.
+    RemoveRerunTarget();
 
     m_source = source;
     m_bHasSource = true;
@@ -857,7 +904,15 @@ void JonesSetupWizard::EnterLicence(const JonesInstallSource& source)
         }
     }
 
-    m_step = JonesSetupStep::Location;
+    if ( m_bRerun )
+    {
+        BeginInstall();
+        m_bRerunReady = true;
+    }
+    else
+    {
+        m_step = JonesSetupStep::Location;
+    }
 }
 
 bool JonesSetupWizard::ReadDiscLicence(const std::string& sourceRoot, std::string& outText,
@@ -882,6 +937,17 @@ void JonesSetupWizard::FinishInstall()
     m_progress.phase = "Finished";
     m_progress.file.clear();
 
+    if ( m_bRerun )
+    {
+        std::string error;
+        if ( !FinalizeRerunTarget(error) )
+        {
+            SetErrorOutcome(error);
+            Pump();
+            return;
+        }
+    }
+
     // Added: check the target with the same cache file JonesMain_Startup uses, so the first game
     // start reuses these hashes instead of hashing every GOB again.
     char aResourceDir[JONESINSTALL_MAX_PATH] = { 0 };
@@ -898,14 +964,80 @@ void JonesSetupWizard::FinishInstall()
     Pump();
 }
 
+void JonesSetupWizard::RemoveRerunTarget()
+{
+    if ( !m_bRerun )
+    {
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(JonesUtf8Path_From(TargetInstallDir()), ec);
+}
+
+bool JonesSetupWizard::FinalizeRerunTarget(std::string& outError)
+{
+    outError.clear();
+
+    const std::string finalDir  = TargetDataDir();
+    const std::string newDir    = TargetInstallDir();
+    const std::string backupDir = finalDir + ".old";
+    const std::filesystem::path finalPath  = JonesUtf8Path_From(finalDir);
+    const std::filesystem::path newPath    = JonesUtf8Path_From(newDir);
+    const std::filesystem::path backupPath = JonesUtf8Path_From(backupDir);
+
+    std::error_code ec;
+    const bool bHadOldData = std::filesystem::exists(finalPath, ec) && !ec;
+    bool bHasBackup = false;
+    if ( bHadOldData )
+    {
+        // Added: move the live folder aside before the swap so a failed rename can put it back.
+        std::error_code removeEc;
+        std::filesystem::remove_all(backupPath, removeEc);
+
+        ec.clear();
+        std::filesystem::rename(finalPath, backupPath, ec);
+        if ( ec )
+        {
+            outError = "The old game data could not be moved aside.";
+            return false;
+        }
+        bHasBackup = true;
+    }
+
+    ec.clear();
+    std::filesystem::rename(newPath, finalPath, ec);
+    if ( ec )
+    {
+        if ( bHasBackup )
+        {
+            std::error_code restoreEc;
+            std::filesystem::rename(backupPath, finalPath, restoreEc);
+        }
+
+        outError = "The new game data could not be moved into place.";
+        return false;
+    }
+
+    if ( bHasBackup )
+    {
+        std::error_code removeEc;
+        std::filesystem::remove_all(backupPath, removeEc);
+    }
+
+    return true;
+}
+
 void JonesSetupWizard::SetCancelledOutcome()
 {
+    RemoveRerunTarget();
     m_message = "Setup was cancelled.";
     m_step = JonesSetupStep::Cancelled;
 }
 
 void JonesSetupWizard::SetErrorOutcome(const std::string& message)
 {
+    RemoveRerunTarget();
     m_message = message.empty() ? "Setup failed." : message;
     m_step = JonesSetupStep::Error;
 }
@@ -1053,7 +1185,7 @@ bool JonesSetupWizard::BuildPlan(const std::string& sourceRoot, bool bCopySaves,
 {
     plan = JonesInstallPlan();
     if ( JonesInstall_BuildPlan(m_host.platform, sourceRoot.c_str(),
-            TargetDataDir().c_str(), bCopySaves, &plan) )
+            TargetInstallDir().c_str(), bCopySaves, &plan) )
     {
         return true;
     }

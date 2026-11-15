@@ -2,6 +2,7 @@
 #include <Jones3D/Platform/Babylon/JonesSetupWindow.h>
 
 #include <Jones3D/Platform/Babylon/JonesSetupHost.h>
+#include <Jones3D/Platform/Babylon/JonesUtf8Path.h>
 #include <Jones3D/Platform/Babylon/JonesSetupWizard.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
@@ -26,13 +27,17 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/General/std.h>
+#include <std/General/stdConfig.h>
 #include <std/General/stdPlatform.h>
+
+#include <sith/Main/sithMain.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -67,6 +72,9 @@ namespace
         "Jones3D EX needs the game files of Indiana Jones and the Infernal Machine. "
         "This setup copies them from your copy of the game: an installed Steam or GOG "
         "version, a GOG installer file, or the two CDs.";
+
+    constexpr const char* kRerunWelcomeText =
+        "Choose a new copy of the game to install. Your settings and saves are kept.";
 
     constexpr float kWizardCanvasHeight = 480.0f;
 
@@ -328,13 +336,16 @@ namespace
         screen.backResult = kActionBack;
     }
 
-    Screen BuildWelcomeScreen(Painter& painter, const Skin& skin, float textWidth)
+    Screen BuildWelcomeScreen(const JonesSetupWizard& wizard, Painter& painter, const Skin& skin,
+        float textWidth)
     {
         Screen screen;
         screen.title = kWindowTitle;
-        AddWrappedLabels(screen, painter, skin.textFont, textWidth, kWelcomeText);
+        AddWrappedLabels(screen, painter, skin.textFont, textWidth,
+            wizard.Rerun() ? kRerunWelcomeText : kWelcomeText);
         screen.widgets.emplace_back(Button{ "Continue", kActionContinue, true });
-        screen.widgets.emplace_back(Button{ "Quit", kActionQuit, true });
+        screen.widgets.emplace_back(Button{ wizard.Rerun() ? "Back to the game" : "Quit",
+            kActionQuit, true });
         screen.backResult = kActionQuit;
         return screen;
     }
@@ -589,12 +600,70 @@ namespace
         static_cast<void>(platform.askChoice(kWindowTitle, text, buttons));
     }
 
+    bool SetupConfigFallbackHasStarted(void)
+    {
+        return true;
+    }
+
+    int SetupConfigFallbackGetInt(const char*, int defaultValue)
+    {
+        return defaultValue;
+    }
+
+    float SetupConfigFallbackGetFloat(const char*, float defaultValue)
+    {
+        return defaultValue;
+    }
+
+    int SetupConfigFallbackGetStr(const char*, char* pDstStr, size_t size,
+        const char* pDefaultValue)
+    {
+        if ( !pDstStr || size == 0 )
+        {
+            return 1;
+        }
+
+        const char* pValue = pDefaultValue ? pDefaultValue : "";
+        std::snprintf(pDstStr, size, "%s", pValue);
+        return 0;
+    }
+
+    // Added: a rerun installs <user dir>/GameData, but an old installPath in Jones.cfg would win
+    // the next data search. Clearing it lets the new GameData folder be found.
+    void ClearInstallPathAfterRerun(const std::string& userDir)
+    {
+        const bool bWasStarted = stdConfig_HasStarted();
+        if ( !bWasStarted )
+        {
+            const StdConfigFallback fallback = { SetupConfigFallbackHasStarted,
+                SetupConfigFallbackGetInt, SetupConfigFallbackGetFloat,
+                SetupConfigFallbackGetStr };
+            stdConfig_SetFallback(&fallback);
+
+            const std::filesystem::path configPath = userDir.empty()
+                ? JonesUtf8Path_From("Jones.cfg")
+                : JonesUtf8Path_From(userDir) / JonesUtf8Path_From("Jones.cfg");
+            if ( !stdConfig_Startup(JonesUtf8Path_To(configPath).c_str()) )
+            {
+                return;
+            }
+        }
+
+        static_cast<void>(stdConfig_Remove(SITH_CFG_INSTALLPATH));
+
+        if ( !bWasStarted )
+        {
+            stdConfig_Shutdown();
+        }
+    }
+
     JonesSetupResult RunFallback(babylon::platform::Platform& platform,
         const JonesSetupHost& host, babylon::process::Process& process,
         const std::string& userDir, const std::string& exeDir, std::string& outUserDir,
-        std::string& outDataDir)
+        std::string& outDataDir, bool bRerun, const std::string& toolDir)
     {
-        JonesSetupWizard wizard(platform, process, host.installHost, userDir, exeDir);
+        JonesSetupWizard wizard(platform, process, host.installHost, userDir, exeDir, bRerun,
+            toolDir);
         wizard.Start();
         wizard.Continue();
 
@@ -606,7 +675,7 @@ namespace
             {
                 labels.push_back("Choose GOG installer...");
             }
-            labels.push_back("Quit");
+            labels.push_back(bRerun ? "Back to the game" : "Quit");
 
             std::vector<std::string_view> buttons;
             buttons.reserve(labels.size());
@@ -616,7 +685,7 @@ namespace
             }
 
             const std::optional<std::size_t> choice = platform.askChoice(kWindowTitle,
-                kWelcomeText, buttons);
+                bRerun ? kRerunWelcomeText : kWelcomeText, buttons);
             if ( !choice )
             {
                 return JonesSetupResult::Failed;
@@ -677,13 +746,25 @@ namespace
                 wizard.AcceptLicence();
             }
 
-            if ( wizard.Step() != JonesSetupStep::Location )
+            if ( bRerun )
             {
-                ShowOk(platform, wizard.Message());
-                continue;
+                if ( wizard.Step() != JonesSetupStep::Progress )
+                {
+                    ShowOk(platform, wizard.Message());
+                    continue;
+                }
+            }
+            else
+            {
+                if ( wizard.Step() != JonesSetupStep::Location )
+                {
+                    ShowOk(platform, wizard.Message());
+                    continue;
+                }
+
+                wizard.SetNextToGame(false);
             }
 
-            wizard.SetNextToGame(false);
             wizard.StartInstall();
 
             if ( wizard.Step() == JonesSetupStep::Done && wizard.Report().bComplete )
@@ -710,14 +791,15 @@ namespace
     JonesSetupResult RunWindowed(babylon::platform::Platform& platform,
         babylon::files::FileSystem& fs, const JonesSetupHost& host,
         babylon::process::Process& process, const std::string& userDir,
-        const std::string& exeDir, std::string& outUserDir, std::string& outDataDir)
+        const std::string& exeDir, std::string& outUserDir, std::string& outDataDir,
+        bool bRerun, const std::string& toolDir)
     {
         const babylon::platform::WindowDesc desc{ kWindowTitle, { 960, 640 }, true };
         std::unique_ptr<babylon::platform::Window> pWindow = platform.createWindow(desc);
         if ( !pWindow )
         {
             return RunFallback(platform, host, process, userDir, exeDir, outUserDir,
-                outDataDir);
+                outDataDir, bRerun, toolDir);
         }
 
         std::unique_ptr<babylon::render::Device> pDevice =
@@ -726,7 +808,7 @@ namespace
         {
             pWindow.reset();
             return RunFallback(platform, host, process, userDir, exeDir, outUserDir,
-                outDataDir);
+                outDataDir, bRerun, toolDir);
         }
 
         babylon::uirender::RenderPainter painter(*pDevice);
@@ -749,7 +831,8 @@ namespace
         const babylon::platform::Size initialSize = pWindow->size();
         static_cast<void>(ui.setViewport(initialSize.width, initialSize.height));
 
-        JonesSetupWizard wizard(platform, process, host.installHost, userDir, exeDir);
+        JonesSetupWizard wizard(platform, process, host.installHost, userDir, exeDir, bRerun,
+            toolDir);
         wizard.Start();
 
         JonesSetupStep shownStep = wizard.Step();
@@ -979,6 +1062,10 @@ namespace
                     else if ( pAction->action == kActionAccept )
                     {
                         wizard.AcceptLicence();
+                        if ( wizard.Rerun() && wizard.TakeRerunRun() )
+                        {
+                            bPendingInstall = true;
+                        }
                         static_cast<void>(ui.pop(0));
                         screenId = 0;
                     }
@@ -1015,6 +1102,12 @@ namespace
 
                         if ( wizard.Step() == JonesSetupStep::Disc2
                             && wizard.TakeDisc2Run() )
+                        {
+                            bPendingInstall = true;
+                        }
+
+                        if ( wizard.Rerun() && wizard.Step() == JonesSetupStep::Progress
+                            && wizard.TakeRerunRun() )
                         {
                             bPendingInstall = true;
                         }
@@ -1241,20 +1334,14 @@ namespace
 
 JonesSetupResult JonesSetupWindow_Run(babylon::platform::Platform& platform,
     babylon::files::FileSystem& fs, const std::string& userDir, const std::string& exeDir,
-    std::string& outUserDir, std::string& outDataDir)
+    std::string& outUserDir, std::string& outDataDir, bool bRerun, const std::string& toolDir)
 {
     // Added: the install engine reads and copies through the std adapter, which needs both the host
-    // services and the file system. The game starts them later in JonesMain_Startup; the wizard
-    // runs before it and installs the same services for its own lifetime. The static keeps them
-    // valid for the call; JonesMain_Startup replaces std_g_pHS with its own set afterwards.
+    // services and the file system. The game starts them later in JonesMain_Startup and stops them
+    // again in JonesMain_Shutdown, so every call installs them, including a rerun after a game run.
     static tHostServices s_setupHostServices;
-    static bool s_bServicesStarted = false;
-    if ( !s_bServicesStarted )
-    {
-        static_cast<void>(stdPlatform_InitServices(&s_setupHostServices));
-        stdStartup(&s_setupHostServices);
-        s_bServicesStarted = true;
-    }
+    static_cast<void>(stdPlatform_InitServices(&s_setupHostServices));
+    stdStartup(&s_setupHostServices);
 
     StdBabylonContext setupContext = {};
     setupContext.pFileSystem = &fs;
@@ -1269,13 +1356,18 @@ JonesSetupResult JonesSetupWindow_Run(babylon::platform::Platform& platform,
     if ( pProcess )
     {
         result = RunWindowed(platform, fs, host, *pProcess, userDir, exeDir, outUserDir,
-            outDataDir);
+            outDataDir, bRerun, toolDir);
     }
     else
     {
         babylon::process::NullProcess nullProcess;
         result = RunFallback(platform, host, nullProcess, userDir, exeDir, outUserDir,
-            outDataDir);
+            outDataDir, bRerun, toolDir);
+    }
+
+    if ( bRerun && result == JonesSetupResult::Installed )
+    {
+        ClearInstallPathAfterRerun(outUserDir);
     }
 
     stdBabylon_SetContext(nullptr);
@@ -1358,7 +1450,7 @@ babylon::ui::Screen JonesSetupWindow_BuildScreen(const JonesSetupWizard& wizard,
     switch ( wizard.Step() )
     {
         case JonesSetupStep::Welcome:
-            screen = BuildWelcomeScreen(painter, skin, textWidth);
+            screen = BuildWelcomeScreen(wizard, painter, skin, textWidth);
             break;
 
         case JonesSetupStep::Source:

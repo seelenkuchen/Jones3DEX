@@ -43,9 +43,12 @@ enum class JonesSetupResult
 // data folder that now holds a complete install (<chosen base>/GameData) and outUserDir the user
 // directory the player chose (userDir, or exeDir for "next to the game"). Failed means no window
 // or GPU device could be made and the native-dialog fallback was declined or failed too.
+// With bRerun the Location screen is skipped: the copy goes to <userDir>/GameData.new and replaces
+// <userDir>/GameData only after a complete copy, so cancelling keeps the old data.
 JonesSetupResult JonesSetupWindow_Run(babylon::platform::Platform& platform,
     babylon::files::FileSystem& fs, const std::string& userDir, const std::string& exeDir,
-    std::string& outUserDir, std::string& outDataDir);
+    std::string& outUserDir, std::string& outDataDir, bool bRerun = false,
+    const std::string& toolDir = std::string());
 
 // The wizard's own look: the game skin's colours with a wide centered panel and no reserved help
 // column, so the wrapped text gets about 85% of the canvas width under the title.

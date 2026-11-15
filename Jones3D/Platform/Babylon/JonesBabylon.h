@@ -7,6 +7,8 @@
 
 #include <j3dcore/j3d.h>
 
+#include <stdbool.h>
+
 J3D_EXTERN_C_START
 
 // Runs the windowed engine loop until the engine quits, the window closes or a quit is requested.
@@ -26,6 +28,13 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir);
 // reports JONESMAIN_STARTUP_USERQUIT and is a normal exit; every other nonzero result is a startup
 // failure. Implemented in Jones3D/Platform/Babylon/JonesBabylonMainSys.cpp.
 int JonesBabylon_StartupExitCode(int startupResult);
+
+// Added: "Run setup again..." from Options asks the composition root to run the setup wizard and
+// then start the game again. RequestSetup records the request and ends the run the same way
+// "Exit game" from the main menu does, so the windowed loop notices it like that quit.
+void JonesBabylon_RequestSetup(void);
+bool JonesBabylon_IsSetupRequested(void);
+void JonesBabylon_ClearSetupRequested(void);
 
 J3D_EXTERN_C_END
 #endif // JONES3D_PLATFORM_BABYLON_JONESBABYLON_H
