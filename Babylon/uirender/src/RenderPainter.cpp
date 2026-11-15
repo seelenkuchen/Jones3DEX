@@ -17,6 +17,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <span>
@@ -248,12 +250,87 @@ namespace babylon::uirender
             return codepoints;
         }
 
-        // A symbol outside the baked set draws '?'.
+        // One substitution a font needs because its character map lacks a
+        // symbol the ui draws, such as the Choice arrows or the scroll markers.
+        struct GlyphAlias
+        {
+            char32_t from = 0;
+            char32_t to = 0;
+        };
+
+        // The codepoints one font bakes, and the fallback each ui symbol uses
+        // when the font does not map it.
+        struct BakedGlyphs
+        {
+            std::vector<char32_t> codepoints;
+            std::vector<GlyphAlias> aliases;
+        };
+
+        char32_t chooseGlyph(const font::Font& font, std::initializer_list<char32_t> candidates)
+        {
+            for ( const char32_t codepoint : candidates )
+            {
+                if ( font.hasGlyph(codepoint) )
+                {
+                    return codepoint;
+                }
+            }
+            // The last candidate is always a baked ASCII character.
+            return *std::prev(candidates.end());
+        }
+
+        // Printable ASCII, Latin-1 and U+2022, plus the Choice arrows and
+        // scroll markers the ui module draws, or the best fallback the font
+        // can show for each.
+        BakedGlyphs bakedGlyphs(const font::Font& font)
+        {
+            BakedGlyphs baked;
+            baked.codepoints = bakedCodepoints();
+
+            const char32_t left  = chooseGlyph(font, { 0x25C0, 0x2039, U'<' });
+            const char32_t right = chooseGlyph(font, { 0x25B6, 0x203A, U'>' });
+            const char32_t up    = chooseGlyph(font, { 0x25B2, U'^' });
+            const char32_t down  = chooseGlyph(font, { 0x25BC, U'v' });
+
+            const auto addCodepoint = [&baked](char32_t codepoint)
+            {
+                if ( std::find(baked.codepoints.begin(), baked.codepoints.end(), codepoint)
+                    == baked.codepoints.end() )
+                {
+                    baked.codepoints.push_back(codepoint);
+                }
+            };
+            addCodepoint(left);
+            addCodepoint(right);
+            addCodepoint(up);
+            addCodepoint(down);
+
+            baked.aliases = {
+                { 0x25C0, left },
+                { 0x25B6, right },
+                { 0x25B2, up },
+                { 0x25BC, down },
+            };
+            return baked;
+        }
+
+        // A symbol outside the baked set draws '?'. A ui symbol the font does
+        // not map is first replaced with the fallback chosen for that font.
         void normalizeCodepoints(const std::vector<char32_t>& baked,
-            const std::vector<font::Glyph>& glyphs, std::vector<char32_t>& codepoints)
+            const std::vector<font::Glyph>& glyphs, const std::vector<GlyphAlias>& aliases,
+            std::vector<char32_t>& codepoints)
         {
             for ( char32_t& codepoint : codepoints )
             {
+                for ( const GlyphAlias& alias : aliases )
+                {
+                    if ( alias.from == codepoint )
+                    {
+                        codepoint = alias.to;
+                        break;
+                    }
+                }
+
                 if ( !findGlyph(baked, glyphs, codepoint) )
                 {
                     codepoint = U'?';
@@ -267,9 +344,12 @@ namespace babylon::uirender
         struct FontEntry
         {
             std::optional<font::Font> font;
-            float pixelHeight = 0.0f;
+            float canvasPixelHeight = 0.0f;
+            float bakeScale = 1.0f;
+            float bakePixelHeight = 0.0f;
             std::vector<char32_t> codepoints;
             std::vector<font::Glyph> glyphs;
+            std::vector<GlyphAlias> aliases;
             float ascent  = 0.0f;
             float descent = 0.0f;
             float lineGap = 0.0f;
@@ -295,6 +375,7 @@ namespace babylon::uirender
         std::vector<ImageEntry> images;
 
         bool active = false;
+        render::CommandList* list = nullptr;
         std::uint32_t targetWidth  = 0;
         std::uint32_t targetHeight = 0;
         float scale       = 1.0f;
@@ -384,6 +465,154 @@ namespace babylon::uirender
             return pipeline;
         }
 
+        // Bakes entry at canvasPixelHeight canvas units and scale device pixels
+        // per canvas unit. Only a successful bake changes the entry, so a
+        // failed re-bake leaves the previous atlas and its scale in place.
+        bool bakeFont(FontEntry& entry, float canvasPixelHeight, float scale)
+        {
+            if ( !entry.font )
+            {
+                return false;
+            }
+
+            const float bakePixelHeight = canvasPixelHeight * scale;
+            if ( !(bakePixelHeight > 0.0f) || !std::isfinite(bakePixelHeight) )
+            {
+                log::warning("RenderPainter: bad font pixel height");
+                return false;
+            }
+
+            const std::optional<font::FontAtlas> atlas =
+                entry.font->bake(bakePixelHeight, entry.codepoints);
+            if ( !atlas )
+            {
+                log::warning("RenderPainter: the font did not bake");
+                return false;
+            }
+
+            const render::DeviceLimits& limits = device.info().limits;
+            if ( atlas->width == 0 || atlas->height == 0
+                || atlas->width > limits.maxTextureDimension
+                || atlas->height > limits.maxTextureDimension )
+            {
+                log::warning("RenderPainter: the font atlas is too large for the device");
+                return false;
+            }
+
+            const std::size_t pixelCount =
+                static_cast<std::size_t>(atlas->width) * atlas->height;
+            std::vector<std::uint8_t> rgba(pixelCount * 4u);
+            for ( std::size_t index = 0; index < pixelCount; ++index )
+            {
+                rgba[index * 4u + 0u] = 255;
+                rgba[index * 4u + 1u] = 255;
+                rgba[index * 4u + 2u] = 255;
+                rgba[index * 4u + 3u] = atlas->coverage[index];
+            }
+
+            const render::TextureHandle texture = device.createTexture(
+                render::TextureDesc{ atlas->width, atlas->height, 1,
+                    render::TextureFormat::Rgba8, render::TextureUsage::Sampled });
+            if ( texture.isNull() )
+            {
+                log::warning("RenderPainter: the font atlas texture could not be created");
+                return false;
+            }
+            if ( !device.uploadTexture(texture, 0, std::as_bytes(std::span(rgba))) )
+            {
+                device.destroyTexture(texture);
+                log::warning("RenderPainter: the font atlas texture could not be uploaded");
+                return false;
+            }
+
+            if ( !entry.atlas.isNull() )
+            {
+                device.destroyTexture(entry.atlas);
+            }
+            entry.atlas           = texture;
+            entry.atlasWidth      = atlas->width;
+            entry.atlasHeight     = atlas->height;
+            entry.bakeScale       = scale;
+            entry.bakePixelHeight = bakePixelHeight;
+            entry.glyphs          = atlas->glyphs;
+            entry.ascent          = atlas->ascent;
+            entry.descent         = atlas->descent;
+            entry.lineGap         = atlas->lineGap;
+            return true;
+        }
+
+        bool setScale(float newScale)
+        {
+            if ( !(newScale > 0.0f) || !std::isfinite(newScale) )
+            {
+                log::warning("RenderPainter::setPixelScale: bad pixel scale");
+                return false;
+            }
+
+            bool ok = true;
+            for ( FontEntry& entry : fonts )
+            {
+                if ( entry.bakeScale != newScale )
+                {
+                    if ( !bakeFont(entry, entry.canvasPixelHeight, newScale) )
+                    {
+                        ok = false;
+                    }
+                }
+            }
+            scale = newScale;
+            return ok;
+        }
+
+        bool startFrame(std::uint32_t width, std::uint32_t height,
+            const FrameTarget& frameTarget, render::CommandList* pList)
+        {
+            if ( active )
+            {
+                log::warning("RenderPainter::begin: a frame is already active");
+                return false;
+            }
+            if ( width == 0 || height == 0 )
+            {
+                log::warning("RenderPainter::begin: bad target size {}x{}", width, height);
+                return false;
+            }
+
+            const render::TextureFormat format = frameTarget.texture.isNull()
+                ? device.info().swapchainFormat : frameTarget.format;
+            if ( !device.supportsFormat(format, render::TextureUsage::ColorTarget) )
+            {
+                log::warning("RenderPainter::begin: the target format cannot be rendered to");
+                return false;
+            }
+
+            if ( !ensureShared() )
+            {
+                return false;
+            }
+            if ( ensurePipeline(format).isNull() )
+            {
+                return false;
+            }
+
+            // Re-bake before any quad is recorded; a failed re-bake keeps the
+            // old atlas and still lets the frame draw.
+            static_cast<void>(setScale(static_cast<float>(height) / kCanvasHeight));
+
+            target                = frameTarget;
+            targetWidth           = width;
+            targetHeight          = height;
+            canvasWidth           = static_cast<float>(width) / scale;
+            clips.clear();
+            clips.push_back(ui::Rect{ 0.0f, 0.0f, canvasWidth, kCanvasHeight });
+            vertices.clear();
+            batches.clear();
+            currentPipelineFormat = format;
+            list                  = pList;
+            active                = true;
+            return true;
+        }
+
         const ui::Rect& currentClip() const
         {
             return clips.back();
@@ -391,17 +620,30 @@ namespace babylon::uirender
 
         void appendQuad(const ui::Rect& rect, float u0, float v0, float u1, float v1,
             render::TextureHandle texture, const ui::Color& color,
-            const render::ScissorRect& scissor)
+            const render::ScissorRect& scissor, bool snapToPixels = false)
         {
             if ( isEmpty(rect) )
             {
                 return;
             }
 
-            const float x0 = rect.x * scale;
-            const float y0 = rect.y * scale;
-            const float x1 = (rect.x + rect.width) * scale;
-            const float y1 = (rect.y + rect.height) * scale;
+            float x0 = rect.x * scale;
+            float y0 = rect.y * scale;
+            float x1 = (rect.x + rect.width) * scale;
+            float y1 = (rect.y + rect.height) * scale;
+            if ( snapToPixels )
+            {
+                const float pixelWidth  = std::round(x1 - x0);
+                const float pixelHeight = std::round(y1 - y0);
+                x0 = std::round(x0);
+                y0 = std::round(y0);
+                x1 = x0 + pixelWidth;
+                y1 = y0 + pixelHeight;
+                if ( x1 <= x0 || y1 <= y0 )
+                {
+                    return;
+                }
+            }
 
             const float width  = static_cast<float>(targetWidth);
             const float height = static_cast<float>(targetHeight);
@@ -460,6 +702,12 @@ namespace babylon::uirender
                 log::warning("RenderPainter::drawImage: unknown image {}", image);
                 return;
             }
+            const ImageEntry& entry = images[image - 1];
+            if ( entry.texture.isNull() )
+            {
+                log::warning("RenderPainter::drawImage: image {} was released", image);
+                return;
+            }
             if ( !active || isEmpty(rect) )
             {
                 return;
@@ -471,16 +719,21 @@ namespace babylon::uirender
                 return;
             }
             const ui::Color white = { 1.0f, 1.0f, 1.0f, 1.0f };
-            appendQuad(rect, 0.0f, 0.0f, 1.0f, 1.0f, images[image - 1].texture, white,
-                *scissor);
+            appendQuad(rect, 0.0f, 0.0f, 1.0f, 1.0f, entry.texture, white, *scissor);
+        }
+
+        float inverseBakeScale(const FontEntry& entry) const
+        {
+            return entry.bakeScale > 0.0f ? 1.0f / entry.bakeScale : 1.0f;
         }
 
         float fontLineHeight(const FontEntry& entry) const
         {
-            float lineHeight = entry.ascent - entry.descent + entry.lineGap;
+            float lineHeight = (entry.ascent - entry.descent + entry.lineGap)
+                * inverseBakeScale(entry);
             if ( !(lineHeight > 0.0f) )
             {
-                lineHeight = entry.pixelHeight;
+                lineHeight = entry.canvasPixelHeight;
             }
             return lineHeight;
         }
@@ -492,18 +745,19 @@ namespace babylon::uirender
                 return 0.0f;
             }
 
+            const float inverseScale = inverseBakeScale(entry);
             float width = 0.0f;
             for ( std::size_t index = 0; index < codepoints.size(); ++index )
             {
                 if ( index > 0 )
                 {
                     width += entry.font->kerning(codepoints[index - 1],
-                        codepoints[index], entry.pixelHeight);
+                        codepoints[index], entry.bakePixelHeight) * inverseScale;
                 }
                 if ( const font::Glyph* pGlyph =
                     findGlyph(entry.codepoints, entry.glyphs, codepoints[index]) )
                 {
-                    width += pGlyph->advance;
+                    width += pGlyph->advance * inverseScale;
                 }
             }
             return std::max(0.0f, width);
@@ -513,7 +767,7 @@ namespace babylon::uirender
             std::string_view text) const
         {
             std::vector<char32_t> codepoints = decodeUtf8(text);
-            normalizeCodepoints(entry.codepoints, entry.glyphs, codepoints);
+            normalizeCodepoints(entry.codepoints, entry.glyphs, entry.aliases, codepoints);
             return codepoints;
         }
 
@@ -553,16 +807,18 @@ namespace babylon::uirender
 
             const float lineHeight = fontLineHeight(entry);
             const float lineTop    = rect.y + (rect.height - lineHeight) * 0.5f;
-            const float baseline   = lineTop + entry.ascent;
+            const float inverseScale = inverseBakeScale(entry);
+            const float baseline   = lineTop + entry.ascent * inverseScale;
             const float atlasWidth  = static_cast<float>(entry.atlasWidth);
             const float atlasHeight = static_cast<float>(entry.atlasHeight);
+            const bool snapGlyphs   = (scale == entry.bakeScale);
 
             for ( std::size_t index = 0; index < codepoints.size(); ++index )
             {
                 if ( index > 0 && entry.font )
                 {
                     penX += entry.font->kerning(codepoints[index - 1],
-                        codepoints[index], entry.pixelHeight);
+                        codepoints[index], entry.bakePixelHeight) * inverseScale;
                 }
 
                 const font::Glyph* pGlyph =
@@ -574,9 +830,10 @@ namespace babylon::uirender
 
                 if ( pGlyph->width > 0 && pGlyph->height > 0 )
                 {
-                    const ui::Rect destination = { penX + pGlyph->offsetX,
-                        baseline + pGlyph->offsetY, static_cast<float>(pGlyph->width),
-                        static_cast<float>(pGlyph->height) };
+                    const ui::Rect destination = { penX + pGlyph->offsetX * inverseScale,
+                        baseline + pGlyph->offsetY * inverseScale,
+                        static_cast<float>(pGlyph->width) * inverseScale,
+                        static_cast<float>(pGlyph->height) * inverseScale };
                     if ( intersects(destination, visible) )
                     {
                         const float u0 = static_cast<float>(pGlyph->x) / atlasWidth;
@@ -586,11 +843,11 @@ namespace babylon::uirender
                         const float v1 =
                             static_cast<float>(pGlyph->y + pGlyph->height) / atlasHeight;
                         appendQuad(destination, u0, v0, u1, v1, entry.atlas, color,
-                            *scissor);
+                            *scissor, snapGlyphs);
                     }
                 }
 
-                penX += pGlyph->advance;
+                penX += pGlyph->advance * inverseScale;
             }
         }
 
@@ -615,12 +872,11 @@ namespace babylon::uirender
             batches.clear();
             clips.clear();
             target = FrameTarget{};
+            list   = nullptr;
         }
 
-        bool submitFrame()
+        bool recordFrame(render::CommandList& list)
         {
-            render::CommandList list = device.beginFrame();
-
             if ( vertices.size()
                 > std::numeric_limits<std::uint32_t>::max() / sizeof(Vertex) )
             {
@@ -704,6 +960,16 @@ namespace babylon::uirender
             {
                 return false;
             }
+            return true;
+        }
+
+        bool submitFrame()
+        {
+            render::CommandList list = device.beginFrame();
+            if ( !recordFrame(list) )
+            {
+                return false;
+            }
             return device.submit(list);
         }
     };
@@ -755,62 +1021,29 @@ namespace babylon::uirender
             return 0;
         }
 
-        const std::vector<char32_t> codepoints = bakedCodepoints();
-        const std::optional<font::FontAtlas> atlas = font.bake(pixelHeight, codepoints);
-        if ( !atlas )
-        {
-            log::warning("RenderPainter::addFont: the font did not bake");
-            return 0;
-        }
-
-        const render::DeviceLimits& limits = m_state->device.info().limits;
-        if ( atlas->width == 0 || atlas->height == 0
-            || atlas->width > limits.maxTextureDimension
-            || atlas->height > limits.maxTextureDimension )
-        {
-            log::warning("RenderPainter::addFont: the atlas is too large for the device");
-            return 0;
-        }
-
-        const std::size_t pixelCount =
-            static_cast<std::size_t>(atlas->width) * atlas->height;
-        std::vector<std::uint8_t> rgba(pixelCount * 4u);
-        for ( std::size_t index = 0; index < pixelCount; ++index )
-        {
-            rgba[index * 4u + 0u] = 255;
-            rgba[index * 4u + 1u] = 255;
-            rgba[index * 4u + 2u] = 255;
-            rgba[index * 4u + 3u] = atlas->coverage[index];
-        }
-
-        const render::TextureHandle texture = m_state->device.createTexture(
-            render::TextureDesc{ atlas->width, atlas->height, 1,
-                render::TextureFormat::Rgba8, render::TextureUsage::Sampled });
-        if ( texture.isNull() )
-        {
-            log::warning("RenderPainter::addFont: the atlas texture could not be created");
-            return 0;
-        }
-        if ( !m_state->device.uploadTexture(texture, 0, std::as_bytes(std::span(rgba))) )
-        {
-            m_state->device.destroyTexture(texture);
-            log::warning("RenderPainter::addFont: the atlas texture could not be uploaded");
-            return 0;
-        }
-
         State::FontEntry entry;
-        entry.font        = font;
-        entry.pixelHeight = pixelHeight;
-        entry.codepoints  = codepoints;
-        entry.glyphs      = atlas->glyphs;
-        entry.ascent      = atlas->ascent;
-        entry.descent     = atlas->descent;
-        entry.lineGap     = atlas->lineGap;
-        entry.atlas       = texture;
-        entry.atlasWidth  = atlas->width;
-        entry.atlasHeight = atlas->height;
+        entry.font              = font;
+        entry.canvasPixelHeight = pixelHeight;
+        const BakedGlyphs baked = bakedGlyphs(font);
+        entry.codepoints        = baked.codepoints;
+        entry.aliases           = baked.aliases;
+        if ( !m_state->bakeFont(entry, pixelHeight, m_state->scale) )
+        {
+            return 0;
+        }
+
         m_state->fonts.push_back(std::move(entry));
         return static_cast<ui::FontId>(m_state->fonts.size());
+    }
+
+    bool RenderPainter::setPixelScale(float pixelsPerCanvasUnit)
+    {
+        if ( m_state->active )
+        {
+            log::warning("RenderPainter::setPixelScale: a frame is already active");
+            return false;
+        }
+        return m_state->setScale(pixelsPerCanvasUnit);
     }
 
     ui::ImageId RenderPainter::addImage(const image::Image& image)
@@ -856,49 +1089,36 @@ namespace babylon::uirender
         return static_cast<ui::ImageId>(m_state->images.size());
     }
 
-    bool RenderPainter::begin(std::uint32_t targetWidth, std::uint32_t targetHeight,
-        const FrameTarget& target)
+    void RenderPainter::releaseImage(ui::ImageId image)
     {
         if ( m_state->active )
         {
-            log::warning("RenderPainter::begin: a frame is already active");
-            return false;
+            log::warning("RenderPainter::releaseImage: a frame is active");
+            return;
         }
-        if ( targetWidth == 0 || targetHeight == 0 )
+        if ( image == 0 || image > m_state->images.size() )
         {
-            log::warning("RenderPainter::begin: bad target size {}x{}", targetWidth,
-                targetHeight);
-            return false;
+            return;
         }
 
-        const render::TextureFormat format = target.texture.isNull()
-            ? m_state->device.info().swapchainFormat : target.format;
-        if ( !m_state->device.supportsFormat(format, render::TextureUsage::ColorTarget) )
+        State::ImageEntry& entry = m_state->images[image - 1];
+        if ( !entry.texture.isNull() )
         {
-            log::warning("RenderPainter::begin: the target format cannot be rendered to");
-            return false;
+            m_state->device.destroyTexture(entry.texture);
+            entry.texture = {};
         }
-        if ( !m_state->ensureShared() )
-        {
-            return false;
-        }
-        if ( m_state->ensurePipeline(format).isNull() )
-        {
-            return false;
-        }
+    }
 
-        m_state->target       = target;
-        m_state->targetWidth  = targetWidth;
-        m_state->targetHeight = targetHeight;
-        m_state->scale        = static_cast<float>(targetHeight) / kCanvasHeight;
-        m_state->canvasWidth  = static_cast<float>(targetWidth) / m_state->scale;
-        m_state->clips.clear();
-        m_state->clips.push_back(ui::Rect{ 0.0f, 0.0f, m_state->canvasWidth, kCanvasHeight });
-        m_state->vertices.clear();
-        m_state->batches.clear();
-        m_state->currentPipelineFormat = format;
-        m_state->active = true;
-        return true;
+    bool RenderPainter::begin(std::uint32_t targetWidth, std::uint32_t targetHeight,
+        const FrameTarget& target)
+    {
+        return m_state->startFrame(targetWidth, targetHeight, target, nullptr);
+    }
+
+    bool RenderPainter::begin(render::CommandList& list, std::uint32_t targetWidth,
+        std::uint32_t targetHeight, const FrameTarget& target)
+    {
+        return m_state->startFrame(targetWidth, targetHeight, target, &list);
     }
 
     bool RenderPainter::end()
@@ -910,9 +1130,11 @@ namespace babylon::uirender
         }
 
         m_state->active = false;
-        const bool submitted = m_state->submitFrame();
+        const bool recorded = m_state->list
+            ? m_state->recordFrame(*m_state->list)
+            : m_state->submitFrame();
         m_state->resetFrame();
-        return submitted;
+        return recorded;
     }
 
     void RenderPainter::fillRect(const ui::Rect& rect, const ui::Color& color)
