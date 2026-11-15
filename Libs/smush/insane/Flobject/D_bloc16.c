@@ -15,7 +15,7 @@
 
 #if defined(J3D_TEST)
 // Added: Test-only replay seam; production builds always call the real block decoder.
-typedef void (J3DAPI* DBloc16TestCodec2)(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette);
+typedef void (J3DAPI* DBloc16TestCodec2)(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette); // Altered: offsets are uint16_t element distances, kept in ptrdiff_t
 static DBloc16TestCodec2 dbloc16_pTestCodec2;
 void DBloc16_TestSetCodec2(DBloc16TestCodec2 pfn);
 void DBloc16_TestSetCodec2(DBloc16TestCodec2 pfn) { dbloc16_pTestCodec2 = pfn; }
@@ -550,8 +550,9 @@ int J3DAPI dbloc16_DecodeFrame(LecBitmapHeader* pBitmap, MixerRect* pClip, int x
         }
     }
 
-    int offset1 = (int)(dbloc16_pBuf1 - dbloc16_pCur);
-    int offset2 = (int)(dbloc16_pBuf0 - dbloc16_pCur);
+    // Fixed: 64-bit buffer distance: the buffers can be more than 2^31 uint16_t elements apart, so keep ptrdiff_t
+    ptrdiff_t offset1 = dbloc16_pBuf1 - dbloc16_pCur;
+    ptrdiff_t offset2 = dbloc16_pBuf0 - dbloc16_pCur;
     if ( pBitmap ) {
         dbloc16_BuildLut(pBitmap);
     }

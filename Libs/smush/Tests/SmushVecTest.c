@@ -1,5 +1,6 @@
 #include <unity_fixture.h>
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,9 +22,9 @@
 #define SMUSHVEC_TEST_MAX_REPORTED 12
 
 void DBloc16_TestGetTables(const int16_t** ppOffsets, const Bl16Small** ppSmall, const Bl16Big** ppBig);
-typedef void (J3DAPI* DBloc16TestCodec2)(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette);
+typedef void (J3DAPI* DBloc16TestCodec2)(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette);
 void DBloc16_TestSetCodec2(DBloc16TestCodec2 pfn);
-void SmushAsmTest_ReplayCodec2(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette, int bounded, int (*pfnContains)(uintptr_t, size_t));
+void SmushAsmTest_ReplayCodec2(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette, int bounded, int (*pfnContains)(uintptr_t, size_t));
 static int smushvec_replayBounded;
 
 static int SmushVecTest_ContainsBitmap(uintptr_t at, size_t size)
@@ -39,7 +40,7 @@ static int SmushVecTest_ContainsBitmap(uintptr_t at, size_t size)
     return 0;
 }
 
-static void J3DAPI SmushVecTest_ReplayCodec2(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette)
+static void J3DAPI SmushVecTest_ReplayCodec2(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette)
 {
     SmushAsmTest_ReplayCodec2(pDst, pSrc, offset1, offset2, width, pMotion, pParams, height, nextLine, pSmall, pBig, pPalette, smushvec_replayBounded, SmushVecTest_ContainsBitmap);
 }

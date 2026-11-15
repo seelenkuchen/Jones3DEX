@@ -1,6 +1,7 @@
 #ifndef SMUSH_INSANE_FLOBJECT_BLOC16ASM_H
 #define SMUSH_INSANE_FLOBJECT_BLOC16ASM_H
 #include <j3dcore/j3d.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <smush/insane/Flobject/D_bloc16.h>
 
@@ -18,7 +19,7 @@
 J3D_EXTERN_C_START
 
 void J3DAPI dbloc16_Interpolate(uint8_t* pDst, const uint8_t* pSrc, int stride, int rows, const uint8_t* pTable); // No caller in the original; parameter roles inferred from the assembly
-void J3DAPI dbloc16_Codec2(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette);
+void J3DAPI dbloc16_Codec2(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette); // Altered: offsets are uint16_t element distances, kept in ptrdiff_t
 
 void Bloc16Asm_ResetGlobals(void);
 

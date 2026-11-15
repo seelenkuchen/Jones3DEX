@@ -374,14 +374,15 @@ void J3DAPI dbloc16_Interpolate(uint8_t* pDst, const uint8_t* pSrc, int stride, 
     } while ( y > 0 );
 }
 
-void J3DAPI dbloc16_Codec2(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette)
+void J3DAPI dbloc16_Codec2(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette)
 {
     J3D_UNUSED(nextLine); // Not read by the assembly
 
     Bloc16Context ctx;
     ctx.currentBase = (uintptr_t)pDst;
-    ctx.prevBase    = ctx.currentBase + (intptr_t)(int32_t)((uint32_t)offset1 * 2u);
-    ctx.deltaBase   = ctx.currentBase + (intptr_t)(int32_t)((uint32_t)offset2 * 2u);
+    // Fixed: 64-bit buffer distance: keep the element offsets in ptrdiff_t; the old 32-bit arithmetic truncated them
+    ctx.prevBase    = ctx.currentBase + (uintptr_t)(intptr_t)offset1 * 2;
+    ctx.deltaBase   = ctx.currentBase + (uintptr_t)(intptr_t)offset2 * 2;
     // D_bloc16 allocates the bitmap height rounded up to a complete 8-row block.
     ctx.frameSize   = (size_t)(uint32_t)width * (((uint32_t)height + 7u) & ~7u) * sizeof(uint16_t);
     ctx.lineSize    = (int)((uint32_t)width * 2);
