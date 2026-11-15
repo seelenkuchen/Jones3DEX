@@ -7,12 +7,14 @@
 #include <Jones3D/Main/JonesDataLocate.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <random>
 #include <utility>
 #include <string>
 #include <system_error>
@@ -87,6 +89,34 @@ namespace
     {
         std::error_code ec;
         std::filesystem::create_directories(JonesUtf8Path_From(path), ec);
+    }
+
+    // Added: the licence step runs before the Location choice, so its temporary folder must live
+    // outside both target bases. Returns an empty string when no folder could be created.
+    std::string MakeUniqueTempDir()
+    {
+        std::error_code ec;
+        const std::filesystem::path base = std::filesystem::temp_directory_path(ec);
+        if ( ec )
+        {
+            return std::string();
+        }
+
+        static std::atomic<unsigned int> counter{ 0 };
+        std::random_device random;
+        for ( unsigned int attempt = 0; attempt < 100; ++attempt )
+        {
+            const std::filesystem::path path = base / JonesUtf8Path_From(
+                "jones3dex-eula-" + std::to_string(random()) + "-"
+                    + std::to_string(++counter));
+            std::error_code createEc;
+            if ( std::filesystem::create_directory(path, createEc) )
+            {
+                return JonesUtf8Path_To(path);
+            }
+        }
+
+        return std::string();
     }
 
     bool ReadWholeFile(const std::string& path, std::string& outText)
@@ -847,9 +877,15 @@ void JonesSetupWizard::EnterLicence(const JonesInstallSource& source)
 
     if ( source.kind == JONESINSTALL_SOURCE_GOG_INSTALLER )
     {
-        const std::string tempDir = JoinPath(m_host.platform,
-            JoinPath(m_host.platform, TargetBase(), "setup-tmp"), "eula");
-        CreateDirectories(tempDir);
+        // Fixed: extract the licence into a unique system temporary folder, not into the target
+        // base, because the Location step has not chosen that base yet.
+        const std::string tempDir = MakeUniqueTempDir();
+        if ( tempDir.empty() )
+        {
+            m_step = JonesSetupStep::Source;
+            m_message = "A temporary folder for the GOG installer's licence could not be created.";
+            return;
+        }
 
         std::string text;
         std::string error;
@@ -866,7 +902,7 @@ void JonesSetupWizard::EnterLicence(const JonesInstallSource& source)
                 tempDir, text, error);
         }
 
-        RemoveSetupTemp();
+        JonesGogInstaller_RemoveDir(tempDir);
 
         if ( !bRead )
         {

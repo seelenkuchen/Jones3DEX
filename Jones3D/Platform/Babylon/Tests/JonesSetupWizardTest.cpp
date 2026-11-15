@@ -641,6 +641,63 @@ TEST_CASE_FIXTURE(SetupWizardTest, "A GOG installer extracts into setup-tmp and 
     CHECK(Exists(Join(Join(wizard.TargetDataDir(), "Resource"), "Jones3D.GOB")));
 }
 
+TEST_CASE_FIXTURE(SetupWizardTest, "Next to the game with a GOG installer leaves the user folder absent")
+{
+    MakeDirs(exeDir);
+    WriteText(downloads, "setup_indiana_jones_and_the_infernal_machine_1.2.exe", "setup");
+    process.setExists("innoextract", true);
+
+    JonesSetupWizard wizard(platform, process, MakeHost(), userDir, exeDir);
+    wizard.Start();
+    wizard.Continue();
+
+    const std::size_t installerRow = FindSourceRow(wizard,
+        JONESINSTALL_SOURCE_GOG_INSTALLER, 0, "");
+    REQUIRE(installerRow != wizard.Rows().size());
+
+    std::string eulaDir;
+    JonesSetupWizard::TestHooks hooks;
+    hooks.readEula = [&eulaDir](const std::string&, const std::string& tempDir,
+        std::string& outText, std::string&) -> bool
+    {
+        eulaDir = tempDir;
+        outText = "Licence text.";
+        return true;
+    };
+    hooks.extract = [](const std::string& dir,
+        const JonesGogProgressFunc& progress, const babylon::process::CancelCheck&,
+        std::string&) -> JonesGogExtractResult
+    {
+        WriteRequiredSet(Join(dir, "Resource"));
+        if ( progress )
+        {
+            progress(100.0, "done");
+        }
+        return JonesGogExtractResult::Ok;
+    };
+    wizard.SetTestHooks(hooks);
+
+    REQUIRE(wizard.SelectRow(installerRow));
+    CHECK(wizard.Step() == JonesSetupStep::Licence);
+    REQUIRE_FALSE(eulaDir.empty());
+    CHECK_FALSE(Exists(eulaDir));
+    CHECK_FALSE(Exists(userDir));
+
+    wizard.AcceptLicence();
+    REQUIRE(wizard.Step() == JonesSetupStep::Location);
+    CHECK_FALSE(Exists(userDir));
+    REQUIRE(wizard.NextToGameAvailable());
+    wizard.SetNextToGame(true);
+    CHECK(SamePath(wizard.TargetBase(), exeDir));
+
+    wizard.StartInstall();
+    CHECK(wizard.Step() == JonesSetupStep::Done);
+    CHECK(wizard.Report().bComplete);
+    const std::string dataDir = Join(exeDir, JONESDATALOCATE_GAMEDATA_DIR);
+    CHECK(Exists(Join(Join(dataDir, "Resource"), "Jones3D.GOB")));
+    CHECK_FALSE(Exists(userDir));
+}
+
 TEST_CASE_FIXTURE(SetupWizardTest, "A cancel during the copy removes setup-tmp")
 {
     const std::string folder = CompleteFolder("cancel-game");
