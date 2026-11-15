@@ -56,6 +56,14 @@ add_subdirectory(audio)
 add_subdirectory(render)
 add_subdirectory(ui)
 
+# The painter module contains compiled shaders, so it exists only when the
+# shader toolchain does.
+if (BABYLON_BUILD_SHADERS)
+    add_subdirectory(uirender)
+else()
+    message(STATUS "BABYLON_BUILD_SHADERS=OFF: skipping the uirender module")
+endif()
+
 # Machine checks for the Babylon boundary and the module graph (ADR-0006,
 # ADR-0008, ADR-0015). They inspect the source tree, so they carry the label
 # check, not unit, and the graph check runs only in CI (it needs a configure

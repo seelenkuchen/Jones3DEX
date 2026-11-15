@@ -49,6 +49,13 @@ module never depends on `render`; `NullPainter` records draw calls for tests,
 and the game's render-backed painter lives in `Jones3D/Platform/Babylon/`
 (M7.9).
 
+`uirender` draws a `ui` screen straight onto a `render::Device` (ADR-0033), for
+a caller that has no game renderer, such as a setup wizard. `RenderPainter`
+batches fills, images and baked font glyphs into one textured, vertex-colored
+pipeline per frame, turns the clip stack into scissor rectangles, and can target
+the swapchain or an offscreen color target. Its shaders are compiled at build
+time, so the module is built only when `BABYLON_BUILD_SHADERS` is on.
+
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`
 (passes, bindings, draws, copies) and submitted once, and `Device::submit`
