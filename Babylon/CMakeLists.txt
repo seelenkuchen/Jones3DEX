@@ -34,6 +34,8 @@ endif()
 include(cmake/BabylonModule.cmake)
 include(cmake/BabylonSdl3.cmake)
 include(cmake/BabylonShaders.cmake)
+# Added: the UTF-8 process code page manifest for Babylon's test programs (Windows only).
+include(cmake/BabylonWindowsManifest.cmake)
 
 if (BABYLON_BUILD_TESTS)
     add_subdirectory(third_party/doctest)
