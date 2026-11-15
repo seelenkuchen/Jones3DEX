@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+using babylon::files::CreateMode;
+
 namespace
 {
     std::vector<std::byte> toBytes(const char* text)
@@ -96,14 +98,32 @@ TEST_CASE("The Null base path and user path match the documented layout")
     CHECK(fs.exists("/base/"));
     CHECK(fs.currentPath() == "/");
 
-    CHECK(fs.userPath("Aster Studio", "Field Trip") == "/user/Aster Studio/Field Trip/");
-    CHECK(fs.userPath("Aster Studio", "Field Trip") == "/user/Aster Studio/Field Trip/");
-    CHECK(fs.userPath("aster studio", "field trip") == "/user/aster studio/field trip/");
-    CHECK(fs.userPath("", "Field Trip") == "/user/Field Trip/");
+    CHECK(fs.userPath("Aster Studio", "Field Trip", CreateMode::Create) == "/user/Aster Studio/Field Trip/");
+    CHECK(fs.userPath("Aster Studio", "Field Trip", CreateMode::Create) == "/user/Aster Studio/Field Trip/");
+    CHECK(fs.userPath("aster studio", "field trip", CreateMode::Create) == "/user/aster studio/field trip/");
+    CHECK(fs.userPath("", "Field Trip", CreateMode::Create) == "/user/Field Trip/");
     CHECK(fs.exists("/user/Aster Studio/Field Trip/"));
     CHECK(fs.exists("/user/Aster Studio"));
     CHECK(fs.exists("/user/Field Trip/"));
     CHECK(fs.exists("/user"));
+    CHECK(sink.records().empty());
+}
+
+TEST_CASE("userPath without creating reports the same path and leaves the tree alone")
+{
+    babylon::files::NullFileSystem fs;
+    babylon::log::CaptureSink sink;
+
+    const std::string path =
+        fs.userPath("Aster Studio", "Field Trip", CreateMode::NoCreate);
+    CHECK(path == "/user/Aster Studio/Field Trip/");
+    CHECK_FALSE(fs.exists("/user/Aster Studio/Field Trip/"));
+    CHECK_FALSE(fs.exists("/user/Aster Studio/"));
+    CHECK_FALSE(fs.exists("/user/"));
+    CHECK(sink.records().empty());
+
+    CHECK(fs.userPath("Aster Studio", "Field Trip", CreateMode::Create) == path);
+    CHECK(fs.exists(path));
     CHECK(sink.records().empty());
 }
 
@@ -112,12 +132,12 @@ TEST_CASE("userPath rejects names that are not one path segment")
     babylon::files::NullFileSystem fs;
     babylon::log::CaptureSink sink;
 
-    CHECK(fs.userPath("Aster", "").empty());
-    CHECK(fs.userPath("As/ter", "Field Trip").empty());
-    CHECK(fs.userPath("Aster", "Field/Trip").empty());
-    CHECK(fs.userPath("As\\ter", "Field Trip").empty());
-    CHECK(fs.userPath(".", "Field Trip").empty());
-    CHECK(fs.userPath("Aster", "..").empty());
+    CHECK(fs.userPath("Aster", "", CreateMode::Create).empty());
+    CHECK(fs.userPath("As/ter", "Field Trip", CreateMode::Create).empty());
+    CHECK(fs.userPath("Aster", "Field/Trip", CreateMode::Create).empty());
+    CHECK(fs.userPath("As\\ter", "Field Trip", CreateMode::Create).empty());
+    CHECK(fs.userPath(".", "Field Trip", CreateMode::Create).empty());
+    CHECK(fs.userPath("Aster", "..", CreateMode::Create).empty());
     REQUIRE(sink.records().size() == 6);
     for ( const babylon::log::CapturedRecord& record : sink.records() )
     {

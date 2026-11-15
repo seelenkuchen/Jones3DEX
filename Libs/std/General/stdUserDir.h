@@ -23,6 +23,11 @@ J3D_EXTERN_C_START
 // too long for STDUSERDIR_MAXPATH.
 bool J3DAPI stdUserDir_Set(const char* pPath);
 
+// Stores pPath as the user directory without creating it. Uses the same length and separator rules
+// and return value as stdUserDir_Set, but a non-empty path need not exist yet; the caller creates it
+// before the first write.
+bool J3DAPI stdUserDir_SetNoCreate(const char* pPath);
+
 // The stored directory, never NULL. "" means the working directory.
 const char* J3DAPI stdUserDir_GetPath(void);
 

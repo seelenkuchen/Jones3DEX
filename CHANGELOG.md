@@ -32,6 +32,9 @@
     `Jones.cfg` and existing savegames are copied there when they are missing, and the old files are kept.
     Pass `--user-dir <dir>` to choose another folder; headless runs stay in the working directory unless
     given `--user-dir`.
+  - Installing with the setup wizard's **Next to the game** no longer leaves an empty
+    `~/.local/share/Jones3DEX/` (`%APPDATA%\Jones3DEX\`) behind: the per-user folder is created only when
+    it is the folder the game uses.
   - The startup data search is now `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/GameData`,
     next to the executable, `<executable folder>/GameData`, then the working directory. The game no longer
     searches stores or asks for a folder itself. `--data`, `--hash-data <dir>` and `--user-dir <dir>` remain

@@ -191,7 +191,9 @@ namespace
             return exeDir;
         }
 
-        std::string path = fs.userPath("", "Jones3DEX");
+        // Added: the wizard only shows this path, so asking for it must not
+        // leave an empty user folder behind when "next to the game" is chosen.
+        std::string path = fs.userPath("", "Jones3DEX", babylon::files::CreateMode::NoCreate);
         if ( path.empty() )
         {
             fprintf(stderr,
@@ -325,7 +327,10 @@ int main(int argc, char** argv)
         dataContext.pFileSystem = pFileSystem.get();
         stdBabylon_SetContext(&dataContext);
 
-        if ( !stdUserDir_Set(runUserDir.c_str()) )
+        // Added: this probe only reads the user directory, so it is not created here. A chosen
+        // path still joins the search; JonesBabylon_Run creates the directory that the game really
+        // uses, after the setup window has returned.
+        if ( !stdUserDir_SetNoCreate(runUserDir.c_str()) )
         {
             fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
                 STDUSERDIR_MAXPATH - 1);

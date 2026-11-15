@@ -30,6 +30,7 @@
 
 namespace
 {
+    using babylon::files::CreateMode;
     using babylon::files::DirectoryEntry;
     using babylon::files::File;
     using babylon::files::FileSystem;
@@ -436,8 +437,15 @@ TEST_CASE("The SDL user path accepts an empty organization under a temporary dat
             rootString.pop_back();
         }
 
-        CHECK(fs->userPath("", "Field Trip") == rootString + "/Field Trip/");
-        CHECK(fs->exists(rootString + "/Field Trip/"));
+        // The no-create query reports the same path but leaves it missing;
+        // the create query then makes it, so both agree on one path.
+        const std::string expected = rootString + "/Field Trip/";
+        CHECK(fs->userPath("", "Field Trip", CreateMode::NoCreate) == expected);
+        CHECK_FALSE(fs->exists(expected));
+        CHECK(sink.records().empty());
+
+        CHECK(fs->userPath("", "Field Trip", CreateMode::Create) == expected);
+        CHECK(fs->exists(expected));
         CHECK(sink.records().empty());
     }
 

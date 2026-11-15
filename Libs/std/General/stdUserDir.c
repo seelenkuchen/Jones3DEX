@@ -76,7 +76,7 @@ static void stdUserDir_CreatePath(const char* pPath)
     }
 }
 
-bool J3DAPI stdUserDir_Set(const char* pPath)
+static bool stdUserDir_Store(const char* pPath, bool bCreate)
 {
     if ( !pPath )
     {
@@ -95,12 +95,24 @@ bool J3DAPI stdUserDir_Set(const char* pPath)
 
     stdUtil_StringCopy(stdUserDir_aPath, sizeof(stdUserDir_aPath), aPath);
 
-    if ( stdUserDir_aPath[0] != '\0' )
+    // Added: the setup probe needs the search path without making it, so the folder is created
+    // only when the game really uses it.
+    if ( bCreate && stdUserDir_aPath[0] != '\0' )
     {
         stdUserDir_CreatePath(stdUserDir_aPath);
     }
 
     return true;
+}
+
+bool J3DAPI stdUserDir_Set(const char* pPath)
+{
+    return stdUserDir_Store(pPath, true);
+}
+
+bool J3DAPI stdUserDir_SetNoCreate(const char* pPath)
+{
+    return stdUserDir_Store(pPath, false);
 }
 
 // Joins pDir and pName with the stdFnames_MakePath conventions. Returns false without touching

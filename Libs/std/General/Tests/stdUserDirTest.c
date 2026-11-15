@@ -117,6 +117,19 @@ TEST(stdUserDir, TestCreatesMissingDirectory)
     TEST_ASSERT_TRUE(stdFileUtil_FileExists(STDUSERDIRTEST_DIR));
 }
 
+TEST(stdUserDir, TestSetNoCreateKeepsMissingDirectory)
+{
+    TEST_ASSERT_FALSE(stdFileUtil_FileExists(STDUSERDIRTEST_DIR));
+    TEST_ASSERT_TRUE(stdUserDir_SetNoCreate(STDUSERDIRTEST_DIR "\\nested"));
+    TEST_ASSERT_EQUAL_STRING(STDUSERDIRTEST_DIR "\\nested", stdUserDir_GetPath());
+    TEST_ASSERT_FALSE(stdFileUtil_FileExists(STDUSERDIRTEST_DIR));
+    TEST_ASSERT_FALSE(stdFileUtil_FileExists(STDUSERDIRTEST_DIR "\\nested"));
+
+    // A later create call makes it, the way the game run does.
+    TEST_ASSERT_TRUE(stdUserDir_Set(stdUserDir_GetPath()));
+    TEST_ASSERT_TRUE(stdFileUtil_FileExists(STDUSERDIRTEST_DIR "\\nested"));
+}
+
 TEST(stdUserDir, TestCopyFileOnlyWhenMissing)
 {
     char aText[32];

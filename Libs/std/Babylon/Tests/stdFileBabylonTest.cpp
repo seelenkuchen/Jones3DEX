@@ -186,9 +186,10 @@ namespace
             return m_aCurrentPath;
         }
 
-        std::string userPath(std::string_view aOrganization, std::string_view aApplication) override
+        std::string userPath(std::string_view aOrganization, std::string_view aApplication,
+            babylon::files::CreateMode aCreate) override
         {
-            return m_fs.userPath(aOrganization, aApplication);
+            return m_fs.userPath(aOrganization, aApplication, aCreate);
         }
 
         // True when exists() saw exactly this path.

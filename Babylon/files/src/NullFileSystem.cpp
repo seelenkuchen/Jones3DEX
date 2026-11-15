@@ -461,7 +461,7 @@ namespace
     }
 
     std::string NullFileSystem::userPath(std::string_view organization,
-        std::string_view application)
+        std::string_view application, CreateMode create)
     {
         if ( !isOrganizationName(organization) || !isSingleSegmentName(application) )
         {
@@ -483,7 +483,7 @@ namespace
                 organization, application);
             return {};
         }
-        if ( !createDirectory(path) )
+        if ( create == CreateMode::Create && !createDirectory(path) )
         {
             return {};   // createDirectory logged the one warning
         }
