@@ -9,6 +9,11 @@
 
 J3D_EXTERN_C_START
 
+// Added: room for long game data paths (M8 wizard). The setup wizard installs below the per-user
+// directory, so the install folder, its Resource folder and the files below it need more than the
+// original 128 bytes.
+#define JONES_MAX_DATAPATH STD_MAX_DATAPATH
+
 #define JONESCONTROL_ACTION_BINDARRAYSIZE 9u
 #define JONESCONTROL_ACTION_MAXBINDS      JONESCONTROL_ACTION_BINDARRAYSIZE -1 // -1 due to 1 element bing num binds state
 
@@ -258,11 +263,11 @@ typedef int (J3DAPI* JonesMainProcessFunc)();
 
 typedef struct sJonesResource
 {
-    char aPath[128];
+    char aPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
     size_t numGobFiles;
     Gob* aGobFiles[32];
 } JonesResource;
-J3D_ASSERT_SIZE32(sizeof(JonesResource) == 260, "sizeof(JonesResource) == 164");
+J3D_ASSERT_SIZE32(sizeof(JonesResource) == 708, "sizeof(JonesResource) == 708"); // Altered: room for long data paths (M8 wizard)
 
 typedef struct sJonesFileHandle
 {
@@ -340,13 +345,13 @@ typedef struct sJonesState
     int logLevel;
     int performanceLevel;
     char aCurLevelFilename[128];
-    char aInstallPath[128];
-    char aCDPath[128];
+    char aInstallPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
+    char aCDPath[JONES_MAX_DATAPATH];      // Altered: room for long data paths (M8 wizard)
     wchar_t waPlayerName[20];
     JonesSoundSettings soundSettings;
     JonesDisplaySettings displaySettings;
 } JonesState;
-J3D_ASSERT_SIZE32_WCHAR(sizeof(JonesState) == 512, "sizeof(JonesState) == 512");
+J3D_ASSERT_SIZE32_WCHAR(sizeof(JonesState) == 1408, "sizeof(JonesState) == 1408"); // Altered: no longer the retail size, now room for long data paths (M8 wizard)
 
 typedef struct sJonesResourcesOld
 {

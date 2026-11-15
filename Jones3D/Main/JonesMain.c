@@ -281,7 +281,9 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
         return 1;
     }
 
-    if ( strlen(locateResult.aInstallPath) >= sizeof(JonesMain_state.aInstallPath) )
+    // Altered: room for long data paths (M8 wizard). The installed data lives in a Resource
+    // subfolder, so the install path must leave room for that join and the file name below it.
+    if ( strlen(locateResult.aInstallPath) + sizeof("\\Resource") + 32 > sizeof(JonesMain_state.aInstallPath) )
     {
         JonesMain_LogErrorToFile("The game data path is too long.");
         JonesMain_CloseWindow();
@@ -1570,7 +1572,7 @@ int J3DAPI JonesMain_EnsureLevelFileEx(const char* pFilename, bool bFindAll, cha
     // TODO: there is an issue when loading level from different CD*.gob file than current
     //       the insert CD dialog can be shown even if file exists on disk
 
-    char aPath[128];
+    char aPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
     STD_MAKEPATH(aPath, "ndy", pFilename);
     if ( JonesFile_FileExists(aPath) )
     {
@@ -2136,7 +2138,7 @@ int JonesMain_PlayIntroMovie(void)
         }
     }
 
-    char aPath[128] = { 0 };
+    char aPath[JONES_MAX_DATAPATH] = { 0 }; // Altered: room for long data paths (M8 wizard)
     if ( stdFileUtil_FileExists(aFilename) )
     {
         STD_STRCPY(aPath, aFilename);
@@ -2148,7 +2150,7 @@ int JonesMain_PlayIntroMovie(void)
         if ( !stdFileUtil_FileExists(aPath) )
         {
             // Fallback to CD
-            char aResDir[128];
+            char aResDir[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
             stdConfig_GetString(JONESCONFIG_CFG_SOURCEPATH, aPath, STD_ARRAYLEN(aPath), "");
             STD_FORMAT(aResDir, "%sresource", aPath);
             STD_MAKEPATH(aPath, aResDir, aFilename);

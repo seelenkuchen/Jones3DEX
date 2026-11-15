@@ -40,6 +40,11 @@
 extern JonesResource JonesFile_aResources[4];
 extern bool JonesFile_bOpened;
 
+// Added: the resource search behind the host file-open hook is not in the public header.
+tFileHandle J3DAPI JonesFile_OpenFile(const char* pFilename, const char* mode);
+size_t J3DAPI JonesFile_FileRead(tFileHandle fh, void* pDst, size_t size);
+int J3DAPI JonesFile_CloseFile(tFileHandle fh);
+
 static char g_aTempDir[JONESFILE_TEST_MAX_PATH];
 static unsigned int g_tempDirCounter;
 static tHostServices g_hostServices;
@@ -234,6 +239,41 @@ static void JonesFileTest_MakeDirs(const char* pPath)
     }
 
     JONESFILE_TEST_MKDIR(aPath);
+}
+
+// Added: builds a nested install folder whose path is at least 300 bytes long (M8 wizard).
+static void JonesFileTest_BuildLongDir(char* pOut, size_t outSize)
+{
+    static const char aSegment[] = "/longpathsegment";
+
+    size_t len = strlen(g_aTempDir);
+    TEST_ASSERT_TRUE(len + 1 < outSize);
+    memcpy(pOut, g_aTempDir, len + 1);
+
+    while ( len + sizeof(aSegment) < 320 )
+    {
+        TEST_ASSERT_TRUE(len + sizeof(aSegment) < outSize);
+        memcpy(pOut + len, aSegment, sizeof(aSegment));
+        len += sizeof(aSegment) - 1;
+    }
+
+    while ( len < 300 )
+    {
+        TEST_ASSERT_TRUE(len + 2 < outSize);
+        pOut[len++] = 'x';
+        pOut[len]   = '\0';
+    }
+
+    TEST_ASSERT_TRUE(len >= 300);
+}
+
+static void JonesFileTest_WriteTextFile(const char* pPath, const char* pText)
+{
+    FILE* pFile = NULL;
+    TEST_ASSERT_EQUAL_INT(0, fopen_s(&pFile, pPath, "wb"));
+    TEST_ASSERT_NOT_NULL(pFile);
+    TEST_ASSERT_EQUAL_size_t(strlen(pText), fwrite(pText, 1, strlen(pText), pFile));
+    TEST_ASSERT_EQUAL_INT(0, fclose(pFile));
 }
 
 static void JonesFileTest_WriteFakeGob(const char* pPath)
@@ -466,7 +506,58 @@ TEST(JonesFile, TestOpenResourceKeepsEachGobPath)
     TEST_ASSERT_EQUAL_size_t(2, JonesFile_aResources[3].numGobFiles);
 }
 
+TEST(JonesFile, TestLongInstallPathOpensLooseFileAndGobs)
+{
+    char aInstallDir[JONESFILE_TEST_MAX_PATH];
+    char aResourceDir[JONESFILE_TEST_MAX_PATH];
+    char aGobPath[JONESFILE_TEST_MAX_PATH];
+    char aLoosePath[JONESFILE_TEST_MAX_PATH];
+
+    JonesFileTest_BuildLongDir(aInstallDir, sizeof(aInstallDir));
+    JonesFileTest_BuildPath(aResourceDir, sizeof(aResourceDir), aInstallDir, "Resource");
+    JonesFileTest_MakeDirs(aResourceDir);
+
+    JonesFileTest_BuildPath(aGobPath, sizeof(aGobPath), aResourceDir, "CD1.GOB");
+    JonesFileTest_WriteFakeGob(aGobPath);
+    JonesFileTest_BuildPath(aGobPath, sizeof(aGobPath), aResourceDir, "CD2.GOB");
+    JonesFileTest_WriteFakeGob(aGobPath);
+
+    JonesFileTest_BuildPath(aLoosePath, sizeof(aLoosePath), aInstallDir, "loose.txt");
+    JonesFileTest_WriteTextFile(aLoosePath, "long path");
+
+    JonesFile_Startup(&g_hostServices);
+    TEST_ASSERT_EQUAL_INT(0, JonesFile_Open(&g_hostServices, aInstallDir, NULL));
+    TEST_ASSERT_EQUAL_STRING(aInstallDir, JonesFile_GetInstallPath());
+    TEST_ASSERT_EQUAL_size_t(2, JonesFile_aResources[3].numGobFiles);
+
+    tFileHandle fh = JonesFile_OpenFile("loose.txt", "rb");
+    TEST_ASSERT_TRUE(fh != 0);
+    char aText[16] = { 0 };
+    TEST_ASSERT_EQUAL_size_t(9, JonesFile_FileRead(fh, aText, 9));
+    TEST_ASSERT_EQUAL_STRING("long path", aText);
+    JonesFile_CloseFile(fh);
+
+    fh = JonesFile_OpenFile("dummy", "rb");
+    TEST_ASSERT_TRUE(fh != 0);
+    JonesFile_CloseFile(fh);
+}
+
+// Added: an install path past the data path limit is refused, not truncated (M8 wizard).
+TEST(JonesFile, TestTooLongInstallPathIsRejected)
+{
+    char aPath[JONESFILE_TEST_MAX_PATH];
+
+    memset(aPath, 'a', JONES_MAX_DATAPATH + 1);
+    aPath[JONES_MAX_DATAPATH + 1] = '\0';
+
+    JonesFile_Startup(&g_hostServices);
+    TEST_ASSERT_EQUAL_INT(0, JonesFile_Open(&g_hostServices, aPath, NULL));
+    TEST_ASSERT_EQUAL_STRING("", JonesFile_GetInstallPath());
+}
+
 TEST_GROUP_RUNNER(JonesFile)
 {
     RUN_TEST_CASE(JonesFile, TestOpenResourceKeepsEachGobPath);
+    RUN_TEST_CASE(JonesFile, TestLongInstallPathOpensLooseFileAndGobs);
+    RUN_TEST_CASE(JonesFile, TestTooLongInstallPathIsRejected);
 }
