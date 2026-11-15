@@ -13,8 +13,12 @@ turns off. Decided in the owner's design session on 2026-11-08.
 
 ## Decision
 
-A **Control style** option with the values Modern (the default) and Classic. Classic keeps the original
-controls. The Retail profile forces Classic, and the retail trace stays identical.
+A **Keyboard & mouse style** and a **Gamepad style** option, each with the values Modern and
+Classic. The owner's play-test on 2026-11-15 found the keyboard tank-like and the gamepad
+twin-stick, and chose exactly that as the default: the keyboard and mouse default to Classic and
+the gamepad to Modern (see the amendment below). Classic keeps the camera following Indy and, on
+the keyboard, the classic mouse bindings; the true original tank movement remains only in the
+Retail profile. The Retail profile forces both to Classic, and the retail trace stays identical.
 
 Modern, on a gamepad:
 
@@ -54,8 +58,10 @@ fixed puzzle views, overrides the free camera while it is active.
 
 ## Implementation (2026-11-13)
 
-The style is read once at startup into `sithControl`, where `engine.input.controlStyle` selects Modern or
-Classic; non-QOL builds always stay Classic. The movement layer never edits the original movement code. It
+The styles are read once at startup into `sithControl`, where `engine.input.keyboardControlStyle` and
+`engine.input.gamepadControlStyle` select Modern or Classic per device; non-QOL builds always stay
+Classic. The amendment below replaces the original single `engine.input.controlStyle`, which is now
+read only for migration. The movement layer never edits the original movement code. It
 runs once per frame before `sithPlayerControls_Process` reads its functions and writes virtual key
 overrides: `FORWARD` and `BACK` carry the translated direction and amount, `TURNLEFT` and `TURNRIGHT`
 keep their meaning only in the relative states, `RUNFWD` carries walk/run, and quick-step suppresses a
@@ -112,3 +118,49 @@ original sidestep force moves. While target-locked, a held backward stick is a c
 at the locked sidestep ground speed, with the walk-back animation and Indy facing the target; release
 stops it at once. The M7.7k locked hop-back path is removed. The step is not saved: a save
 ends a running step first, so a loaded player is never left with its controls disabled.
+
+## Amendment (2026-11-15): per-device styles
+
+The owner play-tested the single Modern style and found the keyboard behaved like the original
+tank controls while the gamepad was twin-stick, and chose that as the default. The two behaviours
+came from the device paths, not from the move translation alone:
+
+- `sithModernControls_Update` already read the keyboard `FORWARD`, `BACK`, `TURNLEFT` and
+  `TURNRIGHT` keys as a move vector, so the keyboard did reach the camera-relative movement.
+- The free camera only orbited from the right stick and from the `MOUSETURN`/`PITCH` axes. In
+  normal play `sithControl_RegisterMouseBindings` bound the mouse to the classic
+  `TURNLEFT`/`TURNRIGHT`/`FORWARD`/`BACK` functions instead of `MOUSETURN`/`PITCH`, so the mouse
+  could not orbit the free camera at all, and the Modern keyboard scheme bound A and D to the
+  sidestep functions (`LEFT`/`RIGHT`) that the translation did not read. Without a camera it could
+  orbit, the keyboard's camera-relative move kept collapsing back onto the original follow camera,
+  which reads as tank controls. The gamepad was unaffected because its right stick orbits the
+  camera.
+
+The styles are now separate, per device, and they select the camera and mouse extras. The Enhanced
+movement translator itself runs in every QOL build, whatever the two styles say; only the Retail
+profile (a non-QOL build) keeps the true original tank movement. The owner's decision on review was
+that "Keyboard & mouse style: Classic" must be exactly the keyboard behaviour before the option
+existed:
+
+- `engine.input.keyboardControlStyle`, Classic by default: the same `FORWARD`, `BACK`, `TURNLEFT`
+  and `TURNRIGHT` keys feed the camera-relative translator as before, the camera follows Indy, and
+  the mouse keeps the classic `TURNLEFT`/`TURNRIGHT`/`FORWARD`/`BACK` bindings, so it does not orbit
+  the free camera. The A/D sidestep bindings are not part of the translation.
+- Keyboard Modern: the same translator plus the A/D sidestep bindings as lateral movement and the
+  mouse X/Y axes bound to `MOUSETURN`/`PITCH`, so the mouse turns the free camera.
+- `engine.input.gamepadControlStyle`, Modern by default: the left stick drives the camera-relative
+  movement and the right stick the free camera. Classic keeps the left-stick translator with the
+  original follow camera and the classic LT/RB bindings.
+- `sithControl_IsModernControlStyle()` means "either device is Modern" and gates the shared free
+  camera, Look-to-snap and the new-install default scheme. `sithControl_IsModernMovementEnabled()`
+  is the translator: always true in QOL builds, false in the Retail profile/non-QOL build.
+- The old `engine.input.controlStyle` is read once for migration only: `classic` sets both styles to
+  Classic, `modern` or a missing key gives the defaults. Startup writes the new keys only on a new
+  install or after Options has already written one; an existing config with only the old key is
+  left alone until the player changes the style in Options.
+- The rows moved from Options > Gameplay to Options > Controls, next to Mouse camera, and are
+  locked in the Retail profile and non-QOL builds.
+
+With the default styles the headless traces are byte-identical to the build before the option: the
+keyboard still takes the pre-option translator path, and the gamepad Modern style is that build's
+behaviour. The Retail profile keeps the true tank movement and the same trace.

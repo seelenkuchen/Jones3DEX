@@ -66,5 +66,7 @@ the Controls tab's bind list.
   content; the module still draws the prompt bar and reports back results.
 - The Keyboard & Mouse screen shares the model and layout; only its icon mapping and capture rules
   differ.
-- Scheme files, defaults, reassign and required-binding rules are unchanged, so existing schemes and
+- Scheme files, defaults and reassign behavior are unchanged. The required-binding check counts a
+  binding from either device and exempts the original weapon keys, the optional artifact hot keys
+  and the actions the Modern gamepad style drives from a stick (Decision 4), so existing schemes and
   the Retail trace keep working.
