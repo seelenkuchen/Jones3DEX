@@ -218,8 +218,6 @@ if (J3D_PLATFORM_BABYLON)
     set(JONES3D_WINDOWED_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/mainWindowed.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylon.c"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonData.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylonData.h"
         # Added: the setup wizard and its host values (M8 wizard); the GOG installer adapter is in the UI sources.
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWizard.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWizard.h"

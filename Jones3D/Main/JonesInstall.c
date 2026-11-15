@@ -1,11 +1,10 @@
 // Added: the game data install engine (M8 wizard, W2). Source finding, the copy plan and the
-// copy run are one module so the wizard, the disc-2 step and --install-data share one path.
+// copy run are one module so the wizard and the disc-2 step share one path.
 // Nothing here calls a platform API: the host supplies the mount and registry lists and the
 // free-space count, and files go through the j3dcrt-mapped stdio and stdFileUtil search.
 #include "JonesInstall.h"
 
 #include <Jones3D/Main/JonesData.h>
-#include <Jones3D/Main/JonesDataLocate.h>
 
 #ifndef _WIN32
 #include <j3dcore/j3dcrt.h>
@@ -44,6 +43,8 @@
 
 #define JONESINSTALL_COPY_SIZE 65536u
 #define JONESINSTALL_VDF_MAX_SIZE (1024u * 1024u)
+#define JONESINSTALL_VDF_LINE_MAX 2048
+#define JONESINSTALL_MAX_NAME     64
 
 typedef struct JonesInstallKnownFile
 {
@@ -720,6 +721,103 @@ static void JonesInstall_AddSource(JonesInstallSourceList* pList, JonesInstallPl
     }
 }
 
+// Added: the steamapps/libraryfolders.vdf parser lives with the store search it serves now that the
+// game data search no longer looks in stores. A line is ignored when it is malformed, a path is
+// empty, or a path does not fit the list. Over-long lines are skipped without affecting the rest.
+static bool JonesInstall_ParseQuoted(const char** ppCur, char* pOut, size_t outSize)
+{
+    const char* pCur = *ppCur;
+    size_t numOut = 0;
+
+    while ( *pCur == ' ' || *pCur == '\t' )
+    {
+        ++pCur;
+    }
+
+    if ( *pCur != '"' )
+    {
+        return false;
+    }
+
+    ++pCur;
+
+    while ( *pCur && *pCur != '"' )
+    {
+        char ch = *pCur++;
+        if ( ch == '\\' && (*pCur == '\\' || *pCur == '"') )
+        {
+            ch = *pCur++;
+        }
+
+        if ( numOut + 1 >= outSize )
+        {
+            return false;
+        }
+
+        pOut[numOut++] = ch;
+    }
+
+    if ( *pCur != '"' )
+    {
+        return false;
+    }
+
+    ++pCur;
+    pOut[numOut] = '\0';
+    *ppCur = pCur;
+    return true;
+}
+
+static void JonesInstall_ParseLibraryFolders(const char* pText, JonesInstallPathList* pOut)
+{
+    if ( !pOut )
+    {
+        return;
+    }
+
+    pOut->numPaths = 0;
+
+    if ( !pText )
+    {
+        return;
+    }
+
+    const char* pCur = pText;
+    while ( *pCur )
+    {
+        const char* pLineEnd = pCur;
+        while ( *pLineEnd && *pLineEnd != '\n' && *pLineEnd != '\r' )
+        {
+            ++pLineEnd;
+        }
+
+        size_t lineLen = (size_t)(pLineEnd - pCur);
+        if ( lineLen < JONESINSTALL_VDF_LINE_MAX )
+        {
+            char aLine[JONESINSTALL_VDF_LINE_MAX];
+            memcpy(aLine, pCur, lineLen);
+            aLine[lineLen] = '\0';
+
+            const char* pLine = aLine;
+            char aKey[JONESINSTALL_MAX_NAME];
+            char aValue[JONESINSTALL_MAX_PATH];
+
+            if ( JonesInstall_ParseQuoted(&pLine, aKey, sizeof(aKey)) && streqi(aKey, "path")
+              && JonesInstall_ParseQuoted(&pLine, aValue, sizeof(aValue))
+              && aValue[0] != '\0' && pOut->numPaths < JONESINSTALL_MAX_HOST_PATHS )
+            {
+                memcpy(pOut->aPaths[pOut->numPaths++], aValue, strlen(aValue) + 1);
+            }
+        }
+
+        pCur = pLineEnd;
+        while ( *pCur == '\r' || *pCur == '\n' )
+        {
+            ++pCur;
+        }
+    }
+}
+
 static void JonesInstall_AddSteamRoot(JonesInstallPathList* pOut, JonesInstallPlatform platform,
     const char* pRoot)
 {
@@ -745,8 +843,8 @@ static void JonesInstall_AddSteamRoot(JonesInstallPathList* pOut, JonesInstallPl
         return;
     }
 
-    JonesDataLocatePathList parsed;
-    JonesDataLocate_ParseLibraryFolders(pText, &parsed);
+    JonesInstallPathList parsed;
+    JonesInstall_ParseLibraryFolders(pText, &parsed);
     STDFREE(pText);
 
     for ( size_t i = 0; i < parsed.numPaths; ++i )

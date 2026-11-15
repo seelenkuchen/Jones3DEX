@@ -48,7 +48,7 @@ namespace
     {
         fprintf(stderr,
             "usage: %s [--version] [--user-dir <dir>] [--load <save.nds>] [--data <dir>] "
-            "[--hash-data <dir>] [--install-data <dir>] [--input <script>] "
+            "[--hash-data <dir>] [--input <script>] "
             "[--quit-after-script] [--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] "
             "[--present-log <file>]\n",
             pProgramName ? pProgramName : "Jones3D");
@@ -92,10 +92,10 @@ namespace
         return true;
     }
 
-    // Added: the data tools run without a display, so their options are taken out before the tour
+    // Added: the data tool runs without a display, so its option is taken out before the tour
     // parser and before any SDL platform, window, audio or render device exists.
     bool TakeDataToolOptions(int* pArgc, char** argv, std::string& rHashDir, bool& rHasHash,
-        std::string& rInstallDir, bool& rHasInstall, std::string& rError)
+        std::string& rError)
     {
         for ( int i = 1; i < *pArgc; ++i )
         {
@@ -110,29 +110,12 @@ namespace
                 rHashDir = argv[++i];
                 rHasHash = true;
             }
-            else if ( strcmp(argv[i], "--install-data") == 0 )
-            {
-                if ( i + 1 >= *pArgc )
-                {
-                    rError = "--install-data needs a value";
-                    return false;
-                }
-
-                rInstallDir = argv[++i];
-                rHasInstall = true;
-            }
-        }
-
-        if ( rHasHash && rHasInstall )
-        {
-            rError = "--hash-data and --install-data are exclusive";
-            return false;
         }
 
         int numKept = 1;
         for ( int i = 1; i < *pArgc; ++i )
         {
-            if ( strcmp(argv[i], "--hash-data") == 0 || strcmp(argv[i], "--install-data") == 0 )
+            if ( strcmp(argv[i], "--hash-data") == 0 )
             {
                 ++i;
                 continue;
@@ -145,10 +128,32 @@ namespace
         return true;
     }
 
+    // Added: the quick data probe the search uses, without hashing: a folder or its Resource
+    // subfolder with the three required GOBs.
+    bool HasCompleteGameData(const std::string& directory)
+    {
+        if ( directory.empty() )
+        {
+            return false;
+        }
+
+        JonesDataLocateCandidate candidate = {};
+        if ( directory.size() + 1 > sizeof(candidate.aPath) )
+        {
+            return false;
+        }
+
+        std::memcpy(candidate.aPath, directory.c_str(), directory.size() + 1);
+        candidate.rule = JONESDATALOCATE_RULE_EXECUTABLE_DIR;
+
+        JonesDataLocateResult result = {};
+        return JonesDataLocate_Search(&candidate, 1, &result);
+    }
+
     // Added: decides the windowed run's writable directory once, before JonesMain_Startup: an
-    // explicit --user-dir, portable.txt beside the working directory (the working directory
-    // itself, kept as "") or beside the executable (its directory), else the platform user path.
-    // A failed platform lookup falls back to the working directory.
+    // explicit --user-dir, the executable's directory when its GameData folder holds the complete
+    // game data (the wizard's "next to the game" choice), else the platform user path. A failed
+    // platform lookup falls back to the working directory.
     std::string ResolveUserDir(babylon::files::FileSystem& fs, bool bHasUserDir,
         const std::string& userDir)
     {
@@ -157,13 +162,9 @@ namespace
             return userDir;
         }
 
-        if ( fs.exists("portable.txt") )
-        {
-            return {};
-        }
-
         const std::string basePath = fs.basePath();
-        if ( !basePath.empty() && fs.exists(babylon::files::joinPath(basePath, "portable.txt")) )
+        if ( !basePath.empty()
+          && HasCompleteGameData(babylon::files::joinPath(basePath, JONESDATALOCATE_GAMEDATA_DIR)) )
         {
             std::string directory = basePath;
             while ( directory.size() > 1 && directory.back() == '/' )
@@ -186,45 +187,6 @@ namespace
         return path;
     }
 
-    // Added: _dupenv_s avoids MSVC's getenv deprecation; other hosts keep std::getenv.
-    std::string ReadEnvironment(const char* pName)
-    {
-#ifdef _WIN32
-        char* pValue = nullptr;
-        size_t size = 0;
-        if ( _dupenv_s(&pValue, &size, pName) != 0 || !pValue )
-        {
-            return {};
-        }
-
-        std::string value = pValue;
-        std::free(pValue);
-        return value;
-#else
-        const char* pValue = std::getenv(pName);
-        return pValue ? pValue : "";
-#endif
-    }
-
-    // Added: the home the store search uses. Windows keeps it in USERPROFILE, or HOMEDRIVE plus
-    // HOMEPATH; other hosts use HOME.
-    std::string HomeDirectory()
-    {
-        const std::string userProfile = ReadEnvironment("USERPROFILE");
-        if ( !userProfile.empty() )
-        {
-            return userProfile;
-        }
-
-        const std::string drive = ReadEnvironment("HOMEDRIVE");
-        const std::string path  = ReadEnvironment("HOMEPATH");
-        if ( !drive.empty() && !path.empty() )
-        {
-            return drive + path;
-        }
-
-        return ReadEnvironment("HOME");
-    }
 }
 
 int main(int argc, char** argv)
@@ -251,16 +213,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Added: --hash-data and --install-data are tools. They are taken out before the tour parser
-    // and run before any SDL platform, window, audio or render device is created, so they work over
-    // SSH with no display.
+    // Added: --hash-data is a tool. It is taken out before the tour parser and runs before any SDL
+    // platform, window, audio or render device is created, so it works over SSH with no display.
     std::string hashDataDir;
-    std::string installDataDir;
-    bool bHasHashData    = false;
-    bool bHasInstallData = false;
+    bool bHasHashData = false;
     std::string dataToolError;
-    if ( !TakeDataToolOptions(&argc, argv, hashDataDir, bHasHashData, installDataDir,
-            bHasInstallData, dataToolError) )
+    if ( !TakeDataToolOptions(&argc, argv, hashDataDir, bHasHashData, dataToolError) )
     {
         fprintf(stderr, "ERROR: Jones3D: %s\n", dataToolError.c_str());
         PrintUsage(argv[0]);
@@ -277,9 +235,9 @@ int main(int argc, char** argv)
     }
 
     const std::string userDirPath = ResolveUserDir(*pFileSystem, bHasUserDir, userDir);
-    if ( bHasHashData || bHasInstallData )
+    if ( bHasHashData )
     {
-        // Added: JonesDataLocate's tools only need the file system (stdUserDir_Set reaches the file
+        // Added: JonesDataLocate's tool only needs the file system (stdUserDir_Set reaches the file
         // utilities through it). No platform, window, audio or render device is created.
         StdBabylonContext toolContext = {};
         toolContext.pFileSystem = pFileSystem.get();
@@ -294,21 +252,14 @@ int main(int argc, char** argv)
             return 1;
         }
 
-        const int toolExitCode = bHasHashData
-            ? JonesDataLocate_HashData(hashDataDir.c_str())
-            : JonesDataLocate_InstallData(installDataDir.c_str());
+        const int toolExitCode = JonesDataLocate_HashData(hashDataDir.c_str());
         stdBabylon_SetContext(nullptr);
         return toolExitCode;
     }
 
-    // Added: the game data search no longer reads platform paths or the environment itself. The
-    // composition root passes what it already has from the file system and the host environment.
-    const std::string homeDir        = HomeDirectory();
-    const std::string programFiles   = ReadEnvironment("ProgramFiles");
-    const std::string programFilesX86 = ReadEnvironment("ProgramFiles(x86)");
+    // Added: the game data search no longer reads platform paths itself. The composition root
+    // passes what it already has from the file system.
     JonesDataLocate_SetHostDirs(pFileSystem->basePath().c_str(), pFileSystem->currentPath().c_str());
-    JonesDataLocate_SetHostEnvironment(homeDir.c_str(), programFiles.c_str(),
-        programFilesX86.c_str());
 
     // Added: the scripted tour's options are taken out before the game command line is built, so
     // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad
@@ -331,9 +282,8 @@ int main(int argc, char** argv)
     }
 
     // Added: before the game window exists, check whether the game files are there. The probe
-    // needs only the file system, exactly like the --hash-data path; with no prompt handler a
-    // missing install fails instead of opening a native dialog. When nothing is found the setup
-    // window installs the data first, and the game starts with the user directory it chose.
+    // needs only the file system, exactly like the --hash-data path. When nothing is found the
+    // setup window installs the data first, and the game starts with the user directory it chose.
     std::string runUserDir = userDirPath;
     {
         StdBabylonContext dataContext = {};
