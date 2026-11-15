@@ -271,13 +271,14 @@ namespace
 
 struct Ui::State
 {
-    State(Painter& painterRef, cvars::Registry& cvarsRef)
-        : painter(painterRef), cvars(cvarsRef)
+    State(Painter& painterRef, cvars::Registry& cvarsRef, Ui& ownerRef)
+        : painter(painterRef), cvars(cvarsRef), owner(ownerRef)
     {
     }
 
     Painter& painter;
     cvars::Registry& cvars;
+    Ui& owner;
     Skin skin;
     NavigationMap navigation;
     int viewportWidth = 0;
@@ -2100,6 +2101,55 @@ struct Ui::State
         }
     }
 
+    // Keeps the raw input state current when a screen's event callback consumed an event
+    // before the default handlers could see it. Without this a consumed key-up would leave the
+    // key down for the next screen, which then ignores its first press as a repeat.
+    void trackConsumedEvent(const platform::Event& event)
+    {
+        std::visit([this](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr ( std::is_same_v<T, platform::KeyChanged> )
+            {
+                const std::size_t index = static_cast<std::size_t>(value.key);
+                if ( value.key < platform::Key::Count )
+                {
+                    keysDown[index] = value.down;
+                }
+                shiftDown = keysDown[static_cast<std::size_t>(platform::Key::LeftShift)]
+                    || keysDown[static_cast<std::size_t>(platform::Key::RightShift)];
+            }
+            else if constexpr ( std::is_same_v<T, platform::MouseMoved> )
+            {
+                mouseX = value.x;
+                mouseY = value.y;
+            }
+            else if constexpr ( std::is_same_v<T, platform::MouseButtonChanged> )
+            {
+                const std::size_t index = static_cast<std::size_t>(value.button);
+                if ( index < mouseButtons.size() )
+                {
+                    mouseButtons[index] = value.down;
+                }
+            }
+            else if constexpr ( std::is_same_v<T, platform::GamepadButtonChanged> )
+            {
+                const std::size_t index = static_cast<std::size_t>(value.button);
+                if ( index < gamepadButtons.size() )
+                {
+                    gamepadButtons[index] = value.down;
+                }
+            }
+            else if constexpr ( std::is_same_v<T, platform::GamepadAxisMoved> )
+            {
+                const std::size_t index = static_cast<std::size_t>(value.axis);
+                if ( index < gamepadAxisDirections.size() )
+                {
+                    gamepadAxisDirections[index] = captureAxisDirection(value.axis, value.value);
+                }
+            }
+        }, event);
+    }
+
     void handleEvent(const platform::Event& event)
     {
         std::visit([this](const auto& value) {
@@ -2594,6 +2644,14 @@ struct Ui::State
         {
             return;
         }
+        if ( state->screen.draw )
+        {
+            painter.pushClip(Rect{ 0.0f, 0.0f, canvas, kCanvasHeight });
+            state->screen.draw(owner, painter, Size{ canvas, kCanvasHeight });
+            drawPrompts(state->prompts);
+            painter.popClip();
+            return;
+        }
         const Layout layout = computeLayout(*state);
         if ( layout.panel.width <= 0.0f || layout.panel.height <= 0.0f )
         {
@@ -2660,7 +2718,7 @@ struct Ui::State
 };
 
 Ui::Ui(Painter& painter, cvars::Registry& cvars)
-    : m_state(std::make_unique<State>(painter, cvars))
+    : m_state(std::make_unique<State>(painter, cvars, *this))
 {
 }
 
@@ -2905,7 +2963,33 @@ std::size_t Ui::screenCount() const
 
 void Ui::handleEvent(const platform::Event& event)
 {
-    m_state->handleEvent(event);
+    // The callback may run a nested screen, whose event pump can replace the caller's event
+    // storage. Keep a copy so the event stays valid for the callback and the state tracking
+    // after it returns.
+    const platform::Event savedEvent = event;
+
+    if ( ScreenState* state = m_state->top();
+        state != nullptr && state->screen.event )
+    {
+        float pixelX = m_state->mouseX;
+        float pixelY = m_state->mouseY;
+        if ( const platform::MouseMoved* pMoved =
+                std::get_if<platform::MouseMoved>(&savedEvent) )
+        {
+            pixelX = pMoved->x;
+            pixelY = pMoved->y;
+        }
+
+        const Point pointer = m_state->canvasPoint(pixelX, pixelY);
+        if ( state->screen.event(*this, savedEvent, pointer, m_state->viewportHeight > 0) )
+        {
+            m_state->trackConsumedEvent(savedEvent);
+            m_state->syncTextInput();
+            return;
+        }
+    }
+
+    m_state->handleEvent(savedEvent);
     m_state->syncTextInput();
 }
 
