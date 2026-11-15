@@ -86,6 +86,8 @@ TEST_CASE("Null windows get ids counting up from 1")
     // takes a size the shared check allowed.
     CHECK(second->title() == "two");
     CHECK(second->size() == Size{ 320, 200 });
+    // No display, so no desktop mode to report.
+    CHECK(second->desktopSize() == Size{ 0, 0 });
     CHECK(second->resize(Size{ 1, kMaxWindowDimension }));
     CHECK(second->size() == Size{ 1, kMaxWindowDimension });
 

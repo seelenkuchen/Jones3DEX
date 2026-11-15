@@ -315,6 +315,21 @@ namespace
             return Size{width, height};
         }
 
+        // Since no fullscreen mode is set on the window, this is the display's
+        // current desktop mode, the size setFullscreen(true) covers. A driver
+        // with no display reports {0, 0}, like the Null backend.
+        Size desktopSize() const override
+        {
+            const SDL_DisplayID display = SDL_GetDisplayForWindow(m_window);
+            const SDL_DisplayMode* pMode = display != 0
+                ? SDL_GetDesktopDisplayMode(display) : nullptr;
+            if ( pMode == nullptr || pMode->w <= 0 || pMode->h <= 0 )
+            {
+                return Size{0, 0};
+            }
+            return Size{pMode->w, pMode->h};
+        }
+
         // With no fullscreen mode set, SDL_SetWindowFullscreen's bool overload
         // is desktop/borderless fullscreen at the display's current
         // resolution: exactly the fullscreen this interface promises. It may

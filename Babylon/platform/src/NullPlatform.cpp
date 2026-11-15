@@ -52,6 +52,13 @@ namespace
             return m_size;
         }
 
+        // There is no display behind a Null window, so there is no desktop
+        // mode; {0, 0} is the interface's no-display answer.
+        Size desktopSize() const override
+        {
+            return Size{0, 0};
+        }
+
         // There is no display behind a Null window, so nothing can refuse:
         // the mode is only the state the interface promises to report back.
         bool setFullscreen(bool enabled) override
