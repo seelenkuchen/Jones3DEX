@@ -5,6 +5,7 @@
 #include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesInstall.h>
 #include <Jones3D/Platform/Babylon/JonesGogInstaller.h>
+#include <Jones3D/Platform/Babylon/JonesSetupHost.h>
 #include <Jones3D/Platform/Babylon/JonesSetupWindow.h>
 #include <Jones3D/Platform/Babylon/JonesSetupWizard.h>
 
@@ -778,6 +779,42 @@ TEST_CASE("The progress bar fill matches the fraction and contrasts with its tra
             static_cast<double>(track.rect.width) * fraction));
         CHECK_FALSE(fill.color == track.color);
     }
+}
+
+TEST_CASE("The GOG registry path list drops empty, long and duplicate folders")
+{
+    JonesInstallPathList list = {};
+    JonesSetupHost_BuildPathList(&list,
+        {
+            "C:\\GOG Games\\Indiana Jones",
+            "c:\\gog games\\indiana jones",
+            "",
+            "D:\\GOG Games\\Other",
+            std::string(JONESINSTALL_MAX_PATH, 'x'),
+        },
+        true);
+
+    REQUIRE(list.numPaths == 2);
+    CHECK(std::string(list.aPaths[0]) == "C:\\GOG Games\\Indiana Jones");
+    CHECK(std::string(list.aPaths[1]) == "D:\\GOG Games\\Other");
+
+    // A path with its terminating NUL exactly fills the field; one byte more is dropped.
+    JonesInstallPathList longest = {};
+    JonesSetupHost_BuildPathList(&longest, { std::string(JONESINSTALL_MAX_PATH - 1, 'a') }, true);
+    REQUIRE(longest.numPaths == 1);
+    CHECK(std::strlen(longest.aPaths[0]) == JONESINSTALL_MAX_PATH - 1);
+
+    std::vector<std::string> many;
+    for ( size_t i = 0; i < JONESINSTALL_MAX_HOST_PATHS + 5; ++i )
+    {
+        many.push_back("C:\\Games\\" + std::to_string(i));
+    }
+
+    JonesInstallPathList capped = {};
+    JonesSetupHost_BuildPathList(&capped, many, true);
+    CHECK(capped.numPaths == JONESINSTALL_MAX_HOST_PATHS);
+    CHECK(std::string(capped.aPaths[capped.numPaths - 1])
+        == "C:\\Games\\" + std::to_string(JONESINSTALL_MAX_HOST_PATHS - 1));
 }
 
 int main(int argc, char** argv)
