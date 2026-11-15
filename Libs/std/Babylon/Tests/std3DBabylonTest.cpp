@@ -1512,6 +1512,30 @@ namespace
         RecordedAt<render::EndPass>(index + 3u + aInputs.size());
         return attachment.target;
     }
+
+    // A present overlay that records one pass to its target and remembers what it was given.
+    struct OverlayCall
+    {
+        int calls = 0;
+        StdRenderBabylonOverlayTarget target{};
+    };
+
+    bool RecordOverlay(void* pUser, render::CommandList& list,
+        const StdRenderBabylonOverlayTarget& target)
+    {
+        OverlayCall* pCall = static_cast<OverlayCall*>(pUser);
+        if ( !pCall )
+        {
+            return false;
+        }
+        ++pCall->calls;
+        pCall->target = target;
+
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ target.texture, 0,
+            render::LoadOp::Load, render::StoreOp::Store, {} });
+        return list.beginPass(pass) && list.endPass();
+    }
 }
 
 TEST(std3DBabylon, AnEmptyPostChainPresentsTheBackBuffer)
@@ -1649,6 +1673,102 @@ TEST(std3DBabylon, BadPostPassesAreRefused)
     TEST_ASSERT_EQUAL_size_t(0u, Null().recorded().size());
 }
 
+TEST(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass)
+{
+    OpenStd3D(16u, 8u);
+    OverlayCall call;
+    stdRenderBabylon_SetPresentOverlay(RecordOverlay, &call);
+    TEST_ASSERT_TRUE(stdRenderBabylon_HasPresentOverlay());
+
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+
+    TEST_ASSERT_EQUAL_INT(1, call.calls);
+    TEST_ASSERT_TRUE(call.target.texture.isNull());
+    TEST_ASSERT_EQUAL_UINT32(16u, call.target.width);
+    TEST_ASSERT_EQUAL_UINT32(8u, call.target.height);
+
+    TEST_ASSERT_EQUAL_size_t(5u, Null().recorded().size());
+    AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
+    RecordedAt<render::EndPass>(1);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(2);
+    TEST_ASSERT_EQUAL_size_t(1u, overlay.desc.colorTargets.size());
+    TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target.isNull());
+    TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
+    RecordedAt<render::EndPass>(3);
+    AssertSubmitted(4);
+
+    // A flush frame does not run the overlay.
+    call.calls = 0;
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_EndScene();
+    TEST_ASSERT_TRUE(stdRenderBabylon_FlushFrame());
+    TEST_ASSERT_EQUAL_INT(0, call.calls);
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+    AssertScenePass(0, render::LoadOp::Load, render::LoadOp::Load);
+    RecordedAt<render::EndPass>(1);
+    AssertSubmitted(2);
+
+    stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
+    TEST_ASSERT_FALSE(stdRenderBabylon_HasPresentOverlay());
+}
+
+TEST(std3DBabylon, APresentToTextureIncludesTheOverlay)
+{
+    OpenStd3D(16u, 8u);
+    const render::TextureHandle target = Null().createTexture(
+        render::TextureDesc{ 32u, 16u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(target.isNull());
+
+    // The Null device has no swapchain, so the first capture makes the
+    // present pipeline; the second one starts with a clean record.
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 32u, 16u));
+    Null().clearRecorded();
+
+    OverlayCall call;
+    stdRenderBabylon_SetPresentOverlay(RecordOverlay, &call);
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 32u, 16u));
+
+    TEST_ASSERT_EQUAL_INT(1, call.calls);
+    TEST_ASSERT_TRUE(call.target.texture == target);
+    TEST_ASSERT_EQUAL_UINT32(32u, call.target.width);
+    TEST_ASSERT_EQUAL_UINT32(16u, call.target.height);
+
+    // The present pass into the capture target, then the overlay's pass on it, then one submit.
+    const render::BeginPass& present = RecordedAt<render::BeginPass>(0);
+    TEST_ASSERT_TRUE(present.desc.colorTargets[0].target == target);
+    TEST_ASSERT_TRUE(present.desc.colorTargets[0].load == render::LoadOp::DontCare);
+    RecordedAt<render::EndPass>(4);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(5);
+    TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
+    TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
+    RecordedAt<render::EndPass>(6);
+    AssertSubmitted(7);
+    TEST_ASSERT_EQUAL_size_t(32u * 16u * 4u, Null().readTexture(target, 0).size());
+
+    stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
+    Null().destroyTexture(target);
+}
+
+TEST(std3DBabylon, CloseClearsThePresentOverlay)
+{
+    OpenStd3D(8u, 8u);
+    OverlayCall call;
+    stdRenderBabylon_SetPresentOverlay(RecordOverlay, &call);
+    TEST_ASSERT_TRUE(stdRenderBabylon_HasPresentOverlay());
+
+    CloseStd3D();
+    TEST_ASSERT_FALSE(stdRenderBabylon_HasPresentOverlay());
+
+    OpenStd3D(8u, 8u);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_INT(0, call.calls);
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+}
+
 TEST_GROUP_RUNNER(std3DBabylon)
 {
     RUN_TEST_CASE(std3DBabylon, StartupFailsWithoutARenderDevice);
@@ -1682,6 +1802,9 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer);
     RUN_TEST_CASE(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets);
     RUN_TEST_CASE(std3DBabylon, BadPostPassesAreRefused);
+    RUN_TEST_CASE(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass);
+    RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheOverlay);
+    RUN_TEST_CASE(std3DBabylon, CloseClearsThePresentOverlay);
 }
 
 TEST_GROUP(stdRenderBabylonOption);

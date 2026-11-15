@@ -65,3 +65,11 @@ Null column keeps its default-returning dialog stubs.
 After playing the windowed build, the owner decided that the HUD item menu's system icons (save, load, options,
 exit) are off by default: the pause menu on Escape or Start replaces them. `engine.ui.hud.systemIcons` defaults to
 false; true brings them back.
+
+## Amendment (2026-11-15)
+
+The painter amendment above is superseded for the game menus by
+[ADR-0035](ADR-0035-native-resolution-menus.md). Menus no longer share the HUD's rdroid painter and are no
+longer pixel-identical to the HUD. They keep the same widgets, layout in canvas units, skins, fonts, colors,
+sound cues, call order and return values, but draw through `RenderPainter` on the window's present overlay at
+native pixel size, over the presented game frame. The HUD itself stays in the game frame.

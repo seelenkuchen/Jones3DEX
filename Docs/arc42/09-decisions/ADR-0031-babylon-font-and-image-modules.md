@@ -19,8 +19,8 @@ no way to read a TrueType font or a PNG file. Changing the module allowlist is a
   - `image`: decodes PNG bytes into RGBA8 pixels. Depends on `core` and the vendored `stb_image`
     (public domain / MIT).
 - Reading the files stays with the caller (the `files` module), so neither module touches the file system.
-- The adapter (`JonesUiPainter`) uploads atlases and images as textures and draws them; game code never sees
-  them.
+- The adapter (`JonesUiAssets` with `uirender::RenderPainter`) uploads atlases and images as textures and
+  draws them; game code never sees them.
 - Runtime assets live in the repository under `Data/ui/fonts/` and `Data/ui/prompts/<set>/`, each with its
   license text. The build copies `Data/` next to the executable and the install rules ship it. The game finds
   it relative to the executable's directory.

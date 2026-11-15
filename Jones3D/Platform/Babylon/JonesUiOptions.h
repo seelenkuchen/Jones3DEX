@@ -42,8 +42,8 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
     const JonesUiOptionsData& data,
     const JonesUiModalBackground& background = JonesUiModalBackground{});
 
-// Added: the blocking wrapper used by the main and pause menus. It loads the settings, registers
-// the Cinzel tab and Jost row fonts, creates the Options skin, runs the screen over the menu
+// Added: the blocking wrapper used by the main and pause menus. It loads the settings, uses the
+// context's Cinzel and Jost fonts, creates the Options skin, runs the screen over the menu
 // background (darkened when one is given) and applies the sound and display changes. Returns the
 // dialog result: 1 applied, 2 cancelled. bLevelRunning tells the Game data tab that the pause menu
 // opened Options, so "Run setup again..." stays disabled until the game is not running a level.

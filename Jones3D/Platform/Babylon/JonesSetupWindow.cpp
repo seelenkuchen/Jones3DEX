@@ -813,6 +813,15 @@ namespace
 
         babylon::uirender::RenderPainter painter(*pDevice);
 
+        // Bake the fonts at the wizard's real pixel scale before measuring or
+        // building any screen, so the first frame is not a 1x bake stretched.
+        const babylon::platform::Size initialSize = pWindow->size();
+        if ( initialSize.height > 0 )
+        {
+            static_cast<void>(painter.setPixelScale(
+                (float)initialSize.height / kWizardCanvasHeight));
+        }
+
         const std::optional<babylon::font::Font> titleFont = LoadFont(fs, "Cinzel[wght].ttf");
         const std::optional<babylon::font::Font> rowFont = LoadFont(fs, "Jost[wght].ttf");
         const FontId titleId = titleFont ? painter.addFont(*titleFont, 22.0f) : 0;
@@ -828,7 +837,6 @@ namespace
         const Skin skin = JonesSetupWindow_CreateSkin(titleId, rowId, &painter);
         static_cast<void>(ui.setSkin(skin));
 
-        const babylon::platform::Size initialSize = pWindow->size();
         static_cast<void>(ui.setViewport(initialSize.width, initialSize.height));
 
         JonesSetupWizard wizard(platform, process, host.installHost, userDir, exeDir, bRerun,

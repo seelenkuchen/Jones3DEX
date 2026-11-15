@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's Statistics, Level Completed and Game Over
 // screens (ADR-0026). They drive each screen with one scripted platform event per frame, check
 // every return value and the outputs, and check the exact statistics strings of a synthetic
-// SithGameStatistics. The drawing sample lives in JonesUiPainterTest.cpp.
+// SithGameStatistics. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <array>

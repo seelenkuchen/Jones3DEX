@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's Save, Load and Exit screens (ADR-0026). They use
 // a temporary save directory with hand-built .nds files and a platform that delivers one scripted
 // event per frame, so the screens run exactly as they do in the game loop without a window or a
-// GPU. The drawing sample lives in JonesUiPainterTest.cpp.
+// GPU. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <chrono>

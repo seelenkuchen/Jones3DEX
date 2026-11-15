@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's main menu and start-mode mapping (ADR-0026).
 // They drive the runner with a Null painter and a scripted platform, so every menu action and the
 // nested Settings screen run without a window, display or game asset. The drawing sample lives in
-// JonesUiPainterTest.cpp.
+// JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdio>

@@ -13,7 +13,6 @@
 #include <Jones3D/Main/jonesString.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
-#include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
 #include <babylon/platform/Platform.h>
@@ -156,7 +155,7 @@ namespace
         }
 
         babylon::ui::Screen screen = BuildMessageScreen(*pContext->pUi, pContext->painter,
-            pContext->font, title, text, okText);
+            pContext->rowFont, title, text, okText);
         result = JonesUiModal_Run(*pContext->pUi, &pContext->painter, screen,
             [](babylon::ui::ResultCode code) { return (int)code; });
         JonesUiContext_Release(pContext);

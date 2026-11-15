@@ -27,7 +27,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
-#include <Jones3D/Platform/Babylon/JonesUiPainter.h>
+#include <Jones3D/Platform/Babylon/JonesUiAssets.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
 #include <sith/Dss/sithGamesave.h>
@@ -37,6 +37,7 @@
 #include <sith/World/sithWorld.h>
 
 #include <babylon/files/FileSystem.h>
+#include <babylon/uirender/RenderPainter.h>
 #include <babylon/ui/Painter.h>
 #include <babylon/ui/Screen.h>
 #include <babylon/ui/Types.h>
@@ -270,7 +271,7 @@ namespace
     class JonesUiSave_Thumbnails
     {
     public:
-        explicit JonesUiSave_Thumbnails(JonesUiPainter* pPainter)
+        explicit JonesUiSave_Thumbnails(babylon::uirender::RenderPainter* pPainter)
             : m_pPainter(pPainter)
         {
         }
@@ -284,7 +285,7 @@ namespace
 
             for ( babylon::ui::ImageId image : m_images )
             {
-                m_pPainter->unregisterImage(image);
+                m_pPainter->releaseImage(image);
             }
         }
 
@@ -305,8 +306,8 @@ namespace
                 if ( sithGamesave_ReadThumbnail(entries[cur].path.c_str(), aThumbnail.data(),
                         aThumbnail.size()) )
                 {
-                    m_images[cur] = m_pPainter->registerRgbImage(aThumbnail.data(),
-                        SITHSAVEGAME_THUMB_WIDTH, SITHSAVEGAME_THUMB_HEIGHT);
+                    m_images[cur] = JonesUiAssets_AddRgbImage(*m_pPainter,
+                        aThumbnail.data(), SITHSAVEGAME_THUMB_WIDTH, SITHSAVEGAME_THUMB_HEIGHT);
                 }
             }
         }
@@ -317,7 +318,7 @@ namespace
         }
 
     private:
-        JonesUiPainter* m_pPainter;
+        babylon::uirender::RenderPainter* m_pPainter;
         std::vector<babylon::ui::ImageId> m_images;
     };
 
@@ -607,8 +608,8 @@ bool JonesUiSave_CollectEntries(babylon::files::FileSystem& fileSystem, const ch
 }
 
 int JonesUiSave_RunSaveScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
-    const char* pLevelName, const std::tm& now, char* pOutPath)
+    babylon::uirender::RenderPainter* pImagePainter, babylon::files::FileSystem& fileSystem,
+    const char* pSaveDir, const char* pLevelName, const std::tm& now, char* pOutPath)
 {
     const std::string title = JonesUiContext_ResolveString("JONES_STR_SAVEGM");
     const std::string cancelText = JonesUiContext_ResolveString("JONES_STR_CANCEL");
@@ -703,8 +704,8 @@ int JonesUiSave_RunSaveScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainte
 }
 
 int JonesUiLoad_RunLoadScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
-    bool bWarnBeforeLoad, char* pOutPath)
+    babylon::uirender::RenderPainter* pImagePainter, babylon::files::FileSystem& fileSystem,
+    const char* pSaveDir, bool bWarnBeforeLoad, char* pOutPath)
 {
     const std::string title = JonesUiContext_ResolveString("JONES_STR_LOADGM");
     const std::string cancelText = JonesUiContext_ResolveString("JONES_STR_CANCEL");
@@ -763,8 +764,8 @@ int JonesUiLoad_RunLoadScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainte
 }
 
 int JonesUiExit_RunExitScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
-    JonesUiPainter* pImagePainter, babylon::files::FileSystem& fileSystem, const char* pSaveDir,
-    const char* pLevelName, const std::tm& now, char* pSavePath)
+    babylon::uirender::RenderPainter* pImagePainter, babylon::files::FileSystem& fileSystem,
+    const char* pSaveDir, const char* pLevelName, const std::tm& now, char* pSavePath)
 {
     const babylon::ui::Screen screen = JonesUiSave_BuildExitScreen();
 

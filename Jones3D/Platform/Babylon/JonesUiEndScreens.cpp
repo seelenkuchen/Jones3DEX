@@ -38,6 +38,7 @@
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonPath.h>
 #include <std/General/std.h>
+#include <std/General/stdUtil.h>
 #include <std/General/stdFnames.h>
 
 #include <babylon/files/FileSystem.h>
@@ -240,34 +241,11 @@ namespace
     }
 
     // The end screens share one look (ADR-0028): a Cinzel title and Jost rows at 16 canvas units,
-    // in the boxless Options layout without tabs or help.
-    babylon::ui::Skin JonesUiEndScreens_CreateSkin(JonesUiContext& rUiContext,
-        StdBabylonContext& rContext)
+    // in the boxless Options layout without tabs or help, from the context's one font set.
+    babylon::ui::Skin JonesUiEndScreens_CreateSkin(JonesUiContext& rUiContext)
     {
-        constexpr const char* kTitleFontFile = "fonts/Cinzel[wght].ttf";
-        constexpr const char* kRowFontFile   = "fonts/Jost[wght].ttf";
-        constexpr float kTitleFontSize       = 22.0f;
-        constexpr float kRowFontSize         = 16.0f;
-
-        babylon::ui::FontId titleFont = rUiContext.painter.registerTtfFontFile(
-            *rContext.pFileSystem, kTitleFontFile, kTitleFontSize);
-        if ( titleFont == 0 )
-        {
-            STDLOG_WARNING("End screen: '%s' unavailable, using the rdFont fallback.\n",
-                kTitleFontFile);
-            titleFont = rUiContext.font;
-        }
-
-        babylon::ui::FontId rowFont = rUiContext.painter.registerTtfFontFile(
-            *rContext.pFileSystem, kRowFontFile, kRowFontSize);
-        if ( rowFont == 0 )
-        {
-            STDLOG_WARNING("End screen: '%s' unavailable, using the rdFont fallback.\n",
-                kRowFontFile);
-            rowFont = rUiContext.font;
-        }
-
-        return JonesUiSkin_CreateEndScreen(titleFont, rowFont, &rUiContext.painter);
+        return JonesUiSkin_CreateEndScreen(rUiContext.titleFont, rUiContext.rowFont,
+            &rUiContext.painter, rUiContext.promptFont);
     }
 }
 
@@ -603,7 +581,7 @@ extern "C" int J3DAPI jonesConfig_ShowStatisticsDialog(tSysWindow hWnd,
 
     const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
     static_cast<void>(pUiContext->pUi->setSkin(
-        JonesUiEndScreens_CreateSkin(*pUiContext, *pContext)));
+        JonesUiEndScreens_CreateSkin(*pUiContext)));
 
     const int result = JonesUiStatistics_RunStatisticsScreen(*pUiContext->pUi,
         &pUiContext->painter, *pStatistics, jonesInventory_GetTotalIQPoints());
@@ -646,7 +624,7 @@ extern "C" int J3DAPI jonesConfig_ShowLevelCompletedDialog(tSysWindow hWnd, int*
 
     const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
     static_cast<void>(pUiContext->pUi->setSkin(
-        JonesUiEndScreens_CreateSkin(*pUiContext, *pContext)));
+        JonesUiEndScreens_CreateSkin(*pUiContext)));
 
     const int result = JonesUiLevelCompleted_RunLevelCompletedScreen(*pUiContext->pUi,
         &pUiContext->painter, *pStatistics, elapsedTime, qiPoints, numFoundTrasures,
@@ -686,7 +664,7 @@ extern "C" int J3DAPI jonesConfig_ShowGameOverDialog(tSysWindow hWnd, char* pRes
 
     const babylon::ui::Skin previousSkin = pUiContext->pUi->skin();
     static_cast<void>(pUiContext->pUi->setSkin(
-        JonesUiEndScreens_CreateSkin(*pUiContext, *pContext)));
+        JonesUiEndScreens_CreateSkin(*pUiContext)));
 
     const int result = JonesUiGameOver_RunGameOverScreen(*pUiContext->pUi,
         &pUiContext->painter, autoSavePath.c_str(), !autoSavePath.empty(), hSndGameOVerMus,

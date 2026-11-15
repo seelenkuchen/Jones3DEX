@@ -3,7 +3,6 @@
 
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
-#include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiPrompts.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
@@ -20,185 +19,16 @@
 
 #include <std/General/std.h>
 #include <std/General/std3D.h>
-#include <std/General/stdColor.h>
 #include <std/General/stdDisplay.h>
 #include <std/General/stdPlatform.h>
 
 #include <cstdint>
-#include <cstring>
 #include <optional>
 #include <variant>
 #include <vector>
 
 namespace
 {
-    // A copy of the frame the game last drew, registered with the painter as an image. It is
-    // captured once when a modal loop starts; the game does not draw while the loop runs, so it
-    // stays the frozen frame behind the screen.
-    struct FrozenFrame
-    {
-        babylon::ui::ImageId image = 0;
-
-        void Capture(JonesUiPainter& painter)
-        {
-            void* pLocked      = nullptr;
-            uint32_t width     = 0;
-            uint32_t height    = 0;
-            int32_t pitch      = 0;
-            if ( stdDisplay_LockBackBufferReadOnly(&pLocked, &width, &height, &pitch) != 0
-                || !pLocked || !width || !height )
-            {
-                return;
-            }
-
-            const tRasterInfo& back = stdDisplay_g_backBuffer.rasterInfo;
-            const uint32_t bytesPerPixel = back.colorInfo.bpp / 8u;
-            const size_t rowBytes        = (size_t)width * bytesPerPixel;
-            int64_t rowPitch             = pitch;
-            if ( rowPitch < 0 )
-            {
-                rowPitch = -rowPitch;
-            }
-
-            if ( !bytesPerPixel || rowPitch < (int64_t)rowBytes )
-            {
-                stdDisplay_UnlockBackBuffer();
-                return;
-            }
-
-            // A software VBuffer keeps the pixels in the back buffer's own format; the color
-            // conversion below turns them into the B, G, R blocks registerRgbImage() takes.
-            tRasterInfo raster;
-            memset(&raster, 0, sizeof(raster));
-            raster.width     = width;
-            raster.height    = height;
-            raster.rowSize   = rowBytes;
-            raster.rowWidth  = width;
-            raster.size      = rowBytes * height;
-            raster.colorInfo = back.colorInfo;
-
-            tVBuffer* pCopy = stdDisplay_VBufferNew(&raster, /*bUseVSurface=*/0, /*bUseVideoMemory=*/0);
-            if ( !pCopy )
-            {
-                stdDisplay_UnlockBackBuffer();
-                return;
-            }
-
-            for ( uint32_t y = 0; y < height; ++y )
-            {
-                memcpy(&pCopy->pPixels[pCopy->rasterInfo.rowSize * y],
-                    (const uint8_t*)pLocked + rowPitch * y, rowBytes);
-            }
-
-            stdDisplay_UnlockBackBuffer();
-
-            // The converter frees pCopy when it returns a new buffer.
-            tVBuffer* pRgb = stdDisplay_VBufferConvertColorFormat(&stdColor_cfRGB888, pCopy,
-                /*bColorKey=*/0, NULL);
-            if ( !pRgb )
-            {
-                stdDisplay_VBufferFree(pCopy);
-                return;
-            }
-
-            image = painter.registerRgbImage(pRgb->pPixels, width, height);
-            stdDisplay_VBufferFree(pRgb);
-        }
-
-        // Cover-scales an image to the canvas: it keeps its aspect and fills the canvas, cropping
-        // the overhang. A zero source size stretches to the whole canvas.
-        static babylon::ui::Rect CoverRect(const babylon::ui::Size& canvas,
-            const JonesUiModalBackground& background)
-        {
-            babylon::ui::Rect rect;
-            if ( !(background.width > 0.0f) || !(background.height > 0.0f) )
-            {
-                rect.width  = canvas.width;
-                rect.height = canvas.height;
-                return rect;
-            }
-
-            // Cover: the larger of the two scale factors, so neither canvas axis is left empty;
-            // the overhang is centered and cropped by the painter's clip.
-            const float scaleX = canvas.width / background.width;
-            const float scaleY = canvas.height / background.height;
-            const float scale  = scaleX > scaleY ? scaleX : scaleY;
-            rect.width  = background.width * scale;
-            rect.height = background.height * scale;
-            rect.x = (canvas.width - rect.width) * 0.5f;
-            rect.y = (canvas.height - rect.height) * 0.5f;
-            return rect;
-        }
-
-        void Draw(babylon::ui::Ui& ui, JonesUiPainter& painter,
-            const JonesUiModalBackground& background) const
-        {
-            const babylon::ui::Size canvas = ui.canvasSize();
-            babylon::ui::Rect full;
-            full.width  = canvas.width;
-            full.height = canvas.height;
-
-            // Without a captured frame or a background of its own, clear so the previous modal
-            // frame does not show through.
-            if ( image == 0 && background.image == 0 && !background.draw )
-            {
-                stdDisplay_BackBufferFill(0, NULL);
-            }
-
-            // Start the modal frame with a fresh depth buffer, as the load screen and the game
-            // frame do. Without this, a panel drawn by the previous screen keeps its nearer depth
-            // and the background redrawn at full screen fails the depth test where the panel was.
-            std3D_ClearZBuffer();
-
-            // The scene begin returns 0 on success, like the painter test's other frame calls.
-            if ( std3D_StartScene() != 0 )
-            {
-                return;
-            }
-
-            if ( background.draw )
-            {
-                // The game's own background (the main menu's wallpaper) is drawn at full brightness
-                // before the screen; the panel is opaque enough to keep the text readable.
-                background.draw();
-            }
-            else if ( background.image != 0 )
-            {
-                // The menu background is drawn at full brightness; the panel is opaque enough to
-                // keep the text readable.
-                painter.drawImage(background.image, CoverRect(canvas, background));
-            }
-            else
-            {
-                if ( image != 0 )
-                {
-                    painter.drawImage(image, full);
-                }
-
-                painter.fillRect(full, ui.skin().dim);
-            }
-
-            if ( background.overlay )
-            {
-                background.overlay();
-            }
-
-            ui.draw();
-
-            std3D_EndScene();
-            stdDisplay_Update();
-        }
-
-        void Release(JonesUiPainter& painter)
-        {
-            if ( image != 0 )
-            {
-                painter.unregisterImage(image);
-                image = 0;
-            }
-        }
-    };
-
     // Added: the nesting depth of the modal loops, for the run log only.
     int g_modalDepth = 0;
 
@@ -215,6 +45,23 @@ namespace
             std::get_if<babylon::platform::WindowCloseRequested>(&event);
         return pClose && pWindow && pClose->window == pWindow->id();
     }
+
+    // A background the game renderer draws (the main menu wallpaper) goes into the game frame
+    // before the present, so the overlay can put the screen over it.
+    void DrawGameBackground(const JonesUiModalBackground& background)
+    {
+        if ( !background.draw )
+        {
+            return;
+        }
+
+        std3D_ClearZBuffer();
+        if ( std3D_StartScene() == 0 )
+        {
+            background.draw();
+            std3D_EndScene();
+        }
+    }
 }
 
 static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,
@@ -222,6 +69,10 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     const JonesUiModalEventHandler& handler, const JonesUiModalBackground& background,
     const JonesUiModalResizeHandler& resizeHandler)
 {
+    // The screen is drawn by the context's present overlay; the painter argument is kept for the
+    // public API and the direct-call unit tests.
+    (void)pPainter;
+
     const babylon::ui::ScreenId screenId = ui.push(screen);
     if ( screenId == babylon::ui::kInvalidScreen )
     {
@@ -238,7 +89,7 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     babylon::platform::Window* pWindow = rContext.pWindow;
 
     // A message can open from inside the game's frame (JonesHud_Process calls one). Closing the
-    // caller's scene before the capture keeps its pass from being dropped by the frame flush and
+    // caller's scene before the present keeps its pass from being dropped by the frame flush and
     // lets the loop begin scenes of its own; the caller gets a fresh scene before it continues.
     const bool bHadScene = std3D_IsInScene();
     if ( bHadScene )
@@ -246,40 +97,19 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
         std3D_EndScene();
     }
 
-    // Only the game's own painter can hold a frozen frame image; a Null painter has no display
-    // path behind it. The background belongs to the ui session, not to one loop: the first modal
-    // loop while a context is held captures the frozen frame or adopts the opener's background,
-    // and every later loop reuses it. A direct call without a context, such as a test, captures
-    // its own frame.
-    JonesUiPainter* pFramePainter = dynamic_cast<JonesUiPainter*>(pPainter);
-    JonesUiContext* pUiContext    = JonesUiContext_GetActive();
-    FrozenFrame frame;
+    // The background belongs to the ui session, not to one loop: the first modal loop while a
+    // context is held adopts the opener's background, and every later loop reuses it.
+    JonesUiContext* pUiContext = JonesUiContext_GetActive();
     const JonesUiModalBackground* pBackground = &background;
-    JonesUiPainter* pDrawPainter = pFramePainter;
-    bool bCapturedNewFrame = false;
     if ( pUiContext )
     {
         if ( !pUiContext->bModalBackgroundStarted )
         {
             pUiContext->bModalBackgroundStarted = true;
             pUiContext->modalBackground         = background;
-            pUiContext->pModalFramePainter      = pFramePainter;
-            if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 && !background.draw )
-            {
-                frame.Capture(*pFramePainter);
-                pUiContext->modalFrozenImage = frame.image;
-                bCapturedNewFrame = true;
-            }
         }
 
-        frame.image  = pUiContext->modalFrozenImage;
-        pBackground  = &pUiContext->modalBackground;
-        pDrawPainter = pUiContext->pModalFramePainter;
-    }
-    else if ( pFramePainter && stdDisplay_IsOpen() && background.image == 0 && !background.draw )
-    {
-        frame.Capture(*pFramePainter);
-        bCapturedNewFrame = true;
+        pBackground = &pUiContext->modalBackground;
     }
 
     const char* pBackgroundState = "none";
@@ -291,13 +121,13 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
     {
         pBackgroundState = "image";
     }
-    else if ( frame.image != 0 )
+    else
     {
-        pBackgroundState = "frozen";
+        pBackgroundState = "game";
     }
 
-    STDLOG_DEBUG("JonesUiModal_Run: context=%p depth=%d background=%s capture=%d\n",
-        (void*)pUiContext, g_modalDepth, pBackgroundState, bCapturedNewFrame ? 1 : 0);
+    STDLOG_DEBUG("JonesUiModal_Run: context=%p depth=%d background=%s\n",
+        (void*)pUiContext, g_modalDepth, pBackgroundState);
 
     int result = (int)screen.backResult;
     bool bClosed = false;
@@ -420,21 +250,16 @@ static int JonesUiModal_RunInternal(babylon::ui::Ui& ui, babylon::ui::Painter* p
             break;
         }
 
-        if ( pDrawPainter && stdDisplay_IsOpen() )
+        if ( stdDisplay_IsOpen() )
         {
-            frame.Draw(ui, *pDrawPainter, *pBackground);
+            DrawGameBackground(*pBackground);
+            static_cast<void>(stdDisplay_Update());
         }
         else if ( numEvents == 0 )
         {
             // Nothing to do and nowhere to draw: yield like the blocking Win32 dialog did.
             stdPlatform_Sleep(1);
         }
-    }
-
-    // A session's frozen frame lives until the context is released; a direct call frees its own.
-    if ( !pUiContext && pFramePainter )
-    {
-        frame.Release(*pFramePainter);
     }
 
     // Give the caller back the scene it was drawing into, so its remaining draws and its own

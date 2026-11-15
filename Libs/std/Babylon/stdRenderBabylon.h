@@ -134,6 +134,38 @@ bool stdRenderBabylon_FlushFrame();
 // stdRenderBabylon_SubmitFrame. Must be open.
 bool stdRenderBabylon_PresentFrame();
 
+// Where a present overlay draws. A null texture names the swapchain; format is then the device's
+// swapchain format and is ignored. A texture names an offscreen color target of that format and
+// width x height. width and height are in pixels.
+struct StdRenderBabylonOverlayTarget
+{
+    babylon::render::TextureHandle texture;
+    babylon::render::TextureFormat format = babylon::render::TextureFormat::Bgra8;
+    std::uint32_t width  = 0;
+    std::uint32_t height = 0;
+};
+
+// An extra pass recorded on top of the presented frame: the callback runs after the post-processing
+// chain and the present pass of every presenting submit and before the single Device::submit(), on
+// the same command list. It must open and close its own passes and must not submit; the target is
+// the swapchain or the offscreen target of stdRenderBabylon_RenderPresentToTexture. For a swapchain
+// target, width and height are the game window's drawable size, or the back buffer's without a
+// window. Returns true when it recorded commands. pfn is called on the render thread while the
+// frame is open. Registering nullptr removes it. Open and Close clear it.
+using StdRenderBabylonPresentOverlay = bool (*)(void* pUser,
+    babylon::render::CommandList& list, const StdRenderBabylonOverlayTarget& target);
+void stdRenderBabylon_SetPresentOverlay(StdRenderBabylonPresentOverlay pfn, void* pUser);
+bool stdRenderBabylon_HasPresentOverlay();
+
+// Draws what the last presenting submit presents (the post-processing chain's output, or the back
+// buffer) and the present overlay into target with one submit, without presenting. target must be
+// a Bgra8 color target of width x height; the caller reads it back and destroys it. Use this for
+// screenshots of the window, including the overlay a menu records on the swapchain. Returns false,
+// logging why, when not open, without a back buffer, while a frame is being recorded, or when the
+// device refuses the frame.
+bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle target,
+    std::uint32_t width, std::uint32_t height);
+
 // Appends a pass to the post-processing chain. The pass draws one full-screen triangle (the vertex
 // shader of the present pass, Shaders/present.vert.hlsl, gives the fragment shader the texture
 // coordinate in TEXCOORD0, (0, 0) at the top left) into a Bgra8 target of the back buffer's size,

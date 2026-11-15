@@ -639,7 +639,7 @@ Tests that can change fullscreen display modes, reset or recreate graphics devic
 ### 🎧 M7 UI, Screen And Audio Tests
 
 The in-game screens are tested by `Jones3D.UiPainter`, which builds `Jones3DUiPainterTests` from
-`JonesUiPainterTest.cpp`, `JonesUiModalTest.cpp`, `JonesUiSaveLoadTest.cpp`, `JonesUiMainMenuTest.cpp`,
+`JonesUiRenderTest.cpp`, `JonesUiModalTest.cpp`, `JonesUiSaveLoadTest.cpp`, `JonesUiMainMenuTest.cpp`,
 `JonesUiEndScreensTest.cpp`, `JonesUiSettingsTest.cpp`, `JonesUiPauseMenuTest.cpp` and
 `JonesUiStoreTest.cpp`, together with the screen sources. The suite is labelled `unit;Jones3D` and runs with
 SDL's offscreen video driver, so it needs no display.
@@ -650,12 +650,13 @@ SDL's offscreen video driver, so it needs no display.
   written only on OK, the start-mode mapping per column, the pause menu's thumbnail capture, the HUD system
   items it shares, and Game Over's nested Load and sound channel. Headless runs check the Null stubs'
   answers.
-- The GPU cases draw sample screens with a synthetic `rdFont` and material on the SDL GPU device, read the
-  back buffer and write a BMP for review: `ui-painter-sample.bmp` (settings), `ui-message-sample.bmp`,
-  `ui-mainmenu-sample.bmp`, `ui-save-sample.bmp`, `ui-levelcompleted-sample.bmp`,
-  `ui-store-sample.bmp` and `ui-display-sample.bmp`. Linux CI runs them on Mesa's lavapipe; without a GPU
-  device they print a skip and pass, and `BABYLON_REQUIRE_GPU=1` makes that a failure. The rendered BMPs
-  were reviewed with the slices.
+- `JonesUiRenderTest.cpp` covers the asset and drawing layer: it loads the packaged Cinzel/Jost font and a
+  prompt PNG through `JonesUiAssets`, checks `measureText`, draws text and a PNG with `RenderPainter` and
+  reads the pixels back, widens an RGB save thumbnail and checks its colours, clips a fill, and draws the
+  present overlay to prove the background image, overlay shade, dim and screen layering. The render-painter
+  font-case in `Babylon/uirender/tests/RenderPainterTest.cpp` covers scale-dependent baking and the
+  reference raster. Linux CI runs the GPU cases on Mesa's lavapipe; without a GPU device they print a skip
+  and pass, and `BABYLON_REQUIRE_GPU=1` makes that a failure.
 - The `ui` module's own `babylon.ui` suite covers widgets, layout, navigation, cvar binding and text entry;
   its `NullPainter` records draw calls for the screen tests.
 

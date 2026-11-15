@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's modal screen loop (ADR-0026). They drive
 // JonesUiModal_Run with a Null painter and a Null platform whose event queue the cases script, so
-// no window, display or game asset is needed. The GPU drawing case lives in JonesUiPainterTest.cpp,
-// next to its synthetic font.
+// no window, display or game asset is needed. The GPU drawing and overlay cases live in
+// JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <memory>

@@ -2,6 +2,8 @@
 
 Status: built in the Babylon column on 2026-11-07 ([ADR-0026](../09-decisions/ADR-0026-in-game-menus.md)),
 including the Controls screen. The Null column keeps all of its default-returning stubs.
+Since 2026-11-15 the menus draw at the window's native resolution through the present overlay, independent
+of the game's render resolution ([ADR-0035](../09-decisions/ADR-0035-native-resolution-menus.md)).
 
 Built in M7.6 ([ADR-0028](../09-decisions/ADR-0028-modern-menu-style-and-always-on-gamepad.md)): a modern
 style with a new main menu, one tabbed Options screen in place of the separate settings screens and the old
@@ -14,8 +16,8 @@ the Performance row; `graphics.performanceLevel` and the level stored in savegam
 | Part | Where | Responsibility |
 |---|---|---|
 | `ui` module | `Babylon/ui/` | Widgets, layout, screen stack, focus, keyboard/mouse/gamepad navigation, cvar binding, the `Painter` interface. Game-agnostic, with a Null painter |
-| Painter and skin | [`JonesUiPainter.cpp`](../../../Jones3D/Platform/Babylon/JonesUiPainter.cpp), [`JonesUiSkin.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSkin.cpp) | Draws the ui through `rdFont` and the HUD's rdroid and `std3D` 2D path (ADR-0026 amendment); the HUD's menu colors and sound cues |
-| Context and modal loop | [`JonesUiContext.cpp`](../../../Jones3D/Platform/Babylon/JonesUiContext.cpp), [`JonesUiModal.cpp`](../../../Jones3D/Platform/Babylon/JonesUiModal.cpp) | The column's one painter, font and `babylon::ui::Ui`, reference counted for nested screens; the blocking frame loop that pumps platform events, freezes and dims the last frame, presents the screen and handles resizes and window closes. The context holds the session background: the first loop in the session captures or supplies it and later loops reuse it |
+| Painter and assets | [`RenderPainter`](../../../Babylon/uirender/include/babylon/uirender/RenderPainter.h), [`JonesUiAssets.cpp`](../../../Jones3D/Platform/Babylon/JonesUiAssets.cpp), [`JonesUiSkin.cpp`](../../../Jones3D/Platform/Babylon/JonesUiSkin.cpp) | Draws the ui through the Babylon render device at the target's pixel scale (ADR-0035); `JonesUiAssets` loads the packaged Cinzel/Jost fonts, prompt PNGs and RGB thumbnails. The skin keeps the HUD's menu colors and sound cues |
+| Context and modal loop | [`JonesUiContext.cpp`](../../../Jones3D/Platform/Babylon/JonesUiContext.cpp), [`JonesUiModal.cpp`](../../../Jones3D/Platform/Babylon/JonesUiModal.cpp) | The column's one `RenderPainter`, font set and `babylon::ui::Ui`, reference counted for nested screens; the blocking frame loop that pumps platform events, presents the game frame (or a game-renderer background) and handles resizes and window closes. The context installs the present overlay that draws the background, dim and screen at native resolution, and holds the session background so nested or later screens reuse it |
 | Screens | `Jones3D/Platform/Babylon/JonesUi*.cpp` (table below) | The Jones3D screens as declarative structs, with the Indy font and skin |
 | Wrappers | the same files | The recovered `jonesConfig_*` functions: each runs the modal loop around its screen and returns the original result |
 
@@ -67,15 +69,19 @@ classic movement model. Start stays unbound because the pause menu reads it dire
 
 ## Rules
 
-- The simulation is paused while any screen is open; the last frame stays behind it, dimmed.
+- The simulation is paused while any screen is open; the last frame stays behind it, dimmed by the present
+  overlay.
+- Menus draw after the game frame is presented to the window, at the window's native pixel size, independent
+  of the game render resolution ([ADR-0035](../09-decisions/ADR-0035-native-resolution-menus.md)).
 - The Options screen keeps each tab's changes when the player leaves it: Apply and Back/Esc/the pad's B
   both save and close, as in a modern game (ADR-0028). The nested control-scheme editor's Back also keeps
-  its edits; its explicit Cancel row discards them. The Options background is the menu image, darkened;
-  it has no panel box.
-- Every screen opened while a `JonesUiContext` is held reuses that session's frozen frame or
-  background and dims it once; a screen never captures the screen before it, nested or sequential.
-- Each modal frame clears the depth buffer before redrawing the background, and the menu quads do
-  not write depth, so a closed screen cannot stay visible through the depth test.
+  its edits; its explicit Cancel row discards them. The Options background is the menu image or game frame,
+  darkened by the overlay; it has no panel box.
+- Every screen opened while a `JonesUiContext` is held reuses that session's background and dims it once; a
+  screen never captures the screen before it, nested or sequential.
+- A game-renderer background (the main menu wallpaper) is drawn before the present; the overlay draws the
+  dim, the shade and the screen. A closed screen cannot stay visible because the screen is never drawn into
+  the game back buffer.
 - The Save and Load rows show the save name, the level display name and the date; a level is matched
   to the level table by its header file name, and a save without a thumbnail reserves no image row.
 - The wrappers keep each original function's return values and call order.

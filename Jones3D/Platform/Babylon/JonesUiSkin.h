@@ -25,27 +25,26 @@ inline constexpr std::uint32_t kJonesUiSoundCueBack   = 3;
 // title and rows line up with Options; the reserved help column keeps the values at the Options
 // right edge. A transparent panel and no border leave the dimmed background visible.
 // titleFont is the Cinzel id, rowFont the Jost id and promptFont, when non-zero, labels the prompt
-// bar; a missing font id falls back to the caller's rdFont. The row and title heights derive from
-// the fonts' line heights at the point size the painter draws them, so rows always fit their text;
-// with no font or painter the defaults (24 and 32) are kept. Build the skin after the fonts are
-// registered, or rebuild it when a font changes, so the metrics follow the fonts. The returned skin
-// owns no resources.
+// bar; a zero font id draws no text. The row and title heights derive from the fonts' line heights
+// at the point size the painter draws them, so rows always fit their text; with no font or painter
+// the defaults (24 and 32) are kept. Build the skin after the fonts are registered so the metrics
+// follow the fonts. The returned skin owns no resources.
 babylon::ui::Skin JonesUiSkin_Create(babylon::ui::FontId titleFont,
     babylon::ui::FontId rowFont, const babylon::ui::Painter* pPainter,
     babylon::ui::FontId promptFont = 0);
 
 // Added: the main menu's skin (ADR-0028): an uppercase list in the lower left, no panel or
 // highlight boxes, a bullet before the focused row and a warm light grey for the rest. menuFont
-// is the Cinzel TrueType id when it loaded and the shared rdFont id when it did not; the caller
-// chooses. The row metrics follow the font's line height, like JonesUiSkin_Create.
+// is the context's Cinzel id, or its row font when Cinzel could not load; the caller chooses. The
+// row metrics follow the font's line height, like JonesUiSkin_Create.
 babylon::ui::Skin JonesUiSkin_CreateMainMenu(babylon::ui::FontId menuFont,
     const babylon::ui::Painter* pPainter,
     babylon::ui::FontId promptFont = 0);
 
 // Added: the shared skin of the Statistics, Level Completed and Game Over screens (ADR-0028): the
 // same fixed-width, boxless Options look as the default, with a Cinzel title at the top and Jost
-// rows in the left column over the dimmed background. titleFont and rowFont are the registered
-// TrueType ids when they loaded and the shared rdFont id otherwise; the caller chooses.
+// rows in the left column over the dimmed background. titleFont and rowFont are the context's
+// registered TrueType ids.
 // promptFont, when non-zero, labels the prompt bar. The title and row metrics follow each font's
 // line height, like the other skins. The context's default skin is this one.
 babylon::ui::Skin JonesUiSkin_CreateEndScreen(babylon::ui::FontId titleFont,

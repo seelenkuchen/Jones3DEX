@@ -40,6 +40,8 @@
 
 #include <std/Babylon/stdBabylonEvents.h>
 
+#include <std/General/stdUtil.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
