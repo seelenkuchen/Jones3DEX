@@ -15,7 +15,6 @@
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
-#include <Jones3D/Platform/Babylon/JonesBabylonData.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
@@ -41,18 +40,16 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
     // option; everything else joins into the startup command line. Both are parsed completely
     // before anything runs, so a bad command line exits before any engine code, the way
     // JonesHeadless_Run parses its --input script up front.
-    const char* pLoadPath        = NULL;
-    const char* pDataPath        = NULL;
-    const char* pHashDataPath    = NULL;
-    const char* pInstallDataPath = NULL;
+    const char* pLoadPath     = NULL;
+    const char* pDataPath     = NULL;
+    const char* pHashDataPath = NULL;
     char        aCmdLine[JONESBABYLON_MAX_CMDLINE] = { 0 };
     size_t      curLen  = 0;
     for ( int i = 1; i < argc; ++i )
     {
         if ( strcmp(argv[i], "--load") == 0
           || strcmp(argv[i], "--data") == 0
-          || strcmp(argv[i], "--hash-data") == 0
-          || strcmp(argv[i], "--install-data") == 0 )
+          || strcmp(argv[i], "--hash-data") == 0 )
         {
             if ( i + 1 >= argc )
             {
@@ -68,13 +65,9 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
             {
                 pDataPath = argv[++i];
             }
-            else if ( strcmp(argv[i], "--hash-data") == 0 )
-            {
-                pHashDataPath = argv[++i];
-            }
             else
             {
-                pInstallDataPath = argv[++i];
+                pHashDataPath = argv[++i];
             }
 
             continue;
@@ -110,18 +103,10 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
         return 1;
     }
 
-    // Added: --hash-data and --install-data are tools: they exit without starting the game.
-    if ( pHashDataPath || pInstallDataPath )
+    // Added: --hash-data is a tool: it exits without starting the game.
+    if ( pHashDataPath )
     {
-        if ( pHashDataPath && pInstallDataPath )
-        {
-            fprintf(stderr, "ERROR: Jones3D: --hash-data and --install-data are exclusive!\n");
-            return 1;
-        }
-
-        return pHashDataPath
-            ? JonesDataLocate_HashData(pHashDataPath)
-            : JonesDataLocate_InstallData(pInstallDataPath);
+        return JonesDataLocate_HashData(pHashDataPath);
     }
 
     // Added: --data is the first candidate of the automatic game data search.
@@ -129,9 +114,6 @@ int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
     {
         JonesDataLocate_SetDataPath(pDataPath);
     }
-
-    // Added: the windowed run has the folder picker; the headless runs keep the stderr default.
-    JonesBabylonData_InstallPromptHandler();
 
     // Indy3D_WinMain: hand the --load path to the Null load-game dialog, which JonesMain_Startup
     // asks when Jones.cfg is in the load-game start mode.

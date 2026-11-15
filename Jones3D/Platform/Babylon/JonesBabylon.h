@@ -15,8 +15,9 @@ J3D_EXTERN_C_START
 // every other argument joins with single spaces into the command line of JonesMain_Startup. A
 // "--load" without a value, or a joined command line longer than the engine's command line
 // buffer, prints one error and returns 1 before the engine starts. pUserDir is the writable
-// directory chosen by the composition root ("--user-dir", portable.txt or the platform user path;
-// "" is the working directory). It is applied after the global reset, so it is created then; a
+// directory chosen by the composition root ("--user-dir", the executable directory when its
+// GameData folder holds the data, or the platform user path; "" is the working directory). It is
+// applied after the global reset, so it is created then; a
 // path too long for stdUserDir prints one error and returns 1. Returns the process exit code.
 // Call once.
 int JonesBabylon_Run(int argc, char** argv, const char* pUserDir);

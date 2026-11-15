@@ -8,15 +8,13 @@
 // behind: the retail mutex, the Win32 signal handler, window creation and the
 // stdWin95 window/instance/Guid registration.
 //
-// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--install-data <dir>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>]
+// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>]
 //   --user-dir writes Jones.cfg, logs and savegames in the given directory, created when missing.
 //            The default is "" (the working directory), so headless traces keep today's paths.
 //   --load   answers the load-game dialog once with the given path; needs the
 //            "startMode = 1" (load game) entry in Jones.cfg, like on Windows.
 //   --data   the game data folder to use for this run, ahead of the automatic search.
 //   --hash-data prints the known-file hash rows for the data in the folder, then exits.
-//   --install-data copies the known files found in the folder to <user dir>/data/Resource,
-//            checks the copy, then exits. A CD can be installed one disc at a time.
 //   --frames frame limit of the engine's own game-state frame counter (default 1000).
 //   --step   milliseconds of virtual time each JonesMain_Process call advances the clock by
 //            (default 33). 0 keeps the real clock and makes the run nondeterministic again.
@@ -98,7 +96,7 @@ typedef struct HeadlessInputEvent
 
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--install-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]" HEADLESS_RENDER_USAGE "\n",
+    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]" HEADLESS_RENDER_USAGE "\n",
         pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP);
 }
 
@@ -627,21 +625,20 @@ static bool Headless_WriteStateFile(const char* pPath, size_t frameCount)
 
 int JonesHeadless_Run(int argc, char** argv)
 {
-    const char* pUserDirPath     = NULL;
-    const char* pLoadPath        = NULL;
-    const char* pDataPath        = NULL;
-    const char* pHashDataPath    = NULL;
-    const char* pInstallDataPath = NULL;
-    const char* pStatePath       = NULL;
-    const char* pInputPath       = NULL;
-    const char* pCapturePath     = NULL;
-    size_t frameLimit            = HEADLESS_DEFAULT_FRAMES;
-    unsigned long step           = HEADLESS_DEFAULT_STEP;
+    const char* pUserDirPath  = NULL;
+    const char* pLoadPath     = NULL;
+    const char* pDataPath     = NULL;
+    const char* pHashDataPath = NULL;
+    const char* pStatePath    = NULL;
+    const char* pInputPath    = NULL;
+    const char* pCapturePath  = NULL;
+    size_t frameLimit         = HEADLESS_DEFAULT_FRAMES;
+    unsigned long step        = HEADLESS_DEFAULT_STEP;
 
     for ( int i = 1; i < argc; ++i )
     {
         if ( !strcmp(argv[i], "--user-dir") || !strcmp(argv[i], "--load") || !strcmp(argv[i], "--data")
-            || !strcmp(argv[i], "--hash-data") || !strcmp(argv[i], "--install-data")
+            || !strcmp(argv[i], "--hash-data")
             || !strcmp(argv[i], "--frames") || !strcmp(argv[i], "--step") || !strcmp(argv[i], "--state")
             || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--capture") )
         {
@@ -667,10 +664,6 @@ int JonesHeadless_Run(int argc, char** argv)
             else if ( !strcmp(argv[i], "--hash-data") )
             {
                 pHashDataPath = argv[++i];
-            }
-            else if ( !strcmp(argv[i], "--install-data") )
-            {
-                pInstallDataPath = argv[++i];
             }
             else if ( !strcmp(argv[i], "--frames") )
             {
@@ -745,20 +738,10 @@ int JonesHeadless_Run(int argc, char** argv)
         return 1;
     }
 
-    // Added: --hash-data and --install-data are tools: they exit without starting the game.
-    // --install-data writes into the user directory, which is set above.
-    if ( pHashDataPath || pInstallDataPath )
+    // Added: --hash-data is a tool: it exits without starting the game.
+    if ( pHashDataPath )
     {
-        if ( pHashDataPath && pInstallDataPath )
-        {
-            fprintf(stderr, "ERROR: Jones3D-headless: --hash-data and --install-data are exclusive!\n");
-            Headless_InputFree();
-            return 1;
-        }
-
-        int toolResult = pHashDataPath
-            ? JonesDataLocate_HashData(pHashDataPath)
-            : JonesDataLocate_InstallData(pInstallDataPath);
+        int toolResult = JonesDataLocate_HashData(pHashDataPath);
         Headless_InputFree();
         return toolResult;
     }

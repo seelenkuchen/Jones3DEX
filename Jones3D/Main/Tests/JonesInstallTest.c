@@ -1,7 +1,6 @@
 #include <unity_fixture.h>
 
 #include <Jones3D/Main/JonesData.h>
-#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesInstall.h>
 
 #include <std/General/std.h>
@@ -1293,44 +1292,6 @@ TEST(JonesInstall, TestCheckTargetReportsMissingFiles)
     TEST_ASSERT_EQUAL_size_t(1, report.numMissingRequired);
 }
 
-TEST(JonesInstall, TestInstallDataUsesEngine)
-{
-    char aSource[JONESINSTALL_MAX_PATH];
-    char aResource[JONESINSTALL_MAX_PATH];
-    char aCog[JONESINSTALL_MAX_PATH];
-    char aKeySets[JONESINSTALL_MAX_PATH];
-    char aTarget[JONESINSTALL_MAX_PATH];
-    char aTargetResource[JONESINSTALL_MAX_PATH];
-    char aPath[JONESINSTALL_MAX_PATH];
-    char aText[32];
-
-    JonesInstallTest_BuildPath(aSource, sizeof(aSource), g_aTempDir, "source");
-    JonesInstallTest_BuildPath(aResource, sizeof(aResource), aSource, "Resource");
-    JonesInstallTest_BuildPath(aCog, sizeof(aCog), aResource, "Cog");
-    JonesInstallTest_BuildPath(aKeySets, sizeof(aKeySets), aSource, "KeySets");
-    JonesInstallTest_BuildPath(aTarget, sizeof(aTarget), g_aTempDir, "target");
-    JonesInstallTest_BuildPath(aTargetResource, sizeof(aTargetResource), aTarget, "Resource");
-    JonesInstallTest_WriteRequiredSet(aResource);
-    JonesInstallTest_MakeDirs(aCog);
-    JonesInstallTest_WriteFile(aCog, "fix.cog", "fix", 3);
-    JonesInstallTest_MakeDirs(aKeySets);
-    JonesInstallTest_WriteFile(aKeySets, "default.kfg", "keys", 4);
-
-    TEST_ASSERT_EQUAL_INT(0, JonesDataLocate_InstallDataTo(aSource, aTarget));
-
-    JonesInstallTest_BuildPath(aPath, sizeof(aPath), aTargetResource, "Jones3D.GOB");
-    TEST_ASSERT_EQUAL_size_t(5, JonesInstallTest_ReadWhole(aPath, aText, sizeof(aText)));
-    TEST_ASSERT_EQUAL_STRING("jones", aText);
-
-    JonesInstallTest_BuildPath(aPath, sizeof(aPath), aTargetResource, "Cog/fix.cog");
-    TEST_ASSERT_EQUAL_size_t(3, JonesInstallTest_ReadWhole(aPath, aText, sizeof(aText)));
-    TEST_ASSERT_EQUAL_STRING("fix", aText);
-
-    JonesInstallTest_BuildPath(aPath, sizeof(aPath), aTarget, "KeySets/default.kfg");
-    TEST_ASSERT_EQUAL_size_t(4, JonesInstallTest_ReadWhole(aPath, aText, sizeof(aText)));
-    TEST_ASSERT_EQUAL_STRING("keys", aText);
-}
-
 TEST_GROUP_RUNNER(JonesInstall)
 {
     RUN_TEST_CASE(JonesInstall, TestFindSteamSourceLinux);
@@ -1349,5 +1310,4 @@ TEST_GROUP_RUNNER(JonesInstall)
     RUN_TEST_CASE(JonesInstall, TestRunErrorNamesFile);
     RUN_TEST_CASE(JonesInstall, TestRunRefusesLowFreeSpace);
     RUN_TEST_CASE(JonesInstall, TestCheckTargetReportsMissingFiles);
-    RUN_TEST_CASE(JonesInstall, TestInstallDataUsesEngine);
 }

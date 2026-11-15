@@ -21,10 +21,8 @@ int main(int argc, char** argv)
     }
 
     // Added: the Null platform has no executable path service, so the executable directory stays
-    // unknown and the working directory is the current one. getenv is read here in the platform
-    // layer, never in the game data search.
+    // unknown and the working directory is the current one.
     JonesDataLocate_SetHostDirs(NULL, ".");
-    JonesDataLocate_SetHostEnvironment(getenv("HOME"), NULL, NULL);
 
     return JonesHeadless_Run(argc, argv);
 }
