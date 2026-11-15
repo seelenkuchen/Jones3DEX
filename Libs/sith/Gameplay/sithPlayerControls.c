@@ -781,6 +781,168 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
     return 0;
 }
 
+// Added: the item half of the interaction query, using FindItemThing inside the collision
+// read-only scope so the per-frame prompt changes no scratch state.
+static SithThing* sithPlayerControls_QueryItemThing(SithThing* pThing, int* pbFoundFloorItem)
+{
+    if ( !sithCollision_BeginReadOnlySearch() )
+    {
+        return NULL;
+    }
+
+    SithThing* pItemThing = sithCollision_FindItemThing(pThing, pbFoundFloorItem);
+    sithCollision_EndReadOnlySearch();
+    return pItemThing;
+}
+
+// Added: an item is only "Pick up" when its COG handles the activation message the pickup press
+// sends. Without a handler the press plays its animation but takes nothing.
+static int sithPlayerControls_CanPickUpItem(SithThing* pItemThing, SithThing* pThing)
+{
+    return sithCog_GetThingMessageCogs(pItemThing, pThing, SITHCOG_MSG_ACTIVATE, NULL, 0) > 0;
+}
+
+int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInteraction* pOut)
+{
+    if ( !pOut )
+    {
+        return 0;
+    }
+
+    STD_ZEROMEM(pOut, sizeof(*pOut));
+    if ( !pThing || !pThing->pInSector )
+    {
+        return 0;
+    }
+
+    if ( sithPlayerControls_g_bCutsceneMode || sithTime_g_bPaused )
+    {
+        return 0;
+    }
+
+    if ( pThing->thingInfo.actorInfo.bControlsDisabled || pThing->moveType != SITH_MT_PHYSICS )
+    {
+        return 0;
+    }
+
+    const bool bUnderwater = (pThing->pInSector->flags & (SITH_SECTOR_UNDERWATER | SITH_SECTOR_AETHERIUM)) != 0;
+    const bool bOnWaterSurface = (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0;
+    const SithThingMoveStatus moveStatus = pThing->moveStatus;
+
+    // Added: the press path of each idle state, with that path's guards and its item/Activate
+    // order. Other states own the activation key for climbing, ledges or vehicles.
+    if ( moveStatus == SITHPLAYERMOVE_SWIMIDLE )
+    {
+        if ( bOnWaterSurface || sithPlayerControls_secSwimIdleTime < 1.0f
+            || sithWeapon_IsMountingWeapon(pThing) )
+        {
+            return 0;
+        }
+
+        if ( (pThing->flags & SITH_TF_SUBMERGED) == 0
+            && (pThing->pInSector->flags & SITH_SECTOR_AETHERIUM) == 0 )
+        {
+            return 0;
+        }
+
+        int bFoundFloorItem;
+        SithThing* pItemThing = sithPlayerControls_QueryItemThing(pThing, &bFoundFloorItem);
+        if ( pItemThing )
+        {
+            if ( !sithPlayerControls_CanPickUpItem(pItemThing, pThing) )
+            {
+                return 0;
+            }
+
+            pOut->kind      = SITHPLAYERINTERACTION_PICKUP;
+            pOut->pThing    = pItemThing;
+            pOut->bFloorItem = bFoundFloorItem;
+            return 1;
+        }
+
+        SithPlayerActionsTarget target;
+        if ( sithPlayerActions_QueryActivateTarget(pThing, &target) )
+        {
+            pOut->kind     = SITHPLAYERINTERACTION_USE;
+            pOut->pSurface = target.pSurface;
+            pOut->pThing   = target.pThing;
+            return 1;
+        }
+
+        return 0;
+    }
+
+    if ( moveStatus == SITHPLAYERMOVE_CRAWLIDLE )
+    {
+        if ( bUnderwater || pThing->thingInfo.actorInfo.bForceMovePlay
+            || (pThing->thingInfo.actorInfo.flags & SITH_AF_IMMOBILE) != 0 )
+        {
+            return 0;
+        }
+
+        SithPlayerActionsTarget target;
+        if ( sithPlayerActions_QueryActivateTarget(pThing, &target) )
+        {
+            pOut->kind     = SITHPLAYERINTERACTION_USE;
+            pOut->pSurface = target.pSurface;
+            pOut->pThing   = target.pThing;
+            return 1;
+        }
+
+        int bFoundFloorItem;
+        SithThing* pItemThing = sithPlayerControls_QueryItemThing(pThing, &bFoundFloorItem);
+        if ( pItemThing )
+        {
+            if ( !sithPlayerControls_CanPickUpItem(pItemThing, pThing) )
+            {
+                return 0;
+            }
+
+            pOut->kind      = SITHPLAYERINTERACTION_PICKUP;
+            pOut->pThing    = pItemThing;
+            pOut->bFloorItem = bFoundFloorItem;
+            return 1;
+        }
+
+        return 0;
+    }
+
+    if ( moveStatus == SITHPLAYERMOVE_STILL )
+    {
+        if ( bUnderwater || pThing->thingInfo.actorInfo.bForceMovePlay
+            || sithWeapon_IsMountingWeapon(pThing) )
+        {
+            return 0;
+        }
+
+        int bFoundGroundItem;
+        SithThing* pItemThing = sithPlayerControls_QueryItemThing(pThing, &bFoundGroundItem);
+        if ( pItemThing )
+        {
+            if ( !sithPlayerControls_CanPickUpItem(pItemThing, pThing) )
+            {
+                return 0;
+            }
+
+            pOut->kind      = SITHPLAYERINTERACTION_PICKUP;
+            pOut->pThing    = pItemThing;
+            pOut->bFloorItem = bFoundGroundItem;
+            return 1;
+        }
+
+        SithPlayerActionsTarget target;
+        if ( sithPlayerActions_QueryActivateTarget(pThing, &target) )
+        {
+            pOut->kind     = SITHPLAYERINTERACTION_USE;
+            pOut->pSurface = target.pSurface;
+            pOut->pThing   = target.pThing;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 int J3DAPI sithPlayerControls_ProcessPlayerDebugControls(SithThing* pThing, float secDeltaTime)
 {
     J3D_UNUSED(secDeltaTime);

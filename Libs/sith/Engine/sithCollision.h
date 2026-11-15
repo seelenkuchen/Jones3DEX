@@ -39,6 +39,18 @@ int J3DAPI sithCollision_ThingCollisionHandler(SithThing* pSrcThing, SithThing* 
 void J3DAPI sithCollision_VehicleCollisionHandler(SithThing* pThing, SithThing* pHitThing, rdVector3* pForce, rdVector3* pInpactForce, int* pbDeflect, const rdVector3* hitNormal, float impactSpeed, float hitImpactSpeed);
 int J3DAPI sithCollision_DeflectThingOffSurface(SithThing* pThing, const rdVector3* pHitNorm, float distance, int unusedFlag, const SithSurface* pHitSurf);
 SithThing* J3DAPI sithCollision_FindItemThing(SithThing* pThing, int* pbFoundFloorItem);
+// Added: runs the collision search without leaving any trace. Begin saves the stack level and the
+// scratch level a search will use; End restores them. A presentation query pairs them around the
+// searches it makes. Begin returns 0 when the saves are exhausted; End is then a no-op.
+int sithCollision_BeginReadOnlySearch(void);
+void sithCollision_EndReadOnlySearch(void);
+// Added: true while a read-only scope is open. The thing intersection uses it to leave a thing's
+// orientation translation exactly as it found it instead of zeroing it.
+int sithCollision_IsReadOnlySearchActive(void);
+#ifdef J3D_TEST
+// Added: a checksum over the collision scratch, so a test can prove a query changed nothing.
+uint64_t sithCollision_GetScratchChecksumForTest(void);
+#endif
 void J3DAPI sithCollision_PushThingCollision(SithThing* pHitThing, float distance, SithCollisionType hitType, rdModel3Mesh* pHitMesh, rdFace* pHitFace, rdVector3* hitNorm);
 void J3DAPI sithCollision_PushSurfaceCollision(SithSurface* pSurf, float distance, SithCollisionType hitType, rdVector3* pHitNorm);
 int J3DAPI sithCollision_ParticleAndActorCollisionHandler(SithThing* pSrcThing, SithThing* pThingCollided, SithCollision* pCollision, int bSecondThingIsSource);

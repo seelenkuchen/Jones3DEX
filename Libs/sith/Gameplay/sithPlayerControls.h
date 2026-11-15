@@ -23,6 +23,29 @@ void sithPlayerControls_Reset(void);
 void J3DAPI sithPlayerControls_PuppetCallback(SithThing* pThing, int track, rdKeyMarkerType markerType);
 int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTime);
 
+// Added: what the activation key would do in the player's current movement state, for the
+// on-screen interaction prompt. The query follows the same item/Activate order and guards as the
+// standing, crawling and swimming input paths, changes no state, and leaves the collision scratch
+// as it found it. It is 0 when a press would do nothing this slice can label (Use or Pick up).
+typedef enum eSithPlayerInteractionKind
+{
+    SITHPLAYERINTERACTION_NONE = 0,
+    SITHPLAYERINTERACTION_USE,
+    SITHPLAYERINTERACTION_PICKUP,
+} SithPlayerInteractionKind;
+
+typedef struct sSithPlayerInteraction
+{
+    SithPlayerInteractionKind kind;
+    SithSurface* pSurface;
+    SithThing* pThing;
+    int bFloorItem; // Pick up only: the item was on the floor, not straight ahead
+} SithPlayerInteraction;
+
+// Returns 1 and fills pOut when a press of the activation key would pick up an item or activate a
+// COG-linked surface/thing. Returns 0, with pOut zeroed, otherwise. pOut must not be NULL.
+int sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInteraction* pOut);
+
 int J3DAPI sithPlayerControls_BoardVehicle(SithThing* pThing, int bBoard);
 void J3DAPI sithPlayerControls_ExitVehicle(SithThing* pThing);
 

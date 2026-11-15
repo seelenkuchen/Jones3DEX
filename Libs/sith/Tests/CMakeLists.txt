@@ -151,3 +151,46 @@ if (NOT J3D_PLATFORM_BABYLON)
         TIMEOUT 60
     )
 endif()
+
+# Added: the interaction prompt's target query. The suite compiles the real player-action,
+# player-control and collision modules with synthetic geometry and records the COG messages, so a
+# test proves the prompt and the press agree and that a query leaves the collision scratch alone.
+add_executable(sithInteractionTests
+    sithInteractionTestRunner.c
+    sithInteractionTest.c
+    ../Engine/sithCollision.c
+    ../Gameplay/sithPlayerActions.c
+    ../Gameplay/sithPlayerControls.c
+)
+
+set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Gameplay/sithPlayerActions.c"
+    PROPERTY COMPILE_DEFINITIONS
+    sithCog_SurfaceSendMessage=sithInteractionTest_SurfaceSendMessage
+    sithCog_ThingSendMessage=sithInteractionTest_ThingSendMessage
+    sithCog_SendMessage=sithInteractionTest_SendMessage
+    sithCog_SectorSendMessage=sithInteractionTest_SectorSendMessage
+    sithCog_ThingSendMessageEx=sithInteractionTest_ThingSendMessageEx
+)
+
+target_compile_definitions(sithInteractionTests PRIVATE J3D_TEST)
+target_link_libraries(sithInteractionTests PRIVATE
+    sith
+    sound
+    unity
+    w32util
+)
+
+set_target_properties(sithInteractionTests PROPERTIES
+    FOLDER "Tests/Libs/sith"
+)
+
+source_group("Tests" FILES
+    sithInteractionTestRunner.c
+    sithInteractionTest.c
+)
+
+add_test(NAME sith.Interaction COMMAND sithInteractionTests)
+set_tests_properties(sith.Interaction PROPERTIES
+    LABELS "unit;sith"
+    TIMEOUT 60
+)

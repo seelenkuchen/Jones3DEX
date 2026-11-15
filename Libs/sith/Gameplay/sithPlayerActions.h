@@ -21,6 +21,8 @@ extern rdModel3* sithPlayerActions_g_pCurHitLedgeModel;
 // extern rdModel3 *sithPlayerActions_g_pCurHitLedgeModel;
 
 extern SithThing* sithPlayerActions_g_pPlasma;
+// Added: the last Activate press time, public so a test can start from a known guard window.
+extern uint32_t sithPlayerActions_msecCurActivateTime;
 // extern SithThing *sithPlayerActions_g_pPlasma;
 
 extern int sithPlayerActions_g_bJewelFlying;
@@ -39,6 +41,29 @@ extern SithSector* sithPlayerActions_g_pChalkWriteSector;
 // extern SithSector *sithPlayerActions_g_pChalkWriteSector;
 
 int J3DAPI sithPlayerActions_Activate(SithThing* pPlayer);
+
+// Added: what an activation press would act on. The query runs the same guard, eligibility and
+// collision search as Activate but sends no message and leaves the collision scratch unchanged, so
+// a presentation prompt and the press cannot disagree. Activate is the one that acts on it.
+typedef enum eSithPlayerActionsTargetKind
+{
+    SITHPLAYERACTIONS_TARGET_NONE = 0,
+    SITHPLAYERACTIONS_TARGET_SURFACE,
+    SITHPLAYERACTIONS_TARGET_THING,
+} SithPlayerActionsTargetKind;
+
+typedef struct sSithPlayerActionsTarget
+{
+    SithPlayerActionsTargetKind kind;
+    SithSurface* pSurface; // valid for SITHPLAYERACTIONS_TARGET_SURFACE
+    SithThing* pThing;     // valid for SITHPLAYERACTIONS_TARGET_THING
+} SithPlayerActionsTarget;
+
+// Returns 1 and fills pTarget when a press of Activate would act on a COG-linked surface or
+// non-movable thing. Returns 0, with pTarget zeroed, when it would not: the 500 ms repeat window,
+// a drawn weapon, the chalk or raft patch-kit item, AI target rules or no hit. pTarget must not be
+// NULL. The call changes no game or collision state.
+int sithPlayerActions_QueryActivateTarget(SithThing* pThing, SithPlayerActionsTarget* pTarget);
 
 void J3DAPI sithPlayerActions_MoveToPlayerPosition(SithThing* pThing, size_t playerNum);
 int J3DAPI sithPlayerActions_HasActiveWeapon(SithThing* pThing);

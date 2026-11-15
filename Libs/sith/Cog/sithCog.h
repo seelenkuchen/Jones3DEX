@@ -71,6 +71,16 @@ int J3DAPI sithCog_SectorSendMessageEx(const SithSector* pSector, const SithThin
 int J3DAPI sithCog_SurfaceSendMessage(const SithSurface* pSurf, const SithThing* pSrcThing, SithCogMsgType messageType);
 int J3DAPI sithCog_SurfaceSendMessageEx(const SithSurface* pSurf, const SithThing* pSrcThing, SithCogMsgType messageType, int param0, int param1, int param2, int param3);
 
+// Added: the distinct COGs that would receive messageType and have a handler for it, following the
+// same thing/template/class/capture/link dispatch and source-type masks as the SendMessage calls.
+// Disabled and paused COGs are left out. Up to maxCogs are written to apCogs (may be NULL); the
+// return value is the total found. The interaction prompt uses this to offer Use/Pick up only when
+// the press would reach a handler.
+size_t sithCog_GetThingMessageCogs(const SithThing* pThing, const SithThing* pSrcThing,
+    SithCogMsgType messageType, SithCog** apCogs, size_t maxCogs);
+size_t sithCog_GetSurfaceMessageCogs(const SithSurface* pSurf, const SithThing* pSrcThing,
+    SithCogMsgType messageType, SithCog** apCogs, size_t maxCogs);
+
 // Functions for loading & writing COG Scripts from/to NDY/CND files
 int J3DAPI sithCog_WriteCogScriptsListText(const SithWorld* pWorld);// Added
 int J3DAPI sithCog_ReadCogScriptsListText(SithWorld* pWorld, int bSkip);
