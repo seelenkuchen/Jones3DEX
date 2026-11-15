@@ -241,7 +241,17 @@ static void JonesFileTest_MakeDirs(const char* pPath)
     JONESFILE_TEST_MKDIR(aPath);
 }
 
-// Added: builds a nested install folder whose path is at least 300 bytes long (M8 wizard).
+#ifdef _WIN32
+// The C runtime's fopen_s rejects paths past MAX_PATH (260), so the target stays
+// below that with room for the "\Resource\CD1.GOB"-style names the test joins.
+// Fixed: 300 bytes failed on Windows with ENOENT (Expected 0 Was 2).
+#define JONESFILETEST_LONG_PATH_LEN 200
+#else
+#define JONESFILETEST_LONG_PATH_LEN 300
+#endif
+
+// Added: builds a nested install folder whose path is at least
+// JONESFILETEST_LONG_PATH_LEN bytes long (M8 wizard).
 static void JonesFileTest_BuildLongDir(char* pOut, size_t outSize)
 {
     static const char aSegment[] = "/longpathsegment";
@@ -250,21 +260,21 @@ static void JonesFileTest_BuildLongDir(char* pOut, size_t outSize)
     TEST_ASSERT_TRUE(len + 1 < outSize);
     memcpy(pOut, g_aTempDir, len + 1);
 
-    while ( len + sizeof(aSegment) < 320 )
+    while ( len + sizeof(aSegment) < JONESFILETEST_LONG_PATH_LEN + 20 )
     {
         TEST_ASSERT_TRUE(len + sizeof(aSegment) < outSize);
         memcpy(pOut + len, aSegment, sizeof(aSegment));
         len += sizeof(aSegment) - 1;
     }
 
-    while ( len < 300 )
+    while ( len < JONESFILETEST_LONG_PATH_LEN )
     {
         TEST_ASSERT_TRUE(len + 2 < outSize);
         pOut[len++] = 'x';
         pOut[len]   = '\0';
     }
 
-    TEST_ASSERT_TRUE(len >= 300);
+    TEST_ASSERT_TRUE(len >= JONESFILETEST_LONG_PATH_LEN);
 }
 
 static void JonesFileTest_WriteTextFile(const char* pPath, const char* pText)
