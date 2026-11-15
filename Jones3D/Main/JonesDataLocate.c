@@ -4,6 +4,7 @@
 #include "JonesDataLocate.h"
 
 #include <Jones3D/Main/JonesData.h>
+#include <Jones3D/Main/JonesInstall.h>
 
 #include <sith/Main/sithMain.h>
 
@@ -23,7 +24,6 @@
 
 #ifdef _WIN32
 #include <direct.h>
-#define JONESDATALOCATE_MKDIR(path) _mkdir(path)
 #define JONESDATALOCATE_STAT _stat
 #define JONESDATALOCATE_STAT_ISDIR(mode) (((mode) & _S_IFDIR) != 0)
 #define JONESDATALOCATE_STAT_ISREG(mode) (((mode) & _S_IFREG) != 0)
@@ -39,7 +39,6 @@
 #define JONESDATALOCATE_MAX_NAME   64
 #define JONESDATALOCATE_VDF_LINE_MAX 2048
 #define JONESDATALOCATE_VDF_MAX_SIZE (1024u * 1024u)
-#define JONESDATALOCATE_COPY_SIZE   65536u
 #define JONESDATALOCATE_MAX_ATTEMPTS 16
 
 #define JONESDATALOCATE_NEEDS_PREFIX \
@@ -97,7 +96,6 @@ static bool JonesDataLocate_PathsEqual(const char* pPath1, const char* pPath2,
     JonesDataLocatePlatform platform);
 static bool JonesDataLocate_IsDirectory(const char* pPath);
 static bool JonesDataLocate_GetFileSize(const char* pPath, int64_t* pSize);
-static bool JonesDataLocate_MakeDirs(const char* pPath);
 static bool JonesDataLocate_FindKnownFileInDir(const char* pDir, const char* pName, char* pOutPath,
     size_t outSize);
 static bool JonesDataLocate_HasAnyKnownFile(const char* pDir);
@@ -121,7 +119,6 @@ static void JonesDataLocate_AddDefaultSteamRoots(JonesDataLocatePathList* pOut,
     JonesDataLocatePlatform platform, const char* pHome, const char* pProgramFiles,
     const char* pProgramFilesX86);
 static void JonesDataLocate_FillEnvironment(JonesDataLocateEnvironmentStorage* pStorage);
-static bool JonesDataLocate_CopyFile(const char* pSource, const char* pDest);
 static void JonesDataLocate_PrintReport(const JonesDataReport* pReport);
 
 static void JonesDataLocate_LogStatus(const char* pFormat, ...)
@@ -263,60 +260,6 @@ static bool JonesDataLocate_GetFileSize(const char* pPath, int64_t* pSize)
     }
 
     return true;
-}
-
-static bool JonesDataLocate_MakeDirs(const char* pPath)
-{
-    if ( !pPath || pPath[0] == '\0' )
-    {
-        return false;
-    }
-
-    char aPath[JONESDATALOCATE_MAX_PATH];
-    size_t len = strlen(pPath);
-    if ( len + 1 > sizeof(aPath) )
-    {
-        return false;
-    }
-
-    memcpy(aPath, pPath, len + 1);
-    while ( len > 1 && (aPath[len - 1] == '/' || aPath[len - 1] == '\\') )
-    {
-        aPath[--len] = '\0';
-    }
-
-    if ( JonesDataLocate_IsDirectory(aPath) )
-    {
-        return true;
-    }
-
-    for ( size_t i = 1; aPath[i] != '\0'; ++i )
-    {
-        if ( aPath[i] != '/' && aPath[i] != '\\' )
-        {
-            continue;
-        }
-
-        if ( i == 2 && aPath[1] == ':' )
-        {
-            continue;
-        }
-
-        char chSeparator = aPath[i];
-        aPath[i] = '\0';
-        if ( aPath[0] != '\0' && !JonesDataLocate_IsDirectory(aPath) )
-        {
-            JONESDATALOCATE_MKDIR(aPath);
-        }
-        aPath[i] = chSeparator;
-    }
-
-    if ( !JonesDataLocate_IsDirectory(aPath) )
-    {
-        JONESDATALOCATE_MKDIR(aPath);
-    }
-
-    return JonesDataLocate_IsDirectory(aPath);
 }
 
 static void JonesDataLocate_MakeCaseVariant(char* pOut, const char* pName, bool bUpper)
@@ -1231,55 +1174,6 @@ int JonesDataLocate_HashData(const char* pDir)
     return 0;
 }
 
-static bool JonesDataLocate_CopyFile(const char* pSource, const char* pDest)
-{
-    FILE* pIn = NULL;
-    if ( fopen_s(&pIn, pSource, "rb") != 0 )
-    {
-        fprintf(stderr, "ERROR: cannot open '%s'.\n", pSource);
-        return false;
-    }
-
-    FILE* pOut = NULL;
-    if ( fopen_s(&pOut, pDest, "wb") != 0 )
-    {
-        fprintf(stderr, "ERROR: cannot create '%s'.\n", pDest);
-        fclose(pIn);
-        return false;
-    }
-
-    bool bOk = true;
-    char aBuffer[JONESDATALOCATE_COPY_SIZE];
-    size_t numRead;
-    while ( (numRead = fread(aBuffer, 1, sizeof(aBuffer), pIn)) > 0 )
-    {
-        if ( fwrite(aBuffer, 1, numRead, pOut) != numRead )
-        {
-            bOk = false;
-            break;
-        }
-    }
-
-    if ( ferror(pIn) )
-    {
-        bOk = false;
-    }
-
-    if ( fclose(pOut) != 0 )
-    {
-        bOk = false;
-    }
-
-    fclose(pIn);
-
-    if ( !bOk )
-    {
-        remove(pDest);
-    }
-
-    return bOk;
-}
-
 static void JonesDataLocate_PrintReport(const JonesDataReport* pReport)
 {
     if ( !pReport )
@@ -1373,67 +1267,29 @@ int JonesDataLocate_InstallDataTo(const char* pSourceDir, const char* pTargetDat
         return 1;
     }
 
-    if ( !JonesDataLocate_MakeDirs(aTargetResource) )
+    // Added: the --install-data tool uses the same plan and copy path as the wizard (W2).
+    JonesInstallHost host;
+    memset(&host, 0, sizeof(host));
+    host.platform = platform == JONESDATALOCATE_PLATFORM_WINDOWS
+        ? JONESINSTALL_PLATFORM_WINDOWS
+        : JONESINSTALL_PLATFORM_LINUX;
+
+    JonesInstallPlan plan;
+    if ( !JonesInstall_BuildPlan(host.platform, aSourceDir, aTargetDataDir, false, &plan) )
     {
-        fprintf(stderr, "ERROR: cannot create '%s'.\n", aTargetResource);
+        fprintf(stderr, "ERROR: no game data found in '%s'.\n", pSourceDir);
         return 1;
     }
 
-    for ( size_t i = 0; i < STD_ARRAYLEN(JonesDataLocate_aKnownFiles); ++i )
+    JonesInstallRunOutcome outcome;
+    JonesInstall_Run(&plan, &host, NULL, NULL, NULL, &outcome);
+    if ( outcome.result != JONESINSTALL_RUN_OK )
     {
-        const JonesDataLocateKnownFile* pFile = &JonesDataLocate_aKnownFiles[i];
-        char aSourcePath[JONESDATALOCATE_MAX_PATH];
-        if ( !JonesDataLocate_FindKnownFileInDir(aSourceResource, pFile->pName, aSourcePath,
-                sizeof(aSourcePath)) )
-        {
-            continue;
-        }
-
-        char aTargetPath[JONESDATALOCATE_MAX_PATH];
-        if ( !JonesDataLocate_Join(aTargetPath, sizeof(aTargetPath), platform, aTargetResource,
-                pFile->pName) )
-        {
-            fprintf(stderr, "ERROR: the target path for '%s' is too long.\n", pFile->pName);
-            continue;
-        }
-
-        int64_t sourceSize;
-        int64_t targetSize;
-        if ( JonesDataLocate_GetFileSize(aSourcePath, &sourceSize)
-          && JonesDataLocate_GetFileSize(aTargetPath, &targetSize)
-          && sourceSize == targetSize )
-        {
-            printf("unchanged %s\n", pFile->pName);
-            continue;
-        }
-
-        char aTempPath[JONESDATALOCATE_MAX_PATH + 8];
-        int tempLen = snprintf(aTempPath, sizeof(aTempPath), "%s.tmp", aTargetPath);
-        if ( tempLen <= 0 || (size_t)tempLen >= sizeof(aTempPath) )
-        {
-            fprintf(stderr, "ERROR: the temporary path for '%s' is too long.\n", pFile->pName);
-            continue;
-        }
-
-        if ( !JonesDataLocate_CopyFile(aSourcePath, aTempPath) )
-        {
-            fprintf(stderr, "ERROR: could not copy '%s'.\n", aSourcePath);
-            continue;
-        }
-
-        remove(aTargetPath);
-        if ( rename(aTempPath, aTargetPath) != 0 )
-        {
-            remove(aTempPath);
-            fprintf(stderr, "ERROR: could not rename '%s' to '%s'.\n", aTempPath, aTargetPath);
-            continue;
-        }
-
-        printf("copied %s\n", pFile->pName);
+        fprintf(stderr, "ERROR: %s\n", outcome.aMessage);
     }
 
     JonesDataReport report;
-    bool bComplete = JonesData_CheckDir(aTargetResource, NULL, &report);
+    bool bComplete = JonesInstall_CheckTarget(aTargetDataDir, &report);
     JonesDataLocate_PrintReport(&report);
     return bComplete ? 0 : 1;
 }

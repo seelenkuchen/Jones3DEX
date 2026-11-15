@@ -494,7 +494,7 @@ static int J3DAPI JonesDataLocateTest_FallbackGetStr(const char* pKey, char* pDs
     return 0;
 }
 
-static void JonesDataLocateTest_StartConfig(const char* pConfigPath)
+static void JonesDataLocateTest_StartHostServices(void)
 {
     memset(&g_hostServices, 0, sizeof(g_hostServices));
     g_hostServices.pStatusPrint  = JonesDataLocateTest_Print;
@@ -518,6 +518,20 @@ static void JonesDataLocateTest_StartConfig(const char* pConfigPath)
 
     std_g_pHS = &g_hostServices;
     g_bHostServices = true;
+}
+
+static void JonesDataLocateTest_StopHostServices(void)
+{
+    if ( g_bHostServices )
+    {
+        std_g_pHS = NULL;
+        g_bHostServices = false;
+    }
+}
+
+static void JonesDataLocateTest_StartConfig(const char* pConfigPath)
+{
+    JonesDataLocateTest_StartHostServices();
 
     TEST_ASSERT_TRUE(stdJSON_Startup());
 
@@ -543,17 +557,12 @@ static void JonesDataLocateTest_StopConfig(void)
     {
         stdJSON_Shutdown();
     }
-
-    if ( g_bHostServices )
-    {
-        std_g_pHS = NULL;
-        g_bHostServices = false;
-    }
 }
 
 TEST_SETUP(JonesDataLocate)
 {
     TEST_ASSERT_EQUAL_INT(0, JonesDataLocateTest_MakeTempDir());
+    JonesDataLocateTest_StartHostServices();
     JonesDataLocate_Reset();
     JonesDataLocate_SetHostDirs(NULL, NULL);
     JonesDataLocate_SetHostEnvironment(NULL, NULL, NULL);
@@ -565,6 +574,7 @@ TEST_TEAR_DOWN(JonesDataLocate)
     JonesDataLocate_Reset();
     stdUserDir_Reset();
     JonesDataLocateTest_StopConfig();
+    JonesDataLocateTest_StopHostServices();
     if ( g_aTempDir[0] != '\0' )
     {
         JonesDataLocateTest_RemoveTree(g_aTempDir);
