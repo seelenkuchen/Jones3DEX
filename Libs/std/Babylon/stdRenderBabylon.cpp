@@ -62,6 +62,10 @@ namespace
         StdRenderBabylonPresentOverlay presentOverlay = nullptr;
         void* presentOverlayUser = nullptr;
 
+        // Added: the gameplay HUD overlay, drawn before the present overlay so a menu can cover it.
+        StdRenderBabylonPresentOverlay hudOverlay = nullptr;
+        void* hudOverlayUser = nullptr;
+
         // The post-processing chain: one pipeline per pass, in order, with the number of inputs its
         // shader reads, and the two targets the passes write in turn (made at the first presenting
         // submit that needs them, freed with the back buffer).
@@ -625,7 +629,7 @@ namespace
                     stdRenderBabylon_RecordPresent(list);
                 }
 
-                if ( stdRenderBabylon_state.presentOverlay )
+                if ( stdRenderBabylon_state.hudOverlay || stdRenderBabylon_state.presentOverlay )
                 {
                     StdRenderBabylonOverlayTarget target;
                     target.texture = {};
@@ -645,8 +649,17 @@ namespace
 
                     if ( target.width > 0 && target.height > 0 )
                     {
-                        static_cast<void>(stdRenderBabylon_state.presentOverlay(
-                            stdRenderBabylon_state.presentOverlayUser, list, target));
+                        if ( stdRenderBabylon_state.hudOverlay )
+                        {
+                            static_cast<void>(stdRenderBabylon_state.hudOverlay(
+                                stdRenderBabylon_state.hudOverlayUser, list, target));
+                        }
+
+                        if ( stdRenderBabylon_state.presentOverlay )
+                        {
+                            static_cast<void>(stdRenderBabylon_state.presentOverlay(
+                                stdRenderBabylon_state.presentOverlayUser, list, target));
+                        }
                     }
                 }
             }
@@ -694,6 +707,17 @@ void stdRenderBabylon_SetPresentOverlay(StdRenderBabylonPresentOverlay pfn, void
 bool stdRenderBabylon_HasPresentOverlay()
 {
     return stdRenderBabylon_state.presentOverlay != nullptr;
+}
+
+void stdRenderBabylon_SetHudOverlay(StdRenderBabylonPresentOverlay pfn, void* pUser)
+{
+    stdRenderBabylon_state.hudOverlay     = pfn;
+    stdRenderBabylon_state.hudOverlayUser = pfn ? pUser : nullptr;
+}
+
+bool stdRenderBabylon_HasHudOverlay()
+{
+    return stdRenderBabylon_state.hudOverlay != nullptr;
 }
 
 bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
@@ -758,10 +782,16 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
         return false;
     }
 
+    const StdRenderBabylonOverlayTarget overlayTarget{ target,
+        render::TextureFormat::Bgra8, width, height };
+    if ( stdRenderBabylon_state.hudOverlay )
+    {
+        static_cast<void>(stdRenderBabylon_state.hudOverlay(
+            stdRenderBabylon_state.hudOverlayUser, list, overlayTarget));
+    }
+
     if ( stdRenderBabylon_state.presentOverlay )
     {
-        const StdRenderBabylonOverlayTarget overlayTarget{ target,
-            render::TextureFormat::Bgra8, width, height };
         static_cast<void>(stdRenderBabylon_state.presentOverlay(
             stdRenderBabylon_state.presentOverlayUser, list, overlayTarget));
     }

@@ -39,6 +39,22 @@ static SithSector* sithCollision_apSearchedSectors[SITHCOLLISION_STACKSIZE][256]
 static size_t sithCollision_aNumStackCollisions[SITHCOLLISION_STACKSIZE];
 static SithCollision sithCollision_aCollisions[SITHCOLLISION_STACKSIZE][512];
 
+// Added: one saved search level, so a presentation query can run the collision search and put
+// every scratch array and the stack level back exactly as it found them. The saves nest, one per
+// active read-only query.
+typedef struct sSithCollisionSearchSave
+{
+    int savedStackLevel;
+    int searchLevel;
+    size_t numSearchedSectors;
+    SithSector* apSearchedSectors[256];
+    size_t numCollisions;
+    SithCollision aCollisions[512];
+} SithCollisionSearchSave;
+
+static SithCollisionSearchSave sithCollision_aSearchSaves[SITHCOLLISION_STACKSIZE];
+static int sithCollision_numSearchSaves;
+
 static int bCollideStartup;
 static int sithCollision_dword_17F1090;
 static rdVector3 sithCollision_vec17F10A0;
@@ -63,7 +79,103 @@ void sithCollision_ResetGlobals(void)
     sithCollision_jeepDamage = 1.0f;
     STD_ZEROMEM(sithCollision_aNumSearchedSectors, sizeof(sithCollision_aNumSearchedSectors));
     STD_ZEROMEM(sithCollision_aNumStackCollisions, sizeof(sithCollision_aNumStackCollisions));
+    sithCollision_numSearchSaves = 0;
 }
+
+// Added: starts a side-effect-free collision search. It saves the stack level and the scratch
+// level the search will use; EndReadOnlySearch puts them back, including the arrays' contents.
+// Returns 1 when the scope was opened and 0 when the saves are exhausted or the search would
+// overflow the stack. Every successful call must be matched by exactly one End call.
+int sithCollision_BeginReadOnlySearch(void)
+{
+    if ( sithCollision_numSearchSaves >= SITHCOLLISION_STACKSIZE )
+    {
+        return 0;
+    }
+
+    int searchLevel = stackLevel + 1;
+    if ( searchLevel < 0 || searchLevel >= SITHCOLLISION_STACKSIZE )
+    {
+        return 0;
+    }
+
+    SithCollisionSearchSave* pSave = &sithCollision_aSearchSaves[sithCollision_numSearchSaves];
+    pSave->savedStackLevel   = stackLevel;
+    pSave->searchLevel       = searchLevel;
+    pSave->numSearchedSectors = sithCollision_aNumSearchedSectors[searchLevel];
+    STD_COPYMEM(pSave->apSearchedSectors, sithCollision_apSearchedSectors[searchLevel],
+        sizeof(pSave->apSearchedSectors));
+    pSave->numCollisions     = sithCollision_aNumStackCollisions[searchLevel];
+    STD_COPYMEM(pSave->aCollisions, sithCollision_aCollisions[searchLevel],
+        sizeof(pSave->aCollisions));
+
+    ++sithCollision_numSearchSaves;
+    return 1;
+}
+
+int sithCollision_IsReadOnlySearchActive(void)
+{
+    return sithCollision_numSearchSaves > 0;
+}
+
+void sithCollision_EndReadOnlySearch(void)
+{
+    if ( sithCollision_numSearchSaves <= 0 )
+    {
+        return;
+    }
+
+    SithCollisionSearchSave* pSave = &sithCollision_aSearchSaves[--sithCollision_numSearchSaves];
+    stackLevel = pSave->savedStackLevel;
+
+    sithCollision_aNumSearchedSectors[pSave->searchLevel] = pSave->numSearchedSectors;
+    STD_COPYMEM(sithCollision_apSearchedSectors[pSave->searchLevel], pSave->apSearchedSectors,
+        sizeof(pSave->apSearchedSectors));
+    sithCollision_aNumStackCollisions[pSave->searchLevel] = pSave->numCollisions;
+    STD_COPYMEM(sithCollision_aCollisions[pSave->searchLevel], pSave->aCollisions,
+        sizeof(pSave->aCollisions));
+}
+
+#ifdef J3D_TEST
+// Added: a test checksum over every piece of collision scratch a query must leave unchanged.
+uint64_t sithCollision_GetScratchChecksumForTest(void)
+{
+    uint64_t hash = 1469598103934665603ull;
+    const unsigned char* pBytes;
+
+    pBytes = (const unsigned char*)&stackLevel;
+    for ( size_t i = 0; i < sizeof(stackLevel); ++i )
+    {
+        hash = (hash ^ pBytes[i]) * 1099511628211ull;
+    }
+
+    pBytes = (const unsigned char*)sithCollision_aNumSearchedSectors;
+    for ( size_t i = 0; i < sizeof(sithCollision_aNumSearchedSectors); ++i )
+    {
+        hash = (hash ^ pBytes[i]) * 1099511628211ull;
+    }
+
+    pBytes = (const unsigned char*)sithCollision_apSearchedSectors;
+    for ( size_t i = 0; i < sizeof(sithCollision_apSearchedSectors); ++i )
+    {
+        hash = (hash ^ pBytes[i]) * 1099511628211ull;
+    }
+
+    pBytes = (const unsigned char*)sithCollision_aNumStackCollisions;
+    for ( size_t i = 0; i < sizeof(sithCollision_aNumStackCollisions); ++i )
+    {
+        hash = (hash ^ pBytes[i]) * 1099511628211ull;
+    }
+
+    pBytes = (const unsigned char*)sithCollision_aCollisions;
+    for ( size_t i = 0; i < sizeof(sithCollision_aCollisions); ++i )
+    {
+        hash = (hash ^ pBytes[i]) * 1099511628211ull;
+    }
+
+    return hash;
+}
+#endif
 
 void sithCollision_Startup(void)
 {

@@ -1,5 +1,6 @@
 #include "JonesHud.h"
 #include "JonesHudConstants.h"
+#include "JonesHudPrompt.h"
 #include <Jones3D/Display/JonesHudSys.h>
 
 
@@ -22,6 +23,7 @@
 #include <rdroid/Primitives/rdModel3.h>
 #include <rdroid/Raster/rdCache.h>
 
+#include <sith/Cog/sithCog.h>
 #include <sith/Dss/sithGamesave.h>
 #include <sith/Engine/sithCamera.h>
 #include <sith/Devices/sithControl.h>
@@ -32,9 +34,11 @@
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Gameplay/sithTime.h>
+#include <sith/Main/sithMain.h>
 #include <sith/Main/sithString.h>
 #include <sith/World/sithActor.h>
 #include <sith/World/sithModel.h>
+#include <sith/World/sithSurface.h>
 #include <sith/World/sithWeapon.h>
 #include <sith/World/sithWorld.h>
 #include <sith/World/sithVoice.h>
@@ -341,6 +345,7 @@ void J3DAPI JonesHud_MenuCollapseColumn(JonesHudMenuItem* pItem);
 
 void JonesHud_RenderInventoryItemChange(void);
 void J3DAPI JonesHud_RenderChangedItem(const JonesHudMenuItem* pItem, float scale);
+static void JonesHud_ResetInteractionPromptLog(void); // Added
 
 void JonesHud_InitializeGameStatistics(void);
 
@@ -396,6 +401,8 @@ void JonesHud_Shutdown(void)
         return;
     }
 
+    JonesHudPrompt_SetInteraction(JONESHUD_INTERACTIONPROMPT_NONE); // Added
+    JonesHud_ResetInteractionPromptLog(); // Added
     // Fixed: Release menu-owned audio during HUD teardown.
     JonesHud_StopMenuMusic();
 
@@ -529,6 +536,7 @@ int JonesHud_Open(void)
     }
 
     JonesHud_LoadSystemIconsConfig(); // Added: engine.ui.hud.systemIcons
+    JonesHud_LoadInteractionPromptsConfig(); // Added: ui.hud.interactionPrompts
 
     // Menu item config
     JonesHud_menuItemScale = stdConfig_GetFloat(JONESHUD_CFG_MENU_ITEM_SCALE, JonesHud_menuItemScale);
@@ -939,6 +947,8 @@ error:
 
 void JonesHud_Close(void)
 {
+    JonesHudPrompt_SetInteraction(JONESHUD_INTERACTIONPROMPT_NONE); // Added
+    JonesHud_ResetInteractionPromptLog(); // Added
     // Fixed: Release menu-owned audio during HUD teardown.
     JonesHud_StopMenuMusic();
 
@@ -1059,6 +1069,122 @@ void J3DAPI JonesHud_EnableMenu(int bEnable)
 int JonesHud_IsMenuEnabled(void)
 {
     return JonesHud_bMenuEnabled;
+}
+
+// Added: the last prompt target the developer log reported. Only a change writes a line.
+static JonesHudInteractionPrompt JonesHud_lastInteractionPrompt = JONESHUD_INTERACTIONPROMPT_NONE;
+static const SithThing* JonesHud_pLastInteractionThing   = NULL;
+static const SithSurface* JonesHud_pLastInteractionSurface = NULL;
+
+static void JonesHud_ResetInteractionPromptLog(void)
+{
+    JonesHud_lastInteractionPrompt    = JONESHUD_INTERACTIONPROMPT_NONE;
+    JonesHud_pLastInteractionThing    = NULL;
+    JonesHud_pLastInteractionSurface  = NULL;
+}
+
+static void JonesHud_FormatPromptCogs(const SithThing* pThing, const SithSurface* pSurface,
+    char* pDest, size_t destSize)
+{
+    SithCog* apCogs[8];
+    size_t numCogs = 0;
+    if ( pSurface )
+    {
+        numCogs = sithCog_GetSurfaceMessageCogs(pSurface, sithPlayer_g_pLocalPlayerThing,
+            SITHCOG_MSG_ACTIVATE, apCogs, STD_ARRAYLEN(apCogs));
+    }
+    else if ( pThing )
+    {
+        numCogs = sithCog_GetThingMessageCogs(pThing, sithPlayer_g_pLocalPlayerThing,
+            SITHCOG_MSG_ACTIVATE, apCogs, STD_ARRAYLEN(apCogs));
+    }
+
+    pDest[0] = '\0';
+    size_t used = 0;
+    for ( size_t i = 0; i < numCogs && i < STD_ARRAYLEN(apCogs); ++i )
+    {
+        int written = snprintf(pDest + used, destSize - used, "%s'%s'", i != 0 ? ", " : "",
+            apCogs[i]->aName);
+        if ( written < 0 || (size_t)written >= destSize - used )
+        {
+            break;
+        }
+        used += (size_t)written;
+    }
+}
+
+static void JonesHud_LogInteractionPrompt(JonesHudInteractionPrompt prompt,
+    const SithPlayerInteraction* pInteraction)
+{
+    const SithThing* pThing = pInteraction ? pInteraction->pThing : NULL;
+    const SithSurface* pSurface = pInteraction ? pInteraction->pSurface : NULL;
+    if ( prompt == JonesHud_lastInteractionPrompt
+        && pThing == JonesHud_pLastInteractionThing
+        && pSurface == JonesHud_pLastInteractionSurface )
+    {
+        return;
+    }
+
+    JonesHud_lastInteractionPrompt   = prompt;
+    JonesHud_pLastInteractionThing   = pThing;
+    JonesHud_pLastInteractionSurface = pSurface;
+
+    const size_t frameCount = sithMain_g_frameNumber;
+    if ( prompt == JONESHUD_INTERACTIONPROMPT_NONE )
+    {
+        STDLOG_STATUS("Interaction prompt: none (frame %zu)\n", frameCount);
+    }
+    else if ( pSurface )
+    {
+        char aCogs[256];
+        JonesHud_FormatPromptCogs(pThing, pSurface, aCogs, sizeof(aCogs));
+        STDLOG_STATUS("Interaction prompt: Use surface %d (cogs %s, frame %zu)\n",
+            sithSurface_GetSurfaceIndex(pSurface), aCogs, frameCount);
+    }
+    else if ( pThing )
+    {
+        char aCogs[256];
+        JonesHud_FormatPromptCogs(pThing, pSurface, aCogs, sizeof(aCogs));
+        STDLOG_STATUS("Interaction prompt: %s '%s' (thing %d, cogs %s, frame %zu)\n",
+            prompt == JONESHUD_INTERACTIONPROMPT_PICKUP ? "Pick up" : "Use",
+            pThing->aName, pThing->idx, aCogs, frameCount);
+    }
+    else
+    {
+        STDLOG_STATUS("Interaction prompt: %s (frame %zu)\n",
+            prompt == JONESHUD_INTERACTIONPROMPT_PICKUP ? "Pick up" : "Use", frameCount);
+    }
+}
+
+// Added: catches up the interaction prompt once per frame, after the simulation and before the
+// present overlay draws it. The query is side-effect free, so it cannot move the simulation.
+void JonesHud_UpdateInteractionPrompt(void)
+{
+    JonesHudInteractionPrompt prompt = JONESHUD_INTERACTIONPROMPT_NONE;
+    SithPlayerInteraction interaction;
+    STD_ZEROMEM(&interaction, sizeof(interaction));
+
+    if ( JonesHud_IsInteractionPromptsEnabled()
+        && sithPlayer_g_pLocalPlayerThing
+        && (sithPlayer_g_pLocalPlayerThing->flags & (SITH_TF_DYING | SITH_TF_DESTROYED)) == 0
+        && !sithPlayerControls_g_bCutsceneMode
+        && (JonesHud_hudState & (0x01 | 0x10)) == 0
+        && !jonesCog_g_bMenuVisible
+        && !JonesHud_pCurInvChangedItem
+        && sithPlayerControls_QueryInteraction(sithPlayer_g_pLocalPlayerThing, &interaction) )
+    {
+        if ( interaction.kind == SITHPLAYERINTERACTION_PICKUP )
+        {
+            prompt = JONESHUD_INTERACTIONPROMPT_PICKUP;
+        }
+        else if ( interaction.kind == SITHPLAYERINTERACTION_USE )
+        {
+            prompt = JONESHUD_INTERACTIONPROMPT_USE;
+        }
+    }
+
+    JonesHudPrompt_SetInteraction(prompt);
+    JonesHud_LogInteractionPrompt(prompt, prompt != JONESHUD_INTERACTIONPROMPT_NONE ? &interaction : NULL);
 }
 
 void JonesHud_Process(void) // maybe this function should be called something eles??

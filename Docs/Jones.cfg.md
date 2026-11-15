@@ -293,6 +293,7 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 | `ui.menu.music.file` | float | `0.55` | Menu music volume. Exact key name is legacy. |
 | `ui.menu.music.fade` | float | `0.75` | Menu music fade duration in seconds. |
 | `engine.ui.hud.systemIcons` | bool | `false` | Presentation only, both profiles. False (the default) hides the HUD menu's Statistics, Save, Load, Settings and Exit items: the pause menu on Escape or gamepad Start replaces them and still offers all of them. True brings the system items back into the HUD menu. |
+| `ui.hud.interactionPrompts` | bool | `true` | Presentation only. Draws the bound activation-key icon and **Use** or **Pick up** at the bottom centre when a press would interact. On by default in Enhanced; the Retail profile is locked off. A missing key is not written until the option changes in Options. |
 | `ui.hud.itemChanged.showDuration` | int | `2000` | Item-change popup duration in milliseconds. |
 | `ui.hud.itemChanged.slideEaseInRate` | float | `4000.0` | Slide ease-in rate. |
 | `ui.hud.itemChanged.slideSpeedRate` | int | `3` | Slide speed multiplier. |

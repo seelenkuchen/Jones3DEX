@@ -93,7 +93,22 @@ void sithPlayerActions_ResetGlobals(void)
     sithPlayerActions_ResetTimedStep();
 }
 
-int J3DAPI sithPlayerActions_Activate(SithThing* pThing)
+// Added: the shared finding half of Activate. A callback sees every collision the press would
+// process, in the original order, and says whether it acted on one and whether to stop. Activate's
+// callback sends the COG messages in place, as the original did; the prompt query only records the
+// first target. The walk searches with the global collision scratch, so the query wraps it in
+// sithCollision_BeginReadOnlySearch/EndReadOnlySearch.
+enum
+{
+    SITHPLAYERACTIONS_HIT_CONTINUE = 0,
+    SITHPLAYERACTIONS_HIT_ACTIVATED,
+    SITHPLAYERACTIONS_HIT_STOP,
+};
+
+typedef int (J3DAPI* SithPlayerActionsActivateHitFunc)(void* pUser,
+    const SithCollision* pCollision, int bDown);
+
+static int sithPlayerActions_CanActivate(const SithThing* pThing)
 {
     if ( sithPlayerActions_msecCurActivateTime + 500 > sithTime_g_clockTime )
     {
@@ -102,15 +117,305 @@ int J3DAPI sithPlayerActions_Activate(SithThing* pThing)
 
     // Activate only if no weapon is currently selected
     int typeId = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
-    if ( typeId != SITHWEAPON_NO_WEAPON && typeId < (unsigned int)SITHWEAPON_ZIPPO )
+    return typeId == SITHWEAPON_NO_WEAPON || typeId >= (unsigned int)SITHWEAPON_ZIPPO;
+}
+
+// Added: the original skips the surface/thing search exactly on this path and writes chalk.
+static int sithPlayerActions_IsChalkActivation(SithThing* pThing)
+{
+    return pThing == sithPlayer_g_pLocalPlayerThing
+        && sithInventory_GetCurrentItem(pThing) == SITHWEAPON_CHALK
+        && pThing->pInSector
+        && (pThing->pInSector->flags & SITH_SECTOR_UNDERWATER) == 0
+        && !sithInventory_GetCurrentWeapon(pThing)
+        && !sithWeapon_IsMountingWeapon(pThing)
+        && !pThing->moveStatus;
+}
+
+// Added: whether a collision is a surface or thing the press may activate, following the original
+// item, weapon, AI, COGLINKED and movable filters. The forward surface path additionally requires
+// a zippo-or-less weapon; the down path does not.
+static int sithPlayerActions_GetActivateCollisionTarget(const SithThing* pThing,
+    const SithCollision* pCollision, int typeId, int bDown, SithPlayerActionsTarget* pTarget)
+{
+    if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+    {
+        if ( (pCollision->pSurfaceCollided->flags & SITH_SURFACE_COGLINKED) == 0
+            || (!bDown && typeId >= (unsigned int)SITHWEAPON_IMP1) )
+        {
+            return 0;
+        }
+
+        pTarget->kind     = SITHPLAYERACTIONS_TARGET_SURFACE;
+        pTarget->pSurface = pCollision->pSurfaceCollided;
+        pTarget->pThing   = NULL;
+        return 1;
+    }
+
+    if ( (pCollision->type & SITHCOLLISION_THING) != 0 )
+    {
+        SithThing* pThingCollided = pCollision->pThingCollided;
+        if ( pThingCollided->type == SITH_THING_ITEM
+            || pThingCollided->type == SITH_THING_WEAPON
+            || (pThing->controlType == SITH_CT_AI && pThingCollided->type == SITH_THING_PLAYER)
+            || (pThingCollided->flags & SITH_TF_COGLINKED) == 0
+            || (pThingCollided->flags & SITH_TF_MOVABLE) != 0 )
+        {
+            return 0;
+        }
+
+        pTarget->kind   = SITHPLAYERACTIONS_TARGET_THING;
+        pTarget->pThing = pThingCollided;
+        pTarget->pSurface = NULL;
+        return 1;
+    }
+
+    return 0;
+}
+
+static int sithPlayerActions_WalkActivateTargets(SithThing* pThing,
+    SithPlayerActionsActivateHitFunc pfHit, void* pUser)
+{
+    int typeId = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
+
+    if ( sithPlayerActions_IsChalkActivation(pThing) )
+    {
+        return 0;
+    }
+
+    if ( sithInventory_GetCurrentItem(pThing) == 56 ) // 56 - raft patchkit
+    {
+        return 0;
+    }
+
+    rdMatrix34 eyeorient = pThing->orient;
+    rdVector3 eyepoint = pThing->pos;
+    SithSector* pEyepointSec = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &eyepoint, 0.0f);
+    int bObjActivated = 0;
+
+    // Try to activate surface or thing in forward direction
+    eyepoint     = pThing->pos;
+    pEyepointSec = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &eyepoint, 0.0f);
+
+    float moveDist = pThing->collide.movesize + 0.039999999f;
+    sithCollision_SearchForCollisions(pEyepointSec, pThing, &eyepoint, &eyeorient.lvec, moveDist, 0.050000001f, 0x02);
+
+    SithCollision* pCollision;
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        int hit = pfHit(pUser, pCollision, /*bDown=*/0);
+        if ( hit != SITHPLAYERACTIONS_HIT_CONTINUE )
+        {
+            bObjActivated = 1;
+        }
+
+        if ( hit == SITHPLAYERACTIONS_HIT_STOP )
+        {
+            break;
+        }
+    }
+
+    sithCollision_DecreaseStackLevel();
+
+    // If nothing was activated try to activate surface/thing in the down direction
+    if ( !bObjActivated )
+    {
+        rdVector3 endPos;
+        rdVector_ScaleAdd3(&endPos, &pThing->orient.lvec, 0.035f, &pThing->pos);
+
+        SithSector* pStartSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &endPos, 0.0f);
+        if ( pStartSector )
+        {
+            rdVector3 downVector;
+            rdVector_Neg3(&downVector, &rdroid_g_zVector3);
+
+            sithCollision_SearchForCollisions(pStartSector, pThing, &endPos, &downVector, 0.11f, 0.039999999f, 0x02);
+
+            while ( (pCollision = sithCollision_PopStack()) != NULL )
+            {
+                if ( pfHit(pUser, pCollision, /*bDown=*/1) == SITHPLAYERACTIONS_HIT_STOP )
+                {
+                    bObjActivated = 1;
+                    break;
+                }
+            }
+
+            sithCollision_DecreaseStackLevel();
+        }
+    }
+
+    return bObjActivated;
+}
+
+typedef struct sSithPlayerActionsActivateContext
+{
+    SithThing* pThing;
+    int typeId;
+} SithPlayerActionsActivateContext;
+
+static int J3DAPI sithPlayerActions_ActivateCollisionCallback(void* pUser,
+    const SithCollision* pCollision, int bDown)
+{
+    SithPlayerActionsActivateContext* pContext = (SithPlayerActionsActivateContext*)pUser;
+    SithThing* pThing = pContext->pThing;
+    SithPlayerActionsTarget target;
+
+    if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+    {
+        if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_TRACKSHOTS) != 0 )
+        {
+            int surfIdx = sithSurface_GetSurfaceIndex(pCollision->pSurfaceCollided);
+            SITHLOG_STATUS(bDown ? "Activate down hit surface %d.\n" : "Activate hit surface %d.\n", surfIdx);
+        }
+
+        if ( sithPlayerActions_GetActivateCollisionTarget(pThing, pCollision, pContext->typeId, bDown, &target) )
+        {
+            sithCog_SurfaceSendMessage(target.pSurface, pThing, SITHCOG_MSG_ACTIVATE);
+            return SITHPLAYERACTIONS_HIT_STOP;
+        }
+
+        return SITHPLAYERACTIONS_HIT_CONTINUE;
+    }
+
+    if ( (pCollision->type & SITHCOLLISION_THING) == 0 )
+    {
+        return SITHPLAYERACTIONS_HIT_CONTINUE;
+    }
+
+    SithThing* pThingCollided = pCollision->pThingCollided;
+    if ( pThingCollided->type == SITH_THING_ITEM
+        || pThingCollided->type == SITH_THING_WEAPON
+        || (pThing->controlType == SITH_CT_AI && pThingCollided->type == SITH_THING_PLAYER) )
+    {
+        return SITHPLAYERACTIONS_HIT_CONTINUE;
+    }
+
+    if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_TRACKSHOTS) != 0 )
+    {
+        SITHLOG_STATUS(bDown ? "Activate down hit thing %s.\n" : "Activate hit thing %s.\n", pThingCollided->aName);
+    }
+
+    if ( !sithPlayerActions_GetActivateCollisionTarget(pThing, pCollision, pContext->typeId, bDown, &target) )
+    {
+        return SITHPLAYERACTIONS_HIT_CONTINUE;
+    }
+
+    sithCog_ThingSendMessage(target.pThing, pThing, SITHCOG_MSG_ACTIVATE);
+
+    if ( bDown || pContext->typeId <= (unsigned int)SITHWEAPON_ZIPPO )
+    {
+        return SITHPLAYERACTIONS_HIT_STOP;
+    }
+
+    // If cur weapon is IMP1 and imp1 stand is activated, COG script will disable fire
+    if ( pThingCollided->renderData.type == RD_THING_MODEL3 && pThingCollided->renderData.data.pModel3 )
+    {
+        if ( streqi(pThingCollided->renderData.data.pModel3->aName, "imp_stands.3do") )
+        {
+            SithInventoryType* pInventoryType = sithInventory_GetType(pContext->typeId);
+            if ( pInventoryType->pCog )
+            {
+                sithCog_SendMessage(pInventoryType->pCog, SITHCOG_MSG_CHANGED, SITHCOG_SYM_REF_THING, pThing->idx, SITHCOG_SYM_REF_THING, pThingCollided->idx, 0);
+            }
+        }
+
+        return SITHPLAYERACTIONS_HIT_STOP;
+    }
+
+    return SITHPLAYERACTIONS_HIT_ACTIVATED;
+}
+
+typedef struct sSithPlayerActionsQueryContext
+{
+    SithThing* pThing;
+    int typeId;
+    SithPlayerActionsTarget target;
+    int bFound;
+} SithPlayerActionsQueryContext;
+
+static int J3DAPI sithPlayerActions_QueryCollisionCallback(void* pUser,
+    const SithCollision* pCollision, int bDown)
+{
+    SithPlayerActionsQueryContext* pContext = (SithPlayerActionsQueryContext*)pUser;
+    SithPlayerActionsTarget target;
+    if ( !sithPlayerActions_GetActivateCollisionTarget(pContext->pThing, pCollision,
+            pContext->typeId, bDown, &target) )
+    {
+        return SITHPLAYERACTIONS_HIT_CONTINUE;
+    }
+
+    // Added: Activate sends the message regardless, but the prompt only offers Use when a linked
+    // COG actually handles it. Activate's own callback is unchanged.
+    const size_t numCogs = target.kind == SITHPLAYERACTIONS_TARGET_SURFACE
+        ? sithCog_GetSurfaceMessageCogs(target.pSurface, pContext->pThing,
+            SITHCOG_MSG_ACTIVATE, NULL, 0)
+        : sithCog_GetThingMessageCogs(target.pThing, pContext->pThing,
+            SITHCOG_MSG_ACTIVATE, NULL, 0);
+    if ( numCogs == 0 )
+    {
+        return SITHPLAYERACTIONS_HIT_CONTINUE;
+    }
+
+    pContext->target = target;
+    pContext->bFound = 1;
+    return SITHPLAYERACTIONS_HIT_STOP;
+}
+
+int J3DAPI sithPlayerActions_QueryActivateTarget(SithThing* pThing, SithPlayerActionsTarget* pTarget)
+{
+    if ( !pTarget )
+    {
+        return 0;
+    }
+
+    STD_ZEROMEM(pTarget, sizeof(*pTarget));
+    if ( !pThing || !pThing->pInSector || !sithPlayerActions_CanActivate(pThing) )
+    {
+        return 0;
+    }
+
+    SithPlayerActionsQueryContext context;
+    STD_ZEROMEM(&context, sizeof(context));
+    context.pThing = pThing;
+    context.typeId = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
+
+    if ( !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    // The press checks the eye point before it picks the chalk/raft paths or searches.
+    rdVector3 eyepoint = pThing->pos;
+    if ( !sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &eyepoint, 0.0f) )
+    {
+        SITHLOG_ERROR("Activate: eyepoint outside of sector?\n");
+        sithCollision_EndReadOnlySearch();
+        return 0;
+    }
+
+    sithPlayerActions_WalkActivateTargets(pThing, sithPlayerActions_QueryCollisionCallback,
+        &context);
+
+    sithCollision_EndReadOnlySearch();
+
+    if ( context.bFound )
+    {
+        *pTarget = context.target;
+    }
+
+    return context.bFound;
+}
+
+int J3DAPI sithPlayerActions_Activate(SithThing* pThing)
+{
+    if ( !sithPlayerActions_CanActivate(pThing) )
     {
         return 0;
     }
 
     sithPlayerActions_msecCurActivateTime = sithTime_g_clockTime;
 
-    rdMatrix34 eyeorient = pThing->orient;
-    rdVector3 eyepoint   = pThing->pos;
+    rdVector3 eyepoint = pThing->pos;
     SithSector* pEyepointSec = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &eyepoint, 0.0f);
     if ( !pEyepointSec )
     {
@@ -120,154 +425,13 @@ int J3DAPI sithPlayerActions_Activate(SithThing* pThing)
     }
 
     SithSurface* pSurfaceCollided = NULL;
-    if ( pThing != sithPlayer_g_pLocalPlayerThing
-        || sithInventory_GetCurrentItem(pThing) != SITHWEAPON_CHALK
-        || !pThing->pInSector
-        || (pThing->pInSector->flags & SITH_SECTOR_UNDERWATER) != 0
-        || sithInventory_GetCurrentWeapon(pThing)
-        || sithWeapon_IsMountingWeapon(pThing)
-        || pThing->moveStatus )
+    int bObjActivated = 0;
+    if ( !sithPlayerActions_IsChalkActivation(pThing) )
     {
-        // Try to activate surface or thing in forward direction
-        int bObjActivated = 0;
-        if ( sithInventory_GetCurrentItem(pThing) != 56 ) // 56 - raft patchkit
-        {
-            eyepoint         = pThing->pos;
-            pEyepointSec     = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &eyepoint, 0.0f);
-            pSurfaceCollided = NULL;
-
-            float moveDist = pThing->collide.movesize + 0.039999999f;
-            sithCollision_SearchForCollisions(pEyepointSec, pThing, &eyepoint, &eyeorient.lvec, moveDist, 0.050000001f, 0x02);
-
-            SithCollision* pCollision;
-            while ( (pCollision = sithCollision_PopStack()) != NULL )
-            {
-                if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
-                {
-                    if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_TRACKSHOTS) != 0 )
-                    {
-                        // Note: OG code was at line no.: 230
-                        int surfIdx = sithSurface_GetSurfaceIndex(pCollision->pSurfaceCollided);
-                        SITHLOG_STATUS("Activate hit surface %d.\n", surfIdx);
-                    }
-
-                    // Send activate message to collided surface if cur selected item ID is zippo or less
-                    if ( (pCollision->pSurfaceCollided->flags & SITH_SURFACE_COGLINKED) != 0 && typeId < (unsigned int)SITHWEAPON_IMP1 )
-                    {
-                        sithCog_SurfaceSendMessage(pCollision->pSurfaceCollided, pThing, SITHCOG_MSG_ACTIVATE);
-                        bObjActivated = 1;
-                        break;
-                    }
-
-                    if ( !pSurfaceCollided )
-                    {
-                        pSurfaceCollided = pCollision->pSurfaceCollided;
-                        float distance = pCollision->distance;
-                    }
-                }
-                else if ( (pCollision->type & SITHCOLLISION_THING) != 0 )
-                {
-                    SithThing* pThingCollided = pCollision->pThingCollided;
-
-                    // Activate collided/activated thing if collided thing is not item, weapon and player and activation thing is not AI
-                    if ( pThingCollided->type != SITH_THING_ITEM
-                        && pThingCollided->type != SITH_THING_WEAPON
-                        && (pThing->controlType != SITH_CT_AI || pThingCollided->type != SITH_THING_PLAYER) )
-                    {
-                        if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_TRACKSHOTS) != 0 )
-                        {
-                            // Note: OG code was at line no.: 264
-                            SITHLOG_STATUS("Activate hit thing %s.\n", pThingCollided->aName);
-                        }
-
-                        // Send activate message to collided thing if collided thing is not movable
-                        if ( (pThingCollided->flags & SITH_TF_COGLINKED) != 0 && (pThingCollided->flags & SITH_TF_MOVABLE) == 0 )
-                        {
-                            sithCog_ThingSendMessage(pThingCollided, pThing, SITHCOG_MSG_ACTIVATE);
-                            bObjActivated = 1;
-
-                            if ( typeId <= (unsigned int)SITHWEAPON_ZIPPO )
-                            {
-                                break;
-                            }
-
-                            // If cur weapon is IMP1 and imp1 stand is activated, COG script will disable fire
-                            if ( pThingCollided->renderData.type == RD_THING_MODEL3 && pThingCollided->renderData.data.pModel3 )
-                            {
-                                if ( streqi(pThingCollided->renderData.data.pModel3->aName, "imp_stands.3do") )
-                                {
-                                    SithInventoryType* pInventoryType = sithInventory_GetType(typeId);
-                                    if ( pInventoryType->pCog )
-                                    {
-                                        sithCog_SendMessage(pInventoryType->pCog, SITHCOG_MSG_CHANGED, SITHCOG_SYM_REF_THING, pThing->idx, SITHCOG_SYM_REF_THING, pThingCollided->idx, 0);
-                                    }
-                                }
-
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            sithCollision_DecreaseStackLevel();
-
-            // If nothing was activated try to activate surface/thing in the down direction
-            if ( !bObjActivated )
-            {
-                rdVector3 endPos;
-                rdVector_ScaleAdd3(&endPos, &pThing->orient.lvec, 0.035f, &pThing->pos);
-
-                SithSector* pStartSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &endPos, 0.0f);
-                if ( pStartSector )
-                {
-                    rdVector3 downVector;
-                    rdVector_Neg3(&downVector, &rdroid_g_zVector3);
-
-                    sithCollision_SearchForCollisions(pStartSector, pThing, &endPos, &downVector, 0.11f, 0.039999999f, 0x02);
-
-                    while ( (pCollision = sithCollision_PopStack()) != NULL )
-                    {
-                        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
-                        {
-                            if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_TRACKSHOTS) != 0 )
-                            {
-                                // Note: OG code was at line no.: 322
-                                int surfIdx = sithSurface_GetSurfaceIndex(pCollision->pSurfaceCollided);
-                                SITHLOG_STATUS("Activate down hit surface %d.\n", surfIdx);
-                            }
-
-                            if ( (pCollision->pSurfaceCollided->flags & SITH_SURFACE_COGLINKED) != 0 )
-                            {
-                                sithCog_SurfaceSendMessage(pCollision->pSurfaceCollided, pThing, SITHCOG_MSG_ACTIVATE);
-                                bObjActivated = 1;
-                                break;
-                            }
-                        }
-                        else if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                            && pCollision->pThingCollided->type != SITH_THING_ITEM
-                            && pCollision->pThingCollided->type != SITH_THING_WEAPON
-                            && (pThing->controlType != SITH_CT_AI || pCollision->pThingCollided->type != SITH_THING_PLAYER) )
-                        {
-                            if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_TRACKSHOTS) != 0 )
-                            {
-                                // Note: OG code was at line no.: 344
-                                SITHLOG_STATUS("Activate down hit thing %s.\n", pCollision->pThingCollided->aName);
-                            }
-
-                            if ( (pCollision->pThingCollided->flags & SITH_TF_COGLINKED) != 0 && (pCollision->pThingCollided->flags & SITH_TF_MOVABLE) == 0 )
-                            {
-                                sithCog_ThingSendMessage(pCollision->pThingCollided, pThing, SITHCOG_MSG_ACTIVATE);
-                                bObjActivated = 1;
-                                break;
-                            }
-                        }
-                    }
-
-                    sithCollision_DecreaseStackLevel();
-                }
-            }
-        }
+        SithPlayerActionsActivateContext context = { pThing,
+            pThing->thingInfo.actorInfo.weaponInfo.curWeaponID };
+        bObjActivated = sithPlayerActions_WalkActivateTargets(pThing,
+            sithPlayerActions_ActivateCollisionCallback, &context);
 
         if ( bObjActivated || pThing != sithPlayer_g_pLocalPlayerThing || !pThing->pInSector || (pThing->pInSector->flags & SITH_SECTOR_UNDERWATER) != 0 )
         {

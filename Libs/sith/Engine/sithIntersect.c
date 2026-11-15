@@ -4,6 +4,7 @@
 #include <rdroid/Math/rdMatrix.h>
 #include <rdroid/Math/rdVector.h>
 
+#include <sith/Engine/sithCollision.h>
 #include <sith/Main/sithMain.h>
 #include <sith/World/sithSector.h>
 
@@ -175,6 +176,7 @@ SithCollisionType J3DAPI sithIntersect_CheckSphereThingIntersection(SithThing* p
     SITH_ASSERTREL(pComplex->renderData.type == RD_THING_MODEL3);
 
     rdMatrix34 tmat;
+    const rdVector3 savedDvec = pComplex->orient.dvec; // Added: the read-only query puts it back
     pComplex->orient.dvec = pComplex->pos;
     rdMatrix_InvertOrtho34(&tmat, &pComplex->orient);
 
@@ -182,6 +184,10 @@ SithCollisionType J3DAPI sithIntersect_CheckSphereThingIntersection(SithThing* p
     //        OG code was missing this step, and could lead to incorrect transform
     //        in any other place in engine that depended on dvec being zeroed out.
     rdVector_Zero3(&pComplex->orient.dvec);
+    if ( sithCollision_IsReadOnlySearchActive() )
+    {
+        pComplex->orient.dvec = savedDvec;
+    }
 
     // Transform to world space
     rdMatrix_TransformPoint34Acc(&pos, &tmat);

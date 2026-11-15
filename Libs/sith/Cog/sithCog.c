@@ -1364,6 +1364,131 @@ void sithCog_FixupLinksToThings(void)
     }
 }
 
+// Added: the COGs that would run a message handler for a thing or surface, for the interaction
+// prompt. It follows the dispatch above: the thing's own/template/class COG, its captured COG and
+// the links whose mask accepts the source thing's type. A disabled or paused COG and one without
+// the message handler are not counted. Up to maxCogs distinct COGs are written to apCogs; the
+// return value is the number found.
+static int sithCog_CanHandleMessage(const SithCog* pCog, SithCogMsgType messageType)
+{
+    if ( !pCog || (pCog->flags & (SITHCOG_DISABLED | SITHCOG_PAUSED)) != 0 )
+    {
+        return 0;
+    }
+
+    const SithCogScript* pScript = pCog->pScript;
+    if ( !pScript )
+    {
+        return 0;
+    }
+
+    for ( size_t i = 0; i < pScript->numHandlers; ++i )
+    {
+        if ( pScript->aHandlers[i].type == messageType )
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static size_t sithCog_AddMessageCog(SithCog* pCog, SithCog** apCogs, size_t maxCogs,
+    size_t count)
+{
+    for ( size_t i = 0; i < count && i < maxCogs; ++i )
+    {
+        if ( apCogs[i] == pCog )
+        {
+            return count;
+        }
+    }
+
+    if ( count < maxCogs )
+    {
+        apCogs[count] = pCog;
+    }
+
+    return count + 1;
+}
+
+size_t sithCog_GetThingMessageCogs(const SithThing* pThing, const SithThing* pSrcThing,
+    SithCogMsgType messageType, SithCog** apCogs, size_t maxCogs)
+{
+    if ( !pThing )
+    {
+        return 0;
+    }
+
+    if ( !apCogs )
+    {
+        maxCogs = 0;
+    }
+
+    int mask = SITHTHING_TYPEMASK(SITH_THING_FREE);
+    if ( pSrcThing )
+    {
+        mask = SITHTHING_TYPEMASK(pSrcThing->type);
+    }
+
+    size_t count = 0;
+    if ( sithCog_CanHandleMessage(pThing->pCog, messageType) )
+    {
+        count = sithCog_AddMessageCog(pThing->pCog, apCogs, maxCogs, count);
+    }
+
+    if ( sithCog_CanHandleMessage(pThing->pCaptureCog, messageType) )
+    {
+        count = sithCog_AddMessageCog(pThing->pCaptureCog, apCogs, maxCogs, count);
+    }
+
+    for ( size_t i = 0; i < numThingLinks; ++i )
+    {
+        SithCogThingLink* pLink = &aThingLinks[i];
+        if ( pLink->pThing == pThing && pLink->thingSignature == pThing->signature
+            && (mask & pLink->mask) != 0
+            && sithCog_CanHandleMessage(pLink->pCog, messageType) )
+        {
+            count = sithCog_AddMessageCog(pLink->pCog, apCogs, maxCogs, count);
+        }
+    }
+
+    return count;
+}
+
+size_t sithCog_GetSurfaceMessageCogs(const SithSurface* pSurf, const SithThing* pSrcThing,
+    SithCogMsgType messageType, SithCog** apCogs, size_t maxCogs)
+{
+    if ( !pSurf )
+    {
+        return 0;
+    }
+
+    if ( !apCogs )
+    {
+        maxCogs = 0;
+    }
+
+    int mask = SITHTHING_TYPEMASK(SITH_THING_FREE);
+    if ( pSrcThing )
+    {
+        mask = SITHTHING_TYPEMASK(pSrcThing->type);
+    }
+
+    size_t count = 0;
+    for ( size_t i = 0; i < numSurfLinks; ++i )
+    {
+        SithCogSurfaceLink* pLink = &aCogLinkSurfaces[i];
+        if ( pLink->pSurface == pSurf && (mask & pLink->mask) != 0
+            && sithCog_CanHandleMessage(pLink->pCog, messageType) )
+        {
+            count = sithCog_AddMessageCog(pLink->pCog, apCogs, maxCogs, count);
+        }
+    }
+
+    return count;
+}
+
 int J3DAPI sithCog_ThingSendMessage(const SithThing* pThing, const SithThing* pSrcThing, SithCogMsgType msgType)
 {
     return sithCog_ThingSendMessageEx(pThing, pSrcThing, msgType, 0, 0, 0, 0);

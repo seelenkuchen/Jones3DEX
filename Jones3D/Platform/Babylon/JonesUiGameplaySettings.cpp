@@ -21,6 +21,7 @@
 // (the next start for a normal session); Retail disables the rows and writes them off.
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
 
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Play/jonesInventory.h>
@@ -77,6 +78,7 @@ namespace
     constexpr const char* kJonesGameplayProfileNoteText    =
         "Profile is fixed by this build."; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayEnhancementsText   = "Enhancements";         // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayInteractionPromptsText = "Interaction prompts"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayFireFlashText      =
         "Weapon fire flash"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayExternalMaterialsText =
@@ -211,6 +213,11 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Label{
             JonesUiContext_ResolveString(kJonesGameplayEnhancementsText), std::string() });
 
+        layout.interactionPrompts = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiContext_ResolveString(kJonesGameplayInteractionPromptsText), std::string(),
+            bEnhancedProfile, values.bInteractionPrompts });
+
         layout.fireFlash = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiContext_ResolveString(kJonesGameplayFireFlashText), std::string(),
@@ -254,6 +261,7 @@ JonesUiGameplayValues JonesUiGameplay_LoadValues(bool bEnhancedProfile)
         JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false);
     values.bReticle           = JonesReticle_IsEnabled();
     values.bBlood             = sithWeapon_IsBloodSplatterEnabled();
+    values.bInteractionPrompts = bEnhancedProfile && JonesHud_IsInteractionPromptsEnabled();
     values.bFireFlash         = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
         SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true);
     values.bExternalMaterials = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
@@ -286,6 +294,8 @@ void JonesUiGameplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
         values.bReticle));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.blood,
         values.bBlood));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.interactionPrompts,
+        values.bInteractionPrompts));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.fireFlash,
         values.bFireFlash));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.externalMaterials,
@@ -333,6 +343,7 @@ int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedPro
 
     // Added: the enhancement keys. Their modules read them when they open, so a change applies
     // then. Retail wrote them off above, so this also turns them off in the file.
+    JonesHud_EnableInteractionPrompts(values.bInteractionPrompts ? 1 : 0);
     JonesUiGameplay_SetConfigBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED,
         values.bFireFlash);
     JonesUiGameplay_SetConfigBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL,

@@ -1462,10 +1462,10 @@ int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
         return 1;
     }
 
-    // Added: a menu records its UI on the swapchain, which a back-buffer read cannot see. While an
-    // overlay is installed, save the window-sized frame including it; otherwise keep the back
-    // buffer's pixels and size.
-    if ( stdRenderBabylon_HasPresentOverlay() )
+    // Added: menus and the HUD prompt record onto the swapchain, which a back-buffer read cannot
+    // see. While either overlay is installed, save the window-sized frame including them in the
+    // present order; otherwise keep the back buffer's pixels and size.
+    if ( stdRenderBabylon_HasPresentOverlay() || stdRenderBabylon_HasHudOverlay() )
     {
         StdBabylonContext* pContext = stdBabylon_GetContext();
         if ( pContext && pContext->pWindow )

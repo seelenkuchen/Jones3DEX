@@ -1264,6 +1264,11 @@ int JonesMain_ProcessGame(void)
             std3D_EndScene();
         }
 
+        // Added: the interaction prompt is presentation state for the present overlay, so it is
+        // refreshed after the HUD and before the present in every column, even when no HUD frame
+        // was drawn. The query is side-effect free.
+        JonesHud_UpdateInteractionPrompt();
+
         JonesMain_PrintFramerate();
         stdDisplay_Update();
     }
