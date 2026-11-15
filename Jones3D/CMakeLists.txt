@@ -323,12 +323,31 @@ endif()
 # run needs no configuration path.
 if (J3D_PLATFORM_BABYLON)
     set(JONES3D_UI_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
+    # Added: both executables share one output directory, so one custom command copies Data/
+    # once; two POST_BUILD copies raced when ninja linked them in parallel. The stamp reruns the
+    # copy when a file in Data/ changes. Visual Studio puts the executables in a per-configuration
+    # subdirectory; single-config generators do not.
+    get_property(JONES3D_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if (JONES3D_MULTI_CONFIG)
+        set(JONES3D_BABYLON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+    else()
+        set(JONES3D_BABYLON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    set(JONES3D_UI_DATA_STAMP "${JONES3D_BABYLON_OUTPUT_DIR}/Data.stamp")
+    file(GLOB_RECURSE JONES3D_UI_DATA_FILES CONFIGURE_DEPENDS LIST_DIRECTORIES false
+        "${JONES3D_UI_DATA_DIR}/*")
+    add_custom_command(
+        OUTPUT "${JONES3D_UI_DATA_STAMP}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${JONES3D_UI_DATA_DIR}" "${JONES3D_BABYLON_OUTPUT_DIR}/Data"
+        COMMAND ${CMAKE_COMMAND} -E touch "${JONES3D_UI_DATA_STAMP}"
+        DEPENDS ${JONES3D_UI_DATA_FILES}
+        COMMENT "Copying Data/ next to the game executables"
+        VERBATIM)
+    add_custom_target(Jones3DData DEPENDS "${JONES3D_UI_DATA_STAMP}")
     foreach (JONES3D_BABYLON_EXECUTABLE Jones3D-headless Jones3D)
         if (TARGET ${JONES3D_BABYLON_EXECUTABLE})
-            add_custom_command(TARGET ${JONES3D_BABYLON_EXECUTABLE} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${JONES3D_UI_DATA_DIR}" "$<TARGET_FILE_DIR:${JONES3D_BABYLON_EXECUTABLE}>/Data"
-                COMMENT "Copying Data/ next to ${JONES3D_BABYLON_EXECUTABLE}")
+            add_dependencies(${JONES3D_BABYLON_EXECUTABLE} Jones3DData)
         endif()
     endforeach()
 
