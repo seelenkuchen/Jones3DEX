@@ -94,3 +94,10 @@ check rejects paths outside `Babylon/`, and a license check rejects non-permissi
 
 Babylon's naming, interface and pattern rules are on their own page:
 [Babylon-Design-Rules.md](Babylon-Design-Rules.md).
+
+## 8.10 Frame time
+
+[Frame-Time.md](Frame-Time.md) maps every reader of frame time and wall time by module and class (tick,
+tick-change, render, wall), records where the simulation and the draw are interleaved today, and lists what
+the fixed-tick work in [ADR-0039](../09-decisions/ADR-0039-fixed-tick-interpolated-rendering.md) must
+interpolate.
