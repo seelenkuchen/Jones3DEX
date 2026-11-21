@@ -8,6 +8,7 @@
 
 #include <rdroid/Math/rdVector.h>
 #include <sith/Cog/sithCog.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Engine/sithCollision.h>
 #include <sith/Engine/sithIntersect.h>
 #include <sith/Gameplay/sithInventory.h>
@@ -266,7 +267,10 @@ TEST_SETUP(sithInteraction)
     sithCollision_ResetGlobals();
     sithCollision_Startup();
     sithCog_ResetGlobals();
+    sithControl_ClearKeyOverrides();
     sithPlayerControls_Reset();
+    sithWeapon_ResetGlobals();
+    sithWeapon_SetQuickWhipEnabled(J3D_QOL_VALUE(1, 0));
     sithInteractionTest_ResetScene();
     sithWhip_SetTargetsForTest(NULL, NULL);
 }
@@ -302,6 +306,38 @@ static void sithInteractionTest_EquipWhip(SithThing* pSwing, SithThing* pClimb)
     sithInteractionTest_player.curWeaponID = SITHWEAPON_WHIP;
     sithInventory_SetInventoryFlags(PLAYER, SITHWEAPON_WHIP, SITHINVENTORY_TYPE_UNKNOWN_200);
     sithWhip_SetTargetsForTest(pSwing, pClimb);
+}
+
+// Added: a real search target for the whip finders, found by the collision code rather than
+// installed with sithWhip_SetTargetsForTest.
+static void sithInteractionTest_SetUpWhipSearchThing(SithThing* pThing, const rdVector3* pPos,
+    SithThingFlag flags)
+{
+    sithInteractionTest_KeepOnlyThing(pThing);
+    pThing->flags = flags;
+    pThing->pos = *pPos;
+    pThing->collide.type = SITH_COLLIDE_SPHERE;
+    pThing->collide.size = 0.05f;
+    pThing->collide.movesize = 0.05f;
+    pThing->pInSector = &sithInteractionTest_sector;
+}
+
+// Added: the quick whip availability scene: standing on a whip-aim surface with the whip owned.
+static void sithInteractionTest_SetUpQuickWhipScene(void)
+{
+    const rdVector3 swingPos = { 0.0f, 0.1f, 0.0f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &swingPos, SITH_TF_WHIPSWING);
+
+    sithInteractionTest_surface.flags |= SITH_SURFACE_WHIPAIM;
+    PLAYER->attach.flags = SITH_ATTACH_SURFACE;
+    PLAYER->attach.attachedToStructure.pSurfaceAttached = &sithInteractionTest_surface;
+
+    sithWeapon_InitalizeActorWeapon(PLAYER);
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = SITHWEAPON_NO_WEAPON;
+    sithInteractionTest_player.curWeaponID = SITHWEAPON_NO_WEAPON;
+    sithInventory_SetInventoryFlags(PLAYER, SITHWEAPON_WHIP, SITHINVENTORY_TYPE_REGISTERED);
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 1.0f;
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].status = SITHINVENTORY_ITEM_AVAILABLE;
 }
 
 TEST(sithInteraction, QueryAndActivateAgreeOnCogSurface)
@@ -810,6 +846,230 @@ TEST(sithInteraction, WhipQueryChangesNoState)
     TEST_ASSERT_EQUAL_UINT64(scratchBefore, sithCollision_GetScratchChecksumForTest());
 }
 
+TEST(sithInteraction, WhipSearchSetsTheSwingTarget)
+{
+    const rdVector3 pos = { 0.0f, 0.1f, 0.0f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &pos, SITH_TF_WHIPSWING);
+
+    TEST_ASSERT_EQUAL_INT(1, sithWhip_SearchWhipSwingThing(PLAYER));
+    TEST_ASSERT_EQUAL_PTR(COG, sithWhip_GetWhipSwingThing());
+    TEST_ASSERT_NULL(sithWhip_GetWhipClimbThing());
+}
+
+TEST(sithInteraction, WhipSearchSetsTheClimbTarget)
+{
+    const rdVector3 pos = { 0.0f, 0.0f, 0.4f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &pos, SITH_TF_WHIPCLIMB);
+
+    TEST_ASSERT_EQUAL_INT(1, sithWhip_SearchWhipClimbThing(PLAYER));
+    TEST_ASSERT_EQUAL_PTR(COG, sithWhip_GetWhipClimbThing());
+    TEST_ASSERT_NULL(sithWhip_GetWhipSwingThing());
+}
+
+TEST(sithInteraction, WhipClimbSearchRejectsATargetTooLow)
+{
+    const rdVector3 pos = { 0.0f, 0.0f, 0.1f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &pos, SITH_TF_WHIPCLIMB);
+
+    TEST_ASSERT_EQUAL_INT(0, sithWhip_SearchWhipClimbThing(PLAYER));
+    TEST_ASSERT_NULL(sithWhip_GetWhipClimbThing());
+}
+
+TEST(sithInteraction, WhipSearchFindsNothingWithoutATarget)
+{
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COLLISION);
+
+    TEST_ASSERT_EQUAL_INT(0, sithWhip_SearchWhipSwingThing(PLAYER));
+    TEST_ASSERT_NULL(sithWhip_GetWhipSwingThing());
+    TEST_ASSERT_EQUAL_INT(0, sithWhip_SearchWhipClimbThing(PLAYER));
+    TEST_ASSERT_NULL(sithWhip_GetWhipClimbThing());
+}
+
+TEST(sithInteraction, QuickWhipQueryPicksTheSwingTargetAndChangesNoState)
+{
+    const rdVector3 swingPos = { 0.0f, 0.1f, 0.0f };
+    const rdVector3 climbPos = { 0.0f, 0.0f, 0.4f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &swingPos, SITH_TF_WHIPSWING);
+    sithInteractionTest_InitThing(OTHERPLAYER, 3, SITH_THING_PLAYER, &climbPos);
+    OTHERPLAYER->flags = SITH_TF_WHIPCLIMB;
+    COG->pNextThingInSector = OTHERPLAYER;
+
+    // The old globals point elsewhere; the query must not touch them.
+    sithWhip_SetTargetsForTest(ITEM, ITEM);
+    SithThing* pSwingBefore = sithWhip_GetWhipSwingThing();
+    SithThing* pClimbBefore = sithWhip_GetWhipClimbThing();
+    const SithWeaponId weaponBefore = PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID;
+    const SithThingMoveStatus moveBefore = PLAYER->moveStatus;
+    const uint64_t scratchBefore = sithCollision_GetScratchChecksumForTest();
+
+    SithThing* pTarget = NULL;
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWhip_QueryQuickWhipTarget(PLAYER, &pTarget, &bSwing));
+    TEST_ASSERT_EQUAL_PTR(COG, pTarget);
+    TEST_ASSERT_EQUAL_INT(1, bSwing);
+
+    TEST_ASSERT_EQUAL_PTR(pSwingBefore, sithWhip_GetWhipSwingThing());
+    TEST_ASSERT_EQUAL_PTR(pClimbBefore, sithWhip_GetWhipClimbThing());
+    TEST_ASSERT_EQUAL_INT(weaponBefore, PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID);
+    TEST_ASSERT_EQUAL_INT(moveBefore, PLAYER->moveStatus);
+    TEST_ASSERT_EQUAL_UINT64(scratchBefore, sithCollision_GetScratchChecksumForTest());
+}
+
+TEST(sithInteraction, QuickWhipQueryPicksAClimbTarget)
+{
+    const rdVector3 pos = { 0.0f, 0.0f, 0.4f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &pos, SITH_TF_WHIPCLIMB);
+
+    SithThing* pTarget = NULL;
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWhip_QueryQuickWhipTarget(PLAYER, &pTarget, &bSwing));
+    TEST_ASSERT_EQUAL_PTR(COG, pTarget);
+    TEST_ASSERT_EQUAL_INT(0, bSwing);
+}
+
+TEST(sithInteraction, QuickWhipQueryRejectsAClimbTargetTooLow)
+{
+    const rdVector3 pos = { 0.0f, 0.0f, 0.1f };
+    sithInteractionTest_SetUpWhipSearchThing(COG, &pos, SITH_TF_WHIPCLIMB);
+
+    SithThing* pTarget = COG;
+    int bSwing = 1;
+    TEST_ASSERT_EQUAL_INT(0, sithWhip_QueryQuickWhipTarget(PLAYER, &pTarget, &bSwing));
+    TEST_ASSERT_NULL(pTarget);
+    TEST_ASSERT_EQUAL_INT(0, bSwing);
+}
+
+TEST(sithInteraction, CanQuickWhipAcceptsAWhipAimScene)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipScene();
+
+    SithThing* pTarget = NULL;
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    TEST_ASSERT_EQUAL_PTR(COG, pTarget);
+    TEST_ASSERT_EQUAL_INT(1, bSwing);
+}
+
+TEST(sithInteraction, CanQuickWhipRejectsEachUnavailableCondition)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipScene();
+
+    SithThing* pTarget = NULL;
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+
+    sithWeapon_SetQuickWhipEnabled(0);
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    sithWeapon_SetQuickWhipEnabled(J3D_QOL_VALUE(1, 0));
+
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = SITHWEAPON_WHIP;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = SITHWEAPON_NO_WEAPON;
+
+    PLAYER->attach.flags = 0;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    PLAYER->attach.flags = SITH_ATTACH_SURFACE;
+    PLAYER->attach.attachedToStructure.pSurfaceAttached = &sithInteractionTest_surface;
+
+    PLAYER->thingInfo.actorInfo.bControlsDisabled = 1;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    PLAYER->thingInfo.actorInfo.bControlsDisabled = 0;
+
+    PLAYER->moveStatus = SITHPLAYERMOVE_FALLING;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
+
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 0.0f;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 1.0f;
+
+    sithInteractionTest_sector.pFirstThingInSector = NULL;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+}
+
+TEST(sithInteraction, QuickWhipSwitchDefaultsAndRoundTrips)
+{
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(1, 0), sithWeapon_IsQuickWhipEnabled());
+
+    sithWeapon_SetQuickWhipEnabled(0);
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_IsQuickWhipEnabled());
+
+    sithWeapon_SetQuickWhipEnabled(1);
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(1, 0), sithWeapon_IsQuickWhipEnabled());
+}
+
+// Added: the fixture has no whip COG or actor, so the fire itself cannot run. This presses the
+// quick whip binding and completes the whip draw by hand; it proves the press selects the whip
+// without drawing it as a plain select, and that the deadline restores the empty hands.
+TEST(sithInteraction, QuickWhipPressSelectsWhipThenDeadlineRestores)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipScene();
+    sithInventory_SetInventoryFlags(PLAYER, SITHWEAPON_WHIP,
+        (SithInventoryTypeFlag)(SITHINVENTORY_TYPE_WEAPON | SITHINVENTORY_TYPE_UNKNOWN_200));
+
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKWHIP);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 0, 0.0f);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 1, 1.0f);
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NO_WEAPON, PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID);
+
+    // The draw completes; no target comes before the deadline.
+    PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID   = SITHWEAPON_NOWEAPONSELECTED;
+    PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID        = SITHWEAPON_WHIP;
+    sithTime_g_secGameTime += 3.0;
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NO_WEAPON, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+}
+
+// Added: the restore waits for the whole whip move. The fixture cannot start the real swing, so
+// the move status is set by hand; this still proves the state machine does not restore until the
+// whip move is over.
+TEST(sithInteraction, QuickWhipRestoresAfterTheWhipMoveEnds)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipScene();
+    sithInventory_SetInventoryFlags(PLAYER, SITHWEAPON_WHIP,
+        (SithInventoryTypeFlag)(SITHINVENTORY_TYPE_WEAPON | SITHINVENTORY_TYPE_UNKNOWN_200));
+
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKWHIP);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 0, 0.0f);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 1, 1.0f);
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+
+    PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID   = SITHWEAPON_NOWEAPONSELECTED;
+    PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID        = SITHWEAPON_WHIP;
+    PLAYER->moveStatus = SITHPLAYERMOVE_WHIPSWINGING;
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONDESELECTED,
+        PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+
+    PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+}
+
 TEST_GROUP_RUNNER(sithInteraction)
 {
     RUN_TEST_CASE(sithInteraction, QueryAndActivateAgreeOnCogSurface);
@@ -842,4 +1102,16 @@ TEST_GROUP_RUNNER(sithInteraction)
     RUN_TEST_CASE(sithInteraction, NoWhipDrawnGetsNoWhipPrompt);
     RUN_TEST_CASE(sithInteraction, WhipQueryRejectsDisabledControlsAndMoveStatusAboveRunning);
     RUN_TEST_CASE(sithInteraction, WhipQueryChangesNoState);
+    RUN_TEST_CASE(sithInteraction, WhipSearchSetsTheSwingTarget);
+    RUN_TEST_CASE(sithInteraction, WhipSearchSetsTheClimbTarget);
+    RUN_TEST_CASE(sithInteraction, WhipClimbSearchRejectsATargetTooLow);
+    RUN_TEST_CASE(sithInteraction, WhipSearchFindsNothingWithoutATarget);
+    RUN_TEST_CASE(sithInteraction, QuickWhipQueryPicksTheSwingTargetAndChangesNoState);
+    RUN_TEST_CASE(sithInteraction, QuickWhipQueryPicksAClimbTarget);
+    RUN_TEST_CASE(sithInteraction, QuickWhipQueryRejectsAClimbTargetTooLow);
+    RUN_TEST_CASE(sithInteraction, CanQuickWhipAcceptsAWhipAimScene);
+    RUN_TEST_CASE(sithInteraction, CanQuickWhipRejectsEachUnavailableCondition);
+    RUN_TEST_CASE(sithInteraction, QuickWhipSwitchDefaultsAndRoundTrips);
+    RUN_TEST_CASE(sithInteraction, QuickWhipPressSelectsWhipThenDeadlineRestores);
+    RUN_TEST_CASE(sithInteraction, QuickWhipRestoresAfterTheWhipMoveEnds);
 }

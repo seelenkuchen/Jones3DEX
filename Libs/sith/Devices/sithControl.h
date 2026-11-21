@@ -8,7 +8,7 @@
 
 J3D_EXTERN_C_START
 
-#define SITHCONTROL_MAXFUNCTIONS   60u
+#define SITHCONTROL_MAXFUNCTIONS   61u // Added: room for SITHCONTROL_QUICKWHIP
 #define STDCONTROL_IDLECAM_TIMEOUT 90000 // 90 sec, time in milliseconds before switching to idle camera due to control inactivity
 
 #define SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE "engine.input.controlStyle" // Added: the old single control style; read once for migration, no longer written

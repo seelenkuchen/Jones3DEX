@@ -97,6 +97,16 @@ int J3DAPI sithWeapon_ActivateWhip(SithThing* pThing, SithCog* pCog);
 // controls enabled) and the same target choice, and changes no state.
 int J3DAPI sithWeapon_QueryWhipPress(const SithThing* pThing, int* pbSwing);
 
+// Added: the Modern quick whip option (W10d). It defaults off in a non-QOL build, where the
+// setter does nothing and sithWeapon_IsQuickWhipEnabled always returns 0.
+void J3DAPI sithWeapon_SetQuickWhipEnabled(int bEnabled);
+int sithWeapon_IsQuickWhipEnabled(void);
+
+// Added: all the quick whip availability conditions, including the read-only target query.
+// Returns 1 when a quick whip press would act and reports the target and kind it would use. It
+// changes no state. The outputs are cleared first, so they are always set.
+int J3DAPI sithWeapon_CanQuickWhip(SithThing* pThing, SithThing** ppTarget, int* pbSwing);
+
 void sithWeapon_ResetGlobals(void);
 
 J3D_EXTERN_C_END

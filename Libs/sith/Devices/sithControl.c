@@ -118,6 +118,7 @@ const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
     "CHALK",
     "TARGETLOCK",
     "QUICKSTEP",
+    "QUICKWHIP", // Added: Modern quick whip (W10d)
     "MAXFUNCTIONS"
 };
 
@@ -939,6 +940,7 @@ void sithControl_RegisterControlFunctions(void)
     sithControl_RegisterKeyFunction(SITHCONTROL_CHALK);
     sithControl_RegisterKeyFunction(SITHCONTROL_TARGETLOCK); // Added: Modern target lock (ADR-0029)
     sithControl_RegisterKeyFunction(SITHCONTROL_QUICKSTEP); // Added: Modern quick-step modifier (ADR-0029)
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKWHIP); // Added: Modern quick whip (W10d)
     sithControl_RegisterKeyFunction(SITHCONTROL_DEBUG);
     sithControl_RegisterKeyFunction(SITHCONTROL_GAMMA);
     sithControl_RegisterKeyFunction(SITHCONTROL_SCREENSHOT);
