@@ -7,10 +7,11 @@
 // it; also sampled) that std3D's scene passes write beside the color. stdDisplay opens it
 // (stdDisplay_Open), sizes the back buffer (stdDisplay_SetMode) and ends each frame at
 // stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
-// chain, an ordered list of full-screen passes that is empty by default, and then, on a device with
-// a swapchain, runs the built-in final tone-map pass over the chain's output (the back buffer color
-// when the chain is empty) and writes it to the swapchain at the presented size, sampling with
-// linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. When the
+// chain, an ordered list of full-screen passes that is empty by default, then the built-in bloom
+// stage when it is on, and then, on a device with a swapchain, runs the built-in final tone-map pass
+// over that output (the back buffer color when the chain is empty and bloom is off) and writes it
+// to the swapchain at the presented size, sampling with linear filtering when the render scale is
+// not 1 so supersampled scenes resolve cleanly. When the
 // anti-aliasing option is on (SMAA 1x, engine.renderer.antiAliasing) the tone map writes an LDR
 // image at the presented size instead, three SMAA passes smooth the scene's edges, and the last one
 // writes the swapchain; with it off the image is byte-identical to the plain tone-map present.
@@ -192,6 +193,21 @@ bool stdRenderBabylon_GetAntiAliasing();
 bool stdRenderBabylon_SetSharpening(float strength);
 float stdRenderBabylon_GetSharpening();
 
+// Added: the built-in bloom stage on the 3D scene, before the tone map. strength is 0 (off) to 0.5
+// (the High choice); the prefilter's soft-knee threshold (0.6) and knee (0.3) and the option levels'
+// strengths live in stdRenderBabylon.cpp. On: a half-size soft-knee luminance prefilter, a
+// downsample chain to 1/32 of the scene, additive tent upsamples back to 1/2 and a scene-sized
+// composite that adds the result times the strength to the scene; its targets are in the scene
+// format, at the scene size times the render scale, and are recreated when that size changes. The
+// tone map then reads the composite. Off: no bloom pass is recorded and the image is byte-identical
+// to the path without the option. The HUD layer, menus and prompts come after and are untouched.
+// A finite value outside 0..0.5 is clamped; a non-finite one is refused, logging why and changing
+// nothing. Opening reads engine.renderer.bloom (0 off, 1 Low, 2 Medium, 3 High = strength 0, 0.15,
+// 0.3, 0.5; default 1 in Enhanced builds, 0 in Retail/QOL-off ones); this setter changes it until
+// the next open. Closing frees the stage's targets and pipelines.
+bool stdRenderBabylon_SetBloom(float strength);
+float stdRenderBabylon_GetBloom();
+
 // The command list of the frame being recorded; begins a frame when none is. Must be open. The
 // reference is valid until stdRenderBabylon_SubmitFrame or stdRenderBabylon_Close.
 babylon::render::CommandList& stdRenderBabylon_GetFrame();
@@ -300,11 +316,11 @@ void stdRenderBabylon_ClearPostPasses();
 
 size_t stdRenderBabylon_GetNumPostPasses();
 
-// What the final tone-map pass samples: the output of the chain's last pass after a presenting
-// submit ran it, else the back buffer color target (null without a back buffer). Its size is the
-// scaled scene size (GetRenderWidth/Height). Its contents are those of the last presenting submit;
-// tests read it back. With the default tone map it is the presented image up to the 0..1 clamp and
-// the final pass's resample to the presented size.
+// What the final tone-map pass samples: the bloom composite after a presenting submit ran the bloom
+// stage, else the output of the chain's last pass, else the back buffer color target (null without a
+// back buffer). Its size is the scaled scene size (GetRenderWidth/Height). Its contents are those of
+// the last presenting submit; tests read it back. With the default tone map it is the presented
+// image up to the 0..1 clamp and the final pass's resample to the presented size.
 babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 
 #ifdef J3D_TEST

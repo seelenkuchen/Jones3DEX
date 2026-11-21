@@ -2097,6 +2097,113 @@ TEST(std3DBabylon, SharpeningAddsACasPassAfterTheToneMapOrSmaa)
     TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
 }
 
+TEST(std3DBabylon, BloomAddsAPrefilterBlurAndCompositeBeforeTheToneMap)
+{
+    OpenStd3D(16u, 8u);
+    const render::TextureHandle target = Null().createTexture(
+        render::TextureDesc{ 16u, 8u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(target.isNull());
+
+    auto passes = []
+    {
+        std::vector<render::BeginPass> aPasses;
+        std::vector<std::vector<render::PushUniforms>> aUniforms;
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            if ( const render::BeginPass* pPass = std::get_if<render::BeginPass>(&command) )
+            {
+                aPasses.push_back(*pPass);
+                aUniforms.emplace_back();
+            }
+            else if ( const render::PushUniforms* pUniforms = std::get_if<render::PushUniforms>(&command) )
+            {
+                if ( !aUniforms.empty() )
+                {
+                    aUniforms.back().push_back(*pUniforms);
+                }
+            }
+        }
+        return std::make_pair(aPasses, aUniforms);
+    };
+
+    // Off (the default without a started config): the scene pass only; the present source is the
+    // back buffer.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdRenderBabylon_GetBloom());
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(1u, passes().first.size());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+
+    // On: the scene, then half-size prefilter, four downsamples, four additive upsamples and the
+    // scene-sized composite, all before the tone map.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.3f));
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, stdRenderBabylon_GetBloom());
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+
+    const auto [aPasses, aUniforms] = passes();
+    TEST_ASSERT_EQUAL_size_t(11u, aPasses.size()); // the scene and ten bloom passes
+    const size_t texelBytes = render::bytesPerTexel(stdRenderBabylon_GetColorFormat());
+    auto texels = [texelBytes](const render::BeginPass& pass)
+    {
+        return Null().readTexture(pass.desc.colorTargets[0].target, 0).size() / texelBytes;
+    };
+
+    // The prefilter target is half the scene; the threshold and soft knee reach its shader.
+    TEST_ASSERT_EQUAL_size_t(8u * 4u, texels(aPasses[1]));
+    TEST_ASSERT_EQUAL_size_t(1u, aUniforms[1].size());
+    TEST_ASSERT_EQUAL_size_t(16u, aUniforms[1][0].data.size());
+    float aPrefilter[4];
+    std::memcpy(aPrefilter, aUniforms[1][0].data.data(), sizeof(aPrefilter));
+    TEST_ASSERT_EQUAL_FLOAT(0.6f, aPrefilter[0]);
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, aPrefilter[1]);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f / 16.0f, aPrefilter[2]);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f / 8.0f, aPrefilter[3]);
+
+    // Downsample chain: 1/4, 1/8, 1/16, 1/32 of the scene, each replacing its target.
+    const size_t aDownSizes[] = { 4u * 2u, 2u * 1u, 1u * 1u, 1u * 1u };
+    for ( size_t i = 0; i < sizeof(aDownSizes) / sizeof(aDownSizes[0]); ++i )
+    {
+        TEST_ASSERT_EQUAL_size_t(aDownSizes[i], texels(aPasses[2u + i]));
+        TEST_ASSERT_TRUE(aPasses[2u + i].desc.colorTargets[0].load == render::LoadOp::DontCare);
+    }
+
+    // Upsamples run from 1/32 back to 1/2, adding into the downsampled target.
+    for ( size_t i = 0; i < 4u; ++i )
+    {
+        TEST_ASSERT_TRUE(aPasses[6u + i].desc.colorTargets[0].load == render::LoadOp::Load);
+    }
+    TEST_ASSERT_EQUAL_size_t(8u * 4u, texels(aPasses[9]));
+
+    // The composite is scene sized and feeds the tone map.
+    TEST_ASSERT_EQUAL_size_t(16u * 8u, texels(aPasses[10]));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == aPasses[10].desc.colorTargets[0].target);
+    TEST_ASSERT_EQUAL_size_t(1u, aUniforms[10].size());
+    float aComposite[4];
+    std::memcpy(aComposite, aUniforms[10][0].data.data(), sizeof(aComposite));
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, aComposite[0]);
+
+    // A capture reads the composite and adds only the final tone-map pass into its target.
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    const auto [aCapturePasses, aCaptureUniforms] = passes();
+    TEST_ASSERT_EQUAL_size_t(1u, aCapturePasses.size());
+    TEST_ASSERT_TRUE(aCapturePasses[0].desc.colorTargets[0].target == target);
+
+    // Off again skips the stage and presents the back buffer.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(1u, passes().first.size());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+
+    Null().destroyTexture(target);
+}
+
 TEST(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass)
 {
     OpenStd3D(16u, 8u);
@@ -2335,6 +2442,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, BadPostPassesAreRefused);
     RUN_TEST_CASE(std3DBabylon, AntiAliasingAddsThreeSmaaPassesBeforeThePresent);
     RUN_TEST_CASE(std3DBabylon, SharpeningAddsACasPassAfterTheToneMapOrSmaa);
+    RUN_TEST_CASE(std3DBabylon, BloomAddsAPrefilterBlurAndCompositeBeforeTheToneMap);
     RUN_TEST_CASE(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass);
     RUN_TEST_CASE(std3DBabylon, TheHudOverlayRecordsBeforeThePresentOverlay);
     RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheOverlay);
@@ -3862,6 +3970,106 @@ TEST(std3DBabylonGpu, SmaaLeavesTheHudLayerPixelExact)
     AssertPixel(17u, 8u, 0, 0, 0, 255, 0);
 }
 
+TEST(std3DBabylonGpu, BloomSpreadsABrightSpotAndLeavesFarBlack)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // An opaque black background with a small white spot at the centre.
+    auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.9f, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 28.0f, 28.0f, 36.0f, 36.0f, 0.5f, 0xFFFFFFFFu);
+    };
+
+    auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_INT(255, redChannel(off, 32u, 32u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 39u, 32u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 60u, 60u));
+
+    // On: the neighbourhood of the spot picks up a falloff, the far black stays black.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.15f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    const int near   = redChannel(on, 39u, 32u);
+    const int farther = redChannel(on, 43u, 32u);
+    const int far    = redChannel(on, 60u, 60u);
+    std::printf("M9.12 bloom falloff: spot 255, 3 px away %d/255, 7 px away %d/255, far corner %d/255\n",
+        near, farther, far);
+    TEST_ASSERT_TRUE(near > 0);
+    TEST_ASSERT_TRUE(near >= farther);
+    TEST_ASSERT_TRUE(far <= 1);
+    TEST_ASSERT_EQUAL_INT(255, redChannel(on, 32u, 32u));
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+}
+
+TEST(std3DBabylonGpu, BloomLeavesASubThresholdImageUnchanged)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // 0x40 grey is luma ~0.25, below the soft knee's 0.6 - 0.3 start, so nothing contributes.
+    auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF404040u);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.15f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_EQUAL_size_t(off.size(), on.size());
+    int maxDiff = 0;
+    for ( size_t i = 0; i < off.size(); ++i )
+    {
+        maxDiff = std::max(maxDiff, std::abs((int)off[i] - (int)on[i]));
+    }
+    std::printf("M9.12 bloom sub-threshold grey: max per-channel difference %d/255\n", maxDiff);
+    TEST_ASSERT_TRUE(maxDiff <= 1);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+}
+
+TEST(std3DBabylonGpu, BloomLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.15f));
+
+    // A bright scene behind a one-pixel green HUD line: the scene may bloom, the HUD is composited
+    // after the tone map and keeps its exact colour.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFFFFFFFFu);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255, 0);
+    AssertPixel(15u, 8u, 255, 255, 255, 255, 0);
+    AssertPixel(17u, 8u, 255, 255, 255, 255, 0);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -3888,6 +4096,9 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, SharpeningLeavesTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, SmaaBlendsAHardDiagonalEdgeAndLeavesFarPixels);
     RUN_TEST_CASE(std3DBabylonGpu, SmaaLeavesTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, BloomSpreadsABrightSpotAndLeavesFarBlack);
+    RUN_TEST_CASE(std3DBabylonGpu, BloomLeavesASubThresholdImageUnchanged);
+    RUN_TEST_CASE(std3DBabylonGpu, BloomLeavesTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates);
 }
 
