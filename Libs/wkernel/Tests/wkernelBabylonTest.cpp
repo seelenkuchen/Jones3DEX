@@ -285,6 +285,49 @@ TEST(wkernelBabylon, IntroSkipCallbackTakesTheIntroWindowProcSkipKeys)
     TEST_ASSERT_EQUAL_INT(4, numIntroSkips);
 }
 
+TEST(wkernelBabylon, IntroSkipIgnoresTheReleaseOfAClickThatStartedBeforeTheIntro)
+{
+    using babylon::platform::MouseButton;
+    using babylon::platform::MouseButtonChanged;
+    const babylon::platform::WindowId id = pWindow->id();
+
+    // The menu activates New Game on the press, closes, and the intro installs its skip callback. The
+    // release that follows must not skip the movie.
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, true });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(0, numIntroSkips);
+
+    TEST_ASSERT_TRUE(wkernel_SetIntroSkipCallback(RecordIntroSkip) == nullptr);
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(0, numIntroSkips);
+
+    // A press and its release in one pump skip once.
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, true });
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(1, numIntroSkips);
+
+    // A press in one pump and its release in a later one skip once; the press is then used up.
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, true });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(1, numIntroSkips);
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(2, numIntroSkips);
+
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(2, numIntroSkips);
+
+    // Installing the callback again forgets the old press too, so the next skip needs a new one.
+    TEST_ASSERT_TRUE(wkernel_SetIntroSkipCallback(nullptr) == RecordIntroSkip);
+    TEST_ASSERT_TRUE(wkernel_SetIntroSkipCallback(RecordIntroSkip) == nullptr);
+    pPlatform->pushEvent(MouseButtonChanged{ id, MouseButton::Left, false });
+    TEST_ASSERT_EQUAL_INT(0, wkernel_PeekProcessEvents());
+    TEST_ASSERT_EQUAL_INT(2, numIntroSkips);
+}
+
 TEST_GROUP_RUNNER(wkernelBabylon)
 {
     RUN_TEST_CASE(wkernelBabylon, PeekProcessEventsDeliversFocusChangesOldestFirstAndAnswersQuit);
@@ -296,4 +339,5 @@ TEST_GROUP_RUNNER(wkernelBabylon)
     RUN_TEST_CASE(wkernelBabylon, SetWindowSizeResizesTheGameWindowAndAnswersSuccess);
     RUN_TEST_CASE(wkernelBabylon, WindowStylesDriveTheGameWindowFullscreenMode);
     RUN_TEST_CASE(wkernelBabylon, IntroSkipCallbackTakesTheIntroWindowProcSkipKeys);
+    RUN_TEST_CASE(wkernelBabylon, IntroSkipIgnoresTheReleaseOfAClickThatStartedBeforeTheIntro);
 }

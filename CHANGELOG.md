@@ -54,6 +54,8 @@
   - At startup the game checks the game files against a table of known releases by size and SHA-256. A known
     release is logged by name and an unknown one gets a warning naming the files; the game still starts. The
     setup wizard writes the cache in the user directory, so the first start after installing is quick.
+  - Clicking **New Game** with the mouse no longer skips the intro movie; a click during the intro still
+    skips it.
 
 ### Hard fork of OpenJones3D
   - The project continues as **Jones3D EX**, an enhanced source port on the new Babylon Engine. See the
