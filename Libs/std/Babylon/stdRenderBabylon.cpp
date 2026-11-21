@@ -129,10 +129,10 @@ namespace
     constexpr float stdRenderBabylon_kMaxDofStrength        = 2.0f;
     constexpr float stdRenderBabylon_kDofFocusSmoothingTime = 0.2f; // seconds to reach a new focus
     constexpr float stdRenderBabylon_kDofMaxRadius          = 10.0f; // half-res texels at strength 1
-    constexpr float stdRenderBabylon_kDofGameplayStartScale = 3.0f;
-    constexpr float stdRenderBabylon_kDofGameplayMinStart    = 6.0f;
-    constexpr float stdRenderBabylon_kDofGameplaySpanScale  = 8.0f;
-    constexpr float stdRenderBabylon_kDofGameplayMinSpan     = 16.0f;
+    constexpr float stdRenderBabylon_kDofGameplayStartScale = 4.0f;
+    constexpr float stdRenderBabylon_kDofGameplayMinStart    = 1.0f;
+    constexpr float stdRenderBabylon_kDofGameplaySpanScale  = 12.0f;
+    constexpr float stdRenderBabylon_kDofGameplayMinSpan     = 3.0f;
     constexpr float stdRenderBabylon_kDofCutsceneDeadScale  = 0.1f;
     constexpr float stdRenderBabylon_kDofCutsceneSpanScale  = 0.6f;
     constexpr float stdRenderBabylon_kDofCutsceneMinDead     = 0.05f;

@@ -9,8 +9,9 @@
 // one half-resolution texel. gDofShape holds the ramp the host worked out from the same constants:
 // where the blur starts (gameplay) or how wide the dead zone is (cutscene) in x, its span in y.
 //
-// Gameplay mode keeps everything nearer than three times the focus distance sharp and ramps the
-// blur in over the next several times that, so only far background softens. Cutscene mode ramps
+// Gameplay mode keeps everything nearer than four times the focus distance (at least 1 world unit)
+// sharp and ramps the blur in over the next twelve times that (at least 3 units), so only the far
+// scene softens. Cutscene mode ramps
 // from a small dead zone on either side of the focus, blurring both nearer and farther geometry.
 // Each tap is weighted by its own circle of confusion, so a sharp foreground sample never bleeds
 // into a blurred background.
