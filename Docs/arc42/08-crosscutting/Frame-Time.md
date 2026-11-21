@@ -335,3 +335,134 @@ from the command in section 3.
 - Particles: position, size and cel.
 - Sound listener position/orientation.
 - HUD and subtitle timers may keep using wall time, but they must run on the rendered frame, not only on the tick.
+
+## M9.2 spike results
+
+A throwaway branch (`m9.2-interp-spike`, not merged) prototyped the fixed tick and interpolated draw
+described in [ADR-0039](../09-decisions/ADR-0039-fixed-tick-interpolated-rendering.md), to decide Phase 5.
+The prototype is off unless `J3D_SPIKE_FIXED_TICK_HZ` is set; with it unset the frame loop is the old one.
+It answers the five questions from the M9.2 brief. Measurements are from the Debug native build on this
+sandbox, game files under `game/native/ref`, save `../SaveGames/regress.nds`.
+
+### What the spike does
+
+- **Tick.** `JonesMain_ProcessGame` (`Jones3D/Main/JonesMain.c`) keeps a wall-time accumulator and calls
+  `sithTime_SetFrameTime(1000 / HZ)` then `sithUpdate()` zero or more times per rendered frame. The per-step
+  work is `sithUpdate` plus `sithCamera_Update`, which today runs in the draw phase; nothing else in the
+  frame loop moved. Menu handling, the quicksave timer, save-state transitions, the HUD and the overlay map
+  stay on the rendered frame. `sithTime_Advance` is bypassed while the fixed step is active and
+  `sithTime_g_clockTime` follows game time, so the two or three simulation throttles that still read it see
+  the same value at the same tick regardless of how many draw frames lie between ticks.
+- **Interpolation.** Before every tick the spike snapshots every active thing's `pos`, `orient`, `flags`,
+  `renderFrame` and `signature`, plus the camera's `pos`/`orient`/`fov`/aspect; after the tick it snapshots
+  the new values. A drawn frame swaps the world and camera to `prev + alpha * (cur - prev)` with
+  `alpha = accumulator / step`, draws, then restores the exact post-tick values. Orientation is a row-wise
+  blend of `rvec`/`lvec`/`dvec` with `rdMatrix_Normalize34` re-orthonormalising (not slerp); that degenerates
+  only for a turn of 180 degrees or more between two ticks.
+- **Draw side effects.** The spike removes, rather than restores, the mutations that cannot be undone:
+  `sithRender_RenderThing` skips `SITH_TF_SEEN`, `renderFrame`, AI wake and the COG `SIGHTED` message; the AI
+  waypoint renderer (which creates laser things) is skipped; `sithFX_UpdatePolyline` (lightning, which consumes
+  `SITH_RAND` and can destroy things) is skipped. The final design must move all of these to the tick.
+- **Render tick.** `sithMain_g_frameNumber` and the per-thing `renderFrame`/`flags` are restored. The render
+  tick is deliberately not restored: it is a monotonic presentation cache namespace, the simulation never
+  reads it (`sithAIUtil_GetThingsInView` advances it itself before use), and restoring it makes the next draw
+  hit caches keyed by an old value. The `renderTick` caches in the audit are therefore render-only.
+- **Headless.** `J3D_SPIKE_DRAW_MS` makes the headless virtual clock advance by the draw step instead of
+  `--step`, so draw-only frames occur headless. In spike mode `--frames` and the state-file `frame` line
+  count simulation ticks (the `spike: N rendered frames for M ticks` line in the run log gives the rendered
+  count), which makes the two runs below directly comparable.
+
+### a. Switch unset: v6 traces identical
+
+```bash
+cd /home/kai/development/OpenJones3D
+REFV=v6 .claude/tools/trace-check.sh <build/native>
+```
+
+Result: `native regress: identical`, `native wander: identical`.
+
+### b. HZ = 30, step 33 ms vs. draw step 8 ms: state identical
+
+Run from `game/native/ref/run/Resource` with `<exe>` = `build/native/Jones3D/Jones3D-headless`:
+
+```bash
+J3D_SPIKE_FIXED_TICK_HZ=30 <exe> --load ../SaveGames/regress.nds \
+    --frames 1000 --step 33 --state /tmp/spike-33.txt
+J3D_SPIKE_FIXED_TICK_HZ=30 J3D_SPIKE_DRAW_MS=8 <exe> --load ../SaveGames/regress.nds \
+    --frames 1000 --step 33 --state /tmp/spike-8.txt
+cmp /tmp/spike-33.txt /tmp/spike-8.txt
+```
+
+Result: identical (`cmp` exit 0). The first run rendered 972 frames for 1000 ticks, the second 3668 frames
+for 1000 ticks; both stopped at the same game time and every thing position, sector, health and count matched.
+The same comparison with the wander input (`--input .claude/tools/in-wander.txt` from the main repo) also
+matched: 972 and 3668 rendered frames for 1000 ticks, identical state. Draw-only frames therefore changed
+nothing observable in the simulation.
+
+### c. Still only per tick, and would stutter at high fps
+
+Checked in the code, from the audit list:
+
+- **Puppet/keyframe poses.** `rdPuppet_Advance` advances `curFrame` on the tick
+  ([`rdPuppet.c:273`](../../../Libs/rdroid/Engine/rdPuppet.c)); the draw samples that pose in
+  `rdPuppet_BuildJointMatrices` ([`rdPuppet.c:442`](../../../Libs/rdroid/Engine/rdPuppet.c)). Joint matrices
+  still pop at the tick rate; the final design needs a two-pose blend or sampled-matrix blend.
+- **Surface and sky animation.** `sithAnimate_Update`, called from `sithUpdate`, advances surface texture
+  offsets, sky/horizon offsets, page-flip cels and light animation. The draw only reads them, so these step
+  once per tick. Interpolate offsets/cels at draw time.
+- **Particles.** `sithParticle_Update` runs through `sithThing_Update` on the tick; draw samples the current
+  position, radius and cel. They will move in tick-sized jumps.
+- **Sound listener.** `sithSoundMixer_Update` is inside `sithUpdate` ([`sithMain.c:542`](../../../Libs/sith/Main/sithMain.c)),
+  so the listener updates once per tick, not per drawn frame. Fast camera motion spatialises at the tick rate.
+- **Camera.** Moving `sithCamera_Update` to the tick and interpolating `pos`/`orient` makes damping smooth,
+  but FOV/aspect changes and the focus-fade state (`pThing->alpha`) still start only on a tick. The underwater
+  FOV/aspect wobble in `sithRender_Draw` reads `sithTime_g_secGameTime`, so it also steps at the tick.
+- **HUD and subtitles.** `JonesHud_Process` already runs per drawn frame on wall time, so its own animation is
+  smooth, but the simulation values it displays (health, ammo, interaction prompt) only change on a tick.
+  Subtitles are wall-time and per frame.
+- **Effects that need a home.** Lightning (`sithFX_UpdatePolyline`) and the AI waypoint laser creation run in
+  the draw today and were disabled by the spike. They need a tick-owned update or a render-only RNG.
+- **Per-frame counters.** `SITH_ISFRAMECYCLE` sites (fidgets, gasps, awareness, normalise, RNG cadence) now
+  run at 30 Hz, and physics that integrated the measured delta now integrates 33 ms. Both are expected
+  tick-change effects from section 6, not draw-frame artifacts.
+
+### d. CPU cost of a draw-only frame vs. a full frame
+
+Measured with the headless Null render device (the default column), 640x480, 230 active things in this save.
+It runs the engine's CPU side (culling, transform, geometry build) and records draws without rasterising, so
+this is the CPU geometry part; present/raster is additional. The GPU (lavapipe) headless path was unstable in
+this environment (segfaults at low frame counts, also with the unmodified engine), so present was not measured.
+
+Using the same 1000-tick runs at 100 and 1000 ticks to cancel startup and tick cost:
+
+| run | rendered frames | wall (s) |
+|---|---:|---:|
+| HZ 30, step 33, 1000 ticks | 972 | 8.25 |
+| HZ 30, draw 8, 1000 ticks | 3668 | 20.26 |
+| HZ 30, step 33, 100 ticks | 99 | 4.52 |
+| HZ 30, draw 8, 100 ticks | 368 | 5.70 |
+
+The difference between the two modes gives a draw-only frame of about **4.46 ms**; a full frame (one tick plus
+one draw) is about the same, so the tick is below the noise floor (upper bound roughly 0.2 ms on this idle
+save). Startup is about 3.9 s. In other words the drawn frame, not the simulation step, dominates: a 60 Hz
+tick rendered at 120 Hz costs roughly 8.9 ms of CPU geometry per tick, before any present, so on this machine
+120 Hz is marginal and a higher render rate is not free.
+
+### e. Recommendation for Phase 5
+
+**Go**, but not as an uncapped "draw every displayed frame" change:
+
+1. Keep the fixed tick and interpolated draw. The spike proves draw-only frames can leave the simulation
+   byte-identical, and that the two tick rates reach the same state.
+2. Add an explicit render-rate cap (or budget) as part of Phase 5. At about 4.4 ms of CPU geometry per draw
+   here, 60 Hz is comfortable, 120 Hz is at the edge, and lavapipe present makes it worse. Do not promise
+   uncapped high fps before the draw cost is reduced.
+3. Before enabling it, move the draw side effects onto the tick (COG `SIGHTED`, AI wake, `renderFrame`
+   visibility, AI waypoint creation, polyline RNG). The spike had to disable them, which is not shippable.
+4. Implement the remaining interpolation from section 11 (puppet poses, surface/sky scroll, particles, sound
+   listener, render-time game time for the underwater wobble). Without them the fixed tick makes those visibly
+   coarser at high fps.
+5. Retune the `sithTime_g_fps` users in `sithPlayerControls`/`sithControl`, decide the physics step policy, and
+   review the `secDeltaTime > 0.02f` projectile branch, as the audit already calls out.
+6. Ship it as an Enhanced option with a cvar for the rate, off in the Retail profile; re-record Enhanced traces
+   only where the owner approves the tick-change effects.
