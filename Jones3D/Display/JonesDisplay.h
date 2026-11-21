@@ -34,6 +34,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED           "engine.renderer.litFaces.enabled" // Added: option A L3 (ADR-0023)
 #define JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE               "engine.renderer.renderScale" // Added: M9.4 internal 3D resolution
 #define JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING              "engine.renderer.antiAliasing" // Added: M9.8 SMAA 1x scene anti-aliasing
+#define JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING                "engine.renderer.sharpening" // Added: M9.9 contrast-adaptive sharpening
 
 
 // Returns 0 for success and 1 indicating error

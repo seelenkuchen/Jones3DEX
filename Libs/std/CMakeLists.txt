@@ -68,6 +68,7 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/smaa_edge.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/smaa_weights.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/smaa_blend.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/cas.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()

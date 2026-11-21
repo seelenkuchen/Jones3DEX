@@ -2042,6 +2042,58 @@ TEST(std3DBabylon, AntiAliasingAddsThreeSmaaPassesBeforeThePresent)
     TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
 }
 
+TEST(std3DBabylon, SharpeningAddsACasPassAfterTheToneMapOrSmaa)
+{
+    OpenStd3D(16u, 8u);
+    const render::TextureHandle target = Null().createTexture(
+        render::TextureDesc{ 16u, 8u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(target.isNull());
+
+    auto passes = []
+    {
+        std::vector<render::BeginPass> aPasses;
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            if ( const render::BeginPass* pPass = std::get_if<render::BeginPass>(&command) )
+            {
+                aPasses.push_back(*pPass);
+            }
+        }
+        return aPasses;
+    };
+
+    // Off (the default without a started config): only the final present pass.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdRenderBabylon_GetSharpening());
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    TEST_ASSERT_EQUAL_size_t(1u, passes().size());
+
+    // Without anti-aliasing: the tone map into the sharpening source, then CAS into the target.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetSharpening());
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    std::vector<render::BeginPass> aPasses = passes();
+    TEST_ASSERT_EQUAL_size_t(2u, aPasses.size());
+    TEST_ASSERT_FALSE(aPasses[0].desc.colorTargets[0].target == target);
+    TEST_ASSERT_TRUE(aPasses[1].desc.colorTargets[0].target == target);
+
+    // With anti-aliasing: tone map, edges, weights, the SMAA blend into the sharpening source, CAS.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    aPasses = passes();
+    TEST_ASSERT_EQUAL_size_t(5u, aPasses.size());
+    TEST_ASSERT_FALSE(aPasses[0].desc.colorTargets[0].target == target);
+    TEST_ASSERT_FALSE(aPasses[3].desc.colorTargets[0].target == target);
+    TEST_ASSERT_TRUE(aPasses[4].desc.colorTargets[0].target == target);
+
+    Null().destroyTexture(target);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+}
+
 TEST(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass)
 {
     OpenStd3D(16u, 8u);
@@ -2267,6 +2319,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets);
     RUN_TEST_CASE(std3DBabylon, BadPostPassesAreRefused);
     RUN_TEST_CASE(std3DBabylon, AntiAliasingAddsThreeSmaaPassesBeforeThePresent);
+    RUN_TEST_CASE(std3DBabylon, SharpeningAddsACasPassAfterTheToneMapOrSmaa);
     RUN_TEST_CASE(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass);
     RUN_TEST_CASE(std3DBabylon, TheHudOverlayRecordsBeforeThePresentOverlay);
     RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheOverlay);
@@ -3526,6 +3579,99 @@ TEST(std3DBabylonGpu, TheHudLayerCompositeMatchesTheSingleScenePassAtScaleOne)
     TEST_ASSERT_TRUE(maxDiff <= 1);
 }
 
+TEST(std3DBabylonGpu, SharpeningSteepensAStepEdgeAndLeavesFlatAreas)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // A vertical step between mid-grey levels (an edge at 0 and 1 is clamped by CAS and would
+    // not move), one pixel per texel.
+    std::vector<uint32_t> aTexels(64u * 64u);
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const uint32_t value = x < 32u ? 64u : 192u;
+            aTexels[(size_t)y * 64u + x] = Texel(stdColor_cfARGB8888, value, value, value,
+                MaxOf(8u));
+        }
+    }
+    static tSystemTexture texture;
+    MakeTexture(&texture, stdColor_cfARGB8888, 64u, 64u, aTexels);
+
+    auto drawScene = []
+    {
+        DrawQuad(texture.pCachedTexture, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f,
+            0xFFFFFFFFu);
+    };
+
+    auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    // Off is the plain tone-mapped present, byte for byte.
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    const int darkOff  = redChannel(off, 31u, 32u);
+    const int lightOff = redChannel(off, 32u, 32u);
+    TEST_ASSERT_INT_WITHIN(1, 64, darkOff);
+    TEST_ASSERT_INT_WITHIN(1, 192, lightOff);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> zero = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), zero.data(), off.size());
+
+    // On: the pixels beside the edge move away from the mean, and the far flat areas stay put.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.8f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(redChannel(on, 31u, 32u) < darkOff);
+    TEST_ASSERT_TRUE(redChannel(on, 32u, 32u) > lightOff);
+    for ( uint32_t y = 4u; y < 60u; ++y )
+    {
+        for ( uint32_t x = 4u; x < 60u; ++x )
+        {
+            if ( x == 31u || x == 32u )
+            {
+                continue;
+            }
+            TEST_ASSERT_INT_WITHIN(1, redChannel(off, x, y), redChannel(on, x, y));
+        }
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    std3D_ClearSystemTexture(&texture);
+}
+
+TEST(std3DBabylonGpu, SharpeningLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.8f));
+
+    // A uniform grey scene behind a one-pixel green HUD line: the scene may be sharpened, the HUD
+    // is composited after it and keeps its exact colour and width.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFF404040u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255);
+    AssertPixel(15u, 8u, 64, 64, 64, 255);
+    AssertPixel(17u, 8u, 64, 64, 64, 255);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+}
+
 TEST(std3DBabylonGpu, SmaaBlendsAHardDiagonalEdgeAndLeavesFarPixels)
 {
     if ( !OpenGpuStd3D(64u, 64u) )
@@ -3650,6 +3796,8 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);
     RUN_TEST_CASE(std3DBabylonGpu, AHudLayerLineStaysOnePixelAtRenderScaleHalf);
     RUN_TEST_CASE(std3DBabylonGpu, TheHudLayerCompositeMatchesTheSingleScenePassAtScaleOne);
+    RUN_TEST_CASE(std3DBabylonGpu, SharpeningSteepensAStepEdgeAndLeavesFlatAreas);
+    RUN_TEST_CASE(std3DBabylonGpu, SharpeningLeavesTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, SmaaBlendsAHardDiagonalEdgeAndLeavesFarPixels);
     RUN_TEST_CASE(std3DBabylonGpu, SmaaLeavesTheHudLayerPixelExact);
 }

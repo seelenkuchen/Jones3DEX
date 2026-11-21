@@ -366,7 +366,7 @@ if (J3D_PLATFORM_BABYLON)
         DESTINATION "." COMPONENT game)
 
     # Added: the licenses of everything compiled into the windowed program:
-    # the game, Babylon, SDL3, miniaudio, stb, jansson and SMAA. Data/ already
+    # the game, Babylon, SDL3, miniaudio, stb, jansson, SMAA and CAS. Data/ already
     # carries the font and prompt licenses of the UI assets.
     install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
         DESTINATION "licenses" COMPONENT game)
@@ -380,6 +380,8 @@ if (J3D_PLATFORM_BABYLON)
         DESTINATION "licenses/jansson" COMPONENT game)
     install(FILES "${CMAKE_SOURCE_DIR}/Libs/std/Babylon/Shaders/SMAA-LICENSE.txt"
         DESTINATION "licenses/smaa" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Libs/std/Babylon/Shaders/CAS-LICENSE.txt"
+        DESTINATION "licenses/cas" COMPONENT game)
     get_property(JONES3D_SDL3_SOURCE_DIR GLOBAL PROPERTY BABYLON_SDL3_SOURCE_DIR)
     if (JONES3D_SDL3_SOURCE_DIR AND EXISTS "${JONES3D_SDL3_SOURCE_DIR}/LICENSE.txt")
         install(FILES "${JONES3D_SDL3_SOURCE_DIR}/LICENSE.txt"
