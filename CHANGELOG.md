@@ -37,6 +37,12 @@
     Options changes, and the slider previews the open frame owner at once. The final pass applies the
     gamma after the operator as `pow(saturate(x), 1 / brightness)`; 1.0 skips it and presents exactly
     the previous image. Applies on the next display restart when the key is edited outside the screen.
+  - **Options > Display** has a **Colour grading** row (`engine.renderer.colorGrading`: Neutral,
+    Warm, Cool, Adventure, Vivid or Muted = 0..5; Neutral in every build). A subtle colour preset
+    is applied in the final tone-map pass after the operator and before brightness, from a 32^3
+    lookup table generated in code and stored as a 1024 x 32 `Rgba8` strip. Neutral skips the
+    lookup and presents exactly the previous image; the HUD, 2D layer, menus and prompts are never
+    graded. Applies when the display reopens.
   - The intermediate targets of the post-processing chain now use the scene's `Rgba16F` format
     where the device supports it, so a pass before the tone map keeps values above 1.0 instead of
     clamping them early. With no post passes nothing changes.

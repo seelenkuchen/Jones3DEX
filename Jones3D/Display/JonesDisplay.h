@@ -39,6 +39,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE                  "engine.renderer.exposure" // Added: M9.10 exposure before the tone map
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS                "engine.renderer.brightness" // Added: M9.11 calibration gamma after the tone map
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM                     "engine.renderer.bloom" // Added: M9.12 bloom level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING              "engine.renderer.colorGrading" // Added: M9.13 color-grading preset
 
 
 // Returns 0 for success and 1 indicating error
