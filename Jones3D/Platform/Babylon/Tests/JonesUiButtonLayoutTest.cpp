@@ -117,6 +117,7 @@ TEST_CASE("the Modern controller names the step-left row Quick whip")
 {
     JonesControlsScheme scheme = EmptyScheme();
 
+#ifdef J3D_QOL_IMPROVEMENTS
     sithControl_SetModernControlStyle(true);
     const std::vector<JonesUiButtonLayoutRow> modernController =
         JonesUiButtonLayout_BuildRows(scheme, JonesUiButtonLayoutDevice::Controller);
@@ -125,6 +126,7 @@ TEST_CASE("the Modern controller names the step-left row Quick whip")
     CHECK(modernController[JONESCONTROL_ACTION_STEPLEFT].name == "Quick whip");
     CHECK(modernKeyboard[JONESCONTROL_ACTION_STEPLEFT].name
         == JonesControlSchemes_GetActionName(JONESCONTROL_ACTION_STEPLEFT));
+#endif
 
     sithControl_SetModernControlStyle(false);
     const std::vector<JonesUiButtonLayoutRow> classicController =
@@ -135,6 +137,7 @@ TEST_CASE("the Modern controller names the step-left row Quick whip")
     sithControl_SetModernControlStyle(true);
 }
 
+#ifdef J3D_QOL_IMPROVEMENTS
 TEST_CASE("Modern stick-owned actions get a stick row and group callouts")
 {
     sithControl_SetModernControlStyle(true);
@@ -177,9 +180,11 @@ TEST_CASE("Modern stick-owned actions get a stick row and group callouts")
 
     sithControl_SetModernControlStyle(true);
 }
+#endif
 
 TEST_CASE("the required-binding check keeps the original and Modern exemptions")
 {
+#ifdef J3D_QOL_IMPROVEMENTS
     sithControl_SetModernControlStyle(true);
     JonesControlsScheme scheme = EmptyScheme();
     const std::string modern = JonesUiControls_GetMissingActions(scheme);
@@ -191,6 +196,9 @@ TEST_CASE("the required-binding check keeps the original and Modern exemptions")
         == std::string::npos);
     CHECK(modern.find(JonesControlSchemes_GetCapActionName(JONESCONTROL_ACTION_CRAWL))
         != std::string::npos);
+#else
+    JonesControlsScheme scheme = EmptyScheme();
+#endif
 
     sithControl_SetModernControlStyle(false);
     const std::string classic = JonesUiControls_GetMissingActions(scheme);

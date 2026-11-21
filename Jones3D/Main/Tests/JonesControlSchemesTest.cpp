@@ -1401,9 +1401,9 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsLeftTriggerToTargetLock);
     RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep);
     RUN_TEST_CASE(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys);
-#endif
     RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsLeftShoulderToQuickWhip);
     RUN_TEST_CASE(JonesControlSchemes, TestClassicBinderKeepsStepRows);
+#endif
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupWritesPerDeviceStyleDefaults);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupMigratesOldClassicStyleToBoth);
