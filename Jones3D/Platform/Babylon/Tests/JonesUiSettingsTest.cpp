@@ -737,6 +737,27 @@ TEST_CASE("loading a config without the interaction prompt key leaves it absent"
     CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
 }
 
+TEST_CASE("quick whip reads its config key")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK_FALSE(stdConfig_Contains(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP));
+    sithWeapon_Open();
+    CHECK(sithWeapon_IsQuickWhipEnabled() == J3D_QOL_VALUE(true, false));
+    CHECK(stdConfig_Contains(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP));
+    CHECK(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, false)
+        == (J3D_QOL_VALUE(true, false) != 0));
+
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, false));
+    sithWeapon_Open();
+    CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
+    sithWeapon_Open();
+    CHECK(sithWeapon_IsQuickWhipEnabled() == (J3D_QOL_VALUE(true, false) != 0));
+}
+
 TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
 {
     SettingsTestContext testContext;
@@ -750,6 +771,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     sithControl_SetModernControlStyle(true);
     JonesReticle_Enable(false);
     sithWeapon_EnableBloodSplatter(false);
+    sithWeapon_SetQuickWhipEnabled(true);
 
     REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
@@ -759,14 +781,15 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
     // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading,
-    // 10 interaction prompts, 11 fire flash, 12 external materials, 13 external keyframes,
-    // 14 OK, 15 back.
+    // 10 interaction prompts, 11 quick whip, 12 fire flash, 13 external materials,
+    // 14 external keyframes, 15 OK, 16 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -782,6 +805,8 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Enter); // blood on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // interaction prompts off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // quick whip off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // fire flash off
     testContext.platform.PushKey(platform::Key::Down);
@@ -806,6 +831,8 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(JonesReticle_IsEnabled());
     CHECK(sithWeapon_IsBloodSplatterEnabled());
     CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
+    CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+    CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
@@ -877,6 +904,8 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
     REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
+    sithWeapon_SetQuickWhipEnabled(true);
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
@@ -889,6 +918,8 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
     REQUIRE(JonesUiGameplay_RunGameplayScreen(ui, &painter, false) == 1);
 
     CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
+    CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+    CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));

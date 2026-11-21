@@ -882,13 +882,22 @@ ctest --test-dir build/native -N -L unit
 ctest --test-dir build/native --output-on-failure -L unit
 ```
 
-Sanitizer build (GCC; Clang needs its sanitizer runtime installed):
+Sanitizer build (Clang):
 
 ```bash
-cmake -S . -B build/asan -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Debug -DJONES3D_SANITIZE=ON
+cmake -S . -B build/asan -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DJONES3D_SANITIZE=ON
 cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure -L unit
 ```
+
+The GPU unit suites (`std.std3DOnBabylon`, `Jones3D.UiPainter`) create a real
+Vulkan device. The loader dlcloses the driver when the device is destroyed, and
+LeakSanitizer then reports the driver's still-owned allocations as leaks, with
+stacks under libc's thread start instead of in our code. Sanitizer builds
+therefore preload the Mesa lavapipe driver (`vulkan_lvp`) so it stays mapped.
+`JONES3D_SANITIZE_GPU_DRIVER_PRELOAD` overrides the `;`-separated library list;
+when lavapipe is not found the suites still build, and configure prints a
+status line that they may report driver allocations as leaks.
 
 <a name="windows-unit-builds"></a>
 

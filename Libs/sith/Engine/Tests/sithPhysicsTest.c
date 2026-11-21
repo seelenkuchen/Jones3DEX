@@ -359,6 +359,7 @@ TEST(sithPhysics, TestFallingVelocityCrossesTheLedgeSpeedGateAtOriginalSteps)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, pPhysics->physicsRolloverFrames);
 }
 
+#ifdef J3D_QOL_IMPROVEMENTS
 TEST(sithPhysics, TestModernGroundAccelerationReachesTargetWithoutPassingIt)
 {
     // Added: the Modern start helper adds velocity before the original player physics steps.
@@ -411,6 +412,7 @@ TEST(sithPhysics, TestModernGroundAccelerationReachesTargetWithoutPassingIt)
     TEST_ASSERT_TRUE(timeTo95 > 0.0f);
     TEST_ASSERT_TRUE(timeTo95 <= 0.2f);
 }
+#endif
 
 TEST_GROUP_RUNNER(sithPhysics)
 {
@@ -422,5 +424,7 @@ TEST_GROUP_RUNNER(sithPhysics)
     RUN_TEST_CASE(sithPhysics, TestGravityFlagsAndMassPreserveTwentyMillisecondSteps);
     RUN_TEST_CASE(sithPhysics, TestLocalAndSectorThrustUseTheSameFixedStepAsGravity);
     RUN_TEST_CASE(sithPhysics, TestFallingVelocityCrossesTheLedgeSpeedGateAtOriginalSteps);
+#ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(sithPhysics, TestModernGroundAccelerationReachesTargetWithoutPassingIt);
+#endif
 }

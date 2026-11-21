@@ -113,6 +113,28 @@ TEST_CASE("rows show the first binding of this screen's device")
     sithControl_SetModernControlStyle(true);
 }
 
+TEST_CASE("the Modern controller names the step-left row Quick whip")
+{
+    JonesControlsScheme scheme = EmptyScheme();
+
+    sithControl_SetModernControlStyle(true);
+    const std::vector<JonesUiButtonLayoutRow> modernController =
+        JonesUiButtonLayout_BuildRows(scheme, JonesUiButtonLayoutDevice::Controller);
+    const std::vector<JonesUiButtonLayoutRow> modernKeyboard =
+        JonesUiButtonLayout_BuildRows(scheme, JonesUiButtonLayoutDevice::KeyboardMouse);
+    CHECK(modernController[JONESCONTROL_ACTION_STEPLEFT].name == "Quick whip");
+    CHECK(modernKeyboard[JONESCONTROL_ACTION_STEPLEFT].name
+        == JonesControlSchemes_GetActionName(JONESCONTROL_ACTION_STEPLEFT));
+
+    sithControl_SetModernControlStyle(false);
+    const std::vector<JonesUiButtonLayoutRow> classicController =
+        JonesUiButtonLayout_BuildRows(scheme, JonesUiButtonLayoutDevice::Controller);
+    CHECK(classicController[JONESCONTROL_ACTION_STEPLEFT].name
+        == JonesControlSchemes_GetActionName(JONESCONTROL_ACTION_STEPLEFT));
+
+    sithControl_SetModernControlStyle(true);
+}
+
 TEST_CASE("Modern stick-owned actions get a stick row and group callouts")
 {
     sithControl_SetModernControlStyle(true);
@@ -127,7 +149,10 @@ TEST_CASE("Modern stick-owned actions get a stick row and group callouts")
     CHECK(rows[JONESCONTROL_ACTION_WALKFORWARD].stickOwnership
         == JonesUiStickOwnership::Left);
     CHECK(rows[JONESCONTROL_ACTION_WALKFORWARD].controlId == JONESCONFIG_JOYAXISKID_UP);
-    CHECK(rows[JONESCONTROL_ACTION_STEPLEFT].stickOwnership == JonesUiStickOwnership::Left);
+    // Added: the step-left row carries quick whip in the Modern gamepad style (ADR-0038), so it
+    // is a normal bindable row, not a stick row.
+    CHECK(rows[JONESCONTROL_ACTION_STEPLEFT].stickOwnership == JonesUiStickOwnership::None);
+    CHECK(rows[JONESCONTROL_ACTION_STEPLEFT].name == "Quick whip");
     CHECK(rows[JONESCONTROL_ACTION_RUN].stickOwnership == JonesUiStickOwnership::Left);
     CHECK(rows[JONESCONTROL_ACTION_LOOK].stickOwnership == JonesUiStickOwnership::Right);
     CHECK(rows[JONESCONTROL_ACTION_JUMP].stickOwnership == JonesUiStickOwnership::None);

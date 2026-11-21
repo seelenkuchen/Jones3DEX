@@ -307,4 +307,6 @@ if (J3D_PLATFORM_BABYLON)
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/std3DOnBabylon"
         ENVIRONMENT "SDL_VIDEO_DRIVER=$<IF:$<PLATFORM_ID:Darwin>,dummy,offscreen>"
     )
+    # Added: keep the Vulkan driver loaded under ASan so the device teardown is not a false leak.
+    jones3d_sanitize_preload_gpu_driver(std.std3DOnBabylon)
 endif()

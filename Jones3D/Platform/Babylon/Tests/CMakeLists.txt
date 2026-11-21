@@ -100,6 +100,8 @@ set_tests_properties(Jones3D.UiPainter PROPERTIES
     ENVIRONMENT "SDL_VIDEO_DRIVER=$<IF:$<PLATFORM_ID:Darwin>,dummy,offscreen>"
     TIMEOUT 120
 )
+# Added: keep the Vulkan driver loaded under ASan so the device teardown is not a false leak.
+jones3d_sanitize_preload_gpu_driver(Jones3D.UiPainter)
 
 # Added: the menu asset cases read the committed Data/ui files through the file system's base path,
 # so the test executable needs Data/ beside it just like the game (ADR-0031).

@@ -6,23 +6,40 @@
 
 static JonesHudInteractionPrompt JonesHudPrompt_interaction = JONESHUD_INTERACTIONPROMPT_NONE;
 static JonesControlActions JonesHudPrompt_control = JONESCONTROL_ACTION_ACTIVATE;
+static JonesControlActions JonesHudPrompt_controllerControl = JONESCONTROL_ACTION_ACTIVATE;
 static bool JonesHudPrompt_bEnabled = J3D_QOL_VALUE(true, false);
 
 void J3DAPI JonesHudPrompt_SetInteraction(JonesHudInteractionPrompt prompt,
     JonesControlActions control)
+{
+    JonesHudPrompt_SetInteractionPerDevice(prompt, control, control);
+}
+
+void J3DAPI JonesHudPrompt_SetInteractionPerDevice(JonesHudInteractionPrompt prompt,
+    JonesControlActions keyboardControl, JonesControlActions controllerControl)
 {
     if ( prompt < JONESHUD_INTERACTIONPROMPT_NONE || prompt > JONESHUD_INTERACTIONPROMPT_WHIP_CLIMB )
     {
         prompt = JONESHUD_INTERACTIONPROMPT_NONE;
     }
 
-    if ( control < JONESCONTROL_ACTION_WALKFORWARD || control >= JONESCONTROL_ACTION_NUMACTIONS )
+    if ( keyboardControl < JONESCONTROL_ACTION_WALKFORWARD
+        || keyboardControl >= JONESCONTROL_ACTION_NUMACTIONS )
     {
-        control = JONESCONTROL_ACTION_ACTIVATE;
+        keyboardControl = JONESCONTROL_ACTION_ACTIVATE;
     }
 
-    JonesHudPrompt_interaction = prompt;
-    JonesHudPrompt_control     = control;
+    // Added: NONE is the sentinel for a device with no binding (quick whip's pad in Classic), so
+    // only an out-of-range action becomes Activate.
+    if ( controllerControl < JONESCONTROL_ACTION_WALKFORWARD
+        || controllerControl > JONESHUD_PROMPTCONTROL_NONE )
+    {
+        controllerControl = JONESCONTROL_ACTION_ACTIVATE;
+    }
+
+    JonesHudPrompt_interaction        = prompt;
+    JonesHudPrompt_control            = keyboardControl;
+    JonesHudPrompt_controllerControl  = controllerControl;
 }
 
 JonesHudInteractionPrompt J3DAPI JonesHudPrompt_GetInteraction(void)
@@ -33,6 +50,11 @@ JonesHudInteractionPrompt J3DAPI JonesHudPrompt_GetInteraction(void)
 JonesControlActions J3DAPI JonesHudPrompt_GetControl(void)
 {
     return JonesHudPrompt_control;
+}
+
+JonesControlActions J3DAPI JonesHudPrompt_GetControllerControl(void)
+{
+    return JonesHudPrompt_controllerControl;
 }
 
 bool JonesHud_LoadInteractionPromptsConfig(void)

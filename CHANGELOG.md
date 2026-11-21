@@ -33,6 +33,11 @@
     rebinding. Options > Gameplay has an **Interaction prompts** row (`ui.hud.interactionPrompts`), on by
     default in Enhanced and locked off in Retail. It draws at the window's native resolution and never changes
     the simulation. The developer log records each prompt change with the target and the handler COG names.
+  - **Quick whip** swings or climbs the whip at a target without drawing it first, then switches back to the
+    previous weapon or empty hands. LB does it in the Modern gamepad style (the step-left row, now named
+    **Quick whip** in Button Layout) and the whip select key, 1 by default, does it on the keyboard; the prompt
+    shows **Swing** or **Climb** with that device's binding. Options > Gameplay has a **Quick whip** row
+    (`gameplay.quickWhip`), on by default in Enhanced and locked off in Retail (ADR-0038).
   - Options > Controls opens separate **Controller** and **Keyboard & Mouse** Button Layout screens: one
     framed row per action with its input icon, a scrolling list and a pad diagram with action callouts.
     Bind replaces that device's binding, Reset Binds restores its defaults after a question, and Back keeps

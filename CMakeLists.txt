@@ -234,7 +234,40 @@ if (JONES3D_SANITIZE)
     endif()
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
+
+    # Added: the GPU unit suites create a real Vulkan device, and the loader dlcloses the driver
+    # when that device is destroyed. LeakSanitizer then sees the driver's still-owned allocations
+    # as leaks, with stacks under libc's thread start rather than in our code. Keeping the driver
+    # loaded for the test process (LD_PRELOAD) avoids the false report without suppressing leaks.
+    set(JONES3D_SANITIZE_GPU_DRIVER_PRELOAD "" CACHE STRING
+        "Semicolon-separated Vulkan driver libraries to LD_PRELOAD in the GPU unit suites under sanitizers")
+    if (NOT JONES3D_SANITIZE_GPU_DRIVER_PRELOAD)
+        find_library(JONES3D_VULKAN_LVP_LIBRARY NAMES vulkan_lvp)
+        if (JONES3D_VULKAN_LVP_LIBRARY)
+            set(JONES3D_SANITIZE_GPU_DRIVER_PRELOAD "${JONES3D_VULKAN_LVP_LIBRARY}" CACHE STRING
+                "Semicolon-separated Vulkan driver libraries to LD_PRELOAD in the GPU unit suites under sanitizers" FORCE)
+        else()
+            message(STATUS "JONES3D_SANITIZE: Mesa lavapipe (vulkan_lvp) was not found; "
+                "GPU unit suites may report driver allocations as leaks")
+        endif()
+    endif()
 endif()
+
+# Added: appends LD_PRELOAD to a test's ENVIRONMENT, keeping whatever the test already sets.
+# The GPU suites call this even when sanitizers are off, so the function itself checks the option.
+function(jones3d_sanitize_preload_gpu_driver test_name)
+    if (NOT JONES3D_SANITIZE OR NOT JONES3D_SANITIZE_GPU_DRIVER_PRELOAD)
+        return()
+    endif()
+
+    string(REPLACE ";" ":" jones3d_preload_paths "${JONES3D_SANITIZE_GPU_DRIVER_PRELOAD}")
+    get_test_property("${test_name}" ENVIRONMENT jones3d_test_environment)
+    if (jones3d_test_environment STREQUAL "NOTFOUND")
+        set(jones3d_test_environment "")
+    endif()
+    list(APPEND jones3d_test_environment "LD_PRELOAD=${jones3d_preload_paths}")
+    set_tests_properties("${test_name}" PROPERTIES ENVIRONMENT "${jones3d_test_environment}")
+endfunction()
 
 # Added: the UTF-8 application manifest helper. Windows executables carry the manifest so the
 # UCRT's char* file APIs use the UTF-8 code page, matching the UTF-8 paths the game passes around.

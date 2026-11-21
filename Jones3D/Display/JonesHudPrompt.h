@@ -23,11 +23,17 @@ typedef enum eJonesHudInteractionPrompt
 } JonesHudInteractionPrompt;
 
 // control names the action the press for this prompt would read, so the overlay shows the binding
-// the player would actually use (Activate, Jump or Forward).
+// the player would actually use (Activate, Jump or Forward). Quick whip's keyboard and pad presses
+// read different rows, so SetInteractionPerDevice gives each device its own action; the plain
+// setter uses control for both. JONESHUD_PROMPTCONTROL_NONE on a device draws no icon for it.
+#define JONESHUD_PROMPTCONTROL_NONE JONESCONTROL_ACTION_NUMACTIONS
 void J3DAPI JonesHudPrompt_SetInteraction(JonesHudInteractionPrompt prompt,
     JonesControlActions control);
+void J3DAPI JonesHudPrompt_SetInteractionPerDevice(JonesHudInteractionPrompt prompt,
+    JonesControlActions keyboardControl, JonesControlActions controllerControl);
 JonesHudInteractionPrompt J3DAPI JonesHudPrompt_GetInteraction(void);
 JonesControlActions J3DAPI JonesHudPrompt_GetControl(void);
+JonesControlActions J3DAPI JonesHudPrompt_GetControllerControl(void);
 
 J3D_EXTERN_C_END
 #endif // JONES3D_DISPLAY_JONESHUD_PROMPT_H
