@@ -2135,7 +2135,8 @@ TEST_CASE("a consumed key-up does not leave the key down for the next screen")
 
     REQUIRE(ui.push(twoButtons(0)) != kInvalidScreen);
     tap(ui, platform::Key::Enter);
-    const ActionPressed* pAction = findEvent<ActionPressed>(drain(ui));
+    const std::vector<UiEvent> events = drain(ui);
+    const ActionPressed* pAction = findEvent<ActionPressed>(events);
     REQUIRE(pAction != nullptr);
     CHECK(pAction->action == 1);
 }
