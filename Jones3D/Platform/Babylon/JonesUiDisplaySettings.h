@@ -71,6 +71,9 @@ struct JonesUiDisplayValues
     std::size_t antiAliasing = 1;
     // Added: index into the bloom choices (Off, Low, Medium, High; Low at index 1 in Enhanced).
     std::size_t bloom = 1;
+    // Added: index into the light-shaft choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t lightShafts = 1;
     // Added: depth of field, a toggle for cutscene cameras and one for gameplay cameras.
     bool bDofCutscenes = true;
     bool bDofGameplay = true;
@@ -105,6 +108,7 @@ struct JonesUiDisplayLayout
     std::size_t renderScale = 0;
     std::size_t antiAliasing = 0; // Added
     std::size_t bloom = 0; // Added
+    std::size_t lightShafts = 0; // Added: M9.16 light-shaft level
     std::size_t dofCutscenes = 0; // Added: M9.14 depth of field in cutscenes
     std::size_t dofGameplay = 0; // Added: M9.14 depth of field in gameplay
     std::size_t sharpening = 0; // Added
@@ -138,6 +142,7 @@ struct JonesUiDisplayModel
     float renderScale = 1.0f;
     int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA
     int bloom = 1;              // Added: engine.renderer.bloom, 0 off / 1 low / 2 medium / 3 high
+    int lightShafts = 1;        // Added: engine.renderer.lightShafts, 0 off / 1 low / 2 medium / 3 high
     bool bDofCutscenes = true;  // Added: engine.renderer.dof.cutscenes
     bool bDofGameplay = true;   // Added: engine.renderer.dof.gameplay
     float sharpening = 0.3f;    // Added: engine.renderer.sharpening, 0..1

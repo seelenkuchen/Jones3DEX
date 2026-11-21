@@ -351,6 +351,9 @@ namespace
         screen.help[layout.bloom] =
             "Add a soft glow around bright parts of the 3D scene; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
+        screen.help[layout.lightShafts] =
+            "Add screen-space light shafts from the visible sky; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
         screen.help[layout.dofCutscenes] =
             "Soften the picture away from the focus in cutscenes; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";

@@ -54,6 +54,12 @@ typedef enum erdFaceFlags J3D_ENUM_TYPE(int32_t)
         RD_FF_UNKNOWN_80         = 0x80,
         RD_FF_FOG_ENABLED        = 0x100,
         RD_FF_3DO_WHIP_AIM       = 0x200,
+        // Added: the surface tag the normal target carries (M9.16). Sky surfaces (horizon or
+        // ceiling sky) and water surfaces are marked by sithRender, which is where the surface
+        // flags are known; rdCache turns them into the std3D render state. High bits, so face
+        // flags read from level or model files never set them.
+        RD_FF_SKY_SURFACE        = 0x10000000,
+        RD_FF_WATER_SURFACE      = 0x20000000,
 } rdFaceFlags;
 
 typedef enum erdGeometryMode

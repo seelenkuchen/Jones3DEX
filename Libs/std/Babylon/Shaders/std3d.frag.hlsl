@@ -14,8 +14,9 @@
 // (SDL GPU: space3): DX9's g_fogParams and g_fogColor, then the alpha reference / 255.
 //
 // Color target 1 is the scene's normal target (stdRenderBabylon.h): the view-space normal (x right,
-// y up, z toward the viewer) as n * 0.5 + 0.5, alpha 1. StdVertexTL carries no normal, so every
-// fragment writes the constant normal facing the viewer, kStd3DConstantNormal; vertices with a normal
+// y up, z toward the viewer) as n * 0.5 + 0.5, with the render state's surface tag (added M9.16) in
+// alpha. StdVertexTL carries no normal, so every fragment writes the constant normal facing the
+// viewer; vertices with a normal
 // are drawn by std3d_lit.frag.hlsl. Color target 0 is computed exactly as before.
 
 Texture2D<float4> gTexture : register(t0, space2);
@@ -26,6 +27,7 @@ cbuffer Std3DFragment : register(b0, space3)
     float4 gFogParams; // start, end, 1 / (end - start), enabled (> 0)
     float4 gFogColor;  // r, g, b, a
     float4 gAlphaTest; // x: D3DRS_ALPHAREF / 255; a fragment passes when its alpha is greater
+    float4 gSurfaceTag; // Added: x is the normal target's alpha tag (M9.16); 1 ordinary
 };
 
 // The outputs of std3d.vert.hlsl in its order, without the trailing specular color (see there).
@@ -36,8 +38,12 @@ struct Input
     [[vk::location(2)]] float4 rhw : TEXCOORD2;
 };
 
-// (0, 0, 1) encoded: the normal of every fragment until the vertices carry one.
-static const float4 kStd3DConstantNormal = float4(0.5, 0.5, 1.0, 1.0);
+// (0, 0, 1) encoded with the render state's surface tag (added M9.16): the normal of every fragment
+// until the vertices carry one.
+float4 ConstantNormal()
+{
+    return float4(0.5, 0.5, 1.0, gSurfaceTag.x);
+}
 
 struct Output
 {
@@ -70,6 +76,6 @@ Output main(Input input)
 
     Output output;
     output.color  = finalColor;
-    output.normal = kStd3DConstantNormal;
+    output.normal = ConstantNormal();
     return output;
 }

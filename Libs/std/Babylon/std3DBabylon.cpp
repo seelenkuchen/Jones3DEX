@@ -180,8 +180,9 @@ namespace
         float aFogParams[4]; // DX9's g_fogParams: start, end, 1 / (end - start), enabled
         float aFogColor[4];  // DX9's g_fogColor
         float aAlphaTest[4]; // D3DRS_ALPHAREF / 255, then unused
+        float aSurfaceTag[4]; // Added: x is the normal target's alpha tag (M9.16), then unused
     };
-    static_assert(sizeof(Std3DBabylonFragmentUniforms) == 48, "Std3DBabylonFragmentUniforms must match the shaders' block");
+    static_assert(sizeof(Std3DBabylonFragmentUniforms) == 64, "Std3DBabylonFragmentUniforms must match the shaders' block");
 
     // One draw of the scene's current pass, recorded into it when the pass ends. Its vertices and
     // indices are already streamed into vertexBuffer and indexBuffer, at firstVertex and firstIndex.
@@ -1167,6 +1168,13 @@ namespace
         std::memcpy(uniforms.aFogParams, std3D_aShaderFogParams, sizeof(uniforms.aFogParams));
         std::memcpy(uniforms.aFogColor, std3D_aShaderFogColor, sizeof(uniforms.aFogColor));
         uniforms.aAlphaTest[0] = (std3D_renderState & STD3D_RS_ALPHAREF_SET) != 0 ? (float)std3D_kAlphaRef / 255.0f : 0.0f;
+        // Added: the surface tag of the normal target's alpha (M9.16). The tags are read-only state
+        // carried from the face flags through rdCache; sky and water are mutually exclusive here.
+        uniforms.aSurfaceTag[0] = (std3D_renderState & STD3D_RS_SURFACE_SKY) != 0
+            ? stdRenderBabylon_kSurfaceTags.sky
+            : ((std3D_renderState & STD3D_RS_SURFACE_WATER) != 0
+                ? stdRenderBabylon_kSurfaceTags.water
+                : stdRenderBabylon_kSurfaceTags.ordinary);
         return uniforms;
     }
 
@@ -1945,7 +1953,7 @@ void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights)
 
 void std3D_SetWireframeRenderState(void)
 {
-    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200));
+    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200 | STD3D_RS_SURFACE_SKY | STD3D_RS_SURFACE_WATER));
     std3D_SetRenderState(rdstate);
     std3D_pCurTex = nullptr;
 }
@@ -2466,6 +2474,17 @@ void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime)
     }
 
     stdRenderBabylon_SetFocus(distance, bCutscene, std3D_nearPlane, std3D_farPlane, deltaTime);
+}
+
+void J3DAPI std3D_SetFrameTime(float deltaTime)
+{
+    // Added: the light-shaft stage's fade (M9.16); a backend without it ignores the call.
+    if ( !std3D_pRenderDevice || !stdRenderBabylon_IsOpen() )
+    {
+        return;
+    }
+
+    stdRenderBabylon_SetFrameTime(deltaTime);
 }
 
 void J3DAPI std3D_EnableFog(int bEnabled, float density)

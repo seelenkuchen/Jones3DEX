@@ -25,6 +25,14 @@
     the far background, starting well behind Indy, so the foreground and nearby geometry stay
     sharp. The HUD, 2D layer, menus and prompts are never softened. Both off skip the stage and
     present exactly the previous image. Applies when the display reopens.
+  - **Options > Display** has a **Light shafts** row (`engine.renderer.lightShafts`: Off, Low, Medium
+    or High = 0, 1, 2, 3, with strengths 0, 0.25, 0.5, 0.8; Low by default in Enhanced and off in
+    Retail). A screen-space stage after depth of field and before bloom masks the bright sky, finds
+    its luminance-weighted position on the GPU, and adds a radial blur of the mask to the HDR scene, scaled down on the sky itself so the clouds stay crisp.
+    Sky and water faces are now tagged in the normal target's alpha for this stage and the later
+    water work; the colour image is unchanged. The fade follows about 0.3 s of game time, the HUD,
+    2D layer, menus and prompts are never touched, and Off skips every pass so the image is exactly
+    the previous one. Applies when the display reopens.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring

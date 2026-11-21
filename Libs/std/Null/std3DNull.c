@@ -635,6 +635,12 @@ void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime)
     J3D_UNUSED(deltaTime);
 }
 
+void J3DAPI std3D_SetFrameTime(float deltaTime)
+{
+    // Added: light shafts are a Babylon presentation stage; the Null column draws nothing.
+    J3D_UNUSED(deltaTime);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     // Added: Fog state is stored without device validation; nothing consumes it on the

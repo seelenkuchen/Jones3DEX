@@ -9,8 +9,6 @@
 // (see there) until the vertices carry one (M6.9b).
 
 static const float4 kWireframeColor = float4(1.0, 1.0, 1.0, 1.0);
-static const float4 kStd3DConstantNormal = float4(0.5, 0.5, 1.0, 1.0);
-
 struct Output
 {
     float4 color : SV_Target0;
@@ -22,7 +20,14 @@ cbuffer Std3DFragment : register(b0, space3)
     float4 gFogParams; // unused here
     float4 gFogColor;  // unused here
     float4 gAlphaTest; // x: D3DRS_ALPHAREF / 255; a fragment passes when its alpha is greater
+    float4 gSurfaceTag; // Added: x is the normal target's alpha tag (M9.16); 1 ordinary
 };
+
+// std3d.frag.hlsl's constant normal: (0, 0, 1) encoded, with the render state's surface tag (M9.16).
+float4 ConstantNormal()
+{
+    return float4(0.5, 0.5, 1.0, gSurfaceTag.x);
+}
 
 // The first output of std3d.vert.hlsl; the others trail and may be left out (see there).
 struct Input
@@ -40,6 +45,6 @@ Output main(Input input)
 
     Output output;
     output.color  = color;
-    output.normal = kStd3DConstantNormal;
+    output.normal = ConstantNormal();
     return output;
 }

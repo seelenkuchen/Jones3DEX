@@ -102,6 +102,12 @@ size_t J3DAPI std3D_FindClosestFormat(const ColorInfo* pMatch);
 // state.
 void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime);
 
+// Added: the frame's game time in seconds, for the optional light-shaft stage's fade (M9.16,
+// presentation only). Called once per rendered frame; the backend keeps it for the renderer's
+// smoothing. A non-finite value is ignored and a long step is clamped. Backends without light
+// shafts (Null, and the replay path) ignore the call, and it records nothing in a capture.
+void J3DAPI std3D_SetFrameTime(float deltaTime);
+
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);

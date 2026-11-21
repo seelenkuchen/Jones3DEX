@@ -75,6 +75,11 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/bloom_composite.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/dof_gather.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/dof_composite.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_mask.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_reduce.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_strength.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_blur.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_composite.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()

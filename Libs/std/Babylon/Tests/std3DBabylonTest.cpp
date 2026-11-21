@@ -1106,14 +1106,16 @@ namespace
         return std::vector<std::byte>(pBytes, pBytes + count * sizeof(T));
     }
 
-    // Fragment uniform block 0 of the std3D shaders: fog params, fog color, alpha reference / 255.
+    // Fragment uniform block 0 of the std3D shaders: fog params, fog color, alpha reference / 255
+    // and the surface tag in x (M9.16).
     std::vector<std::byte> FragmentUniforms(const float (&aFogParams)[4], const float (&aFogColor)[4], float alphaRef)
     {
-        float aBlock[12] = { 0.0f };
+        float aBlock[16] = { 0.0f };
         std::memcpy(aBlock, aFogParams, sizeof(aFogParams));
         std::memcpy(aBlock + 4, aFogColor, sizeof(aFogColor));
-        aBlock[8] = alphaRef;
-        return BytesOf(aBlock, 12u);
+        aBlock[8]  = alphaRef;
+        aBlock[12] = 1.0f;
+        return BytesOf(aBlock, 16u);
     }
 
     std::vector<std::byte> NoFogUniforms(float alphaRef)
@@ -3332,7 +3334,7 @@ namespace
         return { (int)(word & 0xFFu), (int)((word >> 8) & 0xFFu), (int)((word >> 16) & 0xFFu), (int)(word >> 24) };
     }
 
-    // The constant normal (0, 0, 1) of std3d.frag.hlsl encoded as n * 0.5 + 0.5, alpha 1 (x and y
+    // The constant normal (0, 0, 1) of std3d.frag.hlsl encoded as n * 0.5 + 0.5, ordinary tag 1 (x and y
     // are a half, which rounds either way), or the clear 0.
     void AssertNormal(const std::vector<std::byte>& aBytes, uint32_t x, uint32_t y, bool bDrawn)
     {
@@ -4448,6 +4450,249 @@ TEST(std3DBabylonGpu, DepthOfFieldLeavesTheHudLayerPixelExact)
     AssertPixel(17u, 8u, 0, 0, 0, 255, 0);
 }
 
+
+TEST(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+
+    // Three opaque surfaces side by side: ordinary, sky and water. Only the normal target's alpha
+    // differs; the color is the same red for all three.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 64.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 16.0f, 0.0f, 48.0f, 64.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, 48.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFFFF0000u);
+    });
+
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(
+        stdRenderBabylon_GetNormalTarget(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, aNormals.size());
+    const bool b10 = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+
+    // Alpha is the tag: 1 ordinary, 2/3 sky, 1/3 water. R10G10B10A2 stores 3, 2 and 1 in its two
+    // alpha bits; Rgba8 stores 255, 170 and 85, which are the same fractions exactly.
+    const std::array<int, 3> aExpected = b10
+        ? std::array<int, 3>{ 3, 2, 1 }
+        : std::array<int, 3>{ 255, 170, 85 };
+    const std::array<int, 4> ordinary = NormalTexel(aNormals, 8u, 32u);
+    const std::array<int, 4> sky      = NormalTexel(aNormals, 32u, 32u);
+    const std::array<int, 4> water    = NormalTexel(aNormals, 56u, 32u);
+    TEST_ASSERT_EQUAL_INT(aExpected[0], ordinary[3]);
+    TEST_ASSERT_EQUAL_INT(aExpected[1], sky[3]);
+    TEST_ASSERT_EQUAL_INT(aExpected[2], water[3]);
+
+    // The normal's red, green and blue are the ordinary constant normal in every case.
+    const int half = b10 ? 511 : 127;
+    const int full = b10 ? 1023 : 255;
+    for ( const std::array<int, 4>* pTexel : { &ordinary, &sky, &water } )
+    {
+        TEST_ASSERT_INT_WITHIN(1, half, (*pTexel)[0]);
+        TEST_ASSERT_INT_WITHIN(1, half, (*pTexel)[1]);
+        TEST_ASSERT_EQUAL_INT(full, (*pTexel)[2]);
+    }
+
+    // The color target's alpha (presented) is opaque and the color is the red that was drawn, so
+    // only the normal target's alpha changed.
+    AssertPixel(8u, 32u, 255, 0, 0, 255, 0);
+    AssertPixel(32u, 32u, 255, 0, 0, 255, 0);
+    AssertPixel(56u, 32u, 255, 0, 0, 255, 0);
+}
+
+TEST(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF204060u);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    RenderScene(drawScene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(off.size(), offAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetLightShaftCentroidForTest(nullptr, nullptr, nullptr));
+}
+
+TEST(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(3));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+
+    // A bright sky quad on the left half, over a dark lower half. Its luminance-weighted centroid
+    // is at about (0.25, 0.25) in image uv.
+    const auto drawSky = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f, 0.95f, 0xFF101010u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+    };
+    const auto drawNoSky = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f, 0.95f, 0xFF101010u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+    };
+
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawSky);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    stdRenderBabylon_SetLightShafts(3);
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawSky);
+    float u = -1.0f;
+    float v = -1.0f;
+    float weight = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLightShaftCentroidForTest(&u, &v, &weight));
+    std::printf("M9.16 light shafts: centroid (%g, %g), weight %g\n", (double)u, (double)v, (double)weight);
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.25f, u);
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.25f, v);
+    TEST_ASSERT_TRUE(weight > 0.0f);
+
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != on);
+
+    // Bright geometry that is not tagged sky contributes no mask, so the stage adds exactly zero.
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawNoSky);
+    const std::vector<std::byte> noSky = CapturePresented(64u, 64u);
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawNoSky);
+    const std::vector<std::byte> noSkyOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(noSkyOff.size(), noSky.size());
+    TEST_ASSERT_EQUAL_MEMORY(noSkyOff.data(), noSky.data(), noSky.size());
+}
+
+TEST(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+
+    // A full-screen mid-grey sky with a small ordinary-grey quad over it. The uniform sky makes the
+    // radial blur nearly constant, so the two pixels start at the same scene value and see about the
+    // same shaft value; only the normal tag differs. The composite scales the shafts by 0.15 on the
+    // sky tag, keeping the clouds crisp, and at full strength on ordinary geometry.
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 64.0f, 64.0f, 0.9f, 0xFF808080u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 32.0f, 34.0f, 34.0f, 0.5f, 0xFF808080u);
+    };
+    const auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    const int skyOff      = redChannel(off, 10u, 10u);
+    const int ordinaryOff = redChannel(off, 32u, 32u);
+
+    stdRenderBabylon_SetLightShafts(1); // Low, strength 0.25
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    const int skyAdded      = redChannel(on, 10u, 10u) - skyOff;
+    const int ordinaryAdded = redChannel(on, 32u, 32u) - ordinaryOff;
+
+    // The two pixels have different shaft values (the ordinary quad is a hole in the mask), so
+    // compare the added light per unit of the half-res blur the composite actually samples.
+    float skyShaft = 0.0f;
+    float ordinaryShaft = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLightShaftValueForTest(10u, 10u, &skyShaft));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLightShaftValueForTest(32u, 32u, &ordinaryShaft));
+    TEST_ASSERT_TRUE(skyShaft > 0.0f);
+    TEST_ASSERT_TRUE(ordinaryShaft > 0.0f);
+    const float skyPerShaft      = (float)skyAdded / skyShaft;
+    const float ordinaryPerShaft = (float)ordinaryAdded / ordinaryShaft;
+    std::printf("M9.16 light shafts sky/geometry: added %d/255 to sky (%.3f per shaft), %d/255 to geometry (%.3f per shaft)\n",
+        skyAdded, (double)skyPerShaft, ordinaryAdded, (double)ordinaryPerShaft);
+    TEST_ASSERT_TRUE(ordinaryPerShaft > 20.0f);
+    TEST_ASSERT_TRUE(skyAdded >= 0);
+    TEST_ASSERT_TRUE(skyPerShaft <= ordinaryPerShaft * 0.15f + 3.0f);
+
+    // Sanity: the normal target still holds the two tags the composite reads.
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(
+        stdRenderBabylon_GetNormalTarget(), 0);
+    const bool b10 = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+    TEST_ASSERT_EQUAL_INT(b10 ? 2 : 170, NormalTexel(aNormals, 10u, 10u)[3]);
+    TEST_ASSERT_EQUAL_INT(b10 ? 3 : 255, NormalTexel(aNormals, 32u, 32u)[3]);
+}
+
+TEST(std3DBabylonGpu, LightShaftsLeaveTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 16.0f, 0.9f, 0xFFFFFFFFu);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawScene);
+    const std::vector<std::byte> hudOff = CapturePresented(32u, 16u);
+
+    stdRenderBabylon_SetLightShafts(3);
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> hudOn = CapturePresented(32u, 16u);
+
+    // The HUD's green line is composited after the shaft stage: its pixels are unchanged.
+    for ( uint32_t x = 16u; x <= 16u; ++x )
+    {
+        const size_t at = ((size_t)8u * 32u + x) * 4u;
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 2u], (int)hudOn[at + 2u]);
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 1u], (int)hudOn[at + 1u]);
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 0u], (int)hudOn[at + 0u]);
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 3u], (int)hudOn[at + 3u]);
+    }
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -4465,6 +4710,11 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
+    RUN_TEST_CASE(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsLeaveTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
     RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
     RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);
