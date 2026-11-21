@@ -1798,14 +1798,14 @@ TEST(std3DBabylon, TheNormalTargetIsRgba8WithoutR10G10B10A2)
 namespace
 {
     // The post pass pipeline stdRenderBabylon_AddPostPass makes of a fragment shader: the present
-    // pass's full-screen triangle into Bgra8, nothing else.
+    // pass's full-screen triangle into a target of the scene's format, nothing else.
     render::PipelineDesc ExpectedPostPipeline(const render::ShaderDesc& fragmentShader)
     {
         render::PipelineDesc desc;
         desc.vertexShader   = stdBabylon::shaders::presentVert();
         desc.fragmentShader = fragmentShader;
         desc.primitive      = render::PrimitiveType::TriangleList;
-        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+        desc.colorTargets   = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), {} } };
         return desc;
     }
 
@@ -1898,10 +1898,12 @@ TEST(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer)
     const render::TextureHandle output = AssertPostPass(2, pipeline, { stdRenderBabylon_GetColorTarget() });
     AssertSubmitted(7);
     TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == output);
-    TEST_ASSERT_EQUAL_size_t(16u * 8u * 4u, Null().readTexture(output, 0).size());
+    const size_t postBytes = 16u * 8u
+        * render::bytesPerTexel(stdRenderBabylon_GetColorFormat());
+    TEST_ASSERT_EQUAL_size_t(postBytes, Null().readTexture(output, 0).size());
 
     // Reading the back buffer flushes without the chain and gets the back buffer.
-    TEST_ASSERT_TRUE(Null().uploadTexture(output, 0, std::vector<std::byte>(16u * 8u * 4u, std::byte{ 0x77 })));
+    TEST_ASSERT_TRUE(Null().uploadTexture(output, 0, std::vector<std::byte>(postBytes, std::byte{ 0x77 })));
     Null().clearRecorded();
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_EndScene();
@@ -1967,7 +1969,8 @@ TEST(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets)
     TEST_ASSERT_TRUE(ReadTexture(first, 0).empty());
     TEST_ASSERT_TRUE(ReadTexture(second, 0).empty());
     TEST_ASSERT_FALSE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
-    TEST_ASSERT_EQUAL_size_t(8u * 4u * 4u, Null().readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(8u * 4u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
 }
 
 TEST(std3DBabylon, BadPostPassesAreRefused)
@@ -2255,10 +2258,22 @@ TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
     TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetToneMap().exposure);
     TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
 
+    // Operators 1 (Neutral) and 2 (ACES fitted) are accepted; anything else changes nothing.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 2.0f, 1u });
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdRenderBabylon_GetToneMap().oper);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.5f, 2u });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(2u, stdRenderBabylon_GetToneMap().oper);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.25f, 3u });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(2u, stdRenderBabylon_GetToneMap().oper);
+
     // The defaults return when the frame owner is closed and opened again.
     CloseStd3D();
     OpenStd3D();
     TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
 }
 
 TEST(std3DBabylon, CloseClearsThePresentOverlay)
@@ -3325,20 +3340,26 @@ TEST(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer)
     TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aBackBuffer.data(), nullptr, nullptr));
     AssertBytes(std3DBabylonGpuTest_pixels, aBackBuffer);
 
-    // The presented image is inverted, alpha kept.
+    // The presented image is inverted, alpha kept. The chain's intermediate is the scene's
+    // Rgba16F format, so the check goes through the tone map's Bgra8 presented image.
     TEST_ASSERT_FALSE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
-    std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0);
+    std3DBabylonGpuTest_pixels = CapturePresented(64u, 64u);
     TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, std3DBabylonGpuTest_pixels.size());
     AssertPixel(8u, 8u, 0, 191, 223, 255, 0);
     AssertPixel(40u, 40u, 255, 255, 255, 0, 0);
 
-    // Inverted twice, the presented image is the back buffer again, byte for byte.
+    // Inverted twice, the presented image is the back buffer again.
     TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag()));
     RenderScene([]
     {
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 16.0f, 0.5f, 0xFFFF4020u);
     });
-    AssertBytes(std3DBabylonGpuTest_pixels, std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0));
+    const std::vector<std::byte> twice = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(std3DBabylonGpuTest_pixels.size(), twice.size());
+    for ( size_t i = 0; i < twice.size(); ++i )
+    {
+        TEST_ASSERT_INT_WITHIN(1, (int)std3DBabylonGpuTest_pixels[i], (int)twice[i]);
+    }
 }
 
 TEST(std3DBabylonGpu, APostPassReadsTheNormalTarget)
@@ -3355,9 +3376,76 @@ TEST(std3DBabylonGpu, APostPassReadsTheNormalTarget)
     });
 
     // The normal's red, green and blue with the scene's alpha: (0.5, 0.5, 1) where drawn, 0 elsewhere.
-    std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0);
+    std3DBabylonGpuTest_pixels = CapturePresented(64u, 64u);
     AssertPixel(8u, 8u, 128, 128, 255, 255);
     AssertClear(40u, 40u);
+}
+
+TEST(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    const bool bHdr = stdRenderBabylon_GetColorFormat() == render::TextureFormat::Rgba16F;
+
+    auto draw = [](uint32_t color)
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+    };
+    auto red = [](const std::vector<std::byte>& pixels)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + 2u];
+    };
+    auto capture = [&red](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return red(CapturePresented(64u, 64u));
+    };
+
+    // Operator 0 with exposure 1 is the identity clamp: mid grey stays mid grey.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u });
+    const int clampHalf = capture(0xFF808080u);
+    TEST_ASSERT_INT_WITHIN(1, 128, clampHalf);
+
+    // Operator 1 (Neutral) leaves the midtone nearly unchanged.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 1u });
+    const int neutralHalf = capture(0xFF808080u);
+    TEST_ASSERT_INT_WITHIN(2, clampHalf, neutralHalf);
+
+    // Operator 2 (ACES fitted) is monotonic over the scene's range.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 2u });
+    const int acesHalf  = capture(0xFF808080u);
+    const int acesThree = capture(0xFFC0C0C0u);
+    const int acesOne   = capture(0xFFFFFFFFu);
+    TEST_ASSERT_TRUE(acesHalf < acesThree);
+    TEST_ASSERT_TRUE(acesThree < acesOne);
+
+    // Exposure is applied before the curve: 0.25 at 2.0 equals 0.5 at 1.0 under Neutral.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 2.0f, 1u });
+    const int doubleExposure = capture(0xFF404040u);
+    TEST_ASSERT_INT_WITHIN(2, neutralHalf, doubleExposure);
+
+    // A post pass that doubles its input writes 2.0; the chain keeps it because its target is the
+    // scene's Rgba16F format. Only an HDR intermediate preserves that value.
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postDoubleFrag()));
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 1u });
+    RenderScene([&] { draw(0xFFFFFFFFu); });
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
+    const int compressed = red(CapturePresented(64u, 64u));
+    TEST_ASSERT_TRUE(compressed < 250);
+    TEST_ASSERT_TRUE(compressed > neutralHalf);
+
+    // Half exposure on the doubled 2.0 is 1.0: 255 through an HDR intermediate, 128 after an
+    // intermediate that clamped 2.0 to 1.0.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.5f, 0u });
+    RenderScene([&] { draw(0xFFFFFFFFu); });
+    const int halfExposure = red(CapturePresented(64u, 64u));
+    TEST_ASSERT_INT_WITHIN(2, bHdr ? 255 : 128, halfExposure);
 }
 
 TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)
@@ -3800,6 +3888,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, SharpeningLeavesTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, SmaaBlendsAHardDiagonalEdgeAndLeavesFarPixels);
     RUN_TEST_CASE(std3DBabylonGpu, SmaaLeavesTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

@@ -350,6 +350,12 @@ namespace
         screen.help[layout.sharpening] =
             "Restore detail softened by a low render scale or by anti-aliasing; the HUD, menus "
             "and prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.toneMapping] =
+            "Choose how bright scene values are mapped into the display: Clamp, Neutral or "
+            "Filmic. Applies when the display reopens.";
+        screen.help[layout.exposure] =
+            "Scale brightness before tone mapping; higher values brighten, lower ones darken. "
+            "Applies when the display reopens.";
         screen.help[layout.anisotropic] =
             "Sharpen world and model textures seen at a slant. Higher levels cost more and apply "
             "when the display reopens.";

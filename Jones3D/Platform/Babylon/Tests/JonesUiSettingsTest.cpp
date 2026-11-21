@@ -456,7 +456,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing,
-    // 12 sharpening, 13 anisotropic filtering, 14 crisp pixels, 15 OK, 16 back.
+    // 12 sharpening, 13 tone mapping, 14 exposure, 15 anisotropic filtering, 16 crisp pixels,
+    // 17 OK, 18 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -482,6 +483,10 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // SMAA -> Off
     testContext.platform.PushKey(platform::Key::Down);  // sharpening
     testContext.platform.PushKey(platform::Key::Left);  // Low -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // tone mapping
+    testContext.platform.PushKey(platform::Key::Right); // Neutral -> Filmic
+    testContext.platform.PushKey(platform::Key::Down);  // exposure
+    testContext.platform.PushKey(platform::Key::Left);  // 1.0 -> 0.9
     testContext.platform.PushKey(platform::Key::Down);  // anisotropic filtering
     testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
     testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
@@ -520,6 +525,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, -1.0f)
         == doctest::Approx(0.0f));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING, -1) == 2);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, -1.0f)
+        == doctest::Approx(0.9f));
 #ifdef J3D_QOL_IMPROVEMENTS
     CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 4);
 #else

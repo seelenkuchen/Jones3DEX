@@ -69,6 +69,11 @@ struct JonesUiDisplayValues
     std::size_t sharpening = 1;
     // Added: index into the anisotropic choices (1, 2, 4, 8, 16; 8 at index 3).
     std::size_t anisotropic = 3;
+    // Added: index into the tone-mapping choices (Clamp, Neutral, Filmic = operator 0, 1, 2;
+    // Neutral at index 1 in Enhanced).
+    std::size_t toneMapping = 1;
+    // Added: exposure multiplier applied before the tone-map curve, 0.5..2.0.
+    double exposure = 1.0;
     bool bCrispPixels = false;
 };
 
@@ -88,6 +93,8 @@ struct JonesUiDisplayLayout
     std::size_t antiAliasing = 0; // Added
     std::size_t sharpening = 0; // Added
     std::size_t anisotropic = 0; // Added
+    std::size_t toneMapping = 0; // Added
+    std::size_t exposure = 0; // Added
     std::size_t crispPixels = 0; // Added
     std::size_t ok = 0;
     std::size_t back = 0;
@@ -114,6 +121,8 @@ struct JonesUiDisplayModel
     int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA
     float sharpening = 0.3f;    // Added: engine.renderer.sharpening, 0..1
     int anisotropic = 8;        // Added: graphics.anisotropicFilter, normalized
+    int toneMapping = 1;        // Added: engine.renderer.toneMapping, 0 clamp / 1 Neutral / 2 ACES
+    float exposure = 1.0f;      // Added: engine.renderer.exposure, 0.5..2.0
     bool bCrispPixels = false;  // Added: engine.renderer.texturePixelated
 };
 

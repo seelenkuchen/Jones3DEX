@@ -260,11 +260,12 @@ bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle targ
 // target of stdRenderBabylon_RenderPresentToTexture. It samples the source with a 1:1
 // nearest-neighbour sampler at render scale 1 (exactly the pre-M9.4 present) and with a linear
 // sampler otherwise, so the scaled scene resolves to the presented size. exposure is multiplied
-// into the sampled linear-or-as-today color; operator 0 (the only one in this slice) adds no curve
-// and clamps each color channel to 0..1. There is no transfer function in the pass, exactly as the plain present
-// pass had none: the scene writes display-referred color today, so the output gamma of the defaults
-// is today's. With exposure 1.0 and operator 0 it is a clamp, so the presented image matches the
-// pre-M9.3 present for scene colors in 0..1.
+// into the sampled color before the operator. Operator 0 adds no curve and clamps each color
+// channel to 0..1; 1 is Khronos PBR Neutral (highlight compression with desaturation, midtones
+// unchanged); 2 is the Narkowicz 2015 ACES fit. There is no transfer function in the pass, exactly
+// as the plain present pass had none: the scene writes display-referred color today, so the output
+// gamma of the defaults is today's. With exposure 1.0 and operator 0 it is a clamp, so the
+// presented image matches the pre-M9.3 present for scene colors in 0..1.
 struct StdRenderBabylonToneMap
 {
     float exposure = 1.0f;
@@ -272,17 +273,20 @@ struct StdRenderBabylonToneMap
 };
 
 // Sets the tone-map parameters. Refused, logging why and changing nothing, for a negative or
-// non-finite exposure or an operator other than 0. The defaults are exposure 1.0 and operator 0.
-// Closing and reopening the frame owner restores them.
+// non-finite exposure or an operator other than 0, 1 or 2. The defaults are exposure 1.0 and
+// operator 0. Opening also reads engine.renderer.toneMapping (defaults: 1 in Enhanced builds, 0 in
+// Retail/QOL-off ones) and engine.renderer.exposure (0.5..2.0, default 1.0) from the config.
+// Closing and reopening the frame owner restores those config values.
 void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params);
 StdRenderBabylonToneMap stdRenderBabylon_GetToneMap();
 
 // Appends a pass to the post-processing chain. The pass draws one full-screen triangle (the vertex
 // shader of the present pass, Shaders/present.vert.hlsl, gives the fragment shader the texture
-// coordinate in TEXCOORD0, (0, 0) at the top left) into a Bgra8 target of the back buffer's size,
-// with no blending, depth or uniforms. Its fragment shader reads fragment texture slots 0 to
-// textureCount - 1 with a nearest, clamping sampler: slot 0 the previous pass's output (the back
-// buffer color for the first pass), slot 1 the normal target, slot 2 the depth target. Passes run in
+// coordinate in TEXCOORD0, (0, 0) at the top left) into a target of the back buffer's size and the
+// scene color format (Rgba16F when the scene is), with no blending, depth or uniforms. Its fragment
+// shader reads fragment texture slots 0 to textureCount - 1 with a nearest, clamping sampler: slot 0
+// the previous pass's output (the back buffer color for the first pass), slot 1 the normal target,
+// slot 2 the depth target. Passes run in
 // the order added, at every presenting submit (stdRenderBabylon_SubmitFrame and
 // stdRenderBabylon_PresentFrame, with or without a swapchain), never at stdRenderBabylon_FlushFrame.
 // Returns false, logging why and changing nothing, when not open, for a shader that reads no texture,

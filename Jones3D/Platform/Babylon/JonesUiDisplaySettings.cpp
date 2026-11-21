@@ -85,6 +85,8 @@ namespace
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplaySharpeningText = "Sharpening"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayToneMappingText = "Tone mapping"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayExposureText = "Exposure"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
 
@@ -105,6 +107,15 @@ namespace
     constexpr float kJonesDisplaySharpeningValues[] = { 0.0f, 0.3f, 0.5f, 0.8f };
     constexpr const char* kJonesDisplaySharpeningLabels[] = { "Off", "Low", "Medium", "High" };
     constexpr std::size_t kJonesDisplaySharpeningDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.10 tone-mapping operators; Neutral (index 1) is the Enhanced default, clamp in
+    // Retail/QOL-off builds.
+    constexpr int kJonesDisplayToneMappingValues[] = { 0, 1, 2 };
+    constexpr const char* kJonesDisplayToneMappingLabels[] = { "Clamp", "Neutral", "Filmic" };
+    constexpr std::size_t kJonesDisplayToneMappingDefault = J3D_QOL_VALUE(1, 0);
+    constexpr double kJonesDisplayExposureMin = 0.5;
+    constexpr double kJonesDisplayExposureMax = 2.0;
+    constexpr double kJonesDisplayExposureStep = 0.1;
 
     // Added: M9.7 anisotropic filtering choices; 8x (index 3) is the Enhanced default.
     constexpr int kJonesDisplayAnisotropicValues[] = { 1, 2, 4, 8, 16 };
@@ -268,6 +279,20 @@ namespace
         }
 
         return best;
+    }
+
+    // The tone-mapping choice of a stored operator; Neutral when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_ToneMappingIndex(int oper)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayToneMappingValues); ++cur )
+        {
+            if ( kJonesDisplayToneMappingValues[cur] == oper )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayToneMappingDefault;
     }
 
     // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
@@ -463,6 +488,27 @@ namespace
             values.sharpening < STD_ARRAYLEN(kJonesDisplaySharpeningValues)
                 ? values.sharpening : kJonesDisplaySharpeningDefault });
 
+        // Added: M9.10. The operator maps the display-referred scene tone into 0..1; Neutral compresses
+        // highlights while leaving midtones, Filmic is the classic ACES curve. Exposure scales the
+        // color before the curve.
+        std::vector<std::string> toneMappingOptions;
+        for ( const char* pLabel : kJonesDisplayToneMappingLabels )
+        {
+            toneMappingOptions.emplace_back(pLabel);
+        }
+        layout.toneMapping = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayToneMappingText), std::string(),
+            std::move(toneMappingOptions), true,
+            values.toneMapping < STD_ARRAYLEN(kJonesDisplayToneMappingValues)
+                ? values.toneMapping : kJonesDisplayToneMappingDefault });
+
+        layout.exposure = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Slider{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayExposureText), std::string(),
+            kJonesDisplayExposureMin, kJonesDisplayExposureMax, kJonesDisplayExposureStep, true,
+            std::clamp(values.exposure, kJonesDisplayExposureMin, kJonesDisplayExposureMax) });
+
         // Added: M9.7. Anisotropic filtering sharpens world and model textures seen at a slant;
         // off keeps the plain linear filter. Crisp pixels drops min/mag filtering to nearest for
         // the original look, while the mip filter follows the Mipmap filter row.
@@ -621,6 +667,11 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
         JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, J3D_QOL_VALUE(1, 0));
     model.sharpening = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, J3D_QOL_VALUE(0.3f, 0.0f)), 0.0f, 1.0f);
+    model.toneMapping = JonesUiDisplay_ReadConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING,
+        J3D_QOL_VALUE(1, 0));
+    model.exposure = (float)std::clamp((double)JonesUiDisplay_ReadConfigFloat(
+        JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, 1.0f), kJonesDisplayExposureMin,
+        kJonesDisplayExposureMax);
     model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
     model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
 
@@ -639,6 +690,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
     values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
     values.sharpening = JonesUiDisplay_SharpeningIndex(model.sharpening);
+    values.toneMapping = JonesUiDisplay_ToneMappingIndex(model.toneMapping);
+    values.exposure = (double)model.exposure;
     values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
     values.bCrispPixels = model.bCrispPixels;
     return model;
@@ -688,6 +741,10 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.antiAliasing));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.sharpening,
         values.sharpening));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.toneMapping,
+        values.toneMapping));
+    static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.exposure,
+        values.exposure));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
         values.anisotropic));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.crispPixels,
@@ -891,6 +948,15 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplaySharpeningValues) - 1);
     JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING,
         kJonesDisplaySharpeningValues[sharpening]);
+
+    // Added: M9.10. Read when the frame owner opens, like the render scale.
+    const std::size_t toneMapping = std::min(values.toneMapping,
+        STD_ARRAYLEN(kJonesDisplayToneMappingValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING,
+        kJonesDisplayToneMappingValues[toneMapping]);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE,
+        (float)std::clamp(values.exposure, kJonesDisplayExposureMin,
+            kJonesDisplayExposureMax));
 
     // Added: M9.7. Both are read by std3D_Open, so they take effect with the same display restart
     // the other presentation rows ask for.
