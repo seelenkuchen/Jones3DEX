@@ -13,10 +13,13 @@
 // linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. When the
 // anti-aliasing option is on (SMAA 1x, engine.renderer.antiAliasing) the tone map writes an LDR
 // image at the presented size instead, three SMAA passes smooth the scene's edges, and the last one
-// writes the swapchain; with it off the image is byte-identical to the plain tone-map present. It
-// then composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
-// image, so no anti-aliasing or scene effect touches the HUD, before the prompt and menu present
-// overlays. std3D records its scenes and HUD layer into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
+// writes the swapchain; with it off the image is byte-identical to the plain tone-map present.
+// Added: the sharpening option (AMD FidelityFX CAS, engine.renderer.sharpening) then runs one
+// contrast-adaptive sharpening pass on that presented-size LDR image, after SMAA or after the tone
+// map when anti-aliasing is off; at 0 it is skipped and the image is byte-identical. It then
+// composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
+// image, so no anti-aliasing, sharpening or other scene effect touches the HUD, before the prompt
+// and menu present overlays. std3D records its scenes and HUD layer into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
 // translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
 // resampling between the scaled target and the display-sized image there.
 //
@@ -177,6 +180,17 @@ float stdRenderBabylon_GetRenderScale();
 // until the next open. Closing frees the stage's targets, pipelines and textures.
 bool stdRenderBabylon_SetAntiAliasing(bool bEnabled);
 bool stdRenderBabylon_GetAntiAliasing();
+
+// Added: contrast-adaptive sharpening (AMD FidelityFX CAS) on the presented-size 3D image, after
+// SMAA when anti-aliasing is on and after the tone map when it is off, before the HUD layer
+// composite. sharpening is 0 (off) to 1 (strongest); the Options > Display row offers 0, 0.3, 0.5
+// and 0.8. At 0 the pass is skipped and the image is byte-identical to the path without it. The
+// HUD layer, menus and prompts are never sharpened. A finite value outside 0..1 is clamped; a
+// non-finite one is refused, logging why and changing nothing. Opening reads
+// engine.renderer.sharpening (default 0.3 in Enhanced builds, 0 in Retail/QOL-off ones); this
+// setter changes it until the next open. Closing frees the stage's target and pipelines.
+bool stdRenderBabylon_SetSharpening(float strength);
+float stdRenderBabylon_GetSharpening();
 
 // The command list of the frame being recorded; begins a frame when none is. Must be open. The
 // reference is valid until stdRenderBabylon_SubmitFrame or stdRenderBabylon_Close.

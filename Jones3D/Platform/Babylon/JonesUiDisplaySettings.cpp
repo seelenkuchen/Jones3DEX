@@ -84,6 +84,7 @@ namespace
     constexpr const char* kJonesDisplayFOVText = "Field of view"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplaySharpeningText = "Sharpening"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
 
@@ -98,6 +99,12 @@ namespace
     constexpr int kJonesDisplayAntiAliasingValues[] = { 0, 1 };
     constexpr const char* kJonesDisplayAntiAliasingLabels[] = { "Off", "SMAA" };
     constexpr std::size_t kJonesDisplayAntiAliasingDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.9 contrast-adaptive sharpening choices. Low (0.3) is the Enhanced default, off in
+    // Retail/QOL-off builds.
+    constexpr float kJonesDisplaySharpeningValues[] = { 0.0f, 0.3f, 0.5f, 0.8f };
+    constexpr const char* kJonesDisplaySharpeningLabels[] = { "Off", "Low", "Medium", "High" };
+    constexpr std::size_t kJonesDisplaySharpeningDefault = J3D_QOL_VALUE(1, 0);
 
     // Added: M9.7 anisotropic filtering choices; 8x (index 3) is the Enhanced default.
     constexpr int kJonesDisplayAnisotropicValues[] = { 1, 2, 4, 8, 16 };
@@ -238,6 +245,29 @@ namespace
     std::size_t JonesUiDisplay_AntiAliasingIndex(int value)
     {
         return value != 0 ? 1u : 0u;
+    }
+
+    // The sharpening choice nearest to strength; Low when the value is not finite.
+    std::size_t JonesUiDisplay_SharpeningIndex(float strength)
+    {
+        if ( !std::isfinite(strength) )
+        {
+            return kJonesDisplaySharpeningDefault;
+        }
+
+        std::size_t best = 0;
+        float bestDistance = std::fabs(strength - kJonesDisplaySharpeningValues[0]);
+        for ( std::size_t cur = 1; cur < STD_ARRAYLEN(kJonesDisplaySharpeningValues); ++cur )
+        {
+            const float distance = std::fabs(strength - kJonesDisplaySharpeningValues[cur]);
+            if ( distance < bestDistance )
+            {
+                best         = cur;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
     }
 
     // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
@@ -419,6 +449,20 @@ namespace
             values.antiAliasing < STD_ARRAYLEN(kJonesDisplayAntiAliasingValues)
                 ? values.antiAliasing : kJonesDisplayAntiAliasingDefault });
 
+        // Added: M9.9. Contrast-adaptive sharpening restores detail lost to a low render scale or
+        // to SMAA; the HUD, menus and prompts are never sharpened.
+        std::vector<std::string> sharpeningOptions;
+        for ( const char* pLabel : kJonesDisplaySharpeningLabels )
+        {
+            sharpeningOptions.emplace_back(pLabel);
+        }
+        layout.sharpening = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplaySharpeningText), std::string(),
+            std::move(sharpeningOptions), true,
+            values.sharpening < STD_ARRAYLEN(kJonesDisplaySharpeningValues)
+                ? values.sharpening : kJonesDisplaySharpeningDefault });
+
         // Added: M9.7. Anisotropic filtering sharpens world and model textures seen at a slant;
         // off keeps the plain linear filter. Crisp pixels drops min/mag filtering to nearest for
         // the original look, while the mip filter follows the Mipmap filter row.
@@ -575,6 +619,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
         JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
     model.antiAliasing = JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, J3D_QOL_VALUE(1, 0));
+    model.sharpening = std::clamp(JonesUiDisplay_ReadConfigFloat(
+        JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, J3D_QOL_VALUE(0.3f, 0.0f)), 0.0f, 1.0f);
     model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
     model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
 
@@ -592,6 +638,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.gameplayFOV = (double)model.gameplayFOV;
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
     values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
+    values.sharpening = JonesUiDisplay_SharpeningIndex(model.sharpening);
     values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
     values.bCrispPixels = model.bCrispPixels;
     return model;
@@ -639,6 +686,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.renderScale));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.antiAliasing,
         values.antiAliasing));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.sharpening,
+        values.sharpening));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
         values.anisotropic));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.crispPixels,
@@ -836,6 +885,12 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplayAntiAliasingValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING,
         kJonesDisplayAntiAliasingValues[antiAliasing]);
+
+    // Added: M9.9. Read when the frame owner opens, like anti-aliasing.
+    const std::size_t sharpening = std::min(values.sharpening,
+        STD_ARRAYLEN(kJonesDisplaySharpeningValues) - 1);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING,
+        kJonesDisplaySharpeningValues[sharpening]);
 
     // Added: M9.7. Both are read by std3D_Open, so they take effect with the same display restart
     // the other presentation rows ask for.

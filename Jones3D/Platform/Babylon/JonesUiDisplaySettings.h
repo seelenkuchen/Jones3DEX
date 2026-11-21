@@ -64,6 +64,9 @@ struct JonesUiDisplayValues
     std::size_t renderScale = 3;
     // Added: index into the anti-aliasing choices (Off, SMAA; SMAA at index 1 in Enhanced).
     std::size_t antiAliasing = 1;
+    // Added: index into the sharpening choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t sharpening = 1;
     // Added: index into the anisotropic choices (1, 2, 4, 8, 16; 8 at index 3).
     std::size_t anisotropic = 3;
     bool bCrispPixels = false;
@@ -83,6 +86,7 @@ struct JonesUiDisplayLayout
     std::size_t gameplayFOV = 0; // Added
     std::size_t renderScale = 0;
     std::size_t antiAliasing = 0; // Added
+    std::size_t sharpening = 0; // Added
     std::size_t anisotropic = 0; // Added
     std::size_t crispPixels = 0; // Added
     std::size_t ok = 0;
@@ -108,6 +112,7 @@ struct JonesUiDisplayModel
     float gameplayFOV = 90.0f; // Added: sithCamera_GetGameplayFOV()
     float renderScale = 1.0f;
     int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA
+    float sharpening = 0.3f;    // Added: engine.renderer.sharpening, 0..1
     int anisotropic = 8;        // Added: graphics.anisotropicFilter, normalized
     bool bCrispPixels = false;  // Added: engine.renderer.texturePixelated
 };

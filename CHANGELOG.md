@@ -10,6 +10,12 @@
     in Enhanced and off in Retail). SMAA 1x runs on the tone-mapped 3D scene at the presented
     resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are never anti-aliased.
     Off presents exactly the previous image. Applies when the display reopens.
+  - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
+    High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
+    sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring
+    detail lost to a render scale below 100% and the softening of anti-aliasing; the HUD, 2D layer,
+    menus and prompts are never sharpened. Off skips the pass and presents exactly the previous
+    image. Applies when the display reopens.
   - The gameplay HUD (health and endurance, item and weapon icons, compass, ammo and the inventory menu)
     draws at the display resolution after the scene's post effects, so it stays sharp at any render
     scale and is never blurred or tinted by them. The scene still renders at the chosen scale.

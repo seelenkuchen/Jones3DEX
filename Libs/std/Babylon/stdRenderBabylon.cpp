@@ -55,6 +55,11 @@ namespace
     // Added: SMAA 1x (0 off, 1 on) of the 3D scene, read when the frame owner opens.
     constexpr const char* stdRenderBabylon_kAntiAliasingKey = "engine.renderer.antiAliasing";
 
+    // Added: contrast-adaptive sharpening strength (0 off to 1 strongest) of the presented 3D
+    // image, read when the frame owner opens.
+    constexpr const char* stdRenderBabylon_kSharpeningKey = "engine.renderer.sharpening";
+    constexpr float stdRenderBabylon_kMaxSharpening = 1.0f;
+
     struct StdRenderBabylonState
     {
         render::Device* pDevice = nullptr;
@@ -100,6 +105,19 @@ namespace
         render::PipelineHandle smaaBlendCapturePipeline; // to a Bgra8 capture target
         render::TextureHandle smaaAreaTexture;
         render::TextureHandle smaaSearchTexture;
+
+        // Added: contrast-adaptive sharpening on the presented-size LDR image, after SMAA or the
+        // tone map and before the HUD composite. casSourceTarget is that Rgba8 image; the CAS pass
+        // reads it and writes the presented frame. bCasSetupFailed stops repeated log lines.
+        float sharpening = 0.0f;
+        bool bCasSetupFailed = false;
+        render::TextureHandle casSourceTarget;
+        uint32_t casWidth  = 0;
+        uint32_t casHeight = 0;
+        render::PipelineHandle casToneMapPipeline;    // the tone map into casSourceTarget
+        render::PipelineHandle smaaBlendCasPipeline;  // SMAA's blend into casSourceTarget
+        render::PipelineHandle casPipeline;           // to the swapchain
+        render::PipelineHandle casCapturePipeline;    // to a Bgra8 capture target
 
         // The final pass's tone map, and whether it runs the tone-map shader (false only when a test
         // forced the pre-M9.3 path). At the defaults it is an identity clamp.
@@ -484,13 +502,15 @@ namespace
         return true;
     }
 
-    // Added: the last anti-aliasing pass's pipeline for target (the swapchain or a Bgra8 capture).
-    // Made on first use; false, logging why, when it can't be.
-    bool stdRenderBabylon_EnsureSmaaBlendPipeline(bool bSwapchain, render::TextureFormat format)
+    // Added: the last anti-aliasing pass's pipeline for its target: the swapchain, a Bgra8 capture
+    // or the Rgba8 sharpening source. Made on first use; false when it can't be.
+    bool stdRenderBabylon_EnsureSmaaBlendPipeline(bool bSwapchain, bool bCasSource,
+        render::TextureFormat format)
     {
         render::PipelineHandle* pPipeline = bSwapchain
             ? &stdRenderBabylon_state.smaaBlendPipeline
-            : &stdRenderBabylon_state.smaaBlendCapturePipeline;
+            : (bCasSource ? &stdRenderBabylon_state.smaaBlendCasPipeline
+                          : &stdRenderBabylon_state.smaaBlendCapturePipeline);
         if ( !pPipeline->isNull() )
         {
             return true;
@@ -499,6 +519,97 @@ namespace
         render::PipelineDesc desc;
         desc.vertexShader   = stdBabylon::shaders::presentVert();
         desc.fragmentShader = stdBabylon::shaders::smaaBlendFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ format, {} } };
+
+        *pPipeline = stdRenderBabylon_state.pDevice->createPipeline(desc);
+        return !pPipeline->isNull();
+    }
+
+    // Added: frees the sharpening stage's presented-size source image. Recreated by the next
+    // present that sharpens after a display or window size change.
+    void stdRenderBabylon_FreeCasTarget()
+    {
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.casSourceTarget);
+        stdRenderBabylon_state.casSourceTarget = {};
+        stdRenderBabylon_state.casWidth        = 0;
+        stdRenderBabylon_state.casHeight       = 0;
+    }
+
+    // Added: the presented-size Rgba8 image the sharpening stage reads, made when its size
+    // changes. False, logging why, when it can't be created; there is none then.
+    bool stdRenderBabylon_EnsureCasTarget(uint32_t width, uint32_t height)
+    {
+        if ( width == 0 || height == 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.casSourceTarget.isNull()
+            && stdRenderBabylon_state.casWidth == width
+            && stdRenderBabylon_state.casHeight == height )
+        {
+            return true;
+        }
+
+        stdRenderBabylon_FreeCasTarget();
+
+        render::TextureDesc desc;
+        desc.width     = width;
+        desc.height    = height;
+        desc.mipLevels = 1;
+        desc.format    = render::TextureFormat::Rgba8;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+
+        const render::TextureHandle target = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( target.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u sharpening source.\n",
+                width, height);
+            return false;
+        }
+
+        stdRenderBabylon_state.casSourceTarget = target;
+        stdRenderBabylon_state.casWidth        = width;
+        stdRenderBabylon_state.casHeight       = height;
+        return true;
+    }
+
+    // Added: the tone-map pass into the sharpening source (which anti-aliasing off and sharpening
+    // on share), made on first use.
+    bool stdRenderBabylon_EnsureCasToneMapPipeline()
+    {
+        if ( !stdRenderBabylon_state.casToneMapPipeline.isNull() )
+        {
+            return true;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdRenderBabylon_FinalFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Rgba8, {} } };
+
+        stdRenderBabylon_state.casToneMapPipeline =
+            stdRenderBabylon_state.pDevice->createPipeline(desc);
+        return !stdRenderBabylon_state.casToneMapPipeline.isNull();
+    }
+
+    // Added: the sharpening pass's pipeline for target (the swapchain or a Bgra8 capture), made on
+    // first use.
+    bool stdRenderBabylon_EnsureCasPipeline(bool bSwapchain, render::TextureFormat format)
+    {
+        render::PipelineHandle* pPipeline = bSwapchain
+            ? &stdRenderBabylon_state.casPipeline
+            : &stdRenderBabylon_state.casCapturePipeline;
+        if ( !pPipeline->isNull() )
+        {
+            return true;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdBabylon::shaders::casFrag();
         desc.primitive      = render::PrimitiveType::TriangleList;
         desc.colorTargets   = { render::ColorTargetDesc{ format, {} } };
 
@@ -962,11 +1073,11 @@ namespace
     // having logged nothing, when a resource can't be made or a pass can't be started or ended; the
     // caller then presents without anti-aliasing.
     bool stdRenderBabylon_RecordSmaa(render::CommandList& list, render::TextureHandle target,
-        render::TextureFormat format, uint32_t width, uint32_t height)
+        render::TextureFormat format, uint32_t width, uint32_t height, bool bCasSource)
     {
         if ( width == 0 || height == 0 || !stdRenderBabylon_EnsureSmaaResources()
             || !stdRenderBabylon_EnsureSmaaTargets(width, height)
-            || !stdRenderBabylon_EnsureSmaaBlendPipeline(target.isNull(), format) )
+            || !stdRenderBabylon_EnsureSmaaBlendPipeline(target.isNull(), bCasSource, format) )
         {
             return false;
         }
@@ -1020,7 +1131,8 @@ namespace
 
         const render::PipelineHandle blend = target.isNull()
             ? stdRenderBabylon_state.smaaBlendPipeline
-            : stdRenderBabylon_state.smaaBlendCapturePipeline;
+            : (bCasSource ? stdRenderBabylon_state.smaaBlendCasPipeline
+                          : stdRenderBabylon_state.smaaBlendCapturePipeline);
         pass.colorTargets[0] = render::ColorAttachment{ target, 0, render::LoadOp::DontCare,
             render::StoreOp::Store, {} };
         if ( !list.beginPass(pass) )
@@ -1032,6 +1144,38 @@ namespace
             stdRenderBabylon_state.finalSampler);
         list.bindTexture(render::ShaderStage::Fragment, 1, stdRenderBabylon_state.smaaWeightsTarget,
             stdRenderBabylon_state.finalSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0, std::as_bytes(std::span<const float>(aParams)));
+        list.draw(3);
+        return list.endPass();
+    }
+
+    // Added: the sharpening pass from source (the presented-size LDR image) into target (the
+    // swapchain for a null handle). False, having logged nothing, when a resource can't be made or
+    // a pass can't be started or ended; the caller then presents without sharpening.
+    bool stdRenderBabylon_RecordSharpening(render::CommandList& list, render::TextureHandle source,
+        render::TextureHandle target, render::TextureFormat format, uint32_t width, uint32_t height)
+    {
+        if ( source.isNull() || width == 0 || height == 0
+            || !stdRenderBabylon_EnsureCasPipeline(target.isNull(), format)
+            || !stdRenderBabylon_EnsurePresentSampler() )
+        {
+            return false;
+        }
+
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ target, 0,
+            render::LoadOp::DontCare, render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        const float aParams[4] = { 1.0f / (float)width, 1.0f / (float)height,
+            stdRenderBabylon_state.sharpening, 0.0f };
+        list.setPipeline(target.isNull() ? stdRenderBabylon_state.casPipeline
+                                         : stdRenderBabylon_state.casCapturePipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, source,
+            stdRenderBabylon_state.presentSampler);
         list.pushUniforms(render::ShaderStage::Fragment, 0, std::as_bytes(std::span<const float>(aParams)));
         list.draw(3);
         return list.endPass();
@@ -1122,6 +1266,16 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         // Added: SMAA 1x is on by default in Enhanced builds and off in Retail/QOL-off ones.
         stdRenderBabylon_state.bAntiAliasing =
             stdConfig_GetInt(stdRenderBabylon_kAntiAliasingKey, J3D_QOL_VALUE(1, 0)) != 0;
+
+        // Added: sharpening defaults to 0.3 (the Options row's Low) in Enhanced builds and off in
+        // Retail/QOL-off ones.
+        const float sharpening = stdConfig_GetFloat(stdRenderBabylon_kSharpeningKey,
+            J3D_QOL_VALUE(0.3f, 0.0f));
+        if ( std::isfinite(sharpening) )
+        {
+            stdRenderBabylon_state.sharpening = std::clamp(sharpening, 0.0f,
+                stdRenderBabylon_kMaxSharpening);
+        }
     }
 #ifdef J3D_TEST
     stdRenderBabylon_state.bToneMap = !stdRenderBabylon_bLegacyPresentationForTest;
@@ -1201,6 +1355,10 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.smaaWeightsPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.smaaBlendPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.smaaBlendCapturePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.smaaBlendCasPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.casToneMapPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.casPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.casCapturePipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
@@ -1228,6 +1386,7 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.hudDepthTarget);
     stdRenderBabylon_FreePostTargets();
     stdRenderBabylon_FreeSmaaTargets();
+    stdRenderBabylon_FreeCasTarget();
     stdRenderBabylon_state.colorTarget     = {};
     stdRenderBabylon_state.depthTarget     = {};
     stdRenderBabylon_state.normalTarget    = {};
@@ -1575,6 +1734,38 @@ bool stdRenderBabylon_GetAntiAliasing()
     return stdRenderBabylon_state.bAntiAliasing;
 }
 
+bool stdRenderBabylon_SetSharpening(float strength)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetSharpening: not open.\n");
+        return false;
+    }
+
+    if ( !std::isfinite(strength) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetSharpening: sharpening %g is not finite.\n",
+            (double)strength);
+        return false;
+    }
+
+    const float clamped = std::clamp(strength, 0.0f, stdRenderBabylon_kMaxSharpening);
+    if ( clamped != strength )
+    {
+        STDLOG_STATUS("stdRenderBabylon: sharpening %g is outside 0..%g; using %g.\n",
+            (double)strength, (double)stdRenderBabylon_kMaxSharpening, (double)clamped);
+    }
+
+    stdRenderBabylon_state.sharpening      = clamped;
+    stdRenderBabylon_state.bCasSetupFailed = false;
+    return true;
+}
+
+float stdRenderBabylon_GetSharpening()
+{
+    return stdRenderBabylon_state.sharpening;
+}
+
 render::CommandList& stdRenderBabylon_GetFrame()
 {
     STD_ASSERTREL(stdRenderBabylon_state.pDevice);
@@ -1619,24 +1810,71 @@ namespace
 
                 if ( stdRenderBabylon_state.pDevice->info().hasSwapchain )
                 {
+                    const render::TextureFormat swapchainFormat =
+                        stdRenderBabylon_state.pDevice->info().swapchainFormat;
+                    uint32_t width  = 0;
+                    uint32_t height = 0;
+                    stdRenderBabylon_GetPresentedSize(&width, &height);
+
+                    // Added: sharpening writes its own presented-size source, after SMAA or the
+                    // tone map. When its resources can't be made, present without it.
+                    bool bSharpen = stdRenderBabylon_state.sharpening > 0.0f
+                        && !stdRenderBabylon_state.bCasSetupFailed;
+                    if ( bSharpen
+                        && ( !stdRenderBabylon_EnsureCasTarget(width, height)
+                            || !stdRenderBabylon_EnsureCasToneMapPipeline() ) )
+                    {
+                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not set up sharpening; presenting without it.\n");
+                        stdRenderBabylon_state.bCasSetupFailed = true;
+                        bSharpen = false;
+                    }
+
                     bool bPresented = false;
                     if ( stdRenderBabylon_state.bAntiAliasing )
                     {
-                        uint32_t aaWidth  = 0;
-                        uint32_t aaHeight = 0;
-                        stdRenderBabylon_GetPresentedSize(&aaWidth, &aaHeight);
-                        bPresented = stdRenderBabylon_RecordSmaa(list, render::TextureHandle{},
-                            stdRenderBabylon_state.pDevice->info().swapchainFormat, aaWidth, aaHeight);
+                        bPresented = stdRenderBabylon_RecordSmaa(list,
+                            bSharpen ? stdRenderBabylon_state.casSourceTarget : render::TextureHandle{},
+                            bSharpen ? render::TextureFormat::Rgba8 : swapchainFormat,
+                            width, height, bSharpen);
                         if ( !bPresented )
                         {
                             STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the anti-aliasing passes; presenting without it.\n");
                         }
                     }
 
-                    if ( !bPresented && !stdRenderBabylon_RecordFinalPass(list,
-                        stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
+                    if ( !bPresented )
                     {
-                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                        if ( bSharpen )
+                        {
+                            bPresented = stdRenderBabylon_RecordFinalPass(list,
+                                stdRenderBabylon_state.casToneMapPipeline,
+                                stdRenderBabylon_state.casSourceTarget)
+                                && stdRenderBabylon_RecordSharpening(list,
+                                    stdRenderBabylon_state.casSourceTarget, render::TextureHandle{},
+                                    swapchainFormat, width, height);
+                            if ( !bPresented )
+                            {
+                                STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the sharpening pass; presenting without it.\n");
+                            }
+                        }
+
+                        if ( !bPresented && !stdRenderBabylon_RecordFinalPass(list,
+                            stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
+                        {
+                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                        }
+                    }
+                    else if ( bSharpen
+                        && !stdRenderBabylon_RecordSharpening(list,
+                            stdRenderBabylon_state.casSourceTarget, render::TextureHandle{},
+                            swapchainFormat, width, height) )
+                    {
+                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the sharpening pass; presenting without it.\n");
+                        if ( !stdRenderBabylon_RecordFinalPass(list,
+                            stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
+                        {
+                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                        }
                     }
 
                     // Added: composite the HUD layer over the tone-mapped scene, after the scene's
@@ -1786,22 +2024,66 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
 
     render::CommandList list = stdRenderBabylon_state.pDevice->beginFrame();
 
+    // Added: sharpening into the capture target through its own presented-size source, after SMAA
+    // or the tone map. When its resources can't be made, capture without it.
+    bool bSharpen = stdRenderBabylon_state.sharpening > 0.0f
+        && !stdRenderBabylon_state.bCasSetupFailed;
+    if ( bSharpen
+        && ( !stdRenderBabylon_EnsureCasTarget(width, height)
+            || !stdRenderBabylon_EnsureCasToneMapPipeline() ) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not set up sharpening; capturing without it.\n");
+        stdRenderBabylon_state.bCasSetupFailed = true;
+        bSharpen = false;
+    }
+
     bool bPresented = false;
     if ( stdRenderBabylon_state.bAntiAliasing )
     {
-        bPresented = stdRenderBabylon_RecordSmaa(list, target, render::TextureFormat::Bgra8,
-            width, height);
+        bPresented = stdRenderBabylon_RecordSmaa(list,
+            bSharpen ? stdRenderBabylon_state.casSourceTarget : target,
+            bSharpen ? render::TextureFormat::Rgba8 : render::TextureFormat::Bgra8,
+            width, height, bSharpen);
         if ( !bPresented )
         {
             STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the anti-aliasing passes; presenting without it.\n");
         }
     }
 
-    if ( !bPresented && !stdRenderBabylon_RecordFinalPass(list,
-        stdRenderBabylon_state.capturePipeline, target) )
+    if ( !bPresented )
     {
-        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
-        return false;
+        if ( bSharpen )
+        {
+            bPresented = stdRenderBabylon_RecordFinalPass(list,
+                stdRenderBabylon_state.casToneMapPipeline,
+                stdRenderBabylon_state.casSourceTarget)
+                && stdRenderBabylon_RecordSharpening(list,
+                    stdRenderBabylon_state.casSourceTarget, target,
+                    render::TextureFormat::Bgra8, width, height);
+            if ( !bPresented )
+            {
+                STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the sharpening pass; capturing without it.\n");
+            }
+        }
+
+        if ( !bPresented && !stdRenderBabylon_RecordFinalPass(list,
+            stdRenderBabylon_state.capturePipeline, target) )
+        {
+            STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
+            return false;
+        }
+    }
+    else if ( bSharpen
+        && !stdRenderBabylon_RecordSharpening(list, stdRenderBabylon_state.casSourceTarget,
+            target, render::TextureFormat::Bgra8, width, height) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the sharpening pass; capturing without it.\n");
+        if ( !stdRenderBabylon_RecordFinalPass(list,
+            stdRenderBabylon_state.capturePipeline, target) )
+        {
+            STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
+            return false;
+        }
     }
 
     // Added: the captured presented frame includes the HUD layer, before the prompt and menu
