@@ -7,13 +7,14 @@
 // way the render interface offers to put an offscreen target on the screen.
 //
 // A presenting submit runs the post-processing chain first: each pass draws the same full-screen
-// triangle with its own fragment shader into one of two Bgra8 targets the chain owns, reading the
-// output of the pass before (the back buffer color for the first) and, as its shader declares, the
-// normal and depth targets. The final tone-map pass then samples the last output instead of the
-// back buffer and writes the frame (the swapchain, or the target of RenderPresentToTexture). Its
-// shader and present.vert are the plain present pass plus exposure and the operator; at the defaults
-// (exposure 1, operator 0) it clamps to 0..1 and presents the same image as the pre-M9.3 present.
-// The back buffer itself is never written by the chain or the final pass.
+// triangle with its own fragment shader into one of two targets the chain owns, in the scene color
+// format, so an Rgba16F scene keeps HDR values through the passes, reading the output of the pass
+// before (the back buffer color for the first) and, as its shader declares, the normal and depth
+// targets. The final tone-map pass then samples the last output instead of the back buffer and
+// writes the frame (the swapchain, or the target of RenderPresentToTexture). Its shader and
+// present.vert are the plain present pass plus exposure and the operator (0 clamp, 1 PBR Neutral,
+// 2 ACES fitted); at exposure 1 and operator 0 it clamps to 0..1 and presents the same image as the
+// pre-M9.3 present. The back buffer itself is never written by the chain or the final pass.
 //
 // The scene color target is Rgba16F on a device that can render and sample it, else Bgra8, so
 // shaders may write values outside 0..1 for a later tone map. ReadBackBuffer and WriteBackBuffer
@@ -59,6 +60,13 @@ namespace
     // image, read when the frame owner opens.
     constexpr const char* stdRenderBabylon_kSharpeningKey = "engine.renderer.sharpening";
     constexpr float stdRenderBabylon_kMaxSharpening = 1.0f;
+
+    // Added: the final tone map's operator (0 clamp, 1 Neutral, 2 ACES fitted) and exposure, read
+    // when the frame owner opens.
+    constexpr const char* stdRenderBabylon_kToneMappingKey = "engine.renderer.toneMapping";
+    constexpr const char* stdRenderBabylon_kExposureKey    = "engine.renderer.exposure";
+    constexpr float stdRenderBabylon_kMinExposure = 0.5f;
+    constexpr float stdRenderBabylon_kMaxExposure = 2.0f;
 
     struct StdRenderBabylonState
     {
@@ -120,7 +128,7 @@ namespace
         render::PipelineHandle casCapturePipeline;    // to a Bgra8 capture target
 
         // The final pass's tone map, and whether it runs the tone-map shader (false only when a test
-        // forced the pre-M9.3 path). At the defaults it is an identity clamp.
+        // forced the pre-M9.3 path). Opening reads the operator and exposure from the config.
         StdRenderBabylonToneMap toneMap;
         bool bToneMap = true;
 
@@ -811,8 +819,9 @@ namespace
         }
     }
 
-    // Makes the two post targets at the back buffer's size when they are missing. False, logging why,
-    // when one can't be created; there are none then.
+    // Makes the two post targets at the back buffer's size when they are missing. Their format is
+    // the scene's, so an Rgba16F scene keeps values outside 0..1 through the passes before the tone
+    // map. False, logging why, when one can't be created; there are none then.
     bool stdRenderBabylon_EnsurePostTargets()
     {
         if ( !stdRenderBabylon_state.aPostTargets[0].isNull() )
@@ -824,7 +833,7 @@ namespace
         desc.width     = stdRenderBabylon_state.width;
         desc.height    = stdRenderBabylon_state.height;
         desc.mipLevels = 1;
-        desc.format    = render::TextureFormat::Bgra8;
+        desc.format    = stdRenderBabylon_state.colorFormat;
         desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
         for ( render::TextureHandle& target : stdRenderBabylon_state.aPostTargets )
         {
@@ -1275,6 +1284,22 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         {
             stdRenderBabylon_state.sharpening = std::clamp(sharpening, 0.0f,
                 stdRenderBabylon_kMaxSharpening);
+        }
+
+        // Added: Neutral (1) is the Enhanced default, clamp (0) the Retail/QOL-off one. An
+        // unknown operator keeps the default rather than failing the display.
+        const int toneMapping = stdConfig_GetInt(stdRenderBabylon_kToneMappingKey,
+            J3D_QOL_VALUE(1, 0));
+        if ( toneMapping >= 0 && toneMapping <= 2 )
+        {
+            stdRenderBabylon_state.toneMap.oper = (uint32_t)toneMapping;
+        }
+
+        const float exposure = stdConfig_GetFloat(stdRenderBabylon_kExposureKey, 1.0f);
+        if ( std::isfinite(exposure) )
+        {
+            stdRenderBabylon_state.toneMap.exposure = std::clamp(exposure,
+                stdRenderBabylon_kMinExposure, stdRenderBabylon_kMaxExposure);
         }
     }
 #ifdef J3D_TEST
@@ -2272,7 +2297,8 @@ bool stdRenderBabylon_AddPostPass(const render::ShaderDesc& fragmentShader)
     desc.vertexShader   = stdBabylon::shaders::presentVert();
     desc.fragmentShader = fragmentShader;
     desc.primitive      = render::PrimitiveType::TriangleList;
-    desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+    // The chain's targets have the scene's format, so HDR values survive to the tone map.
+    desc.colorTargets   = { render::ColorTargetDesc{ stdRenderBabylon_state.colorFormat, {} } };
 
     const render::PipelineHandle pipeline = pDevice->createPipeline(desc);
     if ( pipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler() )
@@ -2320,7 +2346,7 @@ void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params)
             (double)params.exposure);
         return;
     }
-    if ( params.oper != 0 )
+    if ( params.oper > 2 )
     {
         STDLOG_ERROR("stdRenderBabylon_SetToneMap: tone-map operator %u is not supported.\n",
             params.oper);

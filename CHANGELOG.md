@@ -16,6 +16,15 @@
     detail lost to a render scale below 100% and the softening of anti-aliasing; the HUD, 2D layer,
     menus and prompts are never sharpened. Off skips the pass and presents exactly the previous
     image. Applies when the display reopens.
+  - **Options > Display** has a **Tone mapping** row (`engine.renderer.toneMapping`: Clamp, Neutral or
+    Filmic; Neutral by default in Enhanced and Clamp in Retail) and an **Exposure** row
+    (`engine.renderer.exposure`: 0.5 to 2.0, default 1.0). Neutral is Khronos PBR Neutral, which
+    rolls off highlights and leaves midtones nearly unchanged; Filmic is the ACES fitted curve.
+    Exposure scales the color before the curve. Clamp at exposure 1.0 presents exactly the previous
+    image. Applies when the display reopens.
+  - The intermediate targets of the post-processing chain now use the scene's `Rgba16F` format
+    where the device supports it, so a pass before the tone map keeps values above 1.0 instead of
+    clamping them early. With no post passes nothing changes.
   - The gameplay HUD (health and endurance, item and weapon icons, compass, ammo and the inventory menu)
     draws at the display resolution after the scene's post effects, so it stays sharp at any render
     scale and is never blurred or tinted by them. The scene still renders at the chosen scale.
