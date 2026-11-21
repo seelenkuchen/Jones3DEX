@@ -91,6 +91,12 @@ void J3DAPI sithWeapon_CreateWeaponFireFx(SithThing* pThing, rdVector3* pos);
 SithThing* J3DAPI sithWeapon_WeaponFireProjectile(SithThing* pShooter, const SithThing* pProjectileTemplate, const rdVector3* pFireDir, rdVector3* pFirePos, tSoundHandle hFireSnd, SithPuppetSubMode submode, float extra, SithFireProjectileFlags flags, float secDeltaTime);
 int J3DAPI sithWeapon_ActivateWhip(SithThing* pThing, SithCog* pCog);
 
+// Added: 1 when a press of the activation key would start a whip swing (*pbSwing = 1) or whip
+// climb (*pbSwing = 0) right now, 0 otherwise. It uses the press's own guards (whip drawn, the
+// activation wait passed, not already activated, the inventory flag, moveStatus at most RUNNING,
+// controls enabled) and the same target choice, and changes no state.
+int J3DAPI sithWeapon_QueryWhipPress(const SithThing* pThing, int* pbSwing);
+
 void sithWeapon_ResetGlobals(void);
 
 J3D_EXTERN_C_END

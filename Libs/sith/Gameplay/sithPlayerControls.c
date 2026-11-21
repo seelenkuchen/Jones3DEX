@@ -1437,6 +1437,21 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
         return 0;
     }
 
+    // Added: while the whip is drawn it owns the activation key, so its swing or climb decision
+    // comes first. The query reads the whip-aim targets through the press's own target choice;
+    // when it says no, the standing paths below still answer as before.
+    if ( pThing->thingInfo.actorInfo.weaponInfo.curWeaponID == SITHWEAPON_WHIP )
+    {
+        int bSwing;
+        if ( sithWeapon_QueryWhipPress(pThing, &bSwing) )
+        {
+            pOut->kind    = bSwing ? SITHPLAYERINTERACTION_WHIP_SWING : SITHPLAYERINTERACTION_WHIP_CLIMB;
+            pOut->control = SITHCONTROL_ACT2;
+            pOut->pThing  = bSwing ? sithWhip_GetWhipSwingThing() : sithWhip_GetWhipClimbThing();
+            return 1;
+        }
+    }
+
     const bool bUnderwater = (pThing->pInSector->flags & (SITH_SECTOR_UNDERWATER | SITH_SECTOR_AETHERIUM)) != 0;
     const bool bOnWaterSurface = (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0;
     const SithThingMoveStatus moveStatus = pThing->moveStatus;
