@@ -1,5 +1,6 @@
 #include "JonesMain.h"
 #include <Jones3D/Main/JonesMainSys.h>
+#include <Jones3D/Main/JonesSpike.h>
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Display/JonesConsole.h>
@@ -217,6 +218,8 @@ void JonesMain_ResetGlobals(void)
     STD_ZEROMEM(&JonesMain_circBuf, sizeof(JonesMain_circBuf));
     STD_ZEROMEM(JonesMain_aNdsFilename, sizeof(JonesMain_aNdsFilename));
     STD_ZEROMEM(JonesMain_aToggleMenuKeyIds, sizeof(JonesMain_aToggleMenuKeyIds));
+
+    JonesSpike_ResetGlobals();
 }
 
 // Added: where Jones.cfg lives (ADR-0019). "" user directory keeps the original relative path.
@@ -1109,6 +1112,9 @@ void JonesMain_Shutdown(void)
 
     JonesMain_aIntroMovieColorTable = NULL;
 
+    // Added (M9.2 spike): release the interpolation snapshots before the memory tracker shuts down.
+    JonesSpike_ResetGlobals();
+
     JonesMainSys_ClearWindowProc(); // Altered: window proc clearing moved to JonesMainSys_ClearWindowProc
 
     if ( JonesMain_pDisplayEnv )
@@ -1227,7 +1233,42 @@ int JonesMain_ProcessGame(void)
     if ( sithMain_g_sith_mode.masterMode == SITH_MODE_OPENED )
     {
         JonesMain_ProcessMenu();
-        sithUpdate();
+
+        // Added (M9.2 spike): run the simulation zero or more times from a wall-time accumulator,
+        // then draw once. Per step this module runs sithUpdate (events, AI, animation, control,
+        // things, COGs, multi) and sithCamera_Update, which the draw phase owns today. Menu
+        // handling, the quicksave timer, save-state transitions, the HUD and the overlay stay on
+        // the rendered frame, not the tick. With J3D_SPIKE_FIXED_TICK_HZ unset this is exactly
+        // the old single sithUpdate per frame.
+        if ( JonesSpike_IsEnabled() )
+        {
+            bool bPaused    = sithTime_IsPaused() != 0;
+            int  numTicks   = JonesSpike_BeginFrame(bPaused);
+            if ( numTicks <= 0 && bPaused )
+            {
+                // Added: a paused rendered frame still runs the sound-mixer and control update
+                // that sithUpdate does before its pause branch.
+                sithUpdate();
+            }
+
+            for ( int tickNum = 0; tickNum < numTicks; ++tickNum )
+            {
+                sithTime_SetFrameTime(JonesSpike_GetTickStepMsec());
+                JonesSpike_BeforeTick();
+                sithUpdate();
+
+                if ( sithCamera_g_pCurCamera )
+                {
+                    sithCamera_Update(sithCamera_g_pCurCamera);
+                }
+
+                JonesSpike_AfterTick();
+            }
+        }
+        else
+        {
+            sithUpdate();
+        }
 
         // Added: hide the quicksave text once one second of game time has passed since it started.
         // This replaces the Windows SetTimer message on the platforms without a window timer.
@@ -1253,6 +1294,10 @@ int JonesMain_ProcessGame(void)
 
         if ( !std3D_StartScene() )
         {
+            // Added (M9.2 spike): swap every thing and the camera to the interpolated pose for
+            // this drawn frame. Ends by restoring the exact post-tick values.
+            JonesSpike_BeginDraw();
+
             sithDrawScene();
             sithOverlayMap_Draw();
             JonesMain_PrintQuickSave();
@@ -1262,6 +1307,8 @@ int JonesMain_ProcessGame(void)
             rdCache_Flush();
             rdCache_FlushAlpha();
             std3D_EndScene();
+
+            JonesSpike_EndDraw();
         }
 
         // Added: the interaction prompt is presentation state for the present overlay, so it is

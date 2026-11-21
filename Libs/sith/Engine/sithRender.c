@@ -439,7 +439,13 @@ void sithRender_Draw(void)
         sithRender_RenderAlphaAdjoins();
     }
 
-    sithAIUtil_RenderAIWaypoints();
+    // Altered (M9.2 spike): the waypoint renderer creates laser things, a simulation mutation
+    // inside the draw. On a fixed tick the draw stays side-effect free; the final design moves
+    // this to the tick (ADR-0039).
+    if ( !sithTime_g_bFixedStep )
+    {
+        sithAIUtil_RenderAIWaypoints();
+    }
 }
 
 void J3DAPI sithRender_BuildVisibleSectorList(SithSector* pSector, rdClipFrustum* pFrustrum)
@@ -1363,23 +1369,29 @@ int J3DAPI sithRender_RenderThing(SithThing* pThing)
 {
     RD_ASSERTREL(pThing != NULL); // TODO: Why using RD_ASSERTREL
 
-    if ( (pThing->flags & SITH_TF_SEEN) == 0 )
+    // Altered (M9.2 spike): on a fixed tick this bookkeeping runs in the draw today and feeds the
+    // simulation (COG SIGHTED, AI wake, renderFrame visibility). The spike disables it so a
+    // draw-only frame cannot mutate the simulation; the final design moves it onto the tick.
+    if ( !sithTime_g_bFixedStep )
     {
-        if ( (pThing->flags & SITH_TF_COGLINKED) != 0 )
+        if ( (pThing->flags & SITH_TF_SEEN) == 0 )
         {
-            sithCog_ThingSendMessage(pThing, 0, SITHCOG_MSG_SIGHTED);
+            if ( (pThing->flags & SITH_TF_COGLINKED) != 0 )
+            {
+                sithCog_ThingSendMessage(pThing, 0, SITHCOG_MSG_SIGHTED);
+            }
+
+            if ( pThing->controlType == SITH_CT_AI && pThing->controlInfo.aiControl.pLocal )
+            {
+                pThing->controlInfo.aiControl.pLocal->mode &= ~SITHAI_MODE_SLEEPING;
+            }
+
+            pThing->flags |= SITH_TF_SEEN;
         }
 
-        if ( pThing->controlType == SITH_CT_AI && pThing->controlInfo.aiControl.pLocal )
-        {
-            pThing->controlInfo.aiControl.pLocal->mode &= ~SITHAI_MODE_SLEEPING;
-        }
-
-        pThing->flags |= SITH_TF_SEEN;
+        // Set thing cur render frame num
+        pThing->renderFrame = sithMain_g_frameNumber;
     }
-
-    // Set thing cur render frame num
-    pThing->renderFrame = sithMain_g_frameNumber;
 
     // Now draw thing
     pThing->orient.dvec = pThing->pos;

@@ -11,6 +11,7 @@ uint32_t sithTime_g_msecGameTime;
 float sithTime_g_secGameTime;
 uint32_t sithTime_g_clockTime;
 int sithTime_g_bPaused;
+int sithTime_g_bFixedStep; // Added (M9.2 spike)
 
 #define SITHTIME_MAXFRAMETIME 200 // 200ms
 
@@ -25,11 +26,24 @@ void sithTime_ResetGlobals(void)
     memset(&sithTime_g_secGameTime, 0, sizeof(sithTime_g_secGameTime));
     memset(&sithTime_g_clockTime, 0, sizeof(sithTime_g_clockTime));
     memset(&sithTime_g_bPaused, 0, sizeof(sithTime_g_bPaused));
+    memset(&sithTime_g_bFixedStep, 0, sizeof(sithTime_g_bFixedStep));
     sithTime_msecPauseStartTime = 0;
+}
+
+void J3DAPI sithTime_SetFixedStep(int bFixedStep)
+{
+    sithTime_g_bFixedStep = bFixedStep;
 }
 
 void sithTime_Advance(void)
 {
+    // Added: M9.2 spike. A fixed tick supplies frameTime and msecGameTime through
+    // sithTime_SetFrameTime once per step; sampling the wall clock here would overwrite it.
+    if ( sithTime_g_bFixedStep )
+    {
+        return;
+    }
+
     if ( !sithTime_g_clockTime || sithTime_g_bPaused )
     {
         return;
@@ -96,6 +110,14 @@ void J3DAPI sithTime_SetFrameTime(uint32_t frameTime)
     sithTime_g_fps           = 1.0f / sithTime_g_frameTimeFlex;
     sithTime_g_msecGameTime += sithTime_g_frameTime;
     sithTime_g_secGameTime   = (float)sithTime_g_msecGameTime * 0.001f;
+
+    // Added: M9.2 spike. Simulation still reads sithTime_g_clockTime in a few throttles; on a
+    // fixed tick it follows game time, so two runs with the same ticks produce the same values
+    // regardless of how many draw-only frames sit between them.
+    if ( sithTime_g_bFixedStep )
+    {
+        sithTime_g_clockTime = sithTime_g_msecGameTime;
+    }
 }
 
 void sithTime_Reset(void)

@@ -598,7 +598,14 @@ void sithDrawScene(void)
     {
         // Render scene
         sithAdvanceRenderTick();
-        sithCamera_Update(sithCamera_g_pCurCamera);
+
+        // Altered (M9.2 spike): on a fixed tick the camera integrates once per tick in the update
+        // phase, so extra draw-only frames must not update it again here.
+        if ( !sithTime_g_bFixedStep )
+        {
+            sithCamera_Update(sithCamera_g_pCurCamera);
+        }
+
         sithCamera_RenderScene();
 
         // Draw debug stuff

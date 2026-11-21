@@ -1126,6 +1126,14 @@ SithThing* J3DAPI sithFX_CreateThingOnSurface(const SithThing* pTemplate, const 
 
 void J3DAPI sithFX_UpdatePolyline(SithThing* pThing)
 {
+    // Altered (M9.2 spike): this runs from the draw, consumes SITH_RAND and can create/destroy
+    // things. On a fixed tick the draw must not touch simulation or RNG, so skip it; the final
+    // design moves the visual update onto the tick or a render-only RNG.
+    if ( sithTime_g_bFixedStep )
+    {
+        return;
+    }
+
     if ( pThing->renderData.type == RD_THING_POLYLINE && !streq(pThing->aName, "+laserbeam") ) // TODO: maybe should also check for polyline mat gen_a4sfx_rbbeam_b.mat, as robot creates laser via CreatPolylineThing and not via CreatLaser function
     {
         if ( streq(pThing->aName, "+lightning") )

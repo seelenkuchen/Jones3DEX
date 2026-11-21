@@ -29,6 +29,12 @@ extern uint32_t sithTime_g_clockTime;
 extern int sithTime_g_bPaused;
 // extern int sithTime_g_bPaused;
 
+// Added: M9.2 spike prototype. When set, sithTime_Advance stops sampling the wall clock and the
+// caller supplies each step through sithTime_SetFrameTime; sithTime_g_clockTime then follows game
+// time so simulation no longer reads pacing-dependent wall time. Unset = the existing behaviour.
+extern int sithTime_g_bFixedStep;
+
+void J3DAPI sithTime_SetFixedStep(int bFixedStep); // Added (M9.2 spike)
 void sithTime_Advance(void);
 void sithTime_Pause(void);
 void sithTime_Resume(void);

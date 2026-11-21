@@ -43,6 +43,7 @@
 #include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
+#include <Jones3D/Main/JonesSpike.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
 #include <sith/Devices/sithConsole.h>
@@ -732,6 +733,21 @@ int JonesHeadless_Run(int argc, char** argv)
         }
     }
 
+    // Added (M9.2 spike): the draw step, so the headless loop can render more often than it
+    // simulates. Only J3D_SPIKE_DRAW_MS applies, only with a fixed tick, and only to the virtual
+    // clock; the simulation still gets one tick's worth of time per tick.
+    unsigned long spikeDrawStep = 0;
+    const char* pSpikeDrawStep = getenv("J3D_SPIKE_DRAW_MS");
+    if ( pSpikeDrawStep && *pSpikeDrawStep )
+    {
+        char* pEnd = NULL;
+        unsigned long value = strtoul(pSpikeDrawStep, &pEnd, 10);
+        if ( pEnd && !*pEnd && value > 0 && value <= HEADLESS_MAX_STEP )
+        {
+            spikeDrawStep = value;
+        }
+    }
+
     // Added: --input: parse the whole script up front. A malformed script exits 1 before any
     // engine code runs, so a run never starts on a script it cannot honor.
     if ( pInputPath && !Headless_InputLoadFile(pInputPath) )
@@ -774,6 +790,12 @@ int JonesHeadless_Run(int argc, char** argv)
 
         Jones3D_ResetAllGlobals();
 
+        // Added (M9.2 spike): with a fixed tick the run is bounded by simulation ticks, so the
+        // same --frames gives the same game time no matter how many draw-only frames fit between
+        // ticks. The clock advance stays the draw step.
+        bool          bSpike   = JonesSpike_IsEnabled();
+        unsigned long drawStep = (bSpike && step && spikeDrawStep) ? spikeDrawStep : step;
+
         // Added: the user directory, when asked for. The reset above restored the working directory.
         if ( pUserDirPath && !stdUserDir_Set(pUserDirPath) )
         {
@@ -791,6 +813,11 @@ int JonesHeadless_Run(int argc, char** argv)
         if ( run == 0 )
         {
             printf("clock: %s, step %lu ms\n", step ? "virtual" : "real", step);
+            if ( bSpike )
+            {
+                printf("spike: fixed tick %u ms, draw step %lu ms, --frames counts ticks\n",
+                    JonesSpike_GetTickStepMsec(), drawStep);
+            }
         }
 
         // Added: --data is the first candidate of the automatic game data search.
@@ -837,19 +864,34 @@ int JonesHeadless_Run(int argc, char** argv)
         const char* pStopReason = NULL;
         size_t frameCount       = 0;
         size_t nextMilestone    = HEADLESS_PRINT_INTERVAL;
+        size_t numIterations    = 0;
+        size_t numProcessCalls  = 0;
         while ( 1 )
         {
+            ++numProcessCalls;
+
+            // Added (M9.2 spike): in spike mode a frame is a simulation tick, so scripted input,
+            // milestones and the frame limit all use the tick count. The safety cap keeps a run
+            // that never reaches the game state from looping forever with no ticks.
+            size_t progressCount = bSpike ? JonesSpike_GetTickCount() : JonesMain_GetFrameCount();
+            if ( bSpike && ++numIterations > frameLimit * 64 + 100000 )
+            {
+                exitCode    = 0;
+                pStopReason = "spike iteration safety limit";
+                break;
+            }
+
             // Added: --input: fire every pending scripted event whose frame is due at the current
             // engine frame count, in file order, just before the engine processes the frame.
-            Headless_InputFireDue(JonesMain_GetFrameCount());
+            Headless_InputFireDue(progressCount);
 
             int result = JonesMain_Process();
 
             // Added: fixed time step: the engine clock moves exactly one frame's worth of time per
             // processed frame, so a run does not depend on the wall clock anymore.
-            if ( step )
+            if ( drawStep )
             {
-                stdPlatformNull_AdvanceClock((uint32_t)step);
+                stdPlatformNull_AdvanceClock((uint32_t)drawStep);
             }
 
             if ( result == -1 )
@@ -872,7 +914,7 @@ int JonesHeadless_Run(int argc, char** argv)
                 fprintf(stdout, "WARNING: Jones3D-headless: Unhandled result code: %d, skipping...\n", result);
             }
 
-            frameCount = JonesMain_GetFrameCount();
+            frameCount = bSpike ? JonesSpike_GetTickCount() : JonesMain_GetFrameCount();
             while ( frameCount >= nextMilestone )
             {
                 Headless_PrintRunState(nextMilestone);
@@ -906,6 +948,10 @@ int JonesHeadless_Run(int argc, char** argv)
         JonesMain_Shutdown();
 
         printf("stopped: %s (frames=%zu)\n", pStopReason ? pStopReason : "unknown reason", frameCount);
+        if ( bSpike )
+        {
+            printf("spike: %zu rendered frames for %zu ticks\n", numProcessCalls, frameCount);
+        }
 
         if ( exitCode )
         {
