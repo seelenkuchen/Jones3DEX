@@ -1018,6 +1018,51 @@ TEST(JonesHud, GetKeyKeepsAcceleratingForTheHeldKey)
     TEST_ASSERT_EQUAL_INT(STDKEY_RETURN, JonesHud_curKeyId);
 }
 
+// Added: the indicators anchor to the screen edges inside a centered 16:9 safe area on wider
+// canvases. These hand-worked positions keep the 4:3 and 16:9 layout and move the indicators in
+// from the corners at 21:9.
+static void JonesHudTest_SetLayoutInputs(uint32_t width, uint32_t height)
+{
+    JonesHud_widthAspectRatioScale  = (float)width / RD_REF_WIDTH;
+    JonesHud_heightAspectRatioScale = (float)height / RD_REF_HEIGHT;
+    JonesHud_healthIndPosX          = 0.041379310f;
+    JonesHud_healthIndPosY          = 0.942857142f;
+    JonesHud_healthIndSize          = 60.0f;
+    JonesHud_enduranceIndPosX       = 0.102f;
+    JonesHud_enduranceIndPosY       = 0.95f;
+    JonesHud_enduranceIndSize       = 60.0f;
+}
+
+TEST(JonesHud, UpdateHudLayoutKeepsEdgeAnchorsAtFourByThree)
+{
+    JonesHudTest_SetLayoutInputs(1024, 768);
+    JonesHud_UpdateHUDLayout(1024, 768);
+
+    TEST_ASSERT_EQUAL_FLOAT(38.4f, JonesHud_healthIndRect.x);
+    TEST_ASSERT_EQUAL_FLOAT(96.0f, JonesHud_healthIndRect.width);
+    TEST_ASSERT_EQUAL_FLOAT(94.656f, JonesHud_enduranceRect.x);
+}
+
+TEST(JonesHud, UpdateHudLayoutKeepsEdgeAnchorsAtSixteenByNine)
+{
+    JonesHudTest_SetLayoutInputs(1280, 720);
+    JonesHud_UpdateHUDLayout(1280, 720);
+
+    TEST_ASSERT_EQUAL_FLOAT(36.0f, JonesHud_healthIndRect.x);
+    TEST_ASSERT_EQUAL_FLOAT(90.0f, JonesHud_healthIndRect.width);
+    TEST_ASSERT_EQUAL_FLOAT(88.74f, JonesHud_enduranceRect.x);
+}
+
+TEST(JonesHud, UpdateHudLayoutAnchorsInsideSafeAreaAtTwentyOneByNine)
+{
+    JonesHudTest_SetLayoutInputs(1680, 720);
+    JonesHud_UpdateHUDLayout(1680, 720);
+
+    // The 16:9 safe area is 1280 wide, centered: its left edge is at 200.
+    TEST_ASSERT_EQUAL_FLOAT(236.0f, JonesHud_healthIndRect.x);
+    TEST_ASSERT_EQUAL_FLOAT(288.74f, JonesHud_enduranceRect.x);
+}
+
 TEST_GROUP_RUNNER(JonesHud)
 {
     RUN_TEST_CASE(JonesHud, LongDialogCancelThenCloseReleasesThemeBeforeClockResume);
@@ -1039,6 +1084,9 @@ TEST_GROUP_RUNNER(JonesHud)
     RUN_TEST_CASE(JonesHud, ModernMenuSelectReadsTheAButton);
     RUN_TEST_CASE(JonesHud, OpeningMenuSelectsTheRootColumnOnceItHasSlidIn);
     RUN_TEST_CASE(JonesHud, ChoosingTheDrawnWeaponPutsItAway);
+    RUN_TEST_CASE(JonesHud, UpdateHudLayoutKeepsEdgeAnchorsAtFourByThree);
+    RUN_TEST_CASE(JonesHud, UpdateHudLayoutKeepsEdgeAnchorsAtSixteenByNine);
+    RUN_TEST_CASE(JonesHud, UpdateHudLayoutAnchorsInsideSafeAreaAtTwentyOneByNine);
 }
 
 static void JonesHudTest_RunAllTests(void)

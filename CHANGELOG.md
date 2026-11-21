@@ -5,6 +5,11 @@
     cameras and a FOV set by a COG keep their authored value. The picture widens but the simulation does
     not: visibility marks, `SIGHTED` messages, AI wake and visibility queries still use the default FOV.
     The `fov` console command still sets the current camera directly.
+  - The HUD health and endurance indicators stay at the screen edges inside a centered 16:9 safe area
+    on screens wider than 16:9, so they no longer sit in the far corners at 21:9; the 4:3 and 16:9
+    layouts are unchanged. The 3D view and cutscene cameras already widen hor+ at any aspect.
+  - The intro movie keeps its 4:3 aspect on a wider screen: it is pillarboxed with black bars instead
+    of being stretched to the window, and it still fills a 4:3 window.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and

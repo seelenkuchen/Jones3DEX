@@ -845,7 +845,7 @@ One display device stands for the render device, named "Jones3D Babylon Display"
 
 ### Back Buffer, Locks And Fills
 
-The back buffer lives on the GPU in `stdRenderBabylon`'s color target, where `std3D` draws. Its CPU side is a copy in the video mode's pixel format that `stdDisplay_LockBackBuffer` hands out, as DX9 handed out its lockable surface. A lock reads the GPU back buffer into the copy only when the GPU changed it since the copy was last read or written, tracked by `stdRenderBabylon_GetBackBufferVersion`; the last unlock of a write lock uploads the copy after the frame recorded so far (`stdRenderBabylon_WriteBackBuffer`), and a read-only lock uploads nothing. This is what makes the 2D layer draw correctly over the 3D frame: the savegame thumbnail, which reads the frame through a read-only lock in every column, and `stdDisplay_SaveScreen` read the frame that `std3D` drew, debug lines draw over the frame, and the intro movie (`JonesMain_IntroMovieBlt*`) locks, writes every pixel, unlocks and presents, so it never reads back after its first frame. A read-only lock cannot be upgraded to a write lock, and a fill while the back buffer is locked fails. Fills of the whole back buffer are clear passes; fills of part of it go through the CPU copy and an upload. `stdDisplay_VBufferNew` always allocates software VBuffers because the render device has no lockable surfaces; locks of the front or back buffer lock the back buffer, other hardware VBuffers fail, and `stdDisplay_EncodeFromRGB565` encodes into the current mode's channels.
+The back buffer lives on the GPU in `stdRenderBabylon`'s color target, where `std3D` draws. Its CPU side is a copy in the video mode's pixel format that `stdDisplay_LockBackBuffer` hands out, as DX9 handed out its lockable surface. A lock reads the GPU back buffer into the copy only when the GPU changed it since the copy was last read or written, tracked by `stdRenderBabylon_GetBackBufferVersion`; the last unlock of a write lock uploads the copy after the frame recorded so far (`stdRenderBabylon_WriteBackBuffer`), and a read-only lock uploads nothing. This is what makes the 2D layer draw correctly over the 3D frame: the savegame thumbnail, which reads the frame through a read-only lock in every column, and `stdDisplay_SaveScreen` read the frame that `std3D` drew, debug lines draw over the frame, and the intro movie (`JonesMain_IntroMovieBlt*`) locks, clears the canvas to black, writes its aspect-fit destination rectangle, unlocks and presents, so it never reads back after its first frame. A read-only lock cannot be upgraded to a write lock, and a fill while the back buffer is locked fails. Fills of the whole back buffer are clear passes; fills of part of it go through the CPU copy and an upload. `stdDisplay_VBufferNew` always allocates software VBuffers because the render device has no lockable surfaces; locks of the front or back buffer lock the back buffer, other hardware VBuffers fail, and `stdDisplay_EncodeFromRGB565` encodes into the current mode's channels.
 
 ### Submit And Present
 
@@ -854,6 +854,25 @@ The back buffer lives on the GPU in `stdRenderBabylon`'s color target, where `st
 ### Reset Callbacks
 
 `stdDisplay_RegisterDevicePreResetCallback` and `stdDisplay_RegisterDevicePostResetCallback` store their callbacks but nothing calls them, because the render device is never lost or reset; only the release callback runs, from `stdDisplay_ClearMode`. That gap is listed in [chapter 11](../11-risks-and-technical-debt.md).
+
+## Widescreen Presentation (M9.5)
+
+The gameplay and cutscene cameras are hor+ on a wider canvas: `rdCamera_SetFrustrum`/
+`rdCamera_SetProjection` divide the planes by the canvas aspect ratio, so the vertical field of view
+stays what it is and the extra width shows more scene. A 4:3 view remains fully visible at 16:9 and
+21:9, which the canyon level-start cutscene confirms; nothing in the camera or simulation changes.
+
+The HUD's edge-anchored indicators (health and endurance, drawn by
+[`JonesHud.c`](../../../Jones3D/Display/JonesHud.c)) use a centered 16:9 safe area on a canvas wider
+than 16:9: the safe area's left edge is added to their position, and the relative-anchor form uses the
+safe area's width. At 4:3 and 16:9 the safe area is the whole canvas, so those layouts are unchanged.
+Centered HUD parts (the inventory menu, reticle, interaction prompt and credits) keep their centre
+anchors and need no safe area.
+
+The intro movie (`JonesMain_IntroMovieBlt565/555/32`) keeps the bitmap's own aspect instead of
+stretching to the canvas: `JonesMain_GetMovieDestination` fits the 640x480 movie, so a wider canvas
+pillarboxes it with black bars and a taller one letterboxes it. Each blit clears the canvas to black
+before drawing the destination rectangle. A 4:3 canvas still shows the movie full size.
 
 ## Interaction Prompt Overlay
 

@@ -492,6 +492,48 @@ TEST(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime)
     TEST_ASSERT_FALSE(JonesMainSys_TakeQuickSaveTimerExpired());
 }
 
+// Added: the intro movie keeps its 4:3 aspect instead of stretching to the canvas. A 640x480
+// bitmap fills a 4:3 canvas, pillarboxes on wider ones and letterboxes on a taller one.
+static void JonesMainTest_CheckMovieDestination(uint32_t bitmapWidth, uint32_t bitmapHeight,
+    uint32_t screenWidth, uint32_t screenHeight, int expectedX, int expectedY, int expectedWidth, int expectedHeight)
+{
+    int x = -1;
+    int y = -1;
+    int width = -1;
+    int height = -1;
+    JonesMain_GetMovieDestination(bitmapWidth, bitmapHeight, screenWidth, screenHeight, &x, &y, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(expectedX, x);
+    TEST_ASSERT_EQUAL_INT(expectedY, y);
+    TEST_ASSERT_EQUAL_INT(expectedWidth, width);
+    TEST_ASSERT_EQUAL_INT(expectedHeight, height);
+}
+
+TEST(JonesMain, MovieDestinationFillsAFourByThreeCanvas)
+{
+    JonesMainTest_CheckMovieDestination(640, 480, 1024, 768, 0, 0, 1024, 768);
+}
+
+TEST(JonesMain, MovieDestinationPillarboxesAtSixteenByNine)
+{
+    JonesMainTest_CheckMovieDestination(640, 480, 1280, 720, 160, 0, 960, 720);
+}
+
+TEST(JonesMain, MovieDestinationPillarboxesAtTwentyOneByNine)
+{
+    JonesMainTest_CheckMovieDestination(640, 480, 1680, 720, 360, 0, 960, 720);
+}
+
+TEST(JonesMain, MovieDestinationLetterboxesATallCanvas)
+{
+    JonesMainTest_CheckMovieDestination(640, 480, 640, 800, 0, 160, 640, 480);
+}
+
+TEST(JonesMain, MovieDestinationTreatsZeroSizesAsTheWholeCanvas)
+{
+    JonesMainTest_CheckMovieDestination(0, 0, 1280, 720, 0, 0, 1280, 720);
+}
+
 TEST_GROUP_RUNNER(JonesMain)
 {
     RUN_TEST_CASE(JonesMain, TestFirstRunModeUsesTheDesktopForMissingKeys);
@@ -520,4 +562,9 @@ TEST_GROUP_RUNNER(JonesMain)
     RUN_TEST_CASE(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255);
     RUN_TEST_CASE(JonesMain, TestCogParserLabelsStartOverAfterReset);
     RUN_TEST_CASE(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime);
+    RUN_TEST_CASE(JonesMain, MovieDestinationFillsAFourByThreeCanvas);
+    RUN_TEST_CASE(JonesMain, MovieDestinationPillarboxesAtSixteenByNine);
+    RUN_TEST_CASE(JonesMain, MovieDestinationPillarboxesAtTwentyOneByNine);
+    RUN_TEST_CASE(JonesMain, MovieDestinationLetterboxesATallCanvas);
+    RUN_TEST_CASE(JonesMain, MovieDestinationTreatsZeroSizesAsTheWholeCanvas);
 }
