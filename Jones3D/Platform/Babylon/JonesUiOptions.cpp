@@ -341,6 +341,9 @@ namespace
             "Light world faces when the display reopens.";
         screen.help[layout.gameplayFOV] =
             "Set how wide the view is. It changes only the picture, not the game.";
+        screen.help[layout.renderScale] =
+            "Render the 3D world above (sharper) or below its resolution; menus stay native "
+            "and the display size is unchanged. Applies when the display reopens.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }

@@ -723,6 +723,106 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     TEST_ASSERT_TRUE(ReadTexture(oldColor, 0).empty());
 }
 
+TEST(std3DBabylon, ARenderScaleSizesTheSceneTargetsAndKeepsTheDisplaySize)
+{
+    OpenStd3D(32u, 16u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(2.0f));
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, stdRenderBabylon_GetRenderScale());
+    // The game's display size is unchanged; only the GPU scene targets grew.
+    TEST_ASSERT_EQUAL_UINT32(32u, stdRenderBabylon_GetBackBufferWidth());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetBackBufferHeight());
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_GetRenderWidth());
+    TEST_ASSERT_EQUAL_UINT32(32u, stdRenderBabylon_GetRenderHeight());
+    TEST_ASSERT_EQUAL_size_t(64u * 32u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(64u * 32u * render::bytesPerTexel(stdRenderBabylon_GetNormalFormat()),
+        Null().readTexture(stdRenderBabylon_GetNormalTarget(), 0).size());
+
+    // The scene fills the scaled target, and a present at the display size succeeds.
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    const render::TextureHandle present = Null().createTexture(
+        render::TextureDesc{ 32u, 16u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(present.isNull());
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(present, 32u, 16u));
+    TEST_ASSERT_EQUAL_size_t(32u * 16u * 4u, Null().readTexture(present, 0).size());
+    Null().destroyTexture(present);
+
+    // The read-back image has the display size.
+    std::vector<std::byte> aPixels(32u * 16u * 4u);
+    uint32_t width  = 0;
+    uint32_t height = 0;
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), &width, &height));
+    TEST_ASSERT_EQUAL_UINT32(32u, width);
+    TEST_ASSERT_EQUAL_UINT32(16u, height);
+
+    // 50% makes the scene target smaller; the display and read-back sizes stay.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(0.5f));
+    TEST_ASSERT_EQUAL_UINT32(32u, stdRenderBabylon_GetBackBufferWidth());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetBackBufferHeight());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetRenderWidth());
+    TEST_ASSERT_EQUAL_UINT32(8u, stdRenderBabylon_GetRenderHeight());
+    TEST_ASSERT_EQUAL_size_t(16u * 8u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), &width, &height));
+    TEST_ASSERT_EQUAL_UINT32(32u, width);
+    TEST_ASSERT_EQUAL_UINT32(16u, height);
+}
+
+TEST(std3DBabylon, RenderScaleOneRoundTripsTheBackBufferBytes)
+{
+    OpenStd3D(16u, 8u);
+
+    std::vector<std::byte> aExpected(16u * 8u * 4u);
+    for ( uint32_t y = 0; y < 8u; ++y )
+    {
+        for ( uint32_t x = 0; x < 16u; ++x )
+        {
+            std::byte* pTexel = aExpected.data() + ((size_t)y * 16u + x) * 4u;
+            pTexel[0] = (std::byte)((x * 7u + y * 13u) & 0xFFu);
+            pTexel[1] = (std::byte)((x * 11u + y * 5u) & 0xFFu);
+            pTexel[2] = (std::byte)((x * 3u + y * 17u) & 0xFFu);
+            pTexel[3] = std::byte{ 0xFF };
+        }
+    }
+
+    // At 100% the bytes go into the scene target and come back unchanged: no resampling runs.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_WriteBackBuffer(aExpected.data()));
+    std::vector<std::byte> aActual(16u * 8u * 4u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aActual.data(), nullptr, nullptr));
+    AssertBytes(aExpected, aActual);
+}
+
+TEST(std3DBabylon, ARenderScaleAboveTheDeviceLimitIsClamped)
+{
+    OpenStd3D(6000u, 16u);
+    const uint32_t maxSize = Null().info().limits.maxTextureDimension;
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(2.0f));
+    const uint32_t renderWidth  = stdRenderBabylon_GetRenderWidth();
+    const uint32_t renderHeight = stdRenderBabylon_GetRenderHeight();
+
+    TEST_ASSERT_TRUE(renderWidth <= maxSize);
+    TEST_ASSERT_TRUE(renderHeight <= maxSize);
+    TEST_ASSERT_TRUE(renderWidth < 12000u); // 2.0 * the 6000 pixel display width was clamped
+    TEST_ASSERT_EQUAL_UINT32(6000u, stdRenderBabylon_GetBackBufferWidth());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetBackBufferHeight());
+    TEST_ASSERT_EQUAL_size_t((size_t)renderWidth * renderHeight
+            * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+
+    // The read-back image stays the display size.
+    std::vector<std::byte> aPixels(6000u * 16u * 4u);
+    uint32_t width  = 0;
+    uint32_t height = 0;
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), &width, &height));
+    TEST_ASSERT_EQUAL_UINT32(6000u, width);
+    TEST_ASSERT_EQUAL_UINT32(16u, height);
+}
+
 TEST(std3DBabylon, TheSceneTargetIsBgra8WithoutRgba16F)
 {
     UseNullDevice(render::NullDeviceDesc{ { render::TextureFormat::Rgba16F } });
@@ -1885,6 +1985,9 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, ScenesRecordAPassWithTheDX9Clears);
     RUN_TEST_CASE(std3DBabylon, SceneCallsOutOfOrderFailLikeDX9);
     RUN_TEST_CASE(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylon, ARenderScaleSizesTheSceneTargetsAndKeepsTheDisplaySize);
+    RUN_TEST_CASE(std3DBabylon, RenderScaleOneRoundTripsTheBackBufferBytes);
+    RUN_TEST_CASE(std3DBabylon, ARenderScaleAboveTheDeviceLimitIsClamped);
     RUN_TEST_CASE(std3DBabylon, TheSceneTargetIsBgra8WithoutRgba16F);
     RUN_TEST_CASE(std3DBabylon, DepthIsD32FWithoutD24S8);
     RUN_TEST_CASE(std3DBabylon, BadAndEmptyDrawsRecordNothing);
@@ -3058,6 +3161,31 @@ TEST(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath)
     TEST_ASSERT_TRUE(maxDiff <= 1);
 }
 
+TEST(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize)
+{
+    // A full-screen quad in the display's screen pixels: the scene fills the scaled target, and the
+    // read-back image is always the display size.
+    auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFFFF0000u);
+    };
+
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // 200%: the scene target is 64x32 and resolves to the 32x16 read-back image.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(2.0f));
+    RenderScene(drawScene);
+    AssertPixel(16u, 8u, 255, 0, 0, 255);
+
+    // 50%: the scene target is 16x8; the read-back image is still 32x16.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(0.5f));
+    RenderScene(drawScene);
+    AssertPixel(16u, 8u, 255, 0, 0, 255);
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -3077,6 +3205,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
     RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
+    RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

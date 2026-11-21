@@ -1,5 +1,11 @@
 ## Jones3D EX (unreleased)
 ### M9: Presentation
+  - Options > Display has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
+    50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample
+    the world and values below it trade detail for speed. The final pass resolves the scene to the
+    presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
+    thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
+    display reopens, like the other Display options.
   - **Options > Display** has a **Field of view** row (`engine.renderer.fov`), 60 to 110 horizontal degrees
     at 4:3 and 90 by default. It applies to the normal first-person and third-person cameras; cutscene
     cameras and a FOV set by a COG keep their authored value. The picture widens but the simulation does

@@ -32,6 +32,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MAXTHINGCOLLECTDISTANCE   "engine.renderer.culling.culledSectorTraversal.maxThingCollectDistance"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MAXLIGHTCOLLECTDISTANCE   "engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED           "engine.renderer.litFaces.enabled" // Added: option A L3 (ADR-0023)
+#define JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE               "engine.renderer.renderScale" // Added: M9.4 internal 3D resolution
 
 
 // Returns 0 for success and 1 indicating error
