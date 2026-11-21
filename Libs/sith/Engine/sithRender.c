@@ -547,6 +547,9 @@ void sithRender_Draw(void)
     // Set projection
     std3D_SetProjection(sithCamera_g_pCurCamera->rdCamera.fov, sithCamera_g_pCurCamera->rdCamera.pFrustum->nearPlane, sithCamera_g_pCurCamera->rdCamera.pFrustum->farPlane);
 
+    // Added: the light-shaft stage's fade needs the frame's game time (M9.16, presentation only).
+    std3D_SetFrameTime(sithTime_g_frameTimeFlex);
+
     // Added: the depth-of-field stage's per-frame focus input (presentation only). It reads the
     // current camera and its focus thing, and nothing here marks a thing or sector.
     SithThing* pFocusThing = sithCamera_GetRenderFocusThing(sithCamera_g_pCurCamera);
@@ -1000,7 +1003,7 @@ void sithRender_RenderSectors(void)
                     // first let's project them to NDC space
                     rdCamera_g_pCurCamera->pfProjectList(sithRender_aSurfaceTransformedVertices, sithRender_aClipVertices, sithRender_clipFaceView.numVertices);
 
-                    pPoly->flags     = pSurf->face.flags;
+                    pPoly->flags     = pSurf->face.flags | RD_FF_SKY_SURFACE; // Added: surface tag for the normal target alpha (M9.16)
                     pPoly->pMaterial = pSurf->face.pMaterial;
 
                     // Now make sky poly from transformed vertices
@@ -1046,6 +1049,11 @@ void sithRender_RenderSectors(void)
                     else
                     {
                         pPoly->flags |= extraFaceFlags;
+                        // Added: water surfaces carry their tag to the normal target alpha (M9.16).
+                        if ( (pSurf->flags & SITH_SURFACE_WATER) != 0 )
+                        {
+                            pPoly->flags |= RD_FF_WATER_SURFACE;
+                        }
                     }
 
                     pPoly->pMaterial = pSurf->face.pMaterial;
@@ -1622,6 +1630,15 @@ void sithRender_RenderAlphaAdjoins(void)
 
         pPoly->matCelNum = pSurf->face.matCelNum;
         pPoly->flags     = extraFaceFlags | pSurf->face.flags;
+        // Added: sky and water surface tags for the normal target alpha (M9.16).
+        if ( (pSurf->flags & (SITH_SURFACE_CEILINGSKY | SITH_SURFACE_HORIZONSKY)) != 0 )
+        {
+            pPoly->flags |= RD_FF_SKY_SURFACE;
+        }
+        if ( (pSurf->flags & SITH_SURFACE_WATER) != 0 )
+        {
+            pPoly->flags |= RD_FF_WATER_SURFACE;
+        }
         pPoly->pMaterial = pSurf->face.pMaterial;
 
         rdCache_AddAlphaProcFace(pSurf->face.numVertices);

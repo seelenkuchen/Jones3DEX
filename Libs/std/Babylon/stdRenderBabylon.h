@@ -9,9 +9,9 @@
 // stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
 // chain, an ordered list of full-screen passes that is empty by default, then the built-in
 // depth-of-field stage when its cutscene or gameplay option is on and the game set a focus, then
-// the built-in bloom stage when it is on, and then, on a device with a swapchain, runs the built-in
-// final tone-map pass
-// over that output (the back buffer color when the chain is empty and bloom is off) and writes it
+// the built-in light-shaft stage when it is on, then the built-in bloom stage when it is on, and
+// then, on a device with a swapchain, runs the built-in final tone-map pass
+// over that output (the back buffer color when the chain is empty and the later stages are off) and writes it
 // to the swapchain at the presented size, sampling with linear filtering when the render scale is
 // not 1 so supersampled scenes resolve cleanly. When the
 // anti-aliasing option is on (SMAA 1x, engine.renderer.antiAliasing) the tone map writes an LDR
@@ -51,6 +51,21 @@
 
 #include <cstddef>
 #include <cstdint>
+
+// Added: the surface tags in the normal target's alpha (M9.16). The normal target is R10G10B10A2
+// (2 alpha bits) or Rgba8 (8), so the values are 0, 1/3, 2/3 and 1, which both formats represent
+// exactly (2/3 = 170/255, 1/3 = 85/255): none (cleared, nothing drawn), water, sky (horizon or
+// ceiling sky) and ordinary. Only the scene's sectors and their sky and water surfaces carry a tag;
+// things, sprites, particles, the HUD and every other draw are ordinary.
+struct StdRenderBabylonSurfaceTags
+{
+    float none;     // 0.0
+    float water;    // 1/3
+    float sky;      // 2/3
+    float ordinary; // 1.0
+};
+inline constexpr StdRenderBabylonSurfaceTags stdRenderBabylon_kSurfaceTags = {
+    0.0f, 1.0f / 3.0f, 2.0f / 3.0f, 1.0f };
 
 // The render device a composition root creates, chosen with --render.
 enum class StdRenderBabylonDeviceType
@@ -138,9 +153,10 @@ babylon::render::TextureFormat stdRenderBabylon_GetDepthFormat();
 babylon::render::TextureFormat stdRenderBabylon_GetColorFormat();
 
 // The normal target: per pixel the view-space normal of the geometry drawn there, its components
-// stored as n * 0.5 + 0.5 in red, green and blue, alpha 1; cleared to 0 (alpha 0: nothing drawn)
-// whenever the scene clears depth. Draws that write depth write it, the others leave it, so it
-// matches the depth target. A null handle without a back buffer.
+// stored as n * 0.5 + 0.5 in red, green and blue. Since M9.16 alpha is the surface tag of
+// stdRenderBabylon_kSurfaceTags: 1 ordinary, 2/3 sky (horizon or ceiling sky), 1/3 water; it is
+// cleared to 0 (nothing drawn) whenever the scene clears depth. Draws that write depth write it,
+// the others leave it, so it matches the depth target. A null handle without a back buffer.
 babylon::render::TextureHandle stdRenderBabylon_GetNormalTarget();
 babylon::render::TextureFormat stdRenderBabylon_GetNormalFormat();
 
@@ -209,6 +225,25 @@ float stdRenderBabylon_GetSharpening();
 // the next open. Closing frees the stage's targets and pipelines.
 bool stdRenderBabylon_SetBloom(float strength);
 float stdRenderBabylon_GetBloom();
+
+// Added: the built-in light-shaft stage over the HDR scene, after depth of field and before bloom.
+// level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the strengths are 0, 0.25, 0.5 and 0.8 and
+// live with the stage's other constants in stdRenderBabylon.cpp. On: a half-resolution mask keeps
+// the bright sky pixels (the normal target's alpha is the sky surface tag), the mask's mean
+// weighted position is reduced to 1 x 1 on the GPU as the light position, a 40-tap radial blur of
+// the mask toward it is scaled by a strength smoothed over about 0.3 s of game time, and a
+// scene-sized composite adds the result to the HDR scene. No sky visible fades the strength to zero.
+// Off, or a failure, skips every pass and the image is byte-identical to the path without the
+// option. The HUD layer, menus and prompts come after and are untouched. A level outside 0..3 is
+// clamped. Opening reads engine.renderer.lightShafts (default 1 Low in Enhanced builds, 0 in
+// Retail/QOL-off ones); this setter changes it until the next open. Closing frees the stage's
+// targets and pipelines.
+bool stdRenderBabylon_SetLightShafts(int level);
+int stdRenderBabylon_GetLightShafts();
+
+// Added: the frame's game time in seconds, used by the light-shaft fade. Presentation state only; a
+// non-finite value is ignored and the step is clamped to 0.25 s.
+void stdRenderBabylon_SetFrameTime(float deltaTime);
 
 // Added: the built-in depth-of-field stage on the HDR scene, after the post-processing chain and
 // before bloom. The game feeds it each frame with std3D_SetFocus: the view-space distance from the
@@ -361,8 +396,8 @@ void stdRenderBabylon_ClearPostPasses();
 size_t stdRenderBabylon_GetNumPostPasses();
 
 // What the final tone-map pass samples: the bloom composite after a presenting submit ran the bloom
-// stage, else the output of the chain's last pass, else the back buffer color target (null without a
-// back buffer). Its size is the scaled scene size (GetRenderWidth/Height). Its contents are those of
+// stage, else the light-shaft composite, the depth-of-field output, the output of the chain's last
+// pass, else the back buffer color target (null without a back buffer). Its size is the scaled scene size (GetRenderWidth/Height). Its contents are those of
 // the last presenting submit; tests read it back. With the default tone map it is the presented
 // image up to the 0..1 clamp and the final pass's resample to the presented size.
 babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
@@ -372,6 +407,15 @@ babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 // compare both paths in one run: a Bgra8 scene color target and the plain present pass, without the
 // tone map. It resets after that Open, and production builds don't compile the declaration.
 void stdRenderBabylon_ForceLegacyPresentationForTest(bool bLegacy);
+
+// Added: test-only. Reads the 1 x 1 light-shaft centroid after a presenting submit and writes its
+// mask weight in 0..1 and the sky position in image uv (0, 0 top left; 1, 1 bottom right). Returns
+// false without a presented light-shaft frame. Production builds don't compile it.
+bool stdRenderBabylon_GetLightShaftCentroidForTest(float* pU, float* pV, float* pWeight);
+
+// Added: test-only. Reads the half-res light-shaft blur at a full-res pixel centre (the linear
+// sample the composite uses) and writes it in red. Returns false without a presented shaft frame.
+bool stdRenderBabylon_GetLightShaftValueForTest(std::uint32_t x, std::uint32_t y, float* pValue);
 #endif
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame
