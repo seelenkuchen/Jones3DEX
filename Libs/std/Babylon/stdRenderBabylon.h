@@ -241,8 +241,23 @@ float stdRenderBabylon_GetBloom();
 bool stdRenderBabylon_SetLightShafts(int level);
 int stdRenderBabylon_GetLightShafts();
 
-// Added: the frame's game time in seconds, used by the light-shaft fade. Presentation state only; a
-// non-finite value is ignored and the step is clamped to 0.25 s.
+// Added: the built-in water-ripple stage, after the post-processing chain and before depth of field.
+// On pixels whose normal target's alpha carries the water surface tag (1/3), the scene is sampled at
+// a small animated offset from two scrolling sine layers whose phase follows the frame's game time,
+// and a faint view-dependent highlight is added. The offset is a constant fraction of the output
+// height, so it scales with the resolution; a sample that lands on a non-water pixel falls back to
+// the unoffset sample, so geometry next to water never smears. Every other pixel is copied
+// unchanged. The HUD layer, menus and prompts come after and are untouched. Off, or a failure,
+// skips the pass and the image is byte-identical to the path without the option. Opening reads
+// engine.renderer.water.ripples (on in Enhanced builds, off in Retail/QOL-off ones); this setter
+// changes it until the next open. Reflections are not built: translucent water does not write depth,
+// so the depth target at a water pixel holds the scene behind it rather than the water plane, and a
+// screen-space ray march there would use the wrong depth.
+bool stdRenderBabylon_SetWaterRipples(bool bEnabled);
+bool stdRenderBabylon_GetWaterRipples();
+
+// Added: the frame's game time in seconds, used by the light-shaft fade and the water ripple phase.
+// Presentation state only; a non-finite value is ignored and the step is clamped to 0.25 s.
 void stdRenderBabylon_SetFrameTime(float deltaTime);
 
 // Added: the built-in depth-of-field stage on the HDR scene, after the post-processing chain and

@@ -4506,6 +4506,235 @@ TEST(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha)
     AssertPixel(56u, 32u, 255, 0, 0, 255, 0);
 }
 
+TEST(std3DBabylonGpu, TranslucentWaterWritesItsTagWithoutChangingTheImage)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+
+    // A translucent water quad over an opaque ordinary one on the left, and the same translucent
+    // quad without the water tag on the right. Only the normal target's alpha may differ.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 64.0f, 0.7f, 0xFF804020u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 64.0f, 0.7f, 0xFF804020u);
+        DrawQuad(nullptr, (Std3DRenderState)(STD3D_RS_ZWRITE_DISABLED | STD3D_RS_SURFACE_WATER),
+            0.0f, 0.0f, 32.0f, 64.0f, 0.5f, 0x8000C0FFu);
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED,
+            32.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0x8000C0FFu);
+    });
+
+    // The translucent water draw did not change the colour blend: both halves are the same.
+    const size_t left  = ((size_t)32u * 64u + 8u) * 4u;
+    const size_t right = ((size_t)32u * 64u + 56u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 0u], (int)std3DBabylonGpuTest_pixels[right + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 1u], (int)std3DBabylonGpuTest_pixels[right + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 2u], (int)std3DBabylonGpuTest_pixels[right + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 3u], (int)std3DBabylonGpuTest_pixels[right + 3u]);
+
+    // The alpha is the tag: water on the left, ordinary on the right; the colour is the normal that
+    // was behind both quads, unchanged by the alpha-only tag write.
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(
+        stdRenderBabylon_GetNormalTarget(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, aNormals.size());
+    const bool b10 = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+    const std::array<int, 4> water    = NormalTexel(aNormals, 8u, 32u);
+    const std::array<int, 4> ordinary = NormalTexel(aNormals, 56u, 32u);
+    TEST_ASSERT_EQUAL_INT(b10 ? 1 : 85, water[3]);
+    TEST_ASSERT_EQUAL_INT(b10 ? 3 : 255, ordinary[3]);
+    for ( int i = 0; i < 3; ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(ordinary[i], water[i]);
+    }
+}
+
+TEST(std3DBabylonGpu, WaterRipplesOffLeavesTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetWaterRipples());
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.9f, 0xFF204080u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, 8.0f, 8.0f, 56.0f, 56.0f, 0.5f, 0xFF3080C0u);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    RenderScene(drawScene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(off.size(), offAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+
+    // On, but no water in the scene: every pixel is copied through unchanged.
+    // Nearer than the water in the scene before, so the depth test lets it replace every pixel.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(true));
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.3f, 0xFF204080u);
+    });
+    const std::vector<std::byte> onNoWater = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.3f, 0xFF204080u);
+    });
+    const std::vector<std::byte> offNoWater = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(offNoWater.size(), onNoWater.size());
+    TEST_ASSERT_EQUAL_MEMORY(offNoWater.data(), onNoWater.data(), onNoWater.size());
+}
+
+TEST(std3DBabylonGpu, WaterRipplesChangeOnlyWaterPixelsAndFollowGameTime)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetWaterRipples());
+
+    // The left half is water in vertical stripes, so an offset sample picks a different colour; the
+    // right half is ordinary geometry and must stay byte-identical.
+    const auto drawScene = []
+    {
+        for ( uint32_t stripe = 0; stripe < 4u; ++stripe )
+        {
+            const uint32_t color = (stripe & 1u) ? 0xFFC0C0C0u : 0xFF404040u;
+            DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, (float)(stripe * 8u), 0.0f,
+                (float)(stripe * 8u + 8u), 64.0f, 0.5f, color);
+        }
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF204080u);
+    };
+
+    std3D_SetFrameTime(0.0f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    std3D_SetFrameTime(0.05f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> moved = CapturePresented(64u, 64u);
+
+    // No game time passes: the phase is frozen, so the image is exactly the same.
+    RenderScene(drawScene);
+    const std::vector<std::byte> frozen = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(moved.data(), frozen.data(), moved.size());
+
+    // Only water pixels may change, and animation must change some of them.
+    size_t numWaterChanged = 0;
+    size_t numOrdinaryChanged = 0;
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const size_t at = ((size_t)y * 64u + x) * 4u;
+            if ( memcmp(&on[at], &moved[at], 4u) != 0 )
+            {
+                if ( x < 32u )
+                {
+                    ++numWaterChanged;
+                }
+                else
+                {
+                    ++numOrdinaryChanged;
+                }
+            }
+        }
+    }
+    std::printf("M9.17 water ripples: %zu water pixels changed, %zu ordinary pixels changed\n",
+        numWaterChanged, numOrdinaryChanged);
+    TEST_ASSERT_TRUE(numWaterChanged > 0u);
+    TEST_ASSERT_EQUAL_size_t(0u, numOrdinaryChanged);
+
+    // Off vs on: the water changes and the ordinary half is byte-identical.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    size_t numWaterAgainstOff = 0;
+    size_t numOrdinaryAgainstOff = 0;
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const size_t at = ((size_t)y * 64u + x) * 4u;
+            if ( memcmp(&off[at], &on[at], 4u) != 0 )
+            {
+                if ( x < 32u )
+                {
+                    ++numWaterAgainstOff;
+                }
+                else
+                {
+                    ++numOrdinaryAgainstOff;
+                }
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(numWaterAgainstOff > 0u);
+    TEST_ASSERT_EQUAL_size_t(0u, numOrdinaryAgainstOff);
+}
+
+TEST(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF3080C0u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 28.0f, 0.0f, 30.0f, 64.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(true));
+    std3D_SetFrameTime(0.05f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    // The HUD strip is the same colour on both paths; the water around it differs.
+    const size_t hud = ((size_t)32u * 64u + 29u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 0u], (int)on[hud + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 1u], (int)on[hud + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 2u], (int)on[hud + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 3u], (int)on[hud + 3u]);
+}
+
 TEST(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical)
 {
     if ( !OpenGpuStd3D(64u, 64u) )
@@ -4711,6 +4940,10 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
     RUN_TEST_CASE(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha);
+    RUN_TEST_CASE(std3DBabylonGpu, TranslucentWaterWritesItsTagWithoutChangingTheImage);
+    RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesChangeOnlyWaterPixelsAndFollowGameTime);
+    RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry);

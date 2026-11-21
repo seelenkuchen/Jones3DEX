@@ -221,6 +221,11 @@ namespace
     // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
     render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2][2]; // [primitive][HUD layer][z write]
     render::PipelineHandle std3D_aLitPipelines[2][2];                    // lit triangles, [HUD layer][z write]
+    // Added: variants for a water surface drawn without Z write (M9.17). Their normal target keeps the
+    // colour and replaces the alpha with the surface tag, so the water is tagged even though it does
+    // not write depth. [primitive][HUD layer] and the lit form, [HUD layer].
+    render::PipelineHandle std3D_aWaterPipelines[std3D_kNumPrimitives][2];
+    render::PipelineHandle std3D_aLitWaterPipelines[2];
     render::SamplerHandle std3D_aSamplers[256];                        // std3D_GetSampler's key
     render::TextureHandle std3D_whiteTexture;
     render::BufferHandle std3D_vertexBuffer;
@@ -1006,7 +1011,10 @@ namespace
     // Z test LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no
     // culling. The normal target, the second color target, is replaced by draws that write Z and kept
     // (blended with ZERO, ONE) by the others, so it holds the normal of what the depth target holds.
-    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite, bool bHud)
+    // Added: a water draw without Z write keeps the normal's colour but replaces its alpha with the
+    // tag (ZERO, ONE on the colour, ONE, ZERO on the alpha), so translucent water is marked without
+    // changing the image or the normals behind it (M9.17).
+    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite, bool bWaterTag, bool bHud)
     {
         render::BlendState blend;
         blend.enabled  = true;
@@ -1019,14 +1027,32 @@ namespace
         blend.srcAlpha = bHud ? render::BlendFactor::One : render::BlendFactor::SrcAlpha;
         blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
         blend.alphaOp  = render::BlendOp::Add;
-        render::BlendState keepNormal;
-        keepNormal.enabled  = !bZWrite;
-        keepNormal.srcColor = render::BlendFactor::Zero;
-        keepNormal.dstColor = render::BlendFactor::One;
-        keepNormal.srcAlpha = render::BlendFactor::Zero;
-        keepNormal.dstAlpha = render::BlendFactor::One;
+        render::BlendState normalBlend;
+        if ( bZWrite )
+        {
+            // Replaced by the draw's normal and tag.
+        }
+        else
+        {
+            normalBlend.enabled  = true;
+            normalBlend.srcColor = render::BlendFactor::Zero;
+            normalBlend.dstColor = render::BlendFactor::One;
+            if ( bWaterTag )
+            {
+                // Keep the normal's colour, take the shader's alpha tag.
+                normalBlend.srcAlpha = render::BlendFactor::One;
+                normalBlend.dstAlpha = render::BlendFactor::Zero;
+            }
+            else
+            {
+                normalBlend.srcAlpha = render::BlendFactor::Zero;
+                normalBlend.dstAlpha = render::BlendFactor::One;
+            }
+            normalBlend.colorOp = render::BlendOp::Add;
+            normalBlend.alphaOp = render::BlendOp::Add;
+        }
         desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), blend },
-            render::ColorTargetDesc{ stdRenderBabylon_GetNormalFormat(), bZWrite ? render::BlendState{} : keepNormal } };
+            render::ColorTargetDesc{ stdRenderBabylon_GetNormalFormat(), normalBlend } };
         desc.depthFormat  = stdRenderBabylon_GetDepthFormat();
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
         desc.cull         = render::CullMode::None;
@@ -1047,9 +1073,13 @@ namespace
     // std3DX9.c's Direct3D state as a pipeline (std3D_SetPipelineState): its default shader for
     // triangles, its wireframe shader for lines and points, StdVertexTL vertices. The pipeline of each
     // primitive and Z write is created once, on first use.
-    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite, bool bHud)
+    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite,
+        bool bWaterTag, bool bHud)
     {
-        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bHud ? 1 : 0][bZWrite ? 1 : 0];
+        const bool bWaterAlpha = bWaterTag && !bZWrite;
+        render::PipelineHandle& pipeline = bWaterAlpha
+            ? std3D_aWaterPipelines[(size_t)primitive][bHud ? 1 : 0]
+            : std3D_aPipelines[(size_t)primitive][bHud ? 1 : 0][bZWrite ? 1 : 0];
         if ( !pipeline.isNull() )
         {
             return pipeline;
@@ -1073,7 +1103,7 @@ namespace
                 break;
         }
 
-        std3D_SetPipelineState(desc, bZWrite, bHud);
+        std3D_SetPipelineState(desc, bZWrite, bWaterAlpha, bHud);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
@@ -1086,9 +1116,12 @@ namespace
     // The pipeline of lit triangles: the state of std3D_GetPipeline's triangles with the lit shaders
     // and StdVertexLit vertices, the view-space position and normal at locations 4 and 5. Created once
     // per Z write, on first use.
-    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite, bool bHud)
+    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite, bool bWaterTag, bool bHud)
     {
-        render::PipelineHandle& pipeline = std3D_aLitPipelines[bHud ? 1 : 0][bZWrite ? 1 : 0];
+        const bool bWaterAlpha = bWaterTag && !bZWrite;
+        render::PipelineHandle& pipeline = bWaterAlpha
+            ? std3D_aLitWaterPipelines[bHud ? 1 : 0]
+            : std3D_aLitPipelines[bHud ? 1 : 0][bZWrite ? 1 : 0];
         if ( !pipeline.isNull() )
         {
             return pipeline;
@@ -1102,7 +1135,7 @@ namespace
         desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 5, 0, render::VertexFormat::Float3, (uint32_t)offsetof(StdVertexLit, nx) });
         desc.primitive = render::PrimitiveType::TriangleList;
 
-        std3D_SetPipelineState(desc, bZWrite, bHud);
+        std3D_SetPipelineState(desc, bZWrite, bWaterAlpha, bHud);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
@@ -1195,7 +1228,12 @@ namespace
         const bool bTriangles = primitive == Std3DBabylonPrimitive::Triangles;
         const bool bZWrite    = (std3D_renderState & STD3D_RS_ZWRITE_DISABLED) == 0;
         const bool bHud       = std3D_bHudLayer;
-        const render::PipelineHandle pipeline = bLit ? std3D_GetLitPipeline(bZWrite, bHud) : std3D_GetPipeline(primitive, bZWrite, bHud);
+        // Added: a translucent water surface is drawn without Z write, so its tag is written through a
+        // separate pipeline that keeps the normal's colour and replaces only alpha (M9.17).
+        const bool bWaterTag  = (std3D_renderState & STD3D_RS_SURFACE_WATER) != 0;
+        const render::PipelineHandle pipeline = bLit
+            ? std3D_GetLitPipeline(bZWrite, bWaterTag, bHud)
+            : std3D_GetPipeline(primitive, bZWrite, bWaterTag, bHud);
         const render::SamplerHandle sampler   = bTriangles ? std3D_GetSampler(std3D_renderState) : render::SamplerHandle{};
         if ( pipeline.isNull() || (bTriangles && sampler.isNull()) )
         {
@@ -1323,6 +1361,19 @@ namespace
                 }
             }
 
+            for ( auto& aLayerPipelines : std3D_aWaterPipelines )
+            {
+                for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                {
+                    pDevice->destroyPipeline(pipeline);
+                }
+            }
+
+            for ( render::PipelineHandle& pipeline : std3D_aLitWaterPipelines )
+            {
+                pDevice->destroyPipeline(pipeline);
+            }
+
             for ( render::SamplerHandle& sampler : std3D_aSamplers )
             {
                 pDevice->destroySampler(sampler);
@@ -1352,6 +1403,19 @@ namespace
             {
                 pipeline = {};
             }
+        }
+
+        for ( auto& aLayerPipelines : std3D_aWaterPipelines )
+        {
+            for ( render::PipelineHandle& pipeline : aLayerPipelines )
+            {
+                pipeline = {};
+            }
+        }
+
+        for ( render::PipelineHandle& pipeline : std3D_aLitWaterPipelines )
+        {
+            pipeline = {};
         }
 
         for ( render::SamplerHandle& sampler : std3D_aSamplers )

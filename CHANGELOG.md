@@ -33,6 +33,16 @@
     water work; the colour image is unchanged. The fade follows about 0.3 s of game time, the HUD,
     2D layer, menus and prompts are never touched, and Off skips every pass so the image is exactly
     the previous one. Applies when the display reopens.
+  - **Options > Display** has a **Water ripples** row (`engine.renderer.water.ripples`; on by default
+    in Enhanced and off in Retail). A stage after the post-processing chain and before depth of field
+    animates only the pixels the normal target tags as water: two scrolling sine layers offset the
+    scene sample and a faint view-dependent highlight is added, phased by the frame's game time so
+    the water pauses with the game. The offset is a constant fraction of the output height, so its
+    pixel size follows the resolution, and a sample that leaves the water falls back to the unoffset
+    sample so edges do not smear geometry. The HUD, 2D layer, menus and prompts are never touched;
+    Off skips the stage and presents exactly the previous image. Applies when the display reopens.
+    Screen-space reflections are not built: translucent water does not write depth, so the depth
+    target holds the scene behind it rather than the water plane.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring
