@@ -1,6 +1,6 @@
 # M8 progress: the setup wizard
 
-These frames come from the release AppImage `Jones3D_EX-0.5.0-x86_64.AppImage` built from `m8-wizard`
+These frames come from the release AppImage `Jones3D_EX-0.5.0-x86_64.AppImage` (now 0.5.0-alpha) built from `m8-wizard`
 (`cc0b79ee`), run on a virtual X display (Xvfb, Vulkan on Mesa lavapipe) with a fresh home folder, the GOG
 offline installer in `~/Downloads` and no innoextract on `PATH`, so the bundled one unpacked it. The setup
 window opens because no game data was found; [ADR-0034](../../arc42/09-decisions/ADR-0034-setup-wizard.md)

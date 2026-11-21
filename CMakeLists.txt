@@ -4,6 +4,17 @@ cmake_policy(SET CMP0091 NEW)
 
 project(OpenJones3D VERSION 0.5.0)
 
+# The pre-release suffix is kept out of project(VERSION), which stays numeric. It is appended
+# to the version text used by --version, the configure summary and the package file names.
+set(JONES3D_VERSION_PRERELEASE "alpha" CACHE STRING "Pre-release suffix appended to the version (empty for a final release)")
+if (JONES3D_VERSION_PRERELEASE)
+    set(JONES3D_VERSION_TEXT "${PROJECT_VERSION}-${JONES3D_VERSION_PRERELEASE}")
+    set(JONES3D_VERSION_PRERELEASE_SUFFIX "-${JONES3D_VERSION_PRERELEASE}")
+else()
+    set(JONES3D_VERSION_TEXT "${PROJECT_VERSION}")
+    set(JONES3D_VERSION_PRERELEASE_SUFFIX "")
+endif()
+
 set(JONES3D_PRODUCT_NAME "Jones3D EX")
 
 set(CMAKE_C_STANDARD 11)
@@ -124,6 +135,10 @@ configure_file(
     "${JONES3D_GENERATED_INCLUDE_DIR}/j3dcore/j3d.h"
 )
 include_directories(BEFORE "${JONES3D_GENERATED_INCLUDE_DIR}")
+
+# The release workflow reads this when it builds without a tag, so a local build names its
+# package exactly as --version prints it.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/VERSION" "${JONES3D_VERSION_TEXT}\n")
 
 if (MSVC)
     # Clion IDE can't read the preprocessor macro below and needs special treatment
@@ -278,7 +293,7 @@ endif()
 
 message(STATUS "")
 message(STATUS "OpenJones3D configuration summary")
-jones3d_print_config_entry("Version" "v${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}${JONES3D_BUILD_SUFFIX}")
+jones3d_print_config_entry("Version" "v${JONES3D_VERSION_TEXT}${JONES3D_BUILD_SUFFIX}")
 jones3d_print_config_entry("Generator" "${CMAKE_GENERATOR}")
 if (CMAKE_GENERATOR_PLATFORM)
     jones3d_print_config_entry("Platform" "${CMAKE_GENERATOR_PLATFORM}")
@@ -301,7 +316,7 @@ jones3d_print_config_option("Build tests" JONES3D_BUILD_TESTS)
 # headless runner's tools component is deliberately not packaged.
 if (JONES3D_PLATFORM_BABYLON)
     set(CPACK_PACKAGE_NAME "Jones3D_EX")
-    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_VERSION "${JONES3D_VERSION_TEXT}")
     set(CPACK_COMPONENTS_ALL game)
     set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
     # Files at the archive root, like the Windows zip layout: Jones3D.exe and
@@ -309,12 +324,12 @@ if (JONES3D_PLATFORM_BABYLON)
     set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY OFF)
     if (WIN32)
         set(CPACK_GENERATOR "ZIP")
-        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-windows-x64")
-        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-windows-x64")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-windows-x64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-windows-x64")
     else()
         set(CPACK_GENERATOR "TGZ")
-        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-linux-x86_64")
-        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${PROJECT_VERSION}-linux-x86_64")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-linux-x86_64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-linux-x86_64")
     endif()
     include(CPack)
 endif()

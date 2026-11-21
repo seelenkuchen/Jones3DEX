@@ -56,7 +56,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
-            version="$(sed -n 's/^project(OpenJones3D VERSION \([0-9][0-9.]*\)).*/\1/p' CMakeLists.txt)"
+            version="$(cat build/VERSION)"
           fi
           packaging/linux/make-appimage.sh staging build/out "$version"
       - name: Check the AppImage
