@@ -8,6 +8,7 @@
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/World/sithWeapon.h>
 
+#include <std/General/std.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdControl.h>
 #include <std/General/stdUtil.h>
@@ -187,9 +188,14 @@ int JonesControl_Startup(void)
         sithControl_UnbindMouseAxes();
     }
 
+    // Fixed: load the control schemes before binding them, so a first run binds the default scheme
+    if ( !jonesConfig_Startup() )
+    {
+        STDLOG_WARNING("Unable to load the control schemes; keeping the built-in bindings.\n");
+    }
+
     // Added: apply the remembered active control scheme after the default bindings are
-    // registered, so the scheme replaces them. jonesConfig_Startup loaded and remembered it at
-    // HUD startup; this is a no-op in the Null column.
+    // registered, so the scheme replaces them. This is a no-op in the Null column.
     jonesConfig_BindActiveControlScheme();
 
     // Added: ignore joystick count changes the startup already accounted for.

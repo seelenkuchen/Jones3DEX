@@ -673,6 +673,26 @@ TEST(JonesControlSchemes, TestWindowedFirstRunPicksClassicDefaultAfterControlSta
     TEST_ASSERT_EQUAL_STRING(aConfigured, JonesControlSchemes_GetDefaultSchemeName(3));
 }
 
+TEST(JonesControlSchemes, TestWindowedFirstRunControlStartupBindsTheDefaultScheme)
+{
+    g_bTestWindowed = true;
+
+    // A first run has no controls.configFile. JonesControl_Startup starts sithControl and loads
+    // and binds the schemes itself; the later jonesConfig_Startup in JonesHud_Open finds them
+    // started.
+    TEST_ASSERT_FALSE(stdConfig_Contains(JONESCONFIG_CFG_CONTROLS_CONFIGFILE));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_NOT_NULL(JonesControlSchemes_GetActiveScheme());
+
+    char aConfigured[128] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE, aConfigured,
+        sizeof(aConfigured), ""));
+    TEST_ASSERT_EQUAL_STRING(
+        JonesControlSchemes_GetDefaultSchemeName(JonesControlSchemes_GetDefaultSchemeIndex()),
+        aConfigured);
+}
+
 #ifdef J3D_QOL_IMPROVEMENTS
 TEST(JonesControlSchemes, TestRememberedClassicSchemeIsKeptInModernStyle)
 {
@@ -1358,6 +1378,7 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksModernDefaultAfterControlStartup);
 #endif
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksClassicDefaultAfterControlStartup);
+    RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunControlStartupBindsTheDefaultScheme);
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedActiveSchemeIsKept);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedClassicSchemeIsKeptInModernStyle);

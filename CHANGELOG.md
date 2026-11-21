@@ -23,6 +23,8 @@
     separate Cancel row is gone, and the nested control-scheme editor's Back also keeps its edits.
   - The Controls tab shows a **Mouse camera** row. It is on by default for a new Enhanced install; the
     Retail profile keeps the original off default.
+  - A fresh install now uses the default control scheme for the keyboard and gamepad. Before, it fell
+    back to the original built-in bindings (gamepad A jumped) until the Controls tab saved a scheme.
   - A small **Use** or **Pick up** hint appears at the bottom centre of the screen when Indy can interact.
     It appears only when a COG linked to the target handles the activation message, so a decorative
     COG-linked thing does not offer a dead prompt. It uses the Xelu icon of the key or pad button bound to
