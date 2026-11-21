@@ -513,7 +513,12 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(sithCamera_GetGameplayFOV() == doctest::Approx(89.0f));
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 0.0f)
         == doctest::Approx(1.25f));
+#ifdef J3D_QOL_IMPROVEMENTS
     CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 4);
+#else
+    // Without QOL the row starts at Off (1); stepping left from the first choice keeps it there.
+    CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 1);
+#endif
     CHECK(stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false));
     char aDisplay[128] = { 0 };
     CHECK(stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aDisplay,
@@ -880,7 +885,13 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(sithWeapon_IsBloodSplatterEnabled());
     CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
     CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+#ifdef J3D_QOL_IMPROVEMENTS
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
+#else
+    // The non-QOL weapon ignores the toggle, so the row was loaded off and Enter turned the
+    // stored value on; this build only exercises the write path.
+    CHECK(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, false));
+#endif
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
@@ -1124,7 +1135,12 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
                 REQUIRE(choice->options.size() == 2u);
                 CHECK(choice->options[0] == "Modern");
                 CHECK(choice->options[1] == "Classic");
+#ifdef J3D_QOL_IMPROVEMENTS
                 CHECK(choice->enabled);
+#else
+                // The per-device styles are Enhanced-only; the rows are shown but locked.
+                CHECK_FALSE(choice->enabled);
+#endif
                 REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
                 CHECK(!controlsTab.help[i].empty());
             }
@@ -1134,7 +1150,11 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
                 REQUIRE(choice->options.size() == 2u);
                 CHECK(choice->options[0] == "Modern");
                 CHECK(choice->options[1] == "Classic");
+#ifdef J3D_QOL_IMPROVEMENTS
                 CHECK(choice->enabled);
+#else
+                CHECK_FALSE(choice->enabled);
+#endif
                 REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
                 CHECK(!controlsTab.help[i].empty());
             }
@@ -1257,6 +1277,7 @@ TEST_CASE("Q and E switch options tabs and keep a changed value")
     CHECK(ui.screenCount() == 0u);
 }
 
+#ifdef J3D_QOL_IMPROVEMENTS
 TEST_CASE("the Controls tab reads and writes the per-device control styles")
 {
     SettingsTestContext testContext;
@@ -1314,6 +1335,7 @@ TEST_CASE("the Controls tab reads and writes the per-device control styles")
     // The old single key is no longer written.
     CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
 }
+#endif
 
 TEST_CASE("the retail profile locks the Controls tab style rows")
 {
