@@ -83,6 +83,7 @@ namespace
         "Lit faces (applies when the display reopens)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayFOVText = "Field of view"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
 
@@ -92,6 +93,11 @@ namespace
     constexpr const char* kJonesDisplayRenderScaleLabels[] = {
         "50%", "67%", "75%", "100%", "125%", "150%", "200%" };
     constexpr std::size_t kJonesDisplayRenderScaleDefault = 3;
+
+    // Added: M9.8 anti-aliasing choices; SMAA (index 1) is the Enhanced default, off in Retail.
+    constexpr int kJonesDisplayAntiAliasingValues[] = { 0, 1 };
+    constexpr const char* kJonesDisplayAntiAliasingLabels[] = { "Off", "SMAA" };
+    constexpr std::size_t kJonesDisplayAntiAliasingDefault = J3D_QOL_VALUE(1, 0);
 
     // Added: M9.7 anisotropic filtering choices; 8x (index 3) is the Enhanced default.
     constexpr int kJonesDisplayAnisotropicValues[] = { 1, 2, 4, 8, 16 };
@@ -226,6 +232,12 @@ namespace
         }
 
         return best;
+    }
+
+    // The anti-aliasing choice of a stored value: SMAA for a nonzero one, Off otherwise.
+    std::size_t JonesUiDisplay_AntiAliasingIndex(int value)
+    {
+        return value != 0 ? 1u : 0u;
     }
 
     // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
@@ -393,6 +405,20 @@ namespace
             values.renderScale < STD_ARRAYLEN(kJonesDisplayRenderScaleValues)
                 ? values.renderScale : kJonesDisplayRenderScaleDefault });
 
+        // Added: M9.8. SMAA smooths the 3D scene's edges after the tone map; the HUD, menus and
+        // prompts are never anti-aliased.
+        std::vector<std::string> antiAliasingOptions;
+        for ( const char* pLabel : kJonesDisplayAntiAliasingLabels )
+        {
+            antiAliasingOptions.emplace_back(pLabel);
+        }
+        layout.antiAliasing = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayAntiAliasingText), std::string(),
+            std::move(antiAliasingOptions), true,
+            values.antiAliasing < STD_ARRAYLEN(kJonesDisplayAntiAliasingValues)
+                ? values.antiAliasing : kJonesDisplayAntiAliasingDefault });
+
         // Added: M9.7. Anisotropic filtering sharpens world and model textures seen at a slant;
         // off keeps the plain linear filter. Crisp pixels drops min/mag filtering to nearest for
         // the original look, while the mip filter follows the Mipmap filter row.
@@ -547,6 +573,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.gameplayFOV = sithCamera_GetGameplayFOV();
     model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
+    model.antiAliasing = JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, J3D_QOL_VALUE(1, 0));
     model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
     model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
 
@@ -563,6 +591,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.bLitFaces   = model.bLitFaces;
     values.gameplayFOV = (double)model.gameplayFOV;
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
+    values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
     values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
     values.bCrispPixels = model.bCrispPixels;
     return model;
@@ -608,6 +637,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.gameplayFOV));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.renderScale,
         values.renderScale));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.antiAliasing,
+        values.antiAliasing));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
         values.anisotropic));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.crispPixels,
@@ -799,6 +830,12 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplayRenderScaleValues) - 1);
     JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE,
         kJonesDisplayRenderScaleValues[renderScale]);
+
+    // Added: M9.8. Read when the frame owner opens, like the render scale.
+    const std::size_t antiAliasing = std::min(values.antiAliasing,
+        STD_ARRAYLEN(kJonesDisplayAntiAliasingValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING,
+        kJonesDisplayAntiAliasingValues[antiAliasing]);
 
     // Added: M9.7. Both are read by std3D_Open, so they take effect with the same display restart
     // the other presentation rows ask for.

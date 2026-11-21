@@ -10,10 +10,13 @@
 // chain, an ordered list of full-screen passes that is empty by default, and then, on a device with
 // a swapchain, runs the built-in final tone-map pass over the chain's output (the back buffer color
 // when the chain is empty) and writes it to the swapchain at the presented size, sampling with
-// linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. It then
-// composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that image,
-// before the prompt and menu present overlays. std3D records its scenes and HUD layer into the same
-// frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
+// linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. When the
+// anti-aliasing option is on (SMAA 1x, engine.renderer.antiAliasing) the tone map writes an LDR
+// image at the presented size instead, three SMAA passes smooth the scene's edges, and the last one
+// writes the swapchain; with it off the image is byte-identical to the plain tone-map present. It
+// then composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
+// image, so no anti-aliasing or scene effect touches the HUD, before the prompt and menu present
+// overlays. std3D records its scenes and HUD layer into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
 // translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
 // resampling between the scaled target and the display-sized image there.
 //
@@ -164,6 +167,16 @@ uint32_t stdRenderBabylon_GetRenderHeight();
 // the display size, coordinates and read-back image stay as they are.
 bool stdRenderBabylon_SetRenderScale(float scale);
 float stdRenderBabylon_GetRenderScale();
+
+// Added: SMAA 1x on the tone-mapped 3D scene, before the HUD layer composite. On: the final
+// tone-map pass writes an LDR image at the presented size, then luma edge detection, blending
+// weights (with SMAA's precomputed area and search textures) and neighbourhood blending write the
+// presented frame. Off: the plain tone-map present, byte-identical to the pre-M9.8 output. The HUD
+// layer, menus and prompts are never anti-aliased. Opening reads engine.renderer.antiAliasing
+// (0 off, 1 SMAA; default 1 in Enhanced builds, 0 in Retail/QOL-off ones); this setter changes it
+// until the next open. Closing frees the stage's targets, pipelines and textures.
+bool stdRenderBabylon_SetAntiAliasing(bool bEnabled);
+bool stdRenderBabylon_GetAntiAliasing();
 
 // The command list of the frame being recorded; begins a frame when none is. Must be open. The
 // reference is valid until stdRenderBabylon_SubmitFrame or stdRenderBabylon_Close.

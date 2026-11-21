@@ -62,6 +62,8 @@ separate program, not linked into the game, and its licenses (innoextract's zlib
 0BSD, zlib's zlib and bzip2's BSD-style terms) are under `usr/share/licenses/jones3d-ex/innoextract/`. The
 wizard looks for it beside the game executable first, then in `PATH`. The Windows zip does not bundle
 innoextract, so its players use an installed copy, a CD, a plain folder, or their own copy in `PATH`.
+The SMAA anti-aliasing shaders and precomputed textures are MIT-licensed; their licence is under
+`licenses/smaa/` in both packages.
 
 `cmake --install --component game` produces the tree both start from. The headless runner is a tools
 component and is not packaged. On Linux the same CPack setup can also make a

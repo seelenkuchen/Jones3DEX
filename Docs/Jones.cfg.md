@@ -57,6 +57,7 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
     "renderer": {
       "hipoly": true,
       "renderScale": 1.0,
+      "antiAliasing": 1,
       "texturePixelated": false,
       "fog": {
         "enabled": true,
@@ -253,6 +254,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance` | float | `18.0` | Default build value. Legacy/QOL-off builds use `8.0`. |
 | `engine.renderer.litFaces.enabled` | bool | `true` | Presentation only, in every build and both profiles. On: world surfaces and models reach the renderer as lit faces, with view-space positions and normals (smoothed across level edges under 45 degrees), which fill the normal target for later per-pixel passes; the colour is the same as off. Off: the classic path, exactly as before (classic draws only). Sky, sprites, particles, polylines, shadows and the HUD are always classic. Read when the display opens. |
 | `engine.renderer.renderScale` | float | `1.0` | Presentation only. The internal resolution of the 3D scene as a multiple of the game's video mode, clamped to `0.5`..`2.0` and to the device's texture limit (Options > Display, "Render scale": 50, 67, 75, 100, 125, 150 or 200%). Above 100% supersamples the scene; the final tone-map pass resolves it to the presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer's image and save thumbnails stay display-sized, and menus stay at the window's native resolution; the in-world HUD is drawn with the scene. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
+| `engine.renderer.antiAliasing` | int | `1` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Anti-aliasing": Off or SMAA). `1` runs SMAA 1x on the tone-mapped 3D scene at the presented resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are unchanged. `0` presents the plain tone-mapped image, byte-identical to before the option existed. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
 | `engine.renderer.texturePixelated` | bool | `false` | Presentation only (Options > Display, "Crisp pixels"). On: world and model textures use nearest minification and magnification, for the original sharp, blocky look; the mip filter is still the one `graphics.mipmapFilter` selects. Off: linear filtering where the game asks for it. The HUD, 2D layer and menus are unchanged. Read when the display opens. |
 | `engine.renderer.vfx.weapon.fireFlash.enabled` | bool | `true` | Default build value. Legacy/QOL-off builds use `false`. |
 | `engine.renderer.vfx.weapon.fireFlash.ambientThreshold` | float | `0.65` | Ambient-light threshold for projectile fire flash effects. |

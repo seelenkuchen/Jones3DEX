@@ -6,6 +6,10 @@
     presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
     thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
     display reopens, like the other Display options.
+  - **Options > Display** has an **Anti-aliasing** row (`engine.renderer.antiAliasing`, SMAA by default
+    in Enhanced and off in Retail). SMAA 1x runs on the tone-mapped 3D scene at the presented
+    resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are never anti-aliased.
+    Off presents exactly the previous image. Applies when the display reopens.
   - The gameplay HUD (health and endurance, item and weapon icons, compass, ammo and the inventory menu)
     draws at the display resolution after the scene's post effects, so it stays sharp at any render
     scale and is never blurred or tinted by them. The scene still renders at the chosen scale.

@@ -455,8 +455,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
-    // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anisotropic filtering,
-    // 12 crisp pixels, 13 OK, 14 back.
+    // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing,
+    // 12 anisotropic filtering, 13 crisp pixels, 14 OK, 15 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -478,6 +478,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left); // field of view 90 -> 89
     testContext.platform.PushKey(platform::Key::Down);  // render scale
     testContext.platform.PushKey(platform::Key::Right); // 100% -> 125%
+    testContext.platform.PushKey(platform::Key::Down);  // anti-aliasing
+    testContext.platform.PushKey(platform::Key::Left);  // SMAA -> Off
     testContext.platform.PushKey(platform::Key::Down);  // anisotropic filtering
     testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
     testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
@@ -513,6 +515,7 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(sithCamera_GetGameplayFOV() == doctest::Approx(89.0f));
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 0.0f)
         == doctest::Approx(1.25f));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
 #ifdef J3D_QOL_IMPROVEMENTS
     CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 4);
 #else
