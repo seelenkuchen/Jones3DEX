@@ -29,6 +29,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/jonesString.h>
+#include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 
@@ -90,6 +91,7 @@ namespace
     constexpr const char* kJonesDisplayExposureText = "Exposure"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayBrightnessText = "Brightness..."; // TODO: [COMPAT]
 
     // Added: M9.4 render scale choices. The value is a multiple of the game's 3D resolution; the
     // label is what the Options row shows. 100% (index 3) is the default.
@@ -563,6 +565,13 @@ namespace
             JonesUiDisplay_ResolveLabel(kJonesDisplayCrispPixelsText), std::string(), true,
             values.bCrispPixels });
 
+        // Added: opens the brightness calibration screen; the value is written there, not by
+        // this screen's OK.
+        layout.brightness = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Button{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayBrightnessText),
+            kJonesDisplayActionBrightness, true });
+
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
             JonesUiDisplay_ResolveLabel("OK"), kJonesDisplayActionOk, true });
@@ -1035,8 +1044,19 @@ int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
     {
         const babylon::ui::ActionPressed* pAction =
             std::get_if<babylon::ui::ActionPressed>(&event);
-        if ( !pAction || pAction->screen != screenId
-            || pAction->action != kJonesDisplayActionOk )
+        if ( !pAction || pAction->screen != screenId )
+        {
+            return false;
+        }
+
+        if ( pAction->action == kJonesDisplayActionBrightness )
+        {
+            // Added: the calibration keeps its own value and closes back to this screen.
+            static_cast<void>(JonesUiBrightness_Run(uiRef, pPainter));
+            return true;
+        }
+
+        if ( pAction->action != kJonesDisplayActionOk )
         {
             return false;
         }

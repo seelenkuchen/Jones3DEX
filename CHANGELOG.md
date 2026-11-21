@@ -29,6 +29,14 @@
     rolls off highlights and leaves midtones nearly unchanged; Filmic is the ACES fitted curve.
     Exposure scales the color before the curve. Clamp at exposure 1.0 presents exactly the previous
     image. Applies when the display reopens.
+  - **Options > Display** has a **Brightness...** entry and `engine.renderer.brightness` (0.6 to 1.8,
+    default 1.0). The calibration screen shows three symbols on black at scene values 0.03, 0.06 and
+    0.12, drawn with the final tone-map pass's formula, and a 0.05-step slider with **Default** (1.0).
+    It opens on the first windowed start when the key is missing from `Jones.cfg`, after the setup
+    wizard and before the main menu. OK and Back keep the value and write the key, like the other
+    Options changes, and the slider previews the open frame owner at once. The final pass applies the
+    gamma after the operator as `pow(saturate(x), 1 / brightness)`; 1.0 skips it and presents exactly
+    the previous image. Applies on the next display restart when the key is edited outside the screen.
   - The intermediate targets of the post-processing chain now use the scene's `Rgba16F` format
     where the device supports it, so a pass before the tone map keeps values above 1.0 instead of
     clamping them early. With no post passes nothing changes.

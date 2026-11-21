@@ -82,6 +82,11 @@ int J3DAPI jonesConfig_HasActiveControlScheme(void);
 int J3DAPI jonesConfig_ShowControlOptions(tSysWindow hWnd);
 int J3DAPI jonesConfig_ShowDisplaySettingsDialog(tSysWindow hWnd, StdDisplayEnvironment* pDisplayEnv, JonesDisplaySettings* pDSettings);
 int J3DAPI jonesConfig_ShowSoundSettingsDialog(tSysWindow hWnd, JonesSoundSettings* pData);
+// Added: the first-start brightness calibration (M9.11). Shows the screen once, before the main
+// menu, when engine.renderer.brightness is missing from Jones.cfg; returns 1 after OK and 2 after
+// back, once the value is written. The Null column and a run without a window do nothing and
+// answer 2. A present key is left alone.
+int J3DAPI jonesConfig_ShowBrightnessCalibrationIfUnset(tSysWindow hWnd);
 
 int J3DAPI jonesConfig_ShowGameOverDialog(tSysWindow hWnd, char* pRestoreFilename, tSoundHandle hSndGameOVerMus, tSoundChannelHandle* pSndChnlMus);
 int J3DAPI jonesConfig_ShowStatisticsDialog(tSysWindow hWnd, SithGameStatistics* pStatistics);

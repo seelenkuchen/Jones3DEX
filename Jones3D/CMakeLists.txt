@@ -54,6 +54,8 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiEndScreens.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiDisplaySettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiDisplaySettings.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiBrightnessCalibration.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiBrightnessCalibration.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSoundSettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSoundSettings.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPauseMenu.cpp"

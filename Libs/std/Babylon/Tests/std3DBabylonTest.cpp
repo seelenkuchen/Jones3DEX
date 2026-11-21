@@ -2360,10 +2360,12 @@ TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
     const StdRenderBabylonToneMap defaults = stdRenderBabylon_GetToneMap();
     TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.exposure);
     TEST_ASSERT_EQUAL_UINT32(0u, defaults.oper);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.brightness);
 
     stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.5f, 0u });
     TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetToneMap().exposure);
     TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().brightness);
 
     // Operators 1 (Neutral) and 2 (ACES fitted) are accepted; anything else changes nothing.
     stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 2.0f, 1u });
@@ -2376,11 +2378,18 @@ TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
     TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().exposure);
     TEST_ASSERT_EQUAL_UINT32(2u, stdRenderBabylon_GetToneMap().oper);
 
+    // Brightness is a positive finite gamma; a bad value changes nothing.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().brightness);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 0.0f });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().brightness);
+
     // The defaults return when the frame owner is closed and opened again.
     CloseStd3D();
     OpenStd3D();
     TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().exposure);
     TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().brightness);
 }
 
 TEST(std3DBabylon, CloseClearsThePresentOverlay)
@@ -3556,6 +3565,38 @@ TEST(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates)
     TEST_ASSERT_INT_WITHIN(2, bHdr ? 255 : 128, halfExposure);
 }
 
+TEST(std3DBabylonGpu, ToneMapBrightnessIsIdentityAtOneAndGammaAfterTheOperator)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    auto center = [](const std::vector<std::byte>& pixels)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + 2u];
+    };
+    auto capture = [&center](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return center(CapturePresented(64u, 64u));
+    };
+
+    // Brightness 1.0 skips the pow and presents the operator's output unchanged.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f });
+    const int identity = capture(0xFF404040u);
+
+    // 1.5 brightens the 0.25 scene value to pow(0.25, 1/1.5) within one 8-bit step.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f });
+    const int brightened = capture(0xFF404040u);
+    const int expected = (int)std::lround(255.0 * std::pow(64.0 / 255.0, 1.0 / 1.5));
+    TEST_ASSERT_INT_WITHIN(1, expected, brightened);
+    TEST_ASSERT_TRUE(brightened > identity);
+}
+
 TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)
 {
     std3DBabylonGpuTest_pPlatform = babylon::platform::createSdlPlatform();
@@ -4100,6 +4141,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, BloomLeavesASubThresholdImageUnchanged);
     RUN_TEST_CASE(std3DBabylonGpu, BloomLeavesTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates);
+    RUN_TEST_CASE(std3DBabylonGpu, ToneMapBrightnessIsIdentityAtOneAndGammaAfterTheOperator);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

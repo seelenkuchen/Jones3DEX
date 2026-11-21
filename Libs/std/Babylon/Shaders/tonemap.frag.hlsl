@@ -3,15 +3,16 @@
 // texture slot 0 and writes the presented frame: the swapchain, or the target of
 // stdRenderBabylon_RenderPresentToTexture. The color is display-referred, as the scene writes it
 // today, so there is no transfer function: output gamma is exactly the plain present pass's. The
-// parameters are exposure (multiplied in before the operator) and the operator in fragment uniform
-// block 0: 0 clamp, 1 Khronos PBR Neutral, 2 ACES fitted.
+// parameters are exposure (multiplied in before the operator), the operator and brightness in
+// fragment uniform block 0: operator 0 clamp, 1 Khronos PBR Neutral, 2 ACES fitted; brightness is
+// the gamma applied after the operator, and 1 skips it so the default is byte-identical.
 
 Texture2D<float4> gSource : register(t0, space2);
 SamplerState gSampler : register(s0, space2);
 
 cbuffer ToneMap : register(b0, space3)
 {
-    float4 gToneMap; // x: exposure; y: operator (0 = clamp, 1 = Neutral, 2 = ACES fitted)
+    float4 gToneMap; // x: exposure; y: operator (0 = clamp, 1 = Neutral, 2 = ACES fitted); z: brightness
 };
 
 // Added: Khronos PBR Neutral tone mapping, from the PBR_Neutral reference implementation
@@ -67,5 +68,13 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
 
     // Operator 0 and the target format's own clamp; the curves also end inside 0..1.
     color.rgb = saturate(color.rgb);
+
+    // Added: the brightness calibration's gamma, applied after the operator. 1.0 is the identity
+    // and skips the pow, so the default present is byte-identical to before.
+    if ( gToneMap.z != 1.0f )
+    {
+        color.rgb = pow(color.rgb, 1.0f / gToneMap.z);
+    }
+
     return color;
 }
