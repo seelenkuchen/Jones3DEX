@@ -25,9 +25,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
 // Added: what the activation and climb keys would do in the player's current movement state, for
 // the on-screen interaction prompt. The query follows the same order and guards as the input paths
-// (whip swing or climb while the whip is drawn; item, Activate, push/pull while standing; climb-on
-// and wall mount while standing, walking or running; pull-up while hanging or on a climbable wall;
-// water ledge while swimming), changes no state, and leaves the collision scratch as it found it.
+// (whip swing or climb while the whip is drawn or when quick whip can reach a target; item,
+// Activate, push/pull while standing; climb-on and wall mount while standing, walking or running;
+// pull-up while hanging or on a climbable wall; water ledge while swimming), changes no state, and
+// leaves the collision scratch as it found it.
 // It is 0 when a press would do nothing this slice can label.
 typedef enum eSithPlayerInteractionKind
 {
@@ -47,7 +48,8 @@ typedef struct sSithPlayerInteraction
 {
     SithPlayerInteractionKind kind;
     // The binding the press for this action reads: Activate for Use, Pick up and push/pull; Jump
-    // for climb-on and wall mount; Forward for the hanging pull-up.
+    // for climb-on and wall mount; Forward for the hanging pull-up; Quick whip for the quick whip
+    // swing and climb (the keyboard and pad bindings differ; the prompt resolves them per device).
     SithControlFunction control;
     SithSurface* pSurface;
     SithThing* pThing;

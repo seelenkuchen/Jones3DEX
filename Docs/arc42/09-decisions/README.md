@@ -42,3 +42,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0035](ADR-0035-native-resolution-menus.md) | Menus render at the window's native resolution | Accepted |
 | [ADR-0036](ADR-0036-button-layout-binding-screens.md) | Controller and Keyboard & Mouse Button Layout screens | Accepted |
 | [ADR-0037](ADR-0037-side-effect-free-presentation-queries.md) | Presentation queries are side-effect free | Accepted |
+| [ADR-0038](ADR-0038-quick-whip.md) | Quick whip reuses the Modern step-left row | Accepted |

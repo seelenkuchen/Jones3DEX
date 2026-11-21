@@ -164,3 +164,11 @@ existed:
 With the default styles the headless traces are byte-identical to the build before the option: the
 keyboard still takes the pre-option translator path, and the gamepad Modern style is that build's
 behaviour. The Retail profile keeps the true tank movement and the same trace.
+
+## Amendment (2026-11-21): quick whip on the Modern step-left row
+
+The Modern gamepad's step-left row now carries quick whip instead of a reserved LB. The binder maps
+that row's gamepad control (LB) to `SITHCONTROL_QUICKWHIP`, and the Button Layout's Controller screen
+names the row **Quick whip**; the keyboard screen and the Classic style keep **Step Left**. RB's
+quick-step modifier and the Classic held sidesteps are unchanged, and the `.kfg` format keeps its 37
+actions. See [ADR-0038](ADR-0038-quick-whip.md).

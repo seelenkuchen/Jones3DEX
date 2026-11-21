@@ -240,6 +240,8 @@ namespace
         screen.help[layout.blood] = "Show blood splatter effects when enemies are hit.";
         screen.help[layout.interactionPrompts] =
             "Show a small Use or Pick up hint when the player can interact.";
+        screen.help[layout.quickWhip] =
+            "Swing the whip at a target without drawing it first, then switch back.";
         screen.help[layout.profile] =
             "The game profile is fixed by this build and cannot be changed here.";
         screen.help[layout.fireFlash] = "Show the flash at the weapon muzzle when firing.";

@@ -628,13 +628,14 @@ static const JonesConfigControlAction jonesConfig_aDefaultPadControlSet[JONESCON
 // model: WASD and the arrows move, Left Alt is the quick-step modifier for a held direction,
 // Space jumps, Ctrl and the left mouse button activate and fire, R draws, V and the middle mouse
 // button snap the camera. The step-right row carries the quick-step key, which the Modern binder
-// maps to SITHCONTROL_QUICKSTEP; the step-left row is free, so LB is unbound in this scheme. Its
-// gamepad part is the keyboard-and-gamepad scheme's, with LT still stored as Run so the Modern
-// binder maps it to target lock.
+// maps to SITHCONTROL_QUICKSTEP, and the step-left row carries only LB, which it maps to
+// SITHCONTROL_QUICKWHIP (ADR-0038). Its gamepad part is the keyboard-and-gamepad scheme's, with
+// LT still stored as Run so the Modern binder maps it to target lock.
 static const size_t aActionWalkFwdModernKeys[2]       = { STDKEY_W, STDKEY_UP };
 static const size_t aActionWalkBackModernKeys[2]      = { STDKEY_S, STDKEY_DOWN };
 static const size_t aActionTurnLeftModernKeys[2]      = { STDKEY_A, STDKEY_LEFT };
 static const size_t aActionTurnRightModernKeys[2]     = { STDKEY_D, STDKEY_RIGHT };
+static const size_t aActionStepLeftModernKeys[1]      = { STDCONTROL_JOYSTICK_GETBUTTON(0, 4) };
 static const size_t aActionStepRightModernKeys[2]     = { STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
 static const size_t aActionCrawlModernKeys[2]         = { STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) };
 static const size_t aActionRunModernKeys[2]           = { STDKEY_LSHIFT, JONESCONFIG_JOYAXISKID_GROUND };
@@ -657,7 +658,7 @@ static const JonesConfigControlAction jonesConfig_aDefaultModernControlSet[JONES
     { STD_ARRAYLEN(aActionWalkBackModernKeys)    , aActionWalkBackModernKeys     },
     { STD_ARRAYLEN(aActionTurnLeftModernKeys)    , aActionTurnLeftModernKeys     },
     { STD_ARRAYLEN(aActionTurnRightModernKeys)   , aActionTurnRightModernKeys    },
-    { 0                                          , NULL                          },
+    { STD_ARRAYLEN(aActionStepLeftModernKeys)    , aActionStepLeftModernKeys     },
     { STD_ARRAYLEN(aActionStepRightModernKeys)   , aActionStepRightModernKeys    },
     { STD_ARRAYLEN(aActionCrawlModernKeys)       , aActionCrawlModernKeys        },
     { STD_ARRAYLEN(aActionRunModernKeys)         , aActionRunModernKeys          },
@@ -2258,12 +2259,13 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
     // Added: the styles are per device. A scheme's step rows become quick-step modifiers in the
     // Enhanced keyboard styles and on a Modern gamepad, and stay held sidesteps on a Classic one, so
-    // both real step functions and the shared modifier are unbound once here; each control is then
-    // bound by its device's style.
+    // both real step functions, the shared modifier and the quick whip are unbound once here; each
+    // control is then bound by its device's style.
     const bool bGamepadModern = sithControl_IsModernGamepadStyle();
     sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
     sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
     sithControl_UnbindFunction(SITHCONTROL_QUICKSTEP);
+    sithControl_UnbindFunction(SITHCONTROL_QUICKWHIP);
 
     // Altered: enable/disable the mouse before the action loop, not after it. sithControl_RebindMouse
     // removes every mouse-button binding, so the original order dropped a scheme's mouse bindings.
@@ -2449,18 +2451,18 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                     {
                         // Added: the keyboard keeps the pre-option quick-step rows in every
                         // Enhanced style, so "Classic" is exactly today's keyboard behaviour. The
-                        // gamepad follows its own style. The owner reserves LB for a weapon wheel,
-                        // so in Modern a step-left gamepad control stays unbound; RB (the
-                        // step-right row) is the quick-step modifier.
+                        // gamepad follows its own style: RB (the step-right row) is the quick-step
+                        // modifier, and LB (the step-left row) is the quick whip key. A Classic
+                        // gamepad keeps both rows as held sidesteps.
                         const bool bQuickStep = bKeyboardControl
                             ? sithControl_IsModernMovementEnabled() : bGamepadModern;
-                        if ( bQuickStep && functionId == SITHCONTROL_STPLEFT
-                            && !bKeyboardControl )
+                        if ( bQuickStep )
                         {
-                            continue;
+                            // Added: the .kfg format keeps 37 actions, so the unused Modern
+                            // step-left gamepad control carries quick whip (ADR-0038).
+                            bindFunctionId = (functionId == SITHCONTROL_STPLEFT && !bKeyboardControl)
+                                ? SITHCONTROL_QUICKWHIP : SITHCONTROL_QUICKSTEP;
                         }
-
-                        bindFunctionId = bQuickStep ? SITHCONTROL_QUICKSTEP : functionId;
                     }
 
                     // Added: in Modern the gamepad left trigger locks a target; Run comes from the

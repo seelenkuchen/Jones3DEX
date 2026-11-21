@@ -164,6 +164,14 @@ void sithWeapon_Open(void)
         stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_BLOODSPLATTER, sithWeapon_bGenBloodSplatter);
     }
 
+    // Added: quick whip config read. Enhanced defaults it on, the Retail profile always off.
+    sithWeapon_bQuickWhipEnabled = J3D_QOL_VALUE(
+        stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true), false);
+    if ( !stdConfig_Contains(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP) )
+    {
+        stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, sithWeapon_bQuickWhipEnabled);
+    }
+
     // Added: Added weapon fire flash fx config read
     sithWeapon_bProjectileFireFlashFx = stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, sithWeapon_bProjectileFireFlashFx);
     if ( !stdConfig_Contains(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED) )

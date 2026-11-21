@@ -66,6 +66,7 @@ namespace
     constexpr const char* kPressPadText       = "Press a button...";   // TODO: [COMPAT]
     constexpr const char* kPressKeyText       = "Press a key...";      // TODO: [COMPAT]
     constexpr const char* kUnboundText        = "Not bound";           // TODO: [COMPAT]
+    constexpr const char* kQuickWhipText      = "Quick whip";          // TODO: [COMPAT]
     constexpr const char* kLeftStickModernText =
         "Moved with the left stick in the Modern style.";  // TODO: [COMPAT]
     constexpr const char* kRightStickModernText =
@@ -729,13 +730,25 @@ std::vector<JonesUiButtonLayoutRow> JonesUiButtonLayout_BuildRows(
         JonesUiButtonLayoutRow row;
         row.action = (JonesControlActions)action;
         row.name = ActionName((JonesControlActions)action);
+
+        // Added: in the Modern gamepad style the step-left row carries quick whip, not a sidestep
+        // (ADR-0038). Its gamepad binding is LB, so it is named for the action and is not shown as
+        // a stick row; the keyboard screen and the Classic style keep "Step Left".
+        const bool bQuickWhipRow = device == JonesUiButtonLayoutDevice::Controller
+            && action == (std::size_t)JONESCONTROL_ACTION_STEPLEFT
+            && sithControl_IsModernGamepadStyle();
+        if ( bQuickWhipRow )
+        {
+            row.name = kQuickWhipText;
+        }
+
         if ( JonesUiButtonLayout_GetDeviceBinding(scheme, (JonesControlActions)action, device,
                 row.controlId) )
         {
             row.binding = ControlName(row.controlId);
         }
 
-        if ( device == JonesUiButtonLayoutDevice::Controller )
+        if ( device == JonesUiButtonLayoutDevice::Controller && !bQuickWhipRow )
         {
             row.stickOwnership = JonesUiControls_GetModernStickOwnership(
                 (JonesControlActions)action);

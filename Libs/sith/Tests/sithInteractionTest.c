@@ -792,6 +792,35 @@ TEST(sithInteraction, NoWhipDrawnGetsNoWhipPrompt)
     TEST_ASSERT_EQUAL_INT(0, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
 }
 
+TEST(sithInteraction, QuickWhipQueryShowsSwingAndClimbWithItsBinding)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipScene();
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_WHIP_SWING, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_QUICKWHIP, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+
+    // The same query answers the climb target and kind from the whip finders.
+    COG->flags = SITH_TF_WHIPCLIMB;
+    COG->pos = (rdVector3){ 0.0f, 0.0f, 0.4f };
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_WHIP_CLIMB, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_QUICKWHIP, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+
+    // With the option off the fast path is gone, so with no other target there is no prompt.
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_WHIPAIM | SITH_SURFACE_COLLISION);
+    sithWeapon_SetQuickWhipEnabled(0);
+    TEST_ASSERT_FALSE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_NONE, interaction.kind);
+}
+
 TEST(sithInteraction, WhipQueryRejectsDisabledControlsAndMoveStatusAboveRunning)
 {
     sithInteractionTest_EquipWhip(COG, NULL);
@@ -1100,6 +1129,7 @@ TEST_GROUP_RUNNER(sithInteraction)
     RUN_TEST_CASE(sithInteraction, WhipClimbQueryShowsClimbWithActivate);
     RUN_TEST_CASE(sithInteraction, WhipSwingTargetFlaggedClimbGetsNoPrompt);
     RUN_TEST_CASE(sithInteraction, NoWhipDrawnGetsNoWhipPrompt);
+    RUN_TEST_CASE(sithInteraction, QuickWhipQueryShowsSwingAndClimbWithItsBinding);
     RUN_TEST_CASE(sithInteraction, WhipQueryRejectsDisabledControlsAndMoveStatusAboveRunning);
     RUN_TEST_CASE(sithInteraction, WhipQueryChangesNoState);
     RUN_TEST_CASE(sithInteraction, WhipSearchSetsTheSwingTarget);

@@ -1103,14 +1103,34 @@ static const char* JonesHud_InteractionPromptVerb(JonesHudInteractionPrompt prom
 }
 
 // Added: the query reports the Sith control function the press reads; the prompt draws the same
-// action's binding from the active scheme.
-static JonesControlActions JonesHud_InteractionPromptControl(SithControlFunction control)
+// action's binding from the active scheme. Quick whip's keyboard and pad presses read different
+// rows, so it reports one action per device; in Classic the pad has no quick whip, so it draws no
+// pad binding.
+static void JonesHud_InteractionPromptControls(SithControlFunction control,
+    JonesControlActions* pKeyboardControl, JonesControlActions* pControllerControl)
 {
     switch ( control )
     {
-        case SITHCONTROL_JUMP:    return JONESCONTROL_ACTION_JUMP;
-        case SITHCONTROL_FORWARD: return JONESCONTROL_ACTION_WALKFORWARD;
-        default:                  return JONESCONTROL_ACTION_ACTIVATE;
+        case SITHCONTROL_JUMP:
+            *pKeyboardControl   = JONESCONTROL_ACTION_JUMP;
+            *pControllerControl = JONESCONTROL_ACTION_JUMP;
+            break;
+
+        case SITHCONTROL_FORWARD:
+            *pKeyboardControl   = JONESCONTROL_ACTION_WALKFORWARD;
+            *pControllerControl = JONESCONTROL_ACTION_WALKFORWARD;
+            break;
+
+        case SITHCONTROL_QUICKWHIP:
+            *pKeyboardControl   = JONESCONTROL_ACTION_WHIP;
+            *pControllerControl = sithControl_IsModernGamepadStyle()
+                ? JONESCONTROL_ACTION_STEPLEFT : JONESHUD_PROMPTCONTROL_NONE;
+            break;
+
+        default:
+            *pKeyboardControl   = JONESCONTROL_ACTION_ACTIVATE;
+            *pControllerControl = JONESCONTROL_ACTION_ACTIVATE;
+            break;
     }
 }
 
@@ -1221,6 +1241,7 @@ void JonesHud_UpdateInteractionPrompt(void)
 {
     JonesHudInteractionPrompt prompt = JONESHUD_INTERACTIONPROMPT_NONE;
     JonesControlActions control       = JONESCONTROL_ACTION_ACTIVATE;
+    JonesControlActions controllerControl = JONESCONTROL_ACTION_ACTIVATE;
     SithPlayerInteraction interaction;
     STD_ZEROMEM(&interaction, sizeof(interaction));
 
@@ -1233,11 +1254,11 @@ void JonesHud_UpdateInteractionPrompt(void)
         && !JonesHud_pCurInvChangedItem
         && sithPlayerControls_QueryInteraction(sithPlayer_g_pLocalPlayerThing, &interaction) )
     {
-        prompt  = JonesHud_InteractionPromptFromKind(interaction.kind);
-        control = JonesHud_InteractionPromptControl(interaction.control);
+        prompt = JonesHud_InteractionPromptFromKind(interaction.kind);
+        JonesHud_InteractionPromptControls(interaction.control, &control, &controllerControl);
     }
 
-    JonesHudPrompt_SetInteraction(prompt, control);
+    JonesHudPrompt_SetInteractionPerDevice(prompt, control, controllerControl);
     JonesHud_LogInteractionPrompt(prompt, control,
         prompt != JONESHUD_INTERACTIONPROMPT_NONE ? &interaction : NULL);
 }

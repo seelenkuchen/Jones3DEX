@@ -15,6 +15,7 @@ J3D_EXTERN_C_START
 #define SITHWEAPON_HOLSTERBACK   3
 
 #define SITHWEAPON_CFG_GAMEPLAY_BLOODSPLATTER                       "gameplay.bloodSplatter"
+#define SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP                           "gameplay.quickWhip"
 #define SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED   "engine.renderer.vfx.weapon.fireFlash.enabled"
 #define SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_THRESHOLD "engine.renderer.vfx.weapon.fireFlash.ambientThreshold"
 

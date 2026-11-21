@@ -153,9 +153,19 @@ namespace
             ? JonesUiButtonLayoutDevice::KeyboardMouse
             : JonesUiButtonLayoutDevice::Controller;
 
+        // Added: quick whip's keyboard and pad presses read different rows, so the prompt keeps one
+        // action per device. NONE means this device has no binding for the prompt (quick whip's pad
+        // in the Classic style), so no icon is drawn.
+        const JonesControlActions action =
+            uiDevice == JonesUiButtonLayoutDevice::Controller
+            ? JonesHudPrompt_GetControllerControl() : JonesHudPrompt_GetControl();
+        if ( action == JONESHUD_PROMPTCONTROL_NONE )
+        {
+            return 0;
+        }
+
         std::size_t controlId = 0;
-        if ( !JonesUiButtonLayout_GetDeviceBinding(*pScheme, JonesHudPrompt_GetControl(),
-                uiDevice, controlId) )
+        if ( !JonesUiButtonLayout_GetDeviceBinding(*pScheme, action, uiDevice, controlId) )
         {
             return 0;
         }

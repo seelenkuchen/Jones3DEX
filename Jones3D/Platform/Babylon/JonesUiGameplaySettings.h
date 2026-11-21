@@ -28,6 +28,7 @@ struct JonesUiGameplayValues
     bool bReticle = false;
     bool bBlood = false;
     bool bInteractionPrompts = false;
+    bool bQuickWhip = false;
     bool bFireFlash = false;
     bool bExternalMaterials = false;
     bool bExternalKeyframes = false;
@@ -44,6 +45,7 @@ struct JonesUiGameplayLayout
     std::size_t blood = 0;
     std::size_t profile = 0;
     std::size_t interactionPrompts = 0;
+    std::size_t quickWhip = 0;
     std::size_t fireFlash = 0;
     std::size_t externalMaterials = 0;
     std::size_t externalKeyframes = 0;

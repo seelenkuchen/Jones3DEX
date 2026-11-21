@@ -1452,6 +1452,22 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
         }
     }
 
+    // Added: with the whip not drawn, quick whip owns its binding at a target, so the prompt
+    // shows the Swing or Climb the press would perform. CanQuickWhip is read-only and returns 0
+    // when the whip is current or the option is off.
+    {
+        SithThing* pQuickWhipTarget = NULL;
+        int bQuickWhipSwing = 0;
+        if ( sithWeapon_CanQuickWhip(pThing, &pQuickWhipTarget, &bQuickWhipSwing) )
+        {
+            pOut->kind    = bQuickWhipSwing
+                ? SITHPLAYERINTERACTION_WHIP_SWING : SITHPLAYERINTERACTION_WHIP_CLIMB;
+            pOut->control = SITHCONTROL_QUICKWHIP;
+            pOut->pThing  = pQuickWhipTarget;
+            return 1;
+        }
+    }
+
     const bool bUnderwater = (pThing->pInSector->flags & (SITH_SECTOR_UNDERWATER | SITH_SECTOR_AETHERIUM)) != 0;
     const bool bOnWaterSurface = (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0;
     const SithThingMoveStatus moveStatus = pThing->moveStatus;

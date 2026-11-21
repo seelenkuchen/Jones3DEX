@@ -70,7 +70,8 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
   },
   "gameplay": {
     "defaultRun": false,
-    "bloodSplatter": true
+    "bloodSplatter": true,
+    "quickWhip": true
   }
 }
 ```
@@ -186,6 +187,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `gameplay.mapRotation` | bool | `false` | Rotates the overlay map with player facing. |
 | `gameplay.lastSaveGame` | string | auto | Last save filename used by the save/load flow. Engine-managed. |
 | `gameplay.bloodSplatter` | bool | `true` | Enables the hit blood-splatter effect. |
+| `gameplay.quickWhip` | bool | `true` | Simulation. Enhanced only: at a whip target, LB (Modern gamepad) or the whip's select key (keyboard) swings or climbs without drawing the whip first, then switches back. On by default in Enhanced; the Retail profile is locked off. The pending state is not saved, so a save made during a quick whip loads with the whip drawn. |
 
 A connected gamepad is always on and works alongside the keyboard and mouse. The old
 `controls.controller` key is ignored when present and removed from the file on the next save.
