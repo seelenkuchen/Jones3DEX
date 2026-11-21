@@ -811,11 +811,13 @@ Five DX9 texture formats are offered, each matched to a Babylon format with the 
 
 `R8G8B8` is left out because no GPU API samples 24-bit texels. Texture allocation keeps owned system-memory copies of every mip, and the cache uploads every mip whose dimensions halve as Babylon's chain expects; a level that does not ends the chain with a warning. Pixels whose `ColorInfo` already matches the format's layout are copied unchanged, others are converted through `stdColor`, and formats without alpha get alpha 255. The texture cache follows `std3DX9.c`: frame counts, the linked cache list, and a purge of old entries when a texture does not fit the device's reported free memory.
 
+A material that brings only its top level gets a full mip chain generated when it is uploaded, as long as `graphics.mipmapFilter` is not `0` (M9.7). Each level is box-filtered from the one above in RGBA8, then encoded into the texture's format. Alpha is handled so the transparent colour cannot bleed into visible texels: a 1-bit-alpha (colour-keyed) texture averages only its opaque texels and stays opaque when any contributor is opaque, a texture with more alpha bits is averaged premultiplied and then unpremultiplied, and a format without alpha averages every texel. The generated levels exist only in the GPU texture; the system-memory copies and `std3D_GetMipMapCount` keep the material's own count.
+
 ### Pipelines, Samplers And Draws
 
 `std3D_GetPipeline` caches one pipeline per primitive and Z-write bit: three primitives (triangle list, line strip, point list) times Z write on or off. Triangles use `std3d.frag.hlsl`, lines and points the wireframe shader. All of them blend source alpha over inverse source alpha, test Z with `LessOrEqual`, write Z as `STD3D_RS_ZWRITE_DISABLED` says, and cull nothing, as `std3DX9.c` set the Direct3D state. Their second color target is the normal target (see above).
 
-`std3D_GetSampler` caches 16 samplers, indexed by four bits worked out at each draw: linear filtering, linear mip filtering, clamp U and clamp V. It creates each one on first use. Anisotropic requests filter linearly because no device here filters anisotropically, as in `std3DX9.c`; the mip filter is linear for trilinear and nearest otherwise.
+`std3D_GetSampler` caches samplers, indexed by bits worked out at each draw: linear filtering, linear mip filtering, clamp U, clamp V, the anisotropic level and the crisp-pixels toggle. It creates each one on first use. An anisotropic request takes the level of `graphics.anisotropicFilter` (1, 2, 4, 8 or 16; 1 keeps linear filtering, and an old boolean value reads as 8/1); the mip filter is linear for trilinear and nearest otherwise. `engine.renderer.texturePixelated` forces min and mag to nearest for world and model textures while leaving the mip filter alone, for the original look. Both options are read when the display opens, so they apply on the same display restart as the other Display options; the HUD, 2D layer and menus draw through Babylon's UI painter and never see them.
 
 A draw streams its vertices, and for triangles its indices, into the frame's vertex and index buffers with `CommandList::updateBuffer` at growing offsets. `updateBuffer` cannot be recorded inside a pass, so the draw is streamed right away and the pass is recorded when it ends, at `std3D_EndScene` and at a `std3D_ClearZBuffer` inside a scene. The scene's Direct3D clears become the pass load operations, and the buffers start smaller than the DX9 64 MiB ones and grow when a frame needs more, destroying the old buffer after the frame's submit.
 
@@ -891,6 +893,6 @@ The biggest architectural extensions were:
 - wider texture-format handling, including true-color textures
 - breadth-first off-screen thing/light traversal
 - longer default collection distances
-- modern filtering options, automatic mipmap generation, and MSAA support in the lower graphics layer (removed with DX9)
+- modern filtering options and automatic mipmap generation in the Babylon lower graphics layer (M9.7), and MSAA support in the removed DX9 layer
 
 Crucially, those changes sit underneath or alongside the original scene-graph/sector-portal logic instead of replacing the entire renderer design. The renderer still thinks in terms of sectors, surfaces, adjoins, clip frusta, thing sectors, and per-vertex dynamic lights.

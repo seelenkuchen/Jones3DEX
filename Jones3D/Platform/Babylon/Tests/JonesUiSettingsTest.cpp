@@ -55,7 +55,9 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
+#include <std/Babylon/std3DBabylon.h>
 #include <std/General/std.h>
+#include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdPlatform.h>
@@ -453,7 +455,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
-    // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 OK, 12 back.
+    // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anisotropic filtering,
+    // 12 crisp pixels, 13 OK, 14 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -475,6 +478,10 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left); // field of view 90 -> 89
     testContext.platform.PushKey(platform::Key::Down);  // render scale
     testContext.platform.PushKey(platform::Key::Right); // 100% -> 125%
+    testContext.platform.PushKey(platform::Key::Down);  // anisotropic filtering
+    testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
+    testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
+    testContext.platform.PushKey(platform::Key::Enter); // crisp pixels on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
 
@@ -506,6 +513,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(sithCamera_GetGameplayFOV() == doctest::Approx(89.0f));
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 0.0f)
         == doctest::Approx(1.25f));
+    CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 4);
+    CHECK(stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false));
     char aDisplay[128] = { 0 };
     CHECK(stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aDisplay,
         sizeof(aDisplay), ""));
@@ -562,6 +571,32 @@ TEST_CASE("the display screen back writes nothing")
     CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, false));
     CHECK(sithModel_IsHiPolyEnabled());
     CHECK(sithRender_g_fogDensity == doctest::Approx(100.0f));
+}
+
+TEST_CASE("the anisotropic filtering key accepts the old boolean form")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == J3D_QOL_VALUE(8, 1));
+
+    // An existing Jones.cfg from before the level existed holds true or false.
+    REQUIRE(stdConfig_SetBool(STD3D_CFG_ANISOTROPICFILTER, true));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 8);
+    REQUIRE(stdConfig_SetBool(STD3D_CFG_ANISOTROPICFILTER, false));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 1);
+
+    REQUIRE(stdConfig_SetInt(STD3D_CFG_ANISOTROPICFILTER, 4));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 4);
+    // A hand-edited value snaps to the next lower offered step.
+    REQUIRE(stdConfig_SetInt(STD3D_CFG_ANISOTROPICFILTER, 3));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 2);
+    REQUIRE(stdConfig_SetInt(STD3D_CFG_ANISOTROPICFILTER, 100));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 16);
+
+    CHECK_FALSE(std3DBabylon_ReadTexturePixelated());
+    REQUIRE(stdConfig_SetBool(STD3D_CFG_TEXTUREPIXELATED, true));
+    CHECK(std3DBabylon_ReadTexturePixelated());
 }
 
 TEST_CASE("Alt+Enter toggles fullscreen and writes graphics.window")

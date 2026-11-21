@@ -26,6 +26,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <variant>
@@ -177,6 +178,44 @@ namespace
             bytes.insert(bytes.end(), pRow, pRow + rowBytes);
         }
         return bytes;
+    }
+
+    // Writes one encoded texel of ci into a locked VBuffer.
+    void SetTexel(tVBuffer* pVBuffer, const ColorInfo& ci, uint32_t x, uint32_t y, uint32_t value)
+    {
+        const size_t texelBytes = ci.bpp / 8u;
+        uint8_t* pTexel = pVBuffer->pPixels + y * pVBuffer->rasterInfo.rowSize + x * texelBytes;
+        for ( size_t i = 0; i < texelBytes; ++i )
+        {
+            pTexel[i] = (uint8_t)(value >> (8u * i));
+        }
+    }
+
+    // One little-endian texel of upload bytes.
+    uint32_t ReadTexel(const std::vector<std::byte>& data, size_t index, size_t texelBytes)
+    {
+        uint32_t value = 0;
+        for ( size_t i = 0; i < texelBytes; ++i )
+        {
+            value |= (uint32_t)(uint8_t)data[index * texelBytes + i] << (8u * i);
+        }
+        return value;
+    }
+
+    // The last texture bound by a recorded draw.
+    render::BindTexture LastBoundTexture()
+    {
+        const std::vector<render::RecordedCommand>& recorded = Null().recorded();
+        for ( auto it = recorded.rbegin(); it != recorded.rend(); ++it )
+        {
+            if ( const render::BindTexture* pBind = std::get_if<render::BindTexture>(&*it) )
+            {
+                return *pBind;
+            }
+        }
+
+        TEST_FAIL_MESSAGE("no BindTexture recorded");
+        return {};
     }
 
     void AssertBytes(const std::vector<std::byte>& expected, const std::vector<std::byte>& actual)
@@ -374,8 +413,8 @@ TEST(std3DBabylon, OneDeviceDescribesTheRenderDevice)
     TEST_ASSERT_EQUAL_size_t(8192u, pDevice->maxTexWidth);   // the Null device's maxTextureDimension
     TEST_ASSERT_EQUAL_size_t(8192u, pDevice->maxTexHeight);
     TEST_ASSERT_EQUAL_size_t(65535u, pDevice->maxVertexCount);
-    TEST_ASSERT_FALSE(pDevice->bAnisotropicFilteringSupported);
-    TEST_ASSERT_FALSE(pDevice->bMipmapAutoGenSupported);
+    TEST_ASSERT_TRUE(pDevice->bAnisotropicFilteringSupported);
+    TEST_ASSERT_TRUE(pDevice->bMipmapAutoGenSupported);
     TEST_ASSERT_FALSE(pDevice->bMSAASupported);
     TEST_ASSERT_EQUAL_STRING("Jones3D Babylon Display (Babylon render, null)", pDevice->deviceDescription);
     TEST_ASSERT_EQUAL_STRING("stdDisplayBabylon", pDevice->deviceName);
@@ -520,6 +559,175 @@ TEST(std3DBabylon, MipFilterNoneUploadsOneLevel)
     std3D_ClearSystemTexture(&texture);
     stdDisplay_VBufferFree(apMips[0]);
     stdDisplay_VBufferFree(apMips[1]);
+}
+
+TEST(std3DBabylon, SingleLevelTexturesGetAGeneratedMipChain)
+{
+    OpenStd3D(); // the default trilinear mip filter generates
+
+    // Four 2x2 blocks, each one colour, so every generated level has an exact expected texel.
+    const uint8_t aBlocks[4][3] = {
+        { 0, 0, 0 }, { 40, 80, 120 }, { 160, 120, 80 }, { 200, 160, 40 },
+    };
+    tVBuffer* pVBuffer = NewVBuffer(stdColor_cfARGB8888, 4u, 4u, 0);
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferLock(pVBuffer));
+    for ( uint32_t y = 0; y < 4u; ++y )
+    {
+        for ( uint32_t x = 0; x < 4u; ++x )
+        {
+            const uint8_t* pBlock = aBlocks[(y / 2u) * 2u + x / 2u];
+            SetTexel(pVBuffer, stdColor_cfARGB8888, x, y,
+                stdColor_EncodeRGBA(&stdColor_cfARGB8888, pBlock[0], pBlock[1], pBlock[2], 255));
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pVBuffer));
+
+    static tSystemTexture texture;
+    std3D_AllocSystemTexture(&texture, &pVBuffer, 1u, STDCOLOR_FORMAT_RGBA);
+    TEST_ASSERT_EQUAL_size_t(1u, std3D_GetMipMapCount(&texture)); // one source level
+    std3D_AddToTextureCache(&texture, STDCOLOR_FORMAT_RGBA);
+    TEST_ASSERT_NOT_NULL(texture.pCachedTexture);
+
+    // The generated 2x2 level holds the blocks; 4x4 has three levels.
+    const std::vector<std::byte> mip1 = Null().readTexture(CachedHandle(texture), 1);
+    TEST_ASSERT_EQUAL_size_t(2u * 2u * 4u, mip1.size());
+    for ( size_t i = 0; i < 4u; ++i )
+    {
+        uint8_t r = 0, g = 0, b = 0, a = 0;
+        stdColor_DecodeRGBA(ReadTexel(mip1, i, 4u), &stdColor_cfARGB8888, &r, &g, &b, &a);
+        TEST_ASSERT_EQUAL_INT(aBlocks[i][0], r);
+        TEST_ASSERT_EQUAL_INT(aBlocks[i][1], g);
+        TEST_ASSERT_EQUAL_INT(aBlocks[i][2], b);
+        TEST_ASSERT_EQUAL_INT(0xFF, a);
+    }
+
+    // The 1x1 level is the average of the four blocks.
+    const std::vector<std::byte> mip2 = Null().readTexture(CachedHandle(texture), 2);
+    TEST_ASSERT_EQUAL_size_t(4u, mip2.size());
+    uint8_t r = 0, g = 0, b = 0, a = 0;
+    stdColor_DecodeRGBA(ReadTexel(mip2, 0, 4u), &stdColor_cfARGB8888, &r, &g, &b, &a);
+    TEST_ASSERT_EQUAL_INT(100, r);
+    TEST_ASSERT_EQUAL_INT(90, g);
+    TEST_ASSERT_EQUAL_INT(60, b);
+    TEST_ASSERT_EQUAL_INT(0xFF, a);
+
+    // A 4x4 texture has no level 3.
+    TEST_ASSERT_TRUE(ReadTexture(CachedHandle(texture), 3).empty());
+
+    std3D_ClearSystemTexture(&texture);
+    stdDisplay_VBufferFree(pVBuffer);
+}
+
+TEST(std3DBabylon, GeneratedMipsKeepTheColourKeyColourOut)
+{
+    OpenStd3D();
+
+    // A colour-keyed texture (1-bit alpha): an opaque red half and a transparent green half.
+    // Mask averaging may only take the red, so the green key colour never reaches a visible texel.
+    const uint32_t red   = (31u << 10) | (1u << 15); // R5=31, A1=1
+    const uint32_t green = (31u << 5);               // G5=31, A1=0
+    tVBuffer* pVBuffer = NewVBuffer(stdColor_cfARGB5551, 4u, 4u, 0);
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferLock(pVBuffer));
+    for ( uint32_t y = 0; y < 4u; ++y )
+    {
+        for ( uint32_t x = 0; x < 4u; ++x )
+        {
+            SetTexel(pVBuffer, stdColor_cfARGB5551, x, y, x < 2u ? red : green);
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pVBuffer));
+
+    static tSystemTexture texture;
+    std3D_AllocSystemTexture(&texture, &pVBuffer, 1u, STDCOLOR_FORMAT_RGBA_1BITALPHA);
+    std3D_AddToTextureCache(&texture, STDCOLOR_FORMAT_RGBA_1BITALPHA);
+    TEST_ASSERT_NOT_NULL(texture.pCachedTexture);
+
+    // The 2x2 level: left texels stay opaque red, right ones transparent with no green.
+    const std::vector<std::byte> mip1 = Null().readTexture(CachedHandle(texture), 1);
+    TEST_ASSERT_EQUAL_size_t(2u * 2u * 2u, mip1.size());
+    for ( size_t i = 0; i < 4u; ++i )
+    {
+        uint8_t r = 0, g = 0, b = 0, a = 0;
+        stdColor_DecodeRGBA(ReadTexel(mip1, i, 2u), &stdColor_cfARGB5551, &r, &g, &b, &a);
+        if ( i % 2u == 0u )
+        {
+            TEST_ASSERT_EQUAL_INT(0xFF, r);
+            TEST_ASSERT_EQUAL_INT(0, g);
+            TEST_ASSERT_EQUAL_INT(0, b);
+            TEST_ASSERT_EQUAL_INT(0xFF, a);
+        }
+        else
+        {
+            TEST_ASSERT_EQUAL_INT(0, a);
+            TEST_ASSERT_EQUAL_INT(0, g); // the transparent green key colour didn't bleed
+        }
+    }
+
+    // The 1x1 level averages only the opaque red texels; the result is still opaque red.
+    const std::vector<std::byte> mip2 = Null().readTexture(CachedHandle(texture), 2);
+    TEST_ASSERT_EQUAL_size_t(2u, mip2.size());
+    uint8_t r = 0, g = 0, b = 0, a = 0;
+    stdColor_DecodeRGBA(ReadTexel(mip2, 0, 2u), &stdColor_cfARGB5551, &r, &g, &b, &a);
+    TEST_ASSERT_EQUAL_INT(0xFF, r);
+    TEST_ASSERT_EQUAL_INT(0, g);
+    TEST_ASSERT_EQUAL_INT(0, b);
+    TEST_ASSERT_EQUAL_INT(0xFF, a);
+
+    std3D_ClearSystemTexture(&texture);
+    stdDisplay_VBufferFree(pVBuffer);
+}
+
+TEST(std3DBabylon, AnisotropyAndCrispPixelsReachTheSampler)
+{
+    OpenStd3D();
+
+    static tSystemTexture texture;
+    MakeCachedTexture(&texture, stdColor_cfARGB8888, 5);
+
+    static StdVertexTL aVertices[3] = {
+        { 1.0f, 2.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0u, 0.0f, 0.0f },
+        { 3.0f, 2.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0u, 1.0f, 0.0f },
+        { 2.0f, 4.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0u, 0.5f, 1.0f },
+    };
+    static uint16_t aIndices[3] = { 0u, 1u, 2u };
+    const auto drawWithState = [&](Std3DRenderState state)
+    {
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_DrawRenderList(texture.pCachedTexture, state, aVertices, 3u, aIndices, 3u);
+        EndFrame();
+        return LastBoundTexture();
+    };
+
+    // An anisotropic draw takes the configured level.
+    std3DBabylon_SetAnisotropicFilterForTest(8);
+    render::BindTexture bind = drawWithState(STD3D_RS_TEXFILTER_ANISOTROPIC);
+    std::optional<render::SamplerDesc> desc = Null().samplerDesc(bind.sampler);
+    TEST_ASSERT_TRUE(desc.has_value());
+    TEST_ASSERT_EQUAL_FLOAT(8.0f, desc->maxAnisotropy);
+    TEST_ASSERT_TRUE(desc->minFilter == render::Filter::Linear);
+    TEST_ASSERT_TRUE(desc->magFilter == render::Filter::Linear);
+    TEST_ASSERT_TRUE(desc->mipFilter == render::Filter::Linear); // trilinear, the default
+
+    // Off falls back to plain linear.
+    std3DBabylon_SetAnisotropicFilterForTest(1);
+    bind = drawWithState(STD3D_RS_TEXFILTER_ANISOTROPIC);
+    desc = Null().samplerDesc(bind.sampler);
+    TEST_ASSERT_TRUE(desc.has_value());
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, desc->maxAnisotropy);
+    TEST_ASSERT_TRUE(desc->minFilter == render::Filter::Linear);
+
+    // Crisp pixels makes min and mag nearest and leaves the mip filter as configured.
+    std3DBabylon_SetTexturePixelatedForTest(true);
+    bind = drawWithState(STD3D_RS_TEXFILTER_BILINEAR);
+    desc = Null().samplerDesc(bind.sampler);
+    TEST_ASSERT_TRUE(desc.has_value());
+    TEST_ASSERT_TRUE(desc->minFilter == render::Filter::Nearest);
+    TEST_ASSERT_TRUE(desc->magFilter == render::Filter::Nearest);
+    TEST_ASSERT_TRUE(desc->mipFilter == render::Filter::Linear);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, desc->maxAnisotropy);
+
+    std3DBabylon_SetTexturePixelatedForTest(false);
+    std3D_ClearSystemTexture(&texture);
 }
 
 TEST(std3DBabylon, CacheKeepsTheDX9ListAndMemory)
@@ -1979,6 +2187,9 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, TexturesUploadEveryMipByteExactPerFormat);
     RUN_TEST_CASE(std3DBabylon, OtherLayoutsAreConvertedToTheFormatOfTheirType);
     RUN_TEST_CASE(std3DBabylon, MipFilterNoneUploadsOneLevel);
+    RUN_TEST_CASE(std3DBabylon, SingleLevelTexturesGetAGeneratedMipChain);
+    RUN_TEST_CASE(std3DBabylon, GeneratedMipsKeepTheColourKeyColourOut);
+    RUN_TEST_CASE(std3DBabylon, AnisotropyAndCrispPixelsReachTheSampler);
     RUN_TEST_CASE(std3DBabylon, CacheKeepsTheDX9ListAndMemory);
     RUN_TEST_CASE(std3DBabylon, AFullCachePurgesATextureOfTheSameSizeNotUsedThisFrame);
     RUN_TEST_CASE(std3DBabylon, ATextureClearedInASceneLivesUntilTheSubmit);
@@ -2718,7 +2929,9 @@ TEST(std3DBabylonGpu, TexturingIsPerspectiveCorrect)
     }
 
     // A 256 x 1 texture whose texel i has red i, on a 64 x 32 quad with rhw 1 on the left edge and
-    // 1/4 on the right one, point filtered and clamped.
+    // 1/4 on the right one, point filtered and clamped. The mip filter is None so the test reads
+    // the perspective-correct texel itself rather than a generated, averaged level.
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetMipmapFilter(STD3D_MIPMAPFILTER_NONE));
     std::vector<uint32_t> aTexels;
     for ( uint32_t i = 0; i < 256u; ++i )
     {

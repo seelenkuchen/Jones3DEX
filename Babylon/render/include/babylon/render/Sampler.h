@@ -34,6 +34,13 @@ namespace babylon::render
         AddressMode addressU = AddressMode::Repeat;
         AddressMode addressV = AddressMode::Repeat;
 
+        // The maximum anisotropy of minified samples, 1 to 16: 1 turns
+        // anisotropic filtering off, higher values trade cost for sharpness on
+        // surfaces seen at a slant. Backends clamp it to the device's own
+        // limit and treat a non-finite value as 1. It has no effect on
+        // magnification.
+        float maxAnisotropy = 1.0f;
+
         bool operator==(const SamplerDesc&) const = default;
     };
 

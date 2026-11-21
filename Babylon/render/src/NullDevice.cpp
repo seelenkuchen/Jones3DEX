@@ -226,6 +226,17 @@ namespace
         m_state->recorded.clear();
     }
 
+    std::optional<SamplerDesc> NullDevice::samplerDesc(SamplerHandle sampler) const
+    {
+        const SamplerDesc* const found = m_state->samplers.find(sampler);
+        if ( found == nullptr )
+        {
+            return std::nullopt;
+        }
+
+        return *found;
+    }
+
     const TextureDesc* NullDevice::findTexture(TextureHandle texture) const
     {
         const NullTexture* const found = m_state->textures.find(texture);

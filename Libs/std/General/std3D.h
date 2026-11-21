@@ -14,6 +14,8 @@
 
 #define STD3D_CFG_MIPMAPAUTOGEN     "graphics.mipmapAutoGen"
 #define STD3D_CFG_ANISOTROPICFILTER "graphics.anisotropicFilter"
+// Added: nearest min/mag for world and model textures, the original look (Options > Display).
+#define STD3D_CFG_TEXTUREPIXELATED  "engine.renderer.texturePixelated"
 
 #define STD3D_CFG_MSAAENABLED "graphics.msaa.enabled"
 #define STD3D_CFG_MSAASAMPLES "graphics.msaa.samples"

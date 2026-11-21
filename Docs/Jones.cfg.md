@@ -47,7 +47,7 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
     "refreshRate": 60,
     "mipmapFilter": 2,
     "mipmapAutoGen": true,
-    "anisotropicFilter": true,
+    "anisotropicFilter": 8,
     "msaa": {
       "enabled": true,
       "samples": 4
@@ -57,6 +57,7 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
     "renderer": {
       "hipoly": true,
       "renderScale": 1.0,
+      "texturePixelated": false,
       "fog": {
         "enabled": true,
         "density": 1.0
@@ -119,6 +120,22 @@ cancels when `--load` is absent.
 | `0` | None |
 | `1` | Bilinear |
 | `2` | Trilinear |
+
+### `graphics.anisotropicFilter`
+
+Anisotropic filtering level for world and model textures, used by draws that request it. It never
+applies to the HUD, the 2D layer or menus.
+
+| Value | Meaning |
+| --- | --- |
+| `1` | Off |
+| `2` | Up to 2 samples |
+| `4` | Up to 4 samples |
+| `8` | Up to 8 samples (Enhanced default) |
+| `16` | Up to 16 samples |
+
+An old boolean value is still accepted: `true` reads as `8` and `false` as `1`. A hand-edited value
+between the steps snaps down to the next one, and the backend clamps to the device's limit.
 
 ### `engine.renderer.geometry`
 
@@ -207,7 +224,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `graphics.window` | bool | `false` | Windowed mode toggle. The windowed build also switches it at runtime with Alt+Enter. |
 | `graphics.dualMonitor` | bool | `false` | Dual-monitor window mode toggle. |
 | `graphics.buffering` | bool | `false` | Buffered display mode toggle. |
-| `graphics.mipmapFilter` | int | `2` | Uses the `graphics.mipmapFilter` enum above. |
+| `graphics.mipmapFilter` | int | `2` | Uses the `graphics.mipmapFilter` enum above. A nonzero value also generates a mip chain for world and model textures whose material brings only its top level. |
 | `graphics.display` | string | auto | Selected display adapter name. Usually engine-managed. |
 | `graphics.device` | string | auto | Selected 3D device name. Usually engine-managed. |
 | `graphics.width` | int | desktop width | Requested render width. A new windowed install is written with the current desktop mode's width, so the first run is fullscreen at the display's resolution; headless and Null runs keep `640`. An existing value always wins. |
@@ -216,7 +233,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `graphics.refreshRate` | int | `60` | Requested refresh rate. If the display doesn't offer that rate, the closest available rate at the configured size and bit depth is used. |
 | `graphics.performanceLevel` | int | `4` | Performance preset used by the display dialog. |
 | `graphics.mipmapAutoGen` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
-| `graphics.anisotropicFilter` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
+| `graphics.anisotropicFilter` | int | `8` (Enhanced), `1` (Retail and QOL-off) | Anisotropic filtering level, `1`, `2`, `4`, `8` or `16`, using the enum above (Options > Display, "Anisotropic filtering"). Presentation only; applies to world and model textures, not to the HUD, 2D layer or menus, and is read when the display opens. An old boolean value is accepted as `8`/`1`. |
 | `graphics.msaa.enabled` | bool | `true` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
 | `graphics.msaa.samples` | int | `16` | DirectX 9-only setting. The DirectX 9 backend that read it was removed in M6.3; no current backend reads it. |
 
@@ -236,6 +253,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance` | float | `18.0` | Default build value. Legacy/QOL-off builds use `8.0`. |
 | `engine.renderer.litFaces.enabled` | bool | `true` | Presentation only, in every build and both profiles. On: world surfaces and models reach the renderer as lit faces, with view-space positions and normals (smoothed across level edges under 45 degrees), which fill the normal target for later per-pixel passes; the colour is the same as off. Off: the classic path, exactly as before (classic draws only). Sky, sprites, particles, polylines, shadows and the HUD are always classic. Read when the display opens. |
 | `engine.renderer.renderScale` | float | `1.0` | Presentation only. The internal resolution of the 3D scene as a multiple of the game's video mode, clamped to `0.5`..`2.0` and to the device's texture limit (Options > Display, "Render scale": 50, 67, 75, 100, 125, 150 or 200%). Above 100% supersamples the scene; the final tone-map pass resolves it to the presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer's image and save thumbnails stay display-sized, and menus stay at the window's native resolution; the in-world HUD is drawn with the scene. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
+| `engine.renderer.texturePixelated` | bool | `false` | Presentation only (Options > Display, "Crisp pixels"). On: world and model textures use nearest minification and magnification, for the original sharp, blocky look; the mip filter is still the one `graphics.mipmapFilter` selects. Off: linear filtering where the game asks for it. The HUD, 2D layer and menus are unchanged. Read when the display opens. |
 | `engine.renderer.vfx.weapon.fireFlash.enabled` | bool | `true` | Default build value. Legacy/QOL-off builds use `false`. |
 | `engine.renderer.vfx.weapon.fireFlash.ambientThreshold` | float | `0.65` | Ambient-light threshold for projectile fire flash effects. |
 | `engine.world.static.materials.extraCapacity` | int | `32` | Extra buffer space for static world materials. |

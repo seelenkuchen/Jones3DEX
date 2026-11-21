@@ -62,6 +62,9 @@ struct JonesUiDisplayValues
     double gameplayFOV = 90.0; // Added: Field of view, horizontal degrees at 4:3.
     // Added: index into the render scale choices (50..200%, 100% at index 3).
     std::size_t renderScale = 3;
+    // Added: index into the anisotropic choices (1, 2, 4, 8, 16; 8 at index 3).
+    std::size_t anisotropic = 3;
+    bool bCrispPixels = false;
 };
 
 struct JonesUiDisplayLayout
@@ -77,6 +80,8 @@ struct JonesUiDisplayLayout
     std::size_t litFaces = 0;
     std::size_t gameplayFOV = 0; // Added
     std::size_t renderScale = 0;
+    std::size_t anisotropic = 0; // Added
+    std::size_t crispPixels = 0; // Added
     std::size_t ok = 0;
     std::size_t back = 0;
 };
@@ -99,6 +104,8 @@ struct JonesUiDisplayModel
     bool bLitFaces = false;
     float gameplayFOV = 90.0f; // Added: sithCamera_GetGameplayFOV()
     float renderScale = 1.0f;
+    int anisotropic = 8;        // Added: graphics.anisotropicFilter, normalized
+    bool bCrispPixels = false;  // Added: engine.renderer.texturePixelated
 };
 
 // Reads the environment and settings into a model and the initial values.

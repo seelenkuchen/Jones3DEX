@@ -38,6 +38,7 @@
 #include <sith/World/sithWorld.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/std3DBabylon.h>
 #include <std/General/std.h>
 #include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
@@ -82,6 +83,8 @@ namespace
         "Lit faces (applies when the display reopens)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayFOVText = "Field of view"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
 
     // Added: M9.4 render scale choices. The value is a multiple of the game's 3D resolution; the
     // label is what the Options row shows. 100% (index 3) is the default.
@@ -89,6 +92,11 @@ namespace
     constexpr const char* kJonesDisplayRenderScaleLabels[] = {
         "50%", "67%", "75%", "100%", "125%", "150%", "200%" };
     constexpr std::size_t kJonesDisplayRenderScaleDefault = 3;
+
+    // Added: M9.7 anisotropic filtering choices; 8x (index 3) is the Enhanced default.
+    constexpr int kJonesDisplayAnisotropicValues[] = { 1, 2, 4, 8, 16 };
+    constexpr const char* kJonesDisplayAnisotropicLabels[] = { "Off", "2x", "4x", "8x", "16x" };
+    constexpr std::size_t kJonesDisplayAnisotropicDefault = 3;
 
     std::string JonesUiDisplay_BitDepthLabel(int bpp)
     {
@@ -218,6 +226,21 @@ namespace
         }
 
         return best;
+    }
+
+    // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
+    std::size_t JonesUiDisplay_AnisotropicIndex(int level)
+    {
+        const int normalized = std3DBabylon_NormalizeAnisotropicFilterLevel(level);
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayAnisotropicValues); ++cur )
+        {
+            if ( kJonesDisplayAnisotropicValues[cur] == normalized )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayAnisotropicDefault;
     }
 
     void JonesUiDisplay_SetConfigInt(const char* pKey, int value)
@@ -370,6 +393,26 @@ namespace
             values.renderScale < STD_ARRAYLEN(kJonesDisplayRenderScaleValues)
                 ? values.renderScale : kJonesDisplayRenderScaleDefault });
 
+        // Added: M9.7. Anisotropic filtering sharpens world and model textures seen at a slant;
+        // off keeps the plain linear filter. Crisp pixels drops min/mag filtering to nearest for
+        // the original look, while the mip filter follows the Mipmap filter row.
+        std::vector<std::string> anisotropicOptions;
+        for ( const char* pLabel : kJonesDisplayAnisotropicLabels )
+        {
+            anisotropicOptions.emplace_back(pLabel);
+        }
+        layout.anisotropic = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayAnisotropicText), std::string(),
+            std::move(anisotropicOptions), true,
+            values.anisotropic < STD_ARRAYLEN(kJonesDisplayAnisotropicValues)
+                ? values.anisotropic : kJonesDisplayAnisotropicDefault });
+
+        layout.crispPixels = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayCrispPixelsText), std::string(), true,
+            values.bCrispPixels });
+
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
             JonesUiDisplay_ResolveLabel("OK"), kJonesDisplayActionOk, true });
@@ -504,6 +547,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.gameplayFOV = sithCamera_GetGameplayFOV();
     model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
+    model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
+    model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
 
     values.bBitDepth   = model.bitDepths.size() > 1;
     values.bitDepth    = model.curBitDepth;
@@ -518,6 +563,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.bLitFaces   = model.bLitFaces;
     values.gameplayFOV = (double)model.gameplayFOV;
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
+    values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
+    values.bCrispPixels = model.bCrispPixels;
     return model;
 }
 
@@ -561,6 +608,10 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.gameplayFOV));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.renderScale,
         values.renderScale));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
+        values.anisotropic));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.crispPixels,
+        values.bCrispPixels));
 }
 
 bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int displayDeviceNum,
@@ -748,6 +799,14 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplayRenderScaleValues) - 1);
     JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE,
         kJonesDisplayRenderScaleValues[renderScale]);
+
+    // Added: M9.7. Both are read by std3D_Open, so they take effect with the same display restart
+    // the other presentation rows ask for.
+    const std::size_t anisotropic = std::min(values.anisotropic,
+        STD_ARRAYLEN(kJonesDisplayAnisotropicValues) - 1);
+    JonesUiDisplay_SetConfigInt(STD3D_CFG_ANISOTROPICFILTER,
+        kJonesDisplayAnisotropicValues[anisotropic]);
+    JonesUiDisplay_SetConfigBool(STD3D_CFG_TEXTUREPIXELATED, values.bCrispPixels);
 
     return kJonesDialogOk;
 }

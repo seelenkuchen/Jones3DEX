@@ -11,6 +11,17 @@
     cameras and a FOV set by a COG keep their authored value. The picture widens but the simulation does
     not: visibility marks, `SIGHTED` messages, AI wake and visibility queries still use the default FOV.
     The `fov` console command still sets the current camera directly.
+  - **Options > Display** has an **Anisotropic filtering** row (`graphics.anisotropicFilter`, now a level:
+    1, 2, 4, 8 or 16; 8 by default in Enhanced and 1 in Retail). It keeps world and model textures sharp
+    when they are seen at a slant; an existing `true`/`false` value is read as `8`/`1`. It applies when
+    the display reopens and never touches the HUD, 2D layer or menus.
+  - **Options > Display** has a **Crisp pixels** row (`engine.renderer.texturePixelated`, off by default).
+    It uses nearest minification and magnification for world and model textures, for the original sharp,
+    blocky look, while the mip filter stays as configured.
+  - A world or model texture whose material brings only its top level now gets a mip chain generated on
+    upload when `graphics.mipmapFilter` is not `0`. The levels are box-filtered in colour-aware form, so
+    colour-keyed and alpha textures do not bleed their transparent colour, and the world stops shimmering
+    when it is minified.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
