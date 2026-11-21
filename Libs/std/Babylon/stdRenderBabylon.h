@@ -10,8 +10,10 @@
 // chain, an ordered list of full-screen passes that is empty by default, and then, on a device with
 // a swapchain, runs the built-in final tone-map pass over the chain's output (the back buffer color
 // when the chain is empty) and writes it to the swapchain at the presented size, sampling with
-// linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. std3D
-// records its scenes into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
+// linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. It then
+// composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that image,
+// before the prompt and menu present overlays. std3D records its scenes and HUD layer into the same
+// frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
 // translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
 // resampling between the scaled target and the display-sized image there.
 //
@@ -132,6 +134,16 @@ babylon::render::TextureFormat stdRenderBabylon_GetColorFormat();
 // matches the depth target. A null handle without a back buffer.
 babylon::render::TextureHandle stdRenderBabylon_GetNormalTarget();
 babylon::render::TextureFormat stdRenderBabylon_GetNormalFormat();
+
+// Added: the gameplay HUD layer's targets, at the display size (not the render scale). Its color
+// target is the scene color format and also sampled; the normal target is a same-format dummy the
+// HUD draws write because their shaders output a normal, and the depth target uses the scene depth
+// format. std3D draws the HUD into them through std3D_BeginHudLayer/EndHudLayer, and a presenting
+// submit composites the color over the tone-mapped scene with alpha blending. Null without a back
+// buffer.
+babylon::render::TextureHandle stdRenderBabylon_GetHudColorTarget();
+babylon::render::TextureHandle stdRenderBabylon_GetHudNormalTarget();
+babylon::render::TextureHandle stdRenderBabylon_GetHudDepthTarget();
 
 // The back buffer's size in display pixels: the game's video mode, the canvas and every screen
 // coordinate. The scene targets are this size times the render scale (GetRenderWidth/Height).

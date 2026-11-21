@@ -328,6 +328,14 @@ void std3D_EndScene(void)
 {
 }
 
+void std3D_BeginHudLayer(void)
+{
+}
+
+void std3D_EndHudLayer(void)
+{
+}
+
 void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices)
 {
     J3D_UNUSED(pTex);

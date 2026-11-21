@@ -3399,6 +3399,84 @@ TEST(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize)
     AssertPixel(16u, 8u, 255, 0, 0, 255);
 }
 
+TEST(std3DBabylonGpu, AHudLayerLineStaysOnePixelAtRenderScaleHalf)
+{
+    // The HUD keeps drawing in the game's display pixels. At 50% the scene target is 16x8 but the
+    // display-sized HUD layer is 32x16, so a 1-pixel line stays 1 pixel in the presented image.
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(0.5f));
+
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFFFF0000u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255);
+    AssertPixel(15u, 8u, 255, 0, 0, 255);
+    AssertPixel(17u, 8u, 255, 0, 0, 255);
+}
+
+TEST(std3DBabylonGpu, TheHudLayerCompositeMatchesTheSingleScenePassAtScaleOne)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(1.0f));
+
+    // The same red background and two overlapping half-transparent HUD quads, drawn once in the scene
+    // pass (the pre-M9.4b path) and once in the HUD layer.
+    auto draw = [](bool bHudLayer)
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFFFF0000u);
+        if ( bHudLayer )
+        {
+            std3D_BeginHudLayer();
+        }
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 0.0f, 32.0f, 64.0f, 0.25f, 0x800000FFu);
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 0.0f, 16.0f, 64.0f, 0.20f, 0x8000FF00u);
+        if ( bHudLayer )
+        {
+            std3D_EndHudLayer();
+        }
+    };
+
+    RenderScene([&draw] { draw(false); });
+    const std::vector<std::byte> singlePass = CapturePresented(64u, 64u);
+
+    RenderScene([&draw] { draw(true); });
+    const std::vector<std::byte> hudLayer = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_EQUAL_size_t(singlePass.size(), hudLayer.size());
+    // The presented frame is opaque; its alpha channel is a leftover of the scene pass's blending and
+    // the composite writes 255 there. Compare the visible color channels.
+    int maxDiff = 0;
+    size_t numAboveOne = 0;
+    for ( size_t i = 0; i < singlePass.size(); ++i )
+    {
+        if ( i % 4u == 3u )
+        {
+            continue;
+        }
+        const int diff = std::abs((int)singlePass[i] - (int)hudLayer[i]);
+        maxDiff = std::max(maxDiff, diff);
+        if ( diff > 1 )
+        {
+            ++numAboveOne;
+        }
+    }
+    std::printf("M9.4b HUD identity (HUD layer vs single scene pass): %zu color bytes, max per-channel difference %d/255, %zu bytes differ by more than 1/255\n",
+        singlePass.size(), maxDiff, numAboveOne);
+    TEST_ASSERT_TRUE(maxDiff <= 1);
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -3419,6 +3497,8 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
     RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
     RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);
+    RUN_TEST_CASE(std3DBabylonGpu, AHudLayerLineStaysOnePixelAtRenderScaleHalf);
+    RUN_TEST_CASE(std3DBabylonGpu, TheHudLayerCompositeMatchesTheSingleScenePassAtScaleOne);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

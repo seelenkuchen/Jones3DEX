@@ -6,6 +6,9 @@
     presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
     thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
     display reopens, like the other Display options.
+  - The gameplay HUD (health and endurance, item and weapon icons, compass, ammo and the inventory menu)
+    draws at the display resolution after the scene's post effects, so it stays sharp at any render
+    scale and is never blurred or tinted by them. The scene still renders at the chosen scale.
   - **Options > Display** has a **Field of view** row (`engine.renderer.fov`), 60 to 110 horizontal degrees
     at 4:3 and 90 by default. It applies to the normal first-person and third-person cameras; cutscene
     cameras and a FOV set by a COG keep their authored value. The picture widens but the simulation does
