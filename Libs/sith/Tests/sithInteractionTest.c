@@ -15,6 +15,7 @@
 #include <sith/Gameplay/sithPlayerActions.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Gameplay/sithTime.h>
+#include <sith/Gameplay/sithWhip.h>
 #include <sith/Main/sithMain.h>
 #include <sith/World/sithThing.h>
 #include <sith/World/sithWeapon.h>
@@ -267,6 +268,7 @@ TEST_SETUP(sithInteraction)
     sithCog_ResetGlobals();
     sithPlayerControls_Reset();
     sithInteractionTest_ResetScene();
+    sithWhip_SetTargetsForTest(NULL, NULL);
 }
 
 TEST_TEAR_DOWN(sithInteraction)
@@ -289,6 +291,17 @@ static void sithInteractionTest_KeepOnlyThing(SithThing* pThing)
     sithInteractionTest_surface.flags = SITH_SURFACE_COLLISION; // not COGLINKED
     sithInteractionTest_sector.pFirstThingInSector = pThing;
     pThing->pNextThingInSector = NULL;
+}
+
+// Added: puts the whip in the player's hands and installs the whip-aim targets directly, so the
+// interaction query tests read the same target choice the press would make.
+static void sithInteractionTest_EquipWhip(SithThing* pSwing, SithThing* pClimb)
+{
+    sithWeapon_InitalizeActorWeapon(PLAYER);
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = SITHWEAPON_WHIP;
+    sithInteractionTest_player.curWeaponID = SITHWEAPON_WHIP;
+    sithInventory_SetInventoryFlags(PLAYER, SITHWEAPON_WHIP, SITHINVENTORY_TYPE_UNKNOWN_200);
+    sithWhip_SetTargetsForTest(pSwing, pClimb);
 }
 
 TEST(sithInteraction, QueryAndActivateAgreeOnCogSurface)
@@ -686,6 +699,117 @@ TEST(sithInteraction, PushPullClimbQueriesLeaveTheCollisionScratchUnchanged)
     TEST_ASSERT_EQUAL_UINT64(climbBefore, sithCollision_GetScratchChecksumForTest());
 }
 
+TEST(sithInteraction, WhipSwingQueryShowsSwingWithActivate)
+{
+    sithInteractionTest_EquipWhip(COG, NULL);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_WHIP_SWING, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_ACT2, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+    TEST_ASSERT_EQUAL_INT(1, bSwing);
+}
+
+TEST(sithInteraction, WhipClimbQueryShowsClimbWithActivate)
+{
+    sithInteractionTest_EquipWhip(NULL, COG);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_WHIP_CLIMB, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_ACT2, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+    TEST_ASSERT_EQUAL_INT(0, bSwing);
+}
+
+TEST(sithInteraction, WhipSwingTargetFlaggedClimbGetsNoPrompt)
+{
+    sithInteractionTest_EquipWhip(COG, NULL);
+    COG->flags |= SITH_TF_WHIPCLIMB;
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COLLISION);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_FALSE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_NONE, interaction.kind);
+
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+}
+
+TEST(sithInteraction, NoWhipDrawnGetsNoWhipPrompt)
+{
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COLLISION);
+    sithWhip_SetTargetsForTest(COG, NULL);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_FALSE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_NONE, interaction.kind);
+
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+}
+
+TEST(sithInteraction, WhipQueryRejectsDisabledControlsAndMoveStatusAboveRunning)
+{
+    sithInteractionTest_EquipWhip(COG, NULL);
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COLLISION);
+
+    int bSwing = -1;
+    TEST_ASSERT_EQUAL_INT(1, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+    TEST_ASSERT_EQUAL_INT(1, bSwing);
+
+    PLAYER->thingInfo.actorInfo.bControlsDisabled = 1;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_FALSE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+
+    PLAYER->thingInfo.actorInfo.bControlsDisabled = 0;
+    PLAYER->moveStatus = SITHPLAYERMOVE_FALLING;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_QueryWhipPress(PLAYER, &bSwing));
+    TEST_ASSERT_FALSE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+}
+
+TEST(sithInteraction, WhipQueryChangesNoState)
+{
+    sithInteractionTest_EquipWhip(COG, OTHERPLAYER);
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COLLISION);
+
+    SithThing* pSwingBefore = sithWhip_GetWhipSwingThing();
+    SithThing* pClimbBefore = sithWhip_GetWhipClimbThing();
+    const SithThingMoveStatus moveBefore = PLAYER->moveStatus;
+    const int controlsBefore = PLAYER->thingInfo.actorInfo.bControlsDisabled;
+    const rdVector3 posBefore = PLAYER->pos;
+    const SithWeaponId weaponBefore = PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID;
+    const float timeBefore = (float)sithTime_g_secGameTime;
+    const uint64_t scratchBefore = sithCollision_GetScratchChecksumForTest();
+
+    SithPlayerInteraction interaction;
+    for ( int i = 0; i < 8; ++i )
+    {
+        TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+        TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_WHIP_SWING, interaction.kind);
+    }
+
+    TEST_ASSERT_EQUAL_PTR(pSwingBefore, sithWhip_GetWhipSwingThing());
+    TEST_ASSERT_EQUAL_PTR(pClimbBefore, sithWhip_GetWhipClimbThing());
+    TEST_ASSERT_EQUAL_INT(moveBefore, PLAYER->moveStatus);
+    TEST_ASSERT_EQUAL_INT(controlsBefore, PLAYER->thingInfo.actorInfo.bControlsDisabled);
+    TEST_ASSERT_EQUAL_FLOAT(posBefore.x, PLAYER->pos.x);
+    TEST_ASSERT_EQUAL_FLOAT(posBefore.y, PLAYER->pos.y);
+    TEST_ASSERT_EQUAL_FLOAT(posBefore.z, PLAYER->pos.z);
+    TEST_ASSERT_EQUAL_INT(weaponBefore, PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID);
+    TEST_ASSERT_EQUAL_FLOAT(timeBefore, (float)sithTime_g_secGameTime);
+    TEST_ASSERT_EQUAL_UINT64(scratchBefore, sithCollision_GetScratchChecksumForTest());
+}
+
 TEST_GROUP_RUNNER(sithInteraction)
 {
     RUN_TEST_CASE(sithInteraction, QueryAndActivateAgreeOnCogSurface);
@@ -712,4 +836,10 @@ TEST_GROUP_RUNNER(sithInteraction)
     RUN_TEST_CASE(sithInteraction, HangingQueryShowsPullUpWithForward);
     RUN_TEST_CASE(sithInteraction, WaterSurfaceQueryShowsLedgePullUpWithJump);
     RUN_TEST_CASE(sithInteraction, PushPullClimbQueriesLeaveTheCollisionScratchUnchanged);
+    RUN_TEST_CASE(sithInteraction, WhipSwingQueryShowsSwingWithActivate);
+    RUN_TEST_CASE(sithInteraction, WhipClimbQueryShowsClimbWithActivate);
+    RUN_TEST_CASE(sithInteraction, WhipSwingTargetFlaggedClimbGetsNoPrompt);
+    RUN_TEST_CASE(sithInteraction, NoWhipDrawnGetsNoWhipPrompt);
+    RUN_TEST_CASE(sithInteraction, WhipQueryRejectsDisabledControlsAndMoveStatusAboveRunning);
+    RUN_TEST_CASE(sithInteraction, WhipQueryChangesNoState);
 }

@@ -394,6 +394,14 @@ SithThing* sithWhip_GetWhipClimbThing(void)
     return sithWhip_pWhipClimbThing;
 }
 
+#ifdef J3D_TEST
+void sithWhip_SetTargetsForTest(SithThing* pSwing, SithThing* pClimb)
+{
+    sithWhip_pWhipSwingThing = pSwing;
+    sithWhip_pWhipClimbThing = pClimb;
+}
+#endif
+
 void sithWhip_Reset(void)
 {
     sithWhip_pWhipSwingThing = NULL;

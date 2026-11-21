@@ -11,7 +11,7 @@ static bool JonesHudPrompt_bEnabled = J3D_QOL_VALUE(true, false);
 void J3DAPI JonesHudPrompt_SetInteraction(JonesHudInteractionPrompt prompt,
     JonesControlActions control)
 {
-    if ( prompt < JONESHUD_INTERACTIONPROMPT_NONE || prompt > JONESHUD_INTERACTIONPROMPT_CLIMB )
+    if ( prompt < JONESHUD_INTERACTIONPROMPT_NONE || prompt > JONESHUD_INTERACTIONPROMPT_WHIP_CLIMB )
     {
         prompt = JONESHUD_INTERACTIONPROMPT_NONE;
     }

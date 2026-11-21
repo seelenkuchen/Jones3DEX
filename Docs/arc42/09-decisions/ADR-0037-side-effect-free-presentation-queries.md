@@ -66,3 +66,13 @@ wall. The same rule applies to each kind:
 - Labels are **Push**, **Pull** or **Push | Pull** from the two move checks, **Climb up** for climb-on and
   pull-up, and **Climb** for a climbable-wall mount. Priority follows the press: items before Activate,
   Activate before push/pull, and 2m climb-on before 1m climb-on before wall mount.
+
+## Amendment: Whip swing and climb prompts (2026-11-21)
+
+While the whip is drawn it owns the activation key, so the prompt asks the whip first.
+`sithWeapon_QueryWhipPress` uses the same guards as the activation press and the same target choice as
+`sithWeapon_ActivateWhip`, split into `sithWeapon_GetWhipPressTarget`: the swing target the whip aim found,
+or else the climb target, and the target's own `SITH_TF_WHIPCLIMB`/`SITH_TF_WHIPSWING` refusal. The query
+only reads the whip-aim target pointers and the weapon globals and changes nothing, so **Swing** and
+**Climb** cannot drift from the press, and when the whip query refuses the prompt falls through to the
+existing standing paths unchanged.

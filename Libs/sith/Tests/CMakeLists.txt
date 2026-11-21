@@ -161,6 +161,7 @@ add_executable(sithInteractionTests
     ../Engine/sithCollision.c
     ../Gameplay/sithPlayerActions.c
     ../Gameplay/sithPlayerControls.c
+    ../Gameplay/sithWhip.c
 )
 
 set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Gameplay/sithPlayerActions.c"

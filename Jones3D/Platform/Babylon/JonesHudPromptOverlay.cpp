@@ -47,6 +47,8 @@ namespace
             case JONESHUD_INTERACTIONPROMPT_PUSH_PULL: return "Push | Pull";
             case JONESHUD_INTERACTIONPROMPT_CLIMB_UP:  return "Climb up";
             case JONESHUD_INTERACTIONPROMPT_CLIMB:     return "Climb";
+            case JONESHUD_INTERACTIONPROMPT_WHIP_SWING: return "Swing";
+            case JONESHUD_INTERACTIONPROMPT_WHIP_CLIMB: return "Climb";
             default:                                   return nullptr;
         }
     }

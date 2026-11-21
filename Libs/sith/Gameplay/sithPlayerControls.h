@@ -25,10 +25,10 @@ int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTim
 
 // Added: what the activation and climb keys would do in the player's current movement state, for
 // the on-screen interaction prompt. The query follows the same order and guards as the input paths
-// (item, Activate, push/pull while standing; climb-on and wall mount while standing, walking or
-// running; pull-up while hanging or on a climbable wall; water ledge while swimming), changes no
-// state, and leaves the collision scratch as it found it. It is 0 when a press would do nothing
-// this slice can label.
+// (whip swing or climb while the whip is drawn; item, Activate, push/pull while standing; climb-on
+// and wall mount while standing, walking or running; pull-up while hanging or on a climbable wall;
+// water ledge while swimming), changes no state, and leaves the collision scratch as it found it.
+// It is 0 when a press would do nothing this slice can label.
 typedef enum eSithPlayerInteractionKind
 {
     SITHPLAYERINTERACTION_NONE = 0,
@@ -39,6 +39,8 @@ typedef enum eSithPlayerInteractionKind
     SITHPLAYERINTERACTION_PUSH_PULL,
     SITHPLAYERINTERACTION_CLIMB_UP,
     SITHPLAYERINTERACTION_CLIMB,
+    SITHPLAYERINTERACTION_WHIP_SWING,
+    SITHPLAYERINTERACTION_WHIP_CLIMB,
 } SithPlayerInteractionKind;
 
 typedef struct sSithPlayerInteraction

@@ -24,6 +24,12 @@ void J3DAPI sithWhip_ProcessWhipClimbMove(SithThing* pThing, float secDeltaTime)
 SithThing* sithWhip_GetWhipSwingThing(void);
 SithThing* sithWhip_GetWhipClimbThing(void);
 
+#ifdef J3D_TEST
+// Added: installs the whip-aim targets without running the collision search, so the interaction
+// query tests reach the same target choice the press uses.
+void sithWhip_SetTargetsForTest(SithThing* pSwing, SithThing* pClimb);
+#endif
+
 void sithWhip_Reset(void);
 
 int J3DAPI sithWhip_Save(DPID idTo, uint32_t outstream);

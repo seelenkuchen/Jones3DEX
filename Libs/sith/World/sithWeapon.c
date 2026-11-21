@@ -2460,33 +2460,83 @@ void J3DAPI sithWeapon_CreateWeaponFireFx(SithThing* pThing, rdVector3* pos)
     }
 }
 
+// Added: the target the whip activation press would act on and whether that action is a swing
+// (1) or a climb (0). Returns 1 when the target allows the action. The press and the interaction
+// query share it, so they cannot disagree. A target that refuses the action is still returned
+// because the press sends its damage message before it stops.
+static int sithWeapon_GetWhipPressTarget(SithThing** ppTarget, int* pbSwing)
+{
+    SithThing* pWhipTarget = sithWhip_GetWhipSwingThing();
+    if ( pWhipTarget )
+    {
+        *ppTarget = pWhipTarget;
+        *pbSwing  = 1;
+        return (pWhipTarget->flags & SITH_TF_WHIPCLIMB) == 0;
+    }
+
+    pWhipTarget = sithWhip_GetWhipClimbThing();
+    *ppTarget   = pWhipTarget;
+    *pbSwing    = 0;
+    if ( pWhipTarget )
+    {
+        return (pWhipTarget->flags & SITH_TF_WHIPSWING) == 0;
+    }
+
+    return 0;
+}
+
+// Added: 1 when a press of the activation key would start a whip swing (*pbSwing = 1) or whip
+// climb (*pbSwing = 0) right now, 0 otherwise. It uses the press's own guards (whip drawn, the
+// activation wait passed, not already activated, the inventory flag, moveStatus at most RUNNING,
+// controls enabled) and the same target choice. It changes no state.
+int J3DAPI sithWeapon_QueryWhipPress(const SithThing* pThing, int* pbSwing)
+{
+    if ( !pThing || !pbSwing )
+    {
+        return 0;
+    }
+
+    const SithWeaponId curWeaponID = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
+    if ( curWeaponID != SITHWEAPON_WHIP )
+    {
+        return 0;
+    }
+
+    const SithInventoryType* pItem = sithInventory_GetType(curWeaponID);
+    if ( sithTime_g_secGameTime < (double)sithWeapon_secWeaponActivationWaitEndTime
+        || sithWeapon_bPlayerWeaponActivated
+        || (pItem->flags & SITHINVENTORY_TYPE_UNKNOWN_200) == 0
+        || pThing->moveStatus > (unsigned int)SITHPLAYERMOVE_RUNNING
+        || pThing->thingInfo.actorInfo.bControlsDisabled == 1 )
+    {
+        return 0;
+    }
+
+    SithThing* pWhipTarget;
+    int bSwing;
+    if ( !sithWeapon_GetWhipPressTarget(&pWhipTarget, &bSwing) || !pWhipTarget )
+    {
+        return 0;
+    }
+
+    *pbSwing = bSwing;
+    return 1;
+}
+
 int J3DAPI sithWeapon_ActivateWhip(SithThing* pThing, SithCog* pCog)
 {
     SITH_ASSERTREL(pCog != NULL);
 
-    bool bValidTarget = false;
-    bool bSuccess     = false;
+    bool bSuccess = false;
 
-    SithThing* pWhipTarget = sithWhip_GetWhipSwingThing();
-    if ( pWhipTarget )
+    SithThing* pWhipTarget;
+    int bSwing;
+    // Altered: The target choice is shared with sithWeapon_QueryWhipPress, so the prompt and this
+    // press cannot disagree. The calls below still run in the original order.
+    bool bValidTarget = sithWeapon_GetWhipPressTarget(&pWhipTarget, &bSwing) != 0;
+    if ( bValidTarget )
     {
-        bValidTarget = (pWhipTarget->flags & SITH_TF_WHIPCLIMB) == 0;
-        if ( (pWhipTarget->flags & SITH_TF_WHIPCLIMB) == 0 )
-        {
-            bSuccess = sithWhip_StartWhipSwing(pThing);
-        }
-    }
-    else
-    {
-        pWhipTarget = sithWhip_GetWhipClimbThing();
-        if ( pWhipTarget )
-        {
-            bValidTarget = (pWhipTarget->flags & SITH_TF_WHIPSWING) == 0;
-            if ( (pWhipTarget->flags & SITH_TF_WHIPSWING) == 0 )
-            {
-                bSuccess = sithWhip_StartWhipClimb(pThing, pWhipTarget);
-            }
-        }
+        bSuccess = bSwing ? sithWhip_StartWhipSwing(pThing) : sithWhip_StartWhipClimb(pThing, pWhipTarget);
     }
 
     if ( pWhipTarget )
