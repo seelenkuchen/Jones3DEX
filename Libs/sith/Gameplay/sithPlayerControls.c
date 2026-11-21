@@ -141,16 +141,21 @@ static void J3DAPI sithPlayerControls_ProcessSlideDownMove(SithThing* pThing, fl
 
 /**
  * Check for ledge when in water
- * @param pThing - thing to search for ledge from
+ * @param pThing      - thing to search for ledge from
+ * @param bMoveToLedge - move the thing to the grab position when a solid ledge is found; the
+ *                       interaction query passes 0 so the check has no side effect
  * @return
  *  0 - no ledge found
- *  1 - solid water ledge found, the thing will be positioned to ledge
+ *  1 - solid water ledge found, the thing will be positioned to ledge when bMoveToLedge is set
  *  2 - adjoin water ledge found
  */
-static int J3DAPI sithPlayerControls_CheckWaterLedge(SithThing* pThing);
+static int J3DAPI sithPlayerControls_CheckWaterLedge(SithThing* pThing, int bMoveToLedge);
 static int J3DAPI sithPlayerControls_FindLedgeInDirection(SithThing* pThing, const rdVector3* moveNorm, SithSurface** ppHitSurf, SithThing** ppHitThing, rdModel3** ppHitModel, rdFace** ppHitFace, rdModel3Mesh** ppHitMesh, int someType);
 static SithSurface* J3DAPI sithPlayerControls_FindClimbSurface(SithThing* pThing, const rdVector3* moveNorm, int climbDir, int* pbHitNonClimbSurface);
 static bool J3DAPI sithPlayerControls_CanStrafeMove(SithThing* pThing, int bMoveRight);
+static bool sithPlayerControls_CanClimbOn1m(SithThing* pThing);
+static bool sithPlayerControls_CanClimbOn2m(SithThing* pThing);
+static void sithPlayerControls_UpdateClimbingSpeed(SithThing* pThing, bool bFastClimb);
 
 void sithPlayerControls_ResetGlobals(void)
 {
@@ -802,6 +807,613 @@ static int sithPlayerControls_CanPickUpItem(SithThing* pItemThing, SithThing* pT
     return sithCog_GetThingMessageCogs(pItemThing, pThing, SITHCOG_MSG_ACTIVATE, NULL, 0) > 0;
 }
 
+// Added: the shared push/pull decisions. The press and the prompt use the same finder and the same
+// obstacle checks; the press keeps its own voice, timer and state-clearing calls, which is why the
+// checks report how they failed instead of acting. The checks only read game state and the
+// collision scratch, so a query runs them inside sithCollision_BeginReadOnlySearch.
+typedef enum eSithPlayerControlsPushPullCheck
+{
+    SITHPLAYERCONTROLS_PUSHPULL_OK = 0,
+    SITHPLAYERCONTROLS_PUSHPULL_BLOCKED,   // the press clears the grab state and comments
+    SITHPLAYERCONTROLS_PUSHPULL_MISALIGNED, // the press comments and drops the object, keeping the state
+    SITHPLAYERCONTROLS_PUSHPULL_QUIET,     // the press returns without a word or a state change
+} SithPlayerControlsPushPullCheck;
+
+// Added: the movable thing an Activate press would grab in the standing state, or NULL. On success
+// pMoveNorm is the cardinal push/pull direction the press snaps the player to.
+static SithThing* sithPlayerControls_FindPushPullThing(SithThing* pThing, rdVector3* pMoveNorm)
+{
+    if ( !sithPlayerControls_GetPushPullMoveNorm(pMoveNorm, &pThing->orient.lvec, 15.0f)
+        || !pThing->attach.flags
+        || sithInventory_GetCurrentWeapon(pThing)
+        || sithWeapon_IsMountingWeapon(pThing) )
+    {
+        return NULL;
+    }
+
+    sithCollision_SearchForCollisions(pThing->pInSector, pThing, &pThing->pos, pMoveNorm,
+        pThing->collide.movesize, pThing->collide.movesize, 0xA00);
+
+    SithThing* pItemThing = NULL;
+    SithCollision* pCollision;
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pThing
+            && (pCollision->pThingCollided->flags & SITH_TF_MOVABLE) != 0
+            && pCollision->distance < 0.0089999996f )
+        {
+            pItemThing = pCollision->pThingCollided;
+            break;
+        }
+    }
+
+    sithCollision_DecreaseStackLevel();
+    if ( !pItemThing )
+    {
+        return NULL;
+    }
+
+    // Check player facing movable object
+    rdVector3 dirXY = pThing->orient.lvec;
+    dirXY.z = 0.0f;
+    rdVector_Normalize3Acc(&dirXY);
+
+    rdVector3 playerToItem;
+    rdVector_Sub3(&playerToItem, &pThing->pos, &pItemThing->pos);
+    playerToItem.z = 0.0f;
+    rdVector_Normalize3Acc(&playerToItem);
+
+    if ( fabsf(rdVector_Dot3(&dirXY, &playerToItem)) > 0.94f )
+    {
+        return pItemThing;
+    }
+
+    return NULL;
+}
+
+// Added: whether a pull move from the grabbed object is possible, with the press's exact height,
+// obstacle, floor, floor-height and pushgear checks. Sets nothing but the collision scratch.
+static int sithPlayerControls_CheckPullObject(SithThing* pThing, SithThing* pMovableThing,
+    const rdVector3* pMoveNorm)
+{
+    const float searchRadius = (pMovableThing->collide.movesize < 0.1f)
+        ? 0.050000001f
+        : 0.094999999f;
+
+    // Check height difference for pull - can't pull objects that are higher
+    if ( searchRadius > 0.05f && pThing->pos.z > pMovableThing->pos.z )
+    {
+        float heightDiff = pThing->pos.z - pMovableThing->pos.z;
+        if ( heightDiff > 0.02f && !strneq(pMovableThing->aName, "pushgear", 8u) )
+        {
+            return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+        }
+    }
+
+    // Check if movable thing can move in pull direction
+    rdVector3 pullDir = RDVECTOR_NEG3(*pMoveNorm);
+    float pullMoveDist = pThing->collide.movesize + 0.19f;
+    rdVector3 startPos = pMovableThing->pos;
+    if ( streq(pMovableThing->aName, "2marpushstatue") )
+    {
+        startPos.z -= 0.05f;
+    }
+
+    sithCollision_SearchForCollisions(pMovableThing->pInSector, pMovableThing, &startPos, &pullDir,
+        pullMoveDist, searchRadius, 0xA00);
+
+    SithCollision* pCollision;
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pThing )
+        {
+            sithCollision_DecreaseStackLevel();
+            return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+        }
+
+        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+        {
+            sithCollision_DecreaseStackLevel();
+            return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+        }
+    }
+    sithCollision_DecreaseStackLevel();
+
+    // Check if player can move in pull direction
+    sithCollision_SearchForCollisions(pThing->pInSector, pThing, &pThing->pos, &pullDir,
+        pullMoveDist, pThing->collide.movesize, 0xA00);
+
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pThing )
+        {
+            sithCollision_DecreaseStackLevel();
+            return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+        }
+
+        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+        {
+            sithCollision_DecreaseStackLevel();
+            return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+        }
+    }
+    sithCollision_DecreaseStackLevel();
+
+    // Check floor at movable thing's pull end position
+    rdVector3 negMoveNorm = RDVECTOR_NEG3(*pMoveNorm);
+    rdVector3 pullEndPos;
+    rdVector_ScaleAdd3(&pullEndPos, &negMoveNorm, 0.2f, &pMovableThing->pos);
+
+    rdVector3 downDir = RDVECTOR_NEG3(rdroid_g_zVector3);
+    SithSector* pPullEndPosSector = sithCollision_FindSectorInRadius(pMovableThing->pInSector,
+        &pMovableThing->pos, &pullEndPos, 0.0f);
+    if ( !pPullEndPosSector )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+    }
+
+    int bCanMoveObject = 0;
+    sithCollision_SearchForCollisions(pPullEndPosSector, NULL, &pullEndPos, &downDir, 0.17f,
+        0.039999999f, 0xA00); // 0.039999999f - player col size
+
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pThing )
+        {
+            bCanMoveObject = 1;
+            break;
+        }
+
+        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 && pCollision->pSurfaceCollided )
+        {
+            float floorDot = rdVector_Dot3(&pCollision->pSurfaceCollided->face.normal, &rdroid_g_zVector3);
+            if ( floorDot > 0.99900001f )
+            {
+                bCanMoveObject = 1;
+                break;
+            }
+        }
+    }
+    sithCollision_DecreaseStackLevel();
+
+    if ( !bCanMoveObject )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+    }
+
+    // Check floor at player's pull end position
+    rdVector_ScaleAdd3(&pullEndPos, &negMoveNorm, 0.2f, &pThing->pos);
+    pPullEndPosSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos,
+        &pullEndPos, 0.0f);
+    if ( !pPullEndPosSector )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+    }
+
+    bCanMoveObject = 0;
+    sithCollision_SearchForCollisions(pPullEndPosSector, NULL, &pullEndPos, &downDir,
+        0.063000001f, 0.039999999f, 0xA00); // 0.039999999f - player col size
+
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pThing )
+        {
+            // Check collision distance is valid (20-70cm)
+            bCanMoveObject = pCollision->distance >= 0.02f && pCollision->distance <= 0.07f;
+            break;
+        }
+
+        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 && pCollision->pSurfaceCollided )
+        {
+            // Check collision distance is valid (20-70cm) and surface is flat floor
+            if ( pCollision->distance < 0.02f || pCollision->distance > 0.07f )
+            {
+                bCanMoveObject = 0;
+                break;
+            }
+
+            // Check if surface is straight floor
+            float floorDot = rdVector_Dot3(&pCollision->pSurfaceCollided->face.normal, &rdroid_g_zVector3);
+            if ( floorDot > 0.99900001f )
+            {
+                // Check surface of movable thing and collided surfaces are at same height
+                if ( (pMovableThing->attach.flags & SITH_ATTACH_SURFACE) != 0 )
+                {
+                    rdFace* pSurfFace    = &pCollision->pSurfaceCollided->face;
+                    rdFace* pMovableFace = pMovableThing->attach.pFace;
+                    float surfZ          = sithWorld_g_pCurrentWorld->aVertices[*pSurfFace->aVertices].z;
+                    float movableZ       = sithWorld_g_pCurrentWorld->aVertices[*pMovableFace->aVertices].z;
+                    bCanMoveObject       = fabsf(surfZ - movableZ) < 0.0049999999f;
+                }
+                else
+                {
+                    bCanMoveObject = 1;
+                }
+                break;
+            }
+        }
+    }
+    sithCollision_DecreaseStackLevel();
+
+    if ( !bCanMoveObject )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+    }
+
+    // Final check for pushgear alignment
+    if ( strneq(pMovableThing->aName, "pushgear", 8u) )
+    {
+        float alignDot = fabsf(rdVector_Dot3(&pMovableThing->orient.lvec, &negMoveNorm));
+        if ( alignDot < 0.98000002f )
+        {
+            return SITHPLAYERCONTROLS_PUSHPULL_MISALIGNED;
+        }
+    }
+
+    return SITHPLAYERCONTROLS_PUSHPULL_OK;
+}
+
+// Added: whether a push move from the grabbed object is possible, with the press's exact obstacle,
+// floor, floor-height and pushgear checks. Sets nothing but the collision scratch.
+static int sithPlayerControls_CheckPushObject(SithThing* pThing, SithThing* pMovableThing,
+    const rdVector3* pMoveNorm)
+{
+    const float searchRadius = (pMovableThing->collide.movesize < 0.1f)
+        ? 0.050000001f
+        : 0.094999999f;
+
+    // Check if movable thing can be pushed to new position
+    // Fixed: [v1.2] Start the search from a position lowered by 0.05 for the statue movable thing `2marpushstatue`
+    rdVector3 startPos = pMovableThing->pos;
+    if ( streq(pMovableThing->aName, "2marpushstatue") )
+    {
+        startPos.z -= 0.05f;
+    }
+
+    sithCollision_SearchForCollisions(pMovableThing->pInSector, pMovableThing, &startPos, pMoveNorm,
+        0.19f, searchRadius, 0xA00);
+
+    SithCollision* pCollision;
+    int bCanMoveObject = 1;
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pThing )
+        {
+            bCanMoveObject = 0;
+            break; // Fixed: originally missing break here
+        }
+
+        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+        {
+            bCanMoveObject = 0;
+            break; // Fixed: originally missing break here
+        }
+    }
+    sithCollision_DecreaseStackLevel();
+
+    if ( !bCanMoveObject )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+    }
+
+    // Check floor at push end position
+    rdVector3 pushEndPos;
+    rdVector_ScaleAdd3(&pushEndPos, pMoveNorm, 0.2f, &pMovableThing->pos);
+
+    rdVector3 downDir = RDVECTOR_NEG3(rdroid_g_zVector3);
+    SithSector* pPushEndPosSector = sithCollision_FindSectorInRadius(pMovableThing->pInSector,
+        &pMovableThing->pos, &pushEndPos, 0.0f);
+    if ( !pPushEndPosSector )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_QUIET;
+    }
+
+    bCanMoveObject = 0;
+    sithCollision_SearchForCollisions(pPushEndPosSector, NULL, &pushEndPos, &downDir, 0.16f,
+        0.0099999998f, 0xA00);
+
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( (pCollision->type & SITHCOLLISION_THING) != 0
+            && pCollision->pThingCollided != pMovableThing )
+        {
+            bCanMoveObject = 1;
+            break;
+        }
+
+        if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 && pCollision->pSurfaceCollided )
+        {
+            float floorDot = rdVector_Dot3(&pCollision->pSurfaceCollided->face.normal, &rdroid_g_zVector3);
+            if ( floorDot > 0.99900001f )
+            {
+                // Check player floor surface and push target floor heights match
+                if ( (pThing->attach.flags & SITH_ATTACH_SURFACE) != 0 )
+                {
+                    rdFace* pSurfFace  = &pCollision->pSurfaceCollided->face;
+                    rdFace* pThingFace = pThing->attach.pFace;
+                    float surfZ        = sithWorld_g_pCurrentWorld->aVertices[*pSurfFace->aVertices].z;
+                    float thingZ       = sithWorld_g_pCurrentWorld->aVertices[*pThingFace->aVertices].z;
+                    bCanMoveObject     = fabsf(surfZ - thingZ) < 0.0049999999f;
+                }
+                else
+                {
+                    bCanMoveObject = 1;
+                }
+                break;
+            }
+        }
+    }
+    sithCollision_DecreaseStackLevel();
+
+    if ( !bCanMoveObject )
+    {
+        return SITHPLAYERCONTROLS_PUSHPULL_BLOCKED;
+    }
+
+    // Final check for pushgear alignment
+    if ( strneq(pMovableThing->aName, "pushgear", 8u) )
+    {
+        float alignDot = fabsf(rdVector_Dot3(&pMovableThing->orient.lvec, pMoveNorm));
+        if ( alignDot < 0.98000002f )
+        {
+            return SITHPLAYERCONTROLS_PUSHPULL_MISALIGNED;
+        }
+    }
+
+    return SITHPLAYERCONTROLS_PUSHPULL_OK;
+}
+
+// Added: the push/pull half of the interaction query. It finds the same object the press would
+// grab and reports the directions the press's move checks allow. A missing direction is not shown.
+static int sithPlayerControls_QueryPushPull(SithThing* pThing, SithPlayerInteraction* pOut)
+{
+    if ( pThing->thingInfo.actorInfo.bForceMovePlay
+        || !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    rdVector3 moveNorm;
+    SithThing* pMovableThing = sithPlayerControls_FindPushPullThing(pThing, &moveNorm);
+    if ( !pMovableThing )
+    {
+        sithCollision_EndReadOnlySearch();
+        return 0;
+    }
+
+    const int pullResult = sithPlayerControls_CheckPullObject(pThing, pMovableThing, &moveNorm);
+    const int pushResult = sithPlayerControls_CheckPushObject(pThing, pMovableThing, &moveNorm);
+    sithCollision_EndReadOnlySearch();
+
+    const bool bCanPull = pullResult == SITHPLAYERCONTROLS_PUSHPULL_OK;
+    const bool bCanPush = pushResult == SITHPLAYERCONTROLS_PUSHPULL_OK;
+    if ( !bCanPull && !bCanPush )
+    {
+        return 0;
+    }
+
+    pOut->kind    = bCanPull && bCanPush ? SITHPLAYERINTERACTION_PUSH_PULL
+        : bCanPush ? SITHPLAYERINTERACTION_PUSH
+        : SITHPLAYERINTERACTION_PULL;
+    pOut->control = SITHCONTROL_ACT2;
+    pOut->pThing  = pMovableThing;
+    return 1;
+}
+
+// Added: the climbable surface a Jump press would mount, or NULL. This is the finding half of
+// TryMountClimbWall; the mount itself is sithPlayerControls_MountClimbWall.
+static SithSurface* sithPlayerControls_FindClimbWall(SithThing* pThing)
+{
+    if ( sithInventory_GetCurrentWeapon(pThing) != SITHWEAPON_NO_WEAPON
+        || sithWeapon_IsMountingWeapon(pThing) )
+    {
+        return NULL;
+    }
+
+    float moveDist = pThing->collide.movesize * 2.0f;
+    sithCollision_SearchForCollisions(pThing->pInSector, pThing, &pThing->pos, &pThing->orient.lvec,
+        moveDist, pThing->collide.movesize, 0xA00);
+
+    SithSurface* pClimbSurf = NULL;
+    SithCollision* pCollision;
+    while ( (pCollision = sithCollision_PopStack()) != NULL )
+    {
+        if ( ((pCollision->type & SITHCOLLISION_WORLD) != 0
+                || (pCollision->type & SITHCOLLISION_ADJOINCROSS) != 0)
+            && pCollision->pSurfaceCollided
+            && (pCollision->pSurfaceCollided->flags & SITH_SURFACE_CLIMBABLE) != 0 )
+        {
+            rdVector3 surfNormal = RDVECTOR_NEG3(pCollision->pSurfaceCollided->face.normal);
+            surfNormal.z = 0.0f;
+            rdVector_Normalize3Acc(&surfNormal);
+
+            rdVector3 dir = pThing->orient.lvec;
+            dir.z = 0.0f;
+            rdVector_Normalize3Acc(&dir);
+
+            if ( rdVector_Dot3(&dir, &surfNormal) > 0.80000001f )
+            {
+                pClimbSurf = pCollision->pSurfaceCollided;
+                break;
+            }
+        }
+    }
+
+    sithCollision_DecreaseStackLevel();
+    return pClimbSurf;
+}
+
+// Added: the acting half of TryMountClimbWall, for a surface the finder returned.
+static void sithPlayerControls_MountClimbWall(SithThing* pThing, SithSurface* pClimbSurf,
+    bool bQuickMount)
+{
+    pThing->moveStatus = SITHPLAYERMOVE_MOUNTING_WALL;
+    pThing->thingInfo.actorInfo.bControlsDisabled = 1;
+
+    sithPhysics_ResetThingMovement(pThing);
+    sithPlayerActions_CenterOnClimbSurface(pThing, pClimbSurf);
+    sithThing_AttachThingToClimbSurface(pThing, pClimbSurf);
+
+    sithPuppet_RemoveAllTracks(pThing);
+    sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_MOUNTWALL, sithPlayerControls_PuppetCallback);
+    sithSoundClass_PlayModeFirst(pThing, SITHSOUNDCLASS_CLIMBONTO);
+
+    // Added: Speedup play if runmode is enabled
+    sithPlayerControls_UpdateClimbingSpeed(pThing, bQuickMount);
+
+    pThing->moveInfo.physics.flags &= ~SITH_PF_FLOORSTICK;
+
+    sithPlayerControls_bJumpKeyActive = true;
+    sithInventory_SetSwimmingInventory(pThing, /*bItemsAvailable=*/0);
+}
+
+// Added: whether the press at the top of a climbable wall pulls up instead of continuing to climb.
+// Activate and Forward both reach the same decision; the press finds the surface once and passes
+// it in.
+static int sithPlayerControls_CheckClimbPullUp(SithThing* pThing, const SithSurface* pClimbSurf,
+    int bHitNoneClimbSurf)
+{
+    if ( pThing->thingInfo.actorInfo.bForceMovePlay || pClimbSurf || bHitNoneClimbSurf )
+    {
+        return 0;
+    }
+
+    return sithPlayerActions_CanPullUp(pThing) == 1;
+}
+
+// Added: the Jump half of the interaction query, in the same order as the standing, walking and
+// running press paths: climb-on 2m, climb-on 1m, then mount a climbable wall.
+static int sithPlayerControls_QueryJumpClimb(SithThing* pThing, SithPlayerInteraction* pOut)
+{
+    if ( sithPlayerControls_bJumpKeyActive )
+    {
+        return 0;
+    }
+
+    if ( !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    int result = 0;
+    if ( sithPlayerControls_CanClimbOn2m(pThing) )
+    {
+        // The press calls ClimbOn2m and stops; with a force move playing that call is a no-op.
+        if ( !pThing->thingInfo.actorInfo.bForceMovePlay )
+        {
+            pOut->kind    = SITHPLAYERINTERACTION_CLIMB_UP;
+            pOut->control = SITHCONTROL_JUMP;
+            result        = 1;
+        }
+    }
+    else if ( sithPlayerControls_CanClimbOn1m(pThing) )
+    {
+        if ( !pThing->thingInfo.actorInfo.bForceMovePlay )
+        {
+            pOut->kind    = SITHPLAYERINTERACTION_CLIMB_UP;
+            pOut->control = SITHCONTROL_JUMP;
+            result        = 1;
+        }
+    }
+    else
+    {
+        SithSurface* pClimbSurf = sithPlayerControls_FindClimbWall(pThing);
+        if ( pClimbSurf )
+        {
+            pOut->kind     = SITHPLAYERINTERACTION_CLIMB;
+            pOut->control  = SITHCONTROL_JUMP;
+            pOut->pSurface = pClimbSurf;
+            result         = 1;
+        }
+    }
+
+    sithCollision_EndReadOnlySearch();
+    return result;
+}
+
+// Added: the pull-up half of the interaction query for a player on a climbable wall.
+static int sithPlayerControls_QueryClimbPullUp(SithThing* pThing, SithPlayerInteraction* pOut)
+{
+    if ( pThing->thingInfo.actorInfo.bForceMovePlay
+        || !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    rdVector3 upDir = rdroid_g_zVector3;
+    rdMatrix_TransformVector34Acc(&upDir, &pThing->orient);
+    rdVector_Normalize3Acc(&upDir);
+
+    int bHitNoneClimbSurf;
+    SithSurface* pClimbSurf = sithPlayerControls_FindClimbSurface(pThing, &upDir,
+        /*climbDir=*/1, &bHitNoneClimbSurf);
+    const int bCanPullUp = sithPlayerControls_CheckClimbPullUp(pThing, pClimbSurf,
+        bHitNoneClimbSurf);
+    sithCollision_EndReadOnlySearch();
+
+    if ( !bCanPullUp )
+    {
+        return 0;
+    }
+
+    pOut->kind    = SITHPLAYERINTERACTION_CLIMB_UP;
+    pOut->control = SITHCONTROL_ACT2;
+    return 1;
+}
+
+// Added: the pull-up half of the interaction query for a player hanging from a ledge. The press
+// uses the Forward key here.
+static int sithPlayerControls_QueryHangPullUp(SithThing* pThing, SithPlayerInteraction* pOut)
+{
+    if ( sithPlayerControls_bJumpKeyActive
+        || !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    const int bCanPullUp = sithPlayerActions_CanPullUp(pThing);
+    sithCollision_EndReadOnlySearch();
+    if ( !bCanPullUp )
+    {
+        return 0;
+    }
+
+    pOut->kind    = SITHPLAYERINTERACTION_CLIMB_UP;
+    pOut->control = SITHCONTROL_FORWARD;
+    return 1;
+}
+
+// Added: the Jump half of the interaction query at the water surface, using the press's own ledge
+// test without its grab-position move.
+static int sithPlayerControls_QueryWaterLedge(SithThing* pThing, SithPlayerInteraction* pOut)
+{
+    if ( (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) == 0
+        || sithInventory_GetCurrentWeapon(pThing)
+        || sithWeapon_IsMountingWeapon(pThing)
+        || sithPlayerControls_bJumpKeyActive
+        || !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    const int ledgeType = sithPlayerControls_CheckWaterLedge(pThing, /*bMoveToLedge=*/0);
+    sithCollision_EndReadOnlySearch();
+    if ( ledgeType == 0 )
+    {
+        return 0;
+    }
+
+    pOut->kind    = SITHPLAYERINTERACTION_CLIMB_UP;
+    pOut->control = SITHCONTROL_JUMP;
+    return 1;
+}
+
 int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInteraction* pOut)
 {
     if ( !pOut )
@@ -829,14 +1441,19 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
     const bool bOnWaterSurface = (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0;
     const SithThingMoveStatus moveStatus = pThing->moveStatus;
 
-    // Added: the press path of each idle state, with that path's guards and its item/Activate
-    // order. Other states own the activation key for climbing, ledges or vehicles.
+    // Added: the press path of each movement state, with that path's guards and its key order.
+    // Other states own the keys for vehicles, cutscenes or animations this prompt leaves alone.
     if ( moveStatus == SITHPLAYERMOVE_SWIMIDLE )
     {
-        if ( bOnWaterSurface || sithPlayerControls_secSwimIdleTime < 1.0f
-            || sithWeapon_IsMountingWeapon(pThing) )
+        if ( sithPlayerControls_secSwimIdleTime < 1.0f || sithWeapon_IsMountingWeapon(pThing) )
         {
             return 0;
+        }
+
+        // Jump pulls up onto a water ledge whether or not the player is on the surface.
+        if ( bOnWaterSurface )
+        {
+            return sithPlayerControls_QueryWaterLedge(pThing, pOut);
         }
 
         if ( (pThing->flags & SITH_TF_SUBMERGED) == 0
@@ -855,6 +1472,7 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
             }
 
             pOut->kind      = SITHPLAYERINTERACTION_PICKUP;
+            pOut->control   = SITHCONTROL_ACT2;
             pOut->pThing    = pItemThing;
             pOut->bFloorItem = bFoundFloorItem;
             return 1;
@@ -864,6 +1482,7 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
         if ( sithPlayerActions_QueryActivateTarget(pThing, &target) )
         {
             pOut->kind     = SITHPLAYERINTERACTION_USE;
+            pOut->control  = SITHCONTROL_ACT2;
             pOut->pSurface = target.pSurface;
             pOut->pThing   = target.pThing;
             return 1;
@@ -884,6 +1503,7 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
         if ( sithPlayerActions_QueryActivateTarget(pThing, &target) )
         {
             pOut->kind     = SITHPLAYERINTERACTION_USE;
+            pOut->control  = SITHCONTROL_ACT2;
             pOut->pSurface = target.pSurface;
             pOut->pThing   = target.pThing;
             return 1;
@@ -899,6 +1519,7 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
             }
 
             pOut->kind      = SITHPLAYERINTERACTION_PICKUP;
+            pOut->control   = SITHCONTROL_ACT2;
             pOut->pThing    = pItemThing;
             pOut->bFloorItem = bFoundFloorItem;
             return 1;
@@ -910,6 +1531,7 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
     if ( moveStatus == SITHPLAYERMOVE_STILL )
     {
         if ( bUnderwater || pThing->thingInfo.actorInfo.bForceMovePlay
+            || (pThing->thingInfo.actorInfo.flags & SITH_AF_IMMOBILE) != 0
             || sithWeapon_IsMountingWeapon(pThing) )
         {
             return 0;
@@ -925,6 +1547,7 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
             }
 
             pOut->kind      = SITHPLAYERINTERACTION_PICKUP;
+            pOut->control   = SITHCONTROL_ACT2;
             pOut->pThing    = pItemThing;
             pOut->bFloorItem = bFoundGroundItem;
             return 1;
@@ -934,14 +1557,55 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
         if ( sithPlayerActions_QueryActivateTarget(pThing, &target) )
         {
             pOut->kind     = SITHPLAYERINTERACTION_USE;
+            pOut->control  = SITHCONTROL_ACT2;
             pOut->pSurface = target.pSurface;
             pOut->pThing   = target.pThing;
             return 1;
         }
+
+        // Added: Activate has no target, so the same press would try to grab a movable object.
+        if ( sithPlayerControls_QueryPushPull(pThing, pOut) )
+        {
+            return 1;
+        }
+
+        // Added: the Jump key climbs or mounts; Activate keeps priority when one applies.
+        return sithPlayerControls_QueryJumpClimb(pThing, pOut);
+    }
+
+    if ( moveStatus == SITHPLAYERMOVE_WALKING || moveStatus == SITHPLAYERMOVE_RUNNING )
+    {
+        if ( bUnderwater || pThing->thingInfo.actorInfo.bForceMovePlay )
+        {
+            return 0;
+        }
+
+        return sithPlayerControls_QueryJumpClimb(pThing, pOut);
+    }
+
+    if ( moveStatus == SITHPLAYERMOVE_CLIMBIDLE
+        || moveStatus == SITHPLAYERMOVE_CLIMBING_UP
+        || moveStatus == SITHPLAYERMOVE_CLIMBING_DOWN
+        || moveStatus == SITHPLAYERMOVE_CLIMBING_LEFT
+        || moveStatus == SITHPLAYERMOVE_CLIMBING_RIGHT )
+    {
+        return sithPlayerControls_QueryClimbPullUp(pThing, pOut);
+    }
+
+    if ( moveStatus == SITHPLAYERMOVE_HANGING )
+    {
+        return sithPlayerControls_QueryHangPullUp(pThing, pOut);
     }
 
     return 0;
 }
+
+#ifdef J3D_TEST
+void sithPlayerControls_SetSwimIdleTimeForTest(float sec)
+{
+    sithPlayerControls_secSwimIdleTime = sec;
+}
+#endif
 
 int J3DAPI sithPlayerControls_ProcessPlayerDebugControls(SithThing* pThing, float secDeltaTime)
 {
@@ -1262,7 +1926,7 @@ void J3DAPI sithPlayerControls_ProcessClimbMove(SithThing* pThing, float secDelt
 
             int bHitNoneClimbSurf;
             SithSurface* pSurf = sithPlayerControls_FindClimbSurface(pThing, &upDir, /*climbDir=*/1, &bHitNoneClimbSurf);
-            if ( !pSurf && !bHitNoneClimbSurf && sithPlayerActions_CanPullUp(pThing) == 1 )
+            if ( sithPlayerControls_CheckClimbPullUp(pThing, pSurf, bHitNoneClimbSurf) )
             {
                 sithPuppet_StopKey(pThing->renderData.pPuppet, sithPlayerControls_climbPupTrackNum, 0.0f);
                 sithPlayerControls_climbPupTrackNum = -1;
@@ -1295,7 +1959,7 @@ void J3DAPI sithPlayerControls_ProcessClimbMove(SithThing* pThing, float secDelt
             SithSurface* pSurf = sithPlayerControls_FindClimbSurface(pThing, &upDir, /*climbDir=*/1, &bHitNoneClimbSurf);
             if ( !pSurf || bHitNoneClimbSurf )
             {
-                if ( !bHitNoneClimbSurf && sithPlayerActions_CanPullUp(pThing) == 1 ) // Fixed: Added pull up check
+                if ( sithPlayerControls_CheckClimbPullUp(pThing, pSurf, bHitNoneClimbSurf) ) // Fixed: Added pull up check
                 {
                     sithPuppet_StopKey(pThing->renderData.pPuppet, sithPlayerControls_climbPupTrackNum, 0.0f);
                     sithPlayerControls_climbPupTrackNum = -1;
@@ -1566,7 +2230,7 @@ void J3DAPI sithPlayerControls_ProcessFlyMove(SithThing* pThing, float secDeltaT
         {
             if ( (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0 )
             {
-                int ledgeType = sithPlayerControls_CheckWaterLedge(pThing);
+                int ledgeType = sithPlayerControls_CheckWaterLedge(pThing, /*bMoveToLedge=*/1);
                 if ( ledgeType == 1 )
                 {
                     sithPhysics_ResetThingMovement(pThing);
@@ -2191,7 +2855,7 @@ void J3DAPI sithPlayerControls_ProcessSwimMove(SithThing* pThing, float secDelta
             && (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) != 0
             && !sithPlayerControls_bJumpKeyActive )
         {
-            int ledgeType = sithPlayerControls_CheckWaterLedge(pThing);
+            int ledgeType = sithPlayerControls_CheckWaterLedge(pThing, /*bMoveToLedge=*/1);
             if ( ledgeType == 1 ) // player already positioned to ledge grab position
             {
                 sithFX_CreateWaterRipple(pThing);
@@ -3182,7 +3846,7 @@ int J3DAPI sithPlayerControls_GetPushPullMoveNorm(rdVector3* moveNorm, const rdV
     return 1;
 }
 
-int J3DAPI sithPlayerControls_CheckWaterLedge(SithThing* pThing)
+int J3DAPI sithPlayerControls_CheckWaterLedge(SithThing* pThing, int bMoveToLedge)
 {
     if ( (pThing->moveInfo.physics.flags & SITH_PF_ONWATERSURFACE) == 0 )
     {
@@ -3244,11 +3908,14 @@ int J3DAPI sithPlayerControls_CheckWaterLedge(SithThing* pThing)
                 }
 
                 // Move thing to ledge grab pos
-                pThing->pos = grabPos;
-                if ( pGrabSec != pThing->pInSector )
+                if ( bMoveToLedge )
                 {
-                    sithThing_ExitSector(pThing);
-                    sithThing_EnterSector(pThing, pGrabSec, /*bNoWaterSplash=*/1, /*bNoNotify=*/0);
+                    pThing->pos = grabPos;
+                    if ( pGrabSec != pThing->pInSector )
+                    {
+                        sithThing_ExitSector(pThing);
+                        sithThing_EnterSector(pThing, pGrabSec, /*bNoWaterSplash=*/1, /*bNoNotify=*/0);
+                    }
                 }
 
                 ledgeType = 1;
@@ -4365,7 +5032,7 @@ bool J3DAPI sithPlayerControls_CanStrafeMove(SithThing* pThing, int bMoveRight)
     return bCanMove;
 }
 
-bool sithPlayerControls_CanClimbOn1m(SithThing* pThing)
+static bool sithPlayerControls_CanClimbOn1m(SithThing* pThing)
 {
 #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
     // Added: Alow climbing on 1m when having weapon mounted
@@ -4377,7 +5044,7 @@ bool sithPlayerControls_CanClimbOn1m(SithThing* pThing)
     return bCanClimb && sithPlayerActions_CanClimbOn1m(pThing) == 1;
 }
 
-bool sithPlayerControls_CanClimbOn2m(SithThing* pThing)
+static bool sithPlayerControls_CanClimbOn2m(SithThing* pThing)
 {
 #if defined J3D_QOL_IMPROVEMENTS && !defined J3D_SPEEDRUN_BUILD
     // Added: Alow climbing on 1m when having weapon mounted
@@ -4394,63 +5061,14 @@ bool sithPlayerControls_CanClimbOn2m(SithThing* pThing)
 
 bool J3DAPI sithPlayerControls_TryMountClimbWall(SithThing* pThing, bool bQuickMount)
 {
-    // TODO: this could be new sithPlayerActions function FindAndMountClimbWall
-    if ( sithInventory_GetCurrentWeapon(pThing) == SITHWEAPON_NO_WEAPON && !sithWeapon_IsMountingWeapon(pThing) ) //TODO: why not use sithPlayerActions_HasActiveWeapon
+    SithSurface* pClimbSurf = sithPlayerControls_FindClimbWall(pThing);
+    if ( !pClimbSurf )
     {
-        float moveDist = pThing->collide.movesize * 2.0f;
-        sithCollision_SearchForCollisions(pThing->pInSector, pThing, &pThing->pos, &pThing->orient.lvec, moveDist, pThing->collide.movesize, 0xA00);
-
-        bool bWallMounted = false;
-        SithCollision* pCollision;
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( ((pCollision->type & SITHCOLLISION_WORLD) != 0
-                || (pCollision->type & SITHCOLLISION_ADJOINCROSS) != 0)
-                && pCollision->pSurfaceCollided
-                && (pCollision->pSurfaceCollided->flags & SITH_SURFACE_CLIMBABLE) != 0 )
-            {
-                rdVector3 surfNormal = RDVECTOR_NEG3(pCollision->pSurfaceCollided->face.normal);
-                surfNormal.z = 0.0f;
-                rdVector_Normalize3Acc(&surfNormal);
-
-                rdVector3 dir = pThing->orient.lvec;
-                dir.z = 0.0f;
-                rdVector_Normalize3Acc(&dir);
-
-                if ( rdVector_Dot3(&dir, &surfNormal) > 0.80000001f )
-                {
-                    pThing->moveStatus = SITHPLAYERMOVE_MOUNTING_WALL;
-                    pThing->thingInfo.actorInfo.bControlsDisabled = 1;
-
-                    sithPhysics_ResetThingMovement(pThing);
-                    sithPlayerActions_CenterOnClimbSurface(pThing, pCollision->pSurfaceCollided);
-                    sithThing_AttachThingToClimbSurface(pThing, pCollision->pSurfaceCollided);
-
-                    sithPuppet_RemoveAllTracks(pThing);
-                    sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_MOUNTWALL, sithPlayerControls_PuppetCallback);
-                    sithSoundClass_PlayModeFirst(pThing, SITHSOUNDCLASS_CLIMBONTO);
-
-                    // Added: Speedup play if runmode is enabled
-                    sithPlayerControls_UpdateClimbingSpeed(pThing, bQuickMount);
-
-                    pThing->moveInfo.physics.flags &= ~SITH_PF_FLOORSTICK;
-                    bWallMounted = true;
-
-                    sithPlayerControls_bJumpKeyActive = true;
-                    sithInventory_SetSwimmingInventory(pThing, /*bItemsAvailable=*/0);
-                    break;
-                }
-            }
-        }
-
-        sithCollision_DecreaseStackLevel();
-        if ( bWallMounted )
-        {
-            return true;
-        }
+        return false;
     }
 
-    return false;
+    sithPlayerControls_MountClimbWall(pThing, pClimbSurf, bQuickMount);
+    return true;
 }
 
 // Added: Modern swim steering keeps the original underwater code's pitch limit.
@@ -4978,62 +5596,24 @@ void J3DAPI sithPlayerControls_ProcessStillMove(SithThing* pThing, float secDelt
         //
         // Try find push/pull object
         //
-        pItemThing = NULL;
         rdVector3 pushpullMoveNorm;
-        bool bGotPushPullDir = sithPlayerControls_GetPushPullMoveNorm(&pushpullMoveNorm, &pThing->orient.lvec, 15.0f);
-        if ( bGotPushPullDir
-            && pThing->attach.flags
-            && !sithInventory_GetCurrentWeapon(pThing)
-            && !sithWeapon_IsMountingWeapon(pThing) ) // TODO: why not use !sithPlayerActions_HasActiveWeapon
+        pItemThing = sithPlayerControls_FindPushPullThing(pThing, &pushpullMoveNorm);
+        if ( pItemThing )
         {
-            sithCollision_SearchForCollisions(pThing->pInSector, pThing, &pThing->pos, &pushpullMoveNorm, pThing->collide.movesize, pThing->collide.movesize, 0xA00);
+            sithPlayerControls_pMovableThing = pItemThing;
+            sithPhysics_ResetThingMovement(pThing);
 
-            SithCollision* pCollision;
-            while ( (pCollision = sithCollision_PopStack()) != NULL )
-            {
-                if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                    && pCollision->pThingCollided != pThing
-                    && (pCollision->pThingCollided->flags & SITH_TF_MOVABLE) != 0
-                    && pCollision->distance < 0.0089999996f )
-                {
-                    pItemThing = pCollision->pThingCollided;
-                    break;
-                }
-            }
-            sithCollision_DecreaseStackLevel();
+            pThing->orient.lvec = pushpullMoveNorm;
+            rdVector_Cross3(&pThing->orient.rvec, &pThing->orient.lvec, &rdroid_g_zVector3);
+            rdVector_Normalize3Acc(&pThing->orient.rvec);
+            rdVector_Cross3(&pThing->orient.uvec, &pThing->orient.rvec, &pThing->orient.lvec);
 
-            if ( pItemThing )
-            {
-                // Check player facing movable object
-                rdVector3 dirXY = pThing->orient.lvec;
-                dirXY.z = 0.0f;
-                rdVector_Normalize3Acc(&dirXY);
+            pThing->thingInfo.actorInfo.bControlsDisabled = 1;
+            sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY, sithPlayerControls_PuppetCallback);
 
-                rdVector3 playerToItem;
-                rdVector_Sub3(&playerToItem, &pThing->pos, &pItemThing->pos);
-                playerToItem.z = 0.0f;
-                rdVector_Normalize3Acc(&playerToItem);
-
-                if ( fabsf(rdVector_Dot3(&dirXY, &playerToItem)) > 0.94f )
-                {
-                    sithPlayerControls_pMovableThing = pItemThing;
-                    sithPhysics_ResetThingMovement(pThing);
-
-                    pThing->orient.lvec = pushpullMoveNorm;
-                    rdVector_Cross3(&pThing->orient.rvec, &pThing->orient.lvec, &rdroid_g_zVector3);
-                    rdVector_Normalize3Acc(&pThing->orient.rvec);
-                    rdVector_Cross3(&pThing->orient.uvec, &pThing->orient.rvec, &pThing->orient.lvec);
-
-                    pThing->thingInfo.actorInfo.bControlsDisabled = 1;
-                    sithPuppet_PlayMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY, sithPlayerControls_PuppetCallback);
-
-                    pThing->moveStatus = SITHPLAYERMOVE_PUSHPULL_READY;
-                    sithPlayerControls_bActionKeyActive = true;
-                    return;
-                }
-
-                pItemThing = NULL;
-            }
+            pThing->moveStatus = SITHPLAYERMOVE_PUSHPULL_READY;
+            sithPlayerControls_bActionKeyActive = true;
+            return;
         }
 
         //
@@ -5598,6 +6178,26 @@ void J3DAPI sithPlayerControls_ProcessCrawlMove(SithThing* pThing, float secDelt
     }
 }
 
+// Added: the press's reaction to a failed push/pull direction check. The shared check functions
+// report the kind of failure; the voice, the comment timer and the grab-state clearing stay here,
+// in the same order as before.
+static void sithPlayerControls_CommentPushPullFailure(SithThing* pThing, SithSoundClassMode soundClass)
+{
+    if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
+    {
+        sithSoundClass_PlayVoiceModeRandom(pThing, soundClass);
+        sithPlayerControls_secCommentWaitTimer = 3.0f;
+    }
+}
+
+static void sithPlayerControls_ClearPushPullGrab(SithThing* pThing)
+{
+    sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
+    pThing->moveStatus = SITHPLAYERMOVE_STILL;
+    sithPlayerControls_pMovableThing = NULL;
+    pThing->thingInfo.actorInfo.bControlsDisabled = 0;
+}
+
 void J3DAPI sithPlayerControls_ProcessPushPullMove(SithThing* pThing, float secDeltaTime)
 {
     J3D_UNUSED(secDeltaTime);
@@ -5613,10 +6213,7 @@ void J3DAPI sithPlayerControls_ProcessPushPullMove(SithThing* pThing, float secD
     // Check that activation key is still being held, i.e., must be in push/pull grab state
     if ( !sithControl_GetKey(SITHCONTROL_ACT2, NULL) )
     {
-        sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-        pThing->moveStatus = SITHPLAYERMOVE_STILL;
-        sithPlayerControls_pMovableThing = NULL;
-        pThing->thingInfo.actorInfo.bControlsDisabled = 0;
+        sithPlayerControls_ClearPushPullGrab(pThing);
         return;
     }
 
@@ -5638,11 +6235,6 @@ void J3DAPI sithPlayerControls_ProcessPushPullMove(SithThing* pThing, float secD
         return;
     }
 
-    bool bCanMoveObject = true;
-    float searchRadius = (sithPlayerControls_pMovableThing->collide.movesize < 0.1f)
-        ? 0.050000001f
-        : 0.094999999f;
-
     //
     // Handle pull object move
     //
@@ -5650,293 +6242,25 @@ void J3DAPI sithPlayerControls_ProcessPushPullMove(SithThing* pThing, float secD
     // Fixed: Only treat it as a pull when forward is not held, the fork used the back key directly
     if ( !sithControl_GetKey(SITHCONTROL_FORWARD, NULL) )
     {
-        // Check height difference for pull - can't pull objects that are higher
-        if ( searchRadius > 0.05f && pThing->pos.z > sithPlayerControls_pMovableThing->pos.z )
+        const int check = sithPlayerControls_CheckPullObject(pThing, sithPlayerControls_pMovableThing,
+            &pushPullMoveNorm);
+        if ( check != SITHPLAYERCONTROLS_PUSHPULL_OK )
         {
-            float heightDiff = pThing->pos.z - sithPlayerControls_pMovableThing->pos.z;
-            if ( heightDiff > 0.02f ) // 20cm height difference
+            if ( check == SITHPLAYERCONTROLS_PUSHPULL_QUIET )
             {
-                // If movable object is not pushgear, can't pull it
-                if ( !strneq(sithPlayerControls_pMovableThing->aName, "pushgear", 8u) )
-                {
-                    bCanMoveObject = false;
-                    if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-                    {
-                        sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST);
-                        sithPlayerControls_secCommentWaitTimer = 3.0f;
-                    }
-
-                    sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-                    pThing->moveStatus = SITHPLAYERMOVE_STILL;
-                    sithPlayerControls_pMovableThing = NULL;
-                    pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-                    return;
-                }
-            }
-        }
-
-        //
-        // Check if movable thing can move in pull direction
-        //
-        rdVector3 pullDir = RDVECTOR_NEG3(pushPullMoveNorm);
-        float pullMoveDist = pThing->collide.movesize + 0.19f;
-        // Fixed: [v1.2] Start the search from a position lowered by 0.05 for the statue movable thing `2marpushstatue`
-        rdVector3 startPos = sithPlayerControls_pMovableThing->pos;
-        if ( streq(sithPlayerControls_pMovableThing->aName, "2marpushstatue") )
-        {
-            startPos.z -= 0.05f;
-        }
-
-        sithCollision_SearchForCollisions(
-            sithPlayerControls_pMovableThing->pInSector,
-            sithPlayerControls_pMovableThing,
-            &startPos,
-            &pullDir,
-            pullMoveDist,
-            searchRadius,
-            0xA00
-        );
-
-        SithCollision* pCollision;
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided != pThing )
-            {
-                bCanMoveObject = false;
-                break; // Fixed: originally missing break here
+                return;
             }
 
-            if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+            sithPlayerControls_CommentPushPullFailure(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
+            if ( check == SITHPLAYERCONTROLS_PUSHPULL_MISALIGNED )
             {
-                bCanMoveObject = false;
-                break; // Fixed: originally missing break here
-            }
-        }
-        sithCollision_DecreaseStackLevel();
-
-        if ( !bCanMoveObject )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        //
-        // Check if player can move in pull direction
-        //
-        sithCollision_SearchForCollisions(
-            pThing->pInSector,
-            pThing,
-            &pThing->pos,
-            &pullDir,
-            pullMoveDist,
-            pThing->collide.movesize,
-            0xA00
-        );
-
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided != pThing )
-            {
-                bCanMoveObject = false;
-                break;
-            }
-
-            if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
-            {
-                bCanMoveObject = false;
-                break;
-            }
-        }
-        sithCollision_DecreaseStackLevel();
-
-        if ( !bCanMoveObject )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        //
-        // Check floor at movable thing's pull end position
-        //
-        rdVector3 negMoveNorm = RDVECTOR_NEG3(pushPullMoveNorm); // TODO: Reuse pullDir?
-        rdVector3 pullEndPos;
-        rdVector_ScaleAdd3(&pullEndPos, &negMoveNorm, 0.2f, &sithPlayerControls_pMovableThing->pos);
-
-        rdVector3 downDir = RDVECTOR_NEG3(rdroid_g_zVector3);
-        SithSector* pPullEndPosSector = sithCollision_FindSectorInRadius(sithPlayerControls_pMovableThing->pInSector, &sithPlayerControls_pMovableThing->pos, &pullEndPos, 0.0f);
-        if ( !pPullEndPosSector )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        bCanMoveObject = false;
-        sithCollision_SearchForCollisions(pPullEndPosSector, NULL, &pullEndPos, &downDir, 0.17f, 0.039999999f, 0xA00); // 0.039999999f - player col size
-
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided != pThing )
-            {
-                bCanMoveObject = true;
-                break;
-            }
-
-            if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 && pCollision->pSurfaceCollided )
-            {
-                float floorDot = rdVector_Dot3(&pCollision->pSurfaceCollided->face.normal, &rdroid_g_zVector3);
-                if ( floorDot > 0.99900001f )
-                {
-                    bCanMoveObject = true;
-                    break;
-                }
-            }
-        }
-        sithCollision_DecreaseStackLevel();
-
-        if ( !bCanMoveObject )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        //
-        // Check floor at player's pull end position
-        //
-        rdVector_ScaleAdd3(&pullEndPos, &negMoveNorm, 0.2f, &pThing->pos);
-        pPullEndPosSector = sithCollision_FindSectorInRadius(pThing->pInSector, &pThing->pos, &pullEndPos, 0.0f);
-        if ( !pPullEndPosSector )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        bCanMoveObject = false;
-        sithCollision_SearchForCollisions(pPullEndPosSector, NULL, &pullEndPos, &downDir, 0.063000001f, 0.039999999f, 0xA00); // 0.039999999f - player col size
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided != pThing )
-            {
-                // Check collision distance is valid (20-70cm)
-                bCanMoveObject = pCollision->distance >= 0.02f && pCollision->distance <= 0.07f;
-                break;
-            }
-
-            if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 && pCollision->pSurfaceCollided )
-            {
-                // Check collision distance is valid (20-70cm) and surface is flat floor
-                if ( pCollision->distance < 0.02f || pCollision->distance > 0.07f )
-                {
-                    bCanMoveObject = false;
-                    break;
-                }
-
-                // Check if surface is straight floor
-                float floorDot = rdVector_Dot3(&pCollision->pSurfaceCollided->face.normal, &rdroid_g_zVector3);
-                if ( floorDot > 0.99900001f )
-                {
-                    // Check surface of movable thing and collided surfaces are at same height
-                    if ( (sithPlayerControls_pMovableThing->attach.flags & SITH_ATTACH_SURFACE) != 0 )
-                    {
-                        rdFace* pSurfFace    = &pCollision->pSurfaceCollided->face;
-                        rdFace* pMovableFace = sithPlayerControls_pMovableThing->attach.pFace;
-                        float surfZ          = sithWorld_g_pCurrentWorld->aVertices[*pSurfFace->aVertices].z;
-                        float movableZ       = sithWorld_g_pCurrentWorld->aVertices[*pMovableFace->aVertices].z;
-                        bCanMoveObject       = fabsf(surfZ - movableZ) < 0.0049999999f;
-                    }
-                    else
-                    {
-                        bCanMoveObject = true;
-                    }
-                    break;
-                }
-            }
-        }
-        sithCollision_DecreaseStackLevel();
-
-        if ( !bCanMoveObject )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST); // Indy say I can't pull this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        //
-        // Final check for pushgear alignment
-        //
-        if ( strneq(sithPlayerControls_pMovableThing->aName, "pushgear", 8u) )
-        {
-            // Check the pull direction aligns with the pushgear direction
-            // This makes sure gear can only be pulled in its current direction and not in other directions
-            float alignDot = fabsf(rdVector_Dot3(&sithPlayerControls_pMovableThing->orient.lvec, &negMoveNorm));
-            if ( alignDot < 0.98000002f )
-            {
-                if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-                {
-                    sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_BOAST);
-                    sithPlayerControls_secCommentWaitTimer = 3.0f;
-                }
-
                 // TODO: note that the push pull state is not cleared
                 sithPlayerControls_pMovableThing = NULL;
                 return;
             }
+
+            sithPlayerControls_ClearPushPullGrab(pThing);
+            return;
         }
 
         //
@@ -5951,148 +6275,25 @@ void J3DAPI sithPlayerControls_ProcessPushPullMove(SithThing* pThing, float secD
     //
     else
     {
-        //
-        // Check if movable thing can be pushed to new position
-        //
-        // Fixed: [v1.2] Start the search from a position lowered by 0.05 for the statue movable thing `2marpushstatue`
-        rdVector3 startPos = sithPlayerControls_pMovableThing->pos;
-        if ( streq(sithPlayerControls_pMovableThing->aName, "2marpushstatue") )
+        const int check = sithPlayerControls_CheckPushObject(pThing, sithPlayerControls_pMovableThing,
+            &pushPullMoveNorm);
+        if ( check != SITHPLAYERCONTROLS_PUSHPULL_OK )
         {
-            startPos.z -= 0.05f;
-        }
-
-        sithCollision_SearchForCollisions(
-            sithPlayerControls_pMovableThing->pInSector,
-            sithPlayerControls_pMovableThing,
-            &startPos,
-            &pushPullMoveNorm,
-            0.19f, // move distance
-            searchRadius,
-            0xA00
-        );
-
-        SithCollision* pCollision;
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided != pThing )
+            if ( check == SITHPLAYERCONTROLS_PUSHPULL_QUIET )
             {
-                bCanMoveObject = false;
-                break; // Fixed: originally missing break here
+                return;
             }
 
-            if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 )
+            sithPlayerControls_CommentPushPullFailure(pThing, SITHSOUNDCLASS_ALERT); // indy says : can't push this object
+            if ( check == SITHPLAYERCONTROLS_PUSHPULL_MISALIGNED )
             {
-                bCanMoveObject = false;
-                break; // Fixed: originally missing break here
-            }
-        }
-        sithCollision_DecreaseStackLevel();
-
-        if ( !bCanMoveObject )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_ALERT); // indy says : can't push this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        //
-        // Check floor at push end position
-        //
-        rdVector3 pushEndPos;
-        rdVector_ScaleAdd3(&pushEndPos, &pushPullMoveNorm, 0.2f, &sithPlayerControls_pMovableThing->pos);
-
-        rdVector3 downDir = RDVECTOR_NEG3(rdroid_g_zVector3);
-        SithSector* pPushEndPosSector = sithCollision_FindSectorInRadius(
-            sithPlayerControls_pMovableThing->pInSector,
-            &sithPlayerControls_pMovableThing->pos,
-            &pushEndPos,
-            0.0f
-        );
-
-        if ( !pPushEndPosSector )
-        {
-            return;
-        }
-
-        bCanMoveObject = false;
-        sithCollision_SearchForCollisions(pPushEndPosSector, NULL, &pushEndPos, &downDir, 0.16f, 0.0099999998f, 0xA00);
-        while ( (pCollision = sithCollision_PopStack()) != NULL )
-        {
-            if ( (pCollision->type & SITHCOLLISION_THING) != 0
-                && pCollision->pThingCollided != sithPlayerControls_pMovableThing )
-            {
-                bCanMoveObject = true;
-                break;
-            }
-
-            if ( (pCollision->type & SITHCOLLISION_WORLD) != 0 && pCollision->pSurfaceCollided )
-            {
-                float floorDot = rdVector_Dot3(&pCollision->pSurfaceCollided->face.normal, &rdroid_g_zVector3);
-                if ( floorDot > 0.99900001f )
-                {
-                    // Check player floor surface and push target floor heights match
-                    if ( (pThing->attach.flags & SITH_ATTACH_SURFACE) != 0 )
-                    {
-                        rdFace* pSurfFace  = &pCollision->pSurfaceCollided->face;
-                        rdFace* pThingFace = pThing->attach.pFace;
-                        float surfZ        = sithWorld_g_pCurrentWorld->aVertices[*pSurfFace->aVertices].z;
-                        float thingZ       = sithWorld_g_pCurrentWorld->aVertices[*pThingFace->aVertices].z;
-                        bCanMoveObject     = fabsf(surfZ - thingZ) < 0.0049999999f;
-                    }
-                    else
-                    {
-                        bCanMoveObject = true;
-                    }
-                    break;
-                }
-            }
-        }
-        sithCollision_DecreaseStackLevel();
-
-        if ( !bCanMoveObject )
-        {
-            if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-            {
-                sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_ALERT); // indy says : can't push this object
-                sithPlayerControls_secCommentWaitTimer = 3.0f;
-            }
-
-            sithPuppet_ClearMode(pThing, SITHPUPPETSUBMODE_PUSHPULLREADY);
-            pThing->moveStatus = SITHPLAYERMOVE_STILL;
-            sithPlayerControls_pMovableThing = NULL;
-            pThing->thingInfo.actorInfo.bControlsDisabled = 0;
-            return;
-        }
-
-        //
-        // Final check for pushgear alignment
-        //
-        if ( strneq(sithPlayerControls_pMovableThing->aName, "pushgear", 8u) )
-        {
-            // Check the push direction aligns with the pushgear direction
-            // This makes sure gear can only be pushed in its current direction and not in other directions
-            float alignDot = fabsf(rdVector_Dot3(&sithPlayerControls_pMovableThing->orient.lvec, &pushPullMoveNorm));
-            if ( alignDot < 0.98000002f )
-            {
-                if ( sithPlayerControls_secCommentWaitTimer == 0.0f )
-                {
-                    sithSoundClass_PlayVoiceModeRandom(pThing, SITHSOUNDCLASS_ALERT); // indy says : can't push this object
-                    sithPlayerControls_secCommentWaitTimer = 3.0f;
-                }
-
                 // TODO: Note that the push/pull state is not reset here
                 sithPlayerControls_pMovableThing = NULL;
                 return;
             }
+
+            sithPlayerControls_ClearPushPullGrab(pThing);
+            return;
         }
 
         //

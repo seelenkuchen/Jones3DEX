@@ -25,10 +25,11 @@
     Retail profile keeps the original off default.
   - A fresh install now uses the default control scheme for the keyboard and gamepad. Before, it fell
     back to the original built-in bindings (gamepad A jumped) until the Controls tab saved a scheme.
-  - A small **Use** or **Pick up** hint appears at the bottom centre of the screen when Indy can interact.
-    It appears only when a COG linked to the target handles the activation message, so a decorative
-    COG-linked thing does not offer a dead prompt. It uses the Xelu icon of the key or pad button bound to
-    Activate for the last used device and follows rebinding. Options > Gameplay has an **Interaction
+  - A small hint appears at the bottom centre of the screen when Indy can interact: **Use**, **Pick up**,
+    **Push**, **Pull**, **Push | Pull**, **Climb up** or **Climb**. It appears only when a COG linked to
+    the target handles the activation message, so a decorative COG-linked thing does not offer a dead
+    prompt. Each hint uses the Xelu icon of the key or pad button its press really reads (Activate, Jump or
+    Forward), for the last used device, and follows rebinding. Options > Gameplay has an **Interaction
     prompts** row (`ui.hud.interactionPrompts`), on by default in Enhanced and locked off in Retail. It
     draws at the window's native resolution and never changes the simulation. The developer log records
     each prompt change with the target and the handler COG names.

@@ -40,9 +40,14 @@ namespace
     {
         switch ( prompt )
         {
-            case JONESHUD_INTERACTIONPROMPT_PICKUP: return "Pick up";
-            case JONESHUD_INTERACTIONPROMPT_USE:    return "Use";
-            default:                                return nullptr;
+            case JONESHUD_INTERACTIONPROMPT_PICKUP:    return "Pick up";
+            case JONESHUD_INTERACTIONPROMPT_USE:       return "Use";
+            case JONESHUD_INTERACTIONPROMPT_PUSH:      return "Push";
+            case JONESHUD_INTERACTIONPROMPT_PULL:      return "Pull";
+            case JONESHUD_INTERACTIONPROMPT_PUSH_PULL: return "Push | Pull";
+            case JONESHUD_INTERACTIONPROMPT_CLIMB_UP:  return "Climb up";
+            case JONESHUD_INTERACTIONPROMPT_CLIMB:     return "Climb";
+            default:                                   return nullptr;
         }
     }
 
@@ -147,7 +152,7 @@ namespace
             : JonesUiButtonLayoutDevice::Controller;
 
         std::size_t controlId = 0;
-        if ( !JonesUiButtonLayout_GetDeviceBinding(*pScheme, JONESCONTROL_ACTION_ACTIVATE,
+        if ( !JonesUiButtonLayout_GetDeviceBinding(*pScheme, JonesHudPrompt_GetControl(),
                 uiDevice, controlId) )
         {
             return 0;

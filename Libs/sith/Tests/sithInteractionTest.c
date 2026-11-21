@@ -23,9 +23,12 @@
 
 static SithWorld sithInteractionTest_world;
 static SithSector sithInteractionTest_sector;
-static SithSurface sithInteractionTest_surface;
+static SithSurface sithInteractionTest_aSurfaces[2];
+#define sithInteractionTest_surface sithInteractionTest_aSurfaces[0]
+#define sithInteractionTest_floorSurface sithInteractionTest_aSurfaces[1]
 static int sithInteractionTest_aFaceVertices[4];
-static rdVector3 sithInteractionTest_aVertices[4];
+static int sithInteractionTest_aFloorFaceVertices[4];
+static rdVector3 sithInteractionTest_aVertices[8];
 static SithThing sithInteractionTest_aThings[4];
 static SithPlayer sithInteractionTest_player;
 static SithCog sithInteractionTest_cog;
@@ -128,6 +131,7 @@ static void sithInteractionTest_InitThing(SithThing* pThing, int idx, SithThingT
     pThing->pInSector = &sithInteractionTest_sector;
     pThing->collide.type = SITH_COLLIDE_SPHERE;
     pThing->collide.size = 0.05f;
+    pThing->collide.movesize = 0.05f;
     pThing->orient.rvec = (rdVector3){ 1.0f, 0.0f, 0.0f };
     pThing->orient.lvec = (rdVector3){ 0.0f, 1.0f, 0.0f };
     pThing->orient.uvec = (rdVector3){ 0.0f, 0.0f, 1.0f };
@@ -138,7 +142,7 @@ static void sithInteractionTest_ResetScene(void)
 {
     STD_ZEROMEM(&sithInteractionTest_world, sizeof(sithInteractionTest_world));
     STD_ZEROMEM(&sithInteractionTest_sector, sizeof(sithInteractionTest_sector));
-    STD_ZEROMEM(&sithInteractionTest_surface, sizeof(sithInteractionTest_surface));
+    STD_ZEROMEM(sithInteractionTest_aSurfaces, sizeof(sithInteractionTest_aSurfaces));
     STD_ZEROMEM(sithInteractionTest_aThings, sizeof(sithInteractionTest_aThings));
     STD_ZEROMEM(&sithInteractionTest_player, sizeof(sithInteractionTest_player));
 
@@ -149,6 +153,7 @@ static void sithInteractionTest_ResetScene(void)
     for ( int i = 0; i < 4; ++i )
     {
         sithInteractionTest_aFaceVertices[i] = i;
+        sithInteractionTest_aFloorFaceVertices[i] = i + 4;
     }
 
     sithInteractionTest_world.aThings    = sithInteractionTest_aThings;
@@ -214,6 +219,33 @@ static void sithInteractionTest_ResetScene(void)
         SITHTHING_TYPEMASK(SITH_THING_PLAYER));
 }
 
+// Added: a vertical wall in front of the player at y; its top edge is the climbable ledge height.
+static void sithInteractionTest_SetWall(float y, float bottomZ, float topZ, SithSurfaceFlag flags)
+{
+    sithInteractionTest_aVertices[0] = (rdVector3){ -0.2f, y, bottomZ };
+    sithInteractionTest_aVertices[1] = (rdVector3){  0.2f, y, bottomZ };
+    sithInteractionTest_aVertices[2] = (rdVector3){  0.2f, y, topZ };
+    sithInteractionTest_aVertices[3] = (rdVector3){ -0.2f, y, topZ };
+    sithInteractionTest_surface.flags = flags;
+    sithInteractionTest_surface.face.normal = (rdVector3){ 0.0f, -1.0f, 0.0f };
+}
+
+// Added: a floor below the player for the push/pull move checks.
+static void sithInteractionTest_AddFloor(float z)
+{
+    sithInteractionTest_aVertices[4] = (rdVector3){ -1.0f, -1.0f, z };
+    sithInteractionTest_aVertices[5] = (rdVector3){  1.0f, -1.0f, z };
+    sithInteractionTest_aVertices[6] = (rdVector3){  1.0f,  1.0f, z };
+    sithInteractionTest_aVertices[7] = (rdVector3){ -1.0f,  1.0f, z };
+
+    sithInteractionTest_floorSurface.pSector = &sithInteractionTest_sector;
+    sithInteractionTest_floorSurface.flags   = SITH_SURFACE_COLLISION;
+    sithInteractionTest_floorSurface.face.numVertices = 4;
+    sithInteractionTest_floorSurface.face.aVertices   = sithInteractionTest_aFloorFaceVertices;
+    sithInteractionTest_floorSurface.face.normal      = (rdVector3){ 0.0f, 0.0f, 1.0f };
+    sithInteractionTest_sector.numSurfaces = 2;
+}
+
 TEST_SETUP(sithInteraction)
 {
     STD_ZEROMEM(&sithInteractionTest_hostServices, sizeof(sithInteractionTest_hostServices));
@@ -233,6 +265,7 @@ TEST_SETUP(sithInteraction)
     sithCollision_ResetGlobals();
     sithCollision_Startup();
     sithCog_ResetGlobals();
+    sithPlayerControls_Reset();
     sithInteractionTest_ResetScene();
 }
 
@@ -491,6 +524,168 @@ TEST(sithInteraction, QueryDoesNotStartTheRepeatGuard)
     TEST_ASSERT_EQUAL_INT(1, sithInteractionTest_numSurfaceMessages);
 }
 
+// Added: the movable-object scene the standing press uses for push/pull. The object must be in
+// front and close enough for the grab search; the floor makes the press's move checks pass.
+static void sithInteractionTest_SetUpMovableScene(float objectZ, float objectMovesize,
+    SithSurfaceFlag wallFlags)
+{
+    sithInteractionTest_SetWall(0.06f, -0.2f, 0.2f, wallFlags);
+    sithInteractionTest_AddFloor(-0.07f);
+
+    PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
+    PLAYER->attach.flags = SITH_ATTACH_THING; // the grab search requires an attached player
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = SITHWEAPON_NO_WEAPON;
+    sithInteractionTest_player.curWeaponID = SITHWEAPON_NO_WEAPON;
+
+    COG->flags = SITH_TF_MOVABLE;
+    COG->pCog = NULL;
+    COG->pos = (rdVector3){ 0.0f, 0.05f, objectZ };
+    COG->collide.type = SITH_COLLIDE_SPHERE;
+    COG->collide.size = 0.05f;
+    COG->collide.movesize = objectMovesize;
+    COG->attach.flags = 0;
+    COG->pInSector = &sithInteractionTest_sector;
+    COG->pNextThingInSector = NULL;
+    sithInteractionTest_sector.pFirstThingInSector = COG;
+}
+
+TEST(sithInteraction, StandingQueryShowsPushAndPull)
+{
+    sithInteractionTest_SetUpMovableScene(0.0f, 0.05f, (SithSurfaceFlag)0);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_PUSH_PULL, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_ACT2, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+}
+
+TEST(sithInteraction, StandingQueryShowsPushOnlyWhenPullIsTooHigh)
+{
+    // A large object below the player fails the press's pull height check but not the push checks.
+    sithInteractionTest_SetUpMovableScene(-0.03f, 0.1f, (SithSurfaceFlag)0);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_PUSH, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_ACT2, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+}
+
+TEST(sithInteraction, StandingQueryShowsPullOnlyWhenPushIsBlocked)
+{
+    // The wall in front blocks the press's push move but not the pull move away from it.
+    sithInteractionTest_SetUpMovableScene(0.0f, 0.05f, SITH_SURFACE_COLLISION);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_PULL, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_ACT2, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(COG, interaction.pThing);
+}
+
+TEST(sithInteraction, JumpQueryShowsClimbOn1mLikeThePress)
+{
+    sithInteractionTest_SetWall(0.07f, -0.2f, 0.1f, SITH_SURFACE_COLLISION);
+    PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
+    PLAYER->attach.flags = 0;
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_CLIMB_UP, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_JUMP, interaction.control);
+
+    // The press tries 2m first and then 1m; the query reports the same winner.
+    TEST_ASSERT_EQUAL_INT(0, sithPlayerActions_CanClimbOn2m(PLAYER));
+    TEST_ASSERT_EQUAL_INT(1, sithPlayerActions_CanClimbOn1m(PLAYER));
+}
+
+TEST(sithInteraction, JumpQueryShowsClimbWallMount)
+{
+    sithInteractionTest_SetWall(0.07f, -0.2f, 0.03f, SITH_SURFACE_CLIMBABLE | SITH_SURFACE_COLLISION);
+    PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
+    PLAYER->attach.flags = 0;
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_CLIMB, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_JUMP, interaction.control);
+    TEST_ASSERT_EQUAL_PTR(&sithInteractionTest_surface, interaction.pSurface);
+
+    TEST_ASSERT_EQUAL_INT(0, sithPlayerActions_CanClimbOn2m(PLAYER));
+    TEST_ASSERT_EQUAL_INT(0, sithPlayerActions_CanClimbOn1m(PLAYER));
+}
+
+TEST(sithInteraction, ClimbIdleQueryShowsPullUpWithActivate)
+{
+    sithInteractionTest_SetWall(0.07f, -0.2f, 0.03f, SITH_SURFACE_CLIMBABLE | SITH_SURFACE_COLLISION);
+    PLAYER->moveStatus = SITHPLAYERMOVE_CLIMBIDLE;
+    PLAYER->attach.flags = 0;
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_CLIMB_UP, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_ACT2, interaction.control);
+
+    TEST_ASSERT_EQUAL_INT(1, sithPlayerActions_CanPullUp(PLAYER));
+}
+
+TEST(sithInteraction, HangingQueryShowsPullUpWithForward)
+{
+    sithInteractionTest_SetWall(0.07f, -0.2f, 0.03f, SITH_SURFACE_COLLISION);
+    PLAYER->moveStatus = SITHPLAYERMOVE_HANGING;
+    PLAYER->attach.flags = 0;
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_CLIMB_UP, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_FORWARD, interaction.control);
+
+    TEST_ASSERT_EQUAL_INT(1, sithPlayerActions_CanPullUp(PLAYER));
+}
+
+TEST(sithInteraction, WaterSurfaceQueryShowsLedgePullUpWithJump)
+{
+    sithInteractionTest_SetWall(0.06f, -0.2f, 0.1f,
+        SITH_SURFACE_COLLISION | SITH_SURFACE_WATERLEDGE);
+    PLAYER->moveStatus = SITHPLAYERMOVE_SWIMIDLE;
+    PLAYER->attach.flags = 0;
+    PLAYER->moveInfo.physics.flags = SITH_PF_ONWATERSURFACE;
+    sithPlayerControls_SetSwimIdleTimeForTest(1.0f);
+
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_CLIMB_UP, interaction.kind);
+    TEST_ASSERT_EQUAL_INT(SITHCONTROL_JUMP, interaction.control);
+}
+
+TEST(sithInteraction, PushPullClimbQueriesLeaveTheCollisionScratchUnchanged)
+{
+    sithInteractionTest_SetUpMovableScene(0.0f, 0.05f, (SithSurfaceFlag)0);
+
+    SithPlayerInteraction interaction;
+    const uint64_t before = sithCollision_GetScratchChecksumForTest();
+    for ( int i = 0; i < 8; ++i )
+    {
+        TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    }
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_PUSH_PULL, interaction.kind);
+    TEST_ASSERT_EQUAL_UINT64(before, sithCollision_GetScratchChecksumForTest());
+
+    sithInteractionTest_ResetScene();
+    sithInteractionTest_SetWall(0.07f, -0.2f, 0.1f, SITH_SURFACE_COLLISION);
+    PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
+    PLAYER->attach.flags = 0;
+
+    const uint64_t climbBefore = sithCollision_GetScratchChecksumForTest();
+    for ( int i = 0; i < 8; ++i )
+    {
+        TEST_ASSERT_TRUE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
+    }
+    TEST_ASSERT_EQUAL_INT(SITHPLAYERINTERACTION_CLIMB_UP, interaction.kind);
+    TEST_ASSERT_EQUAL_UINT64(climbBefore, sithCollision_GetScratchChecksumForTest());
+}
+
 TEST_GROUP_RUNNER(sithInteraction)
 {
     RUN_TEST_CASE(sithInteraction, QueryAndActivateAgreeOnCogSurface);
@@ -508,4 +703,13 @@ TEST_GROUP_RUNNER(sithInteraction)
     RUN_TEST_CASE(sithInteraction, ReadOnlySearchLeavesTheThingOrientationTranslation);
     RUN_TEST_CASE(sithInteraction, QueryLeavesTheCollisionScratchUnchanged);
     RUN_TEST_CASE(sithInteraction, QueryDoesNotStartTheRepeatGuard);
+    RUN_TEST_CASE(sithInteraction, StandingQueryShowsPushAndPull);
+    RUN_TEST_CASE(sithInteraction, StandingQueryShowsPushOnlyWhenPullIsTooHigh);
+    RUN_TEST_CASE(sithInteraction, StandingQueryShowsPullOnlyWhenPushIsBlocked);
+    RUN_TEST_CASE(sithInteraction, JumpQueryShowsClimbOn1mLikeThePress);
+    RUN_TEST_CASE(sithInteraction, JumpQueryShowsClimbWallMount);
+    RUN_TEST_CASE(sithInteraction, ClimbIdleQueryShowsPullUpWithActivate);
+    RUN_TEST_CASE(sithInteraction, HangingQueryShowsPullUpWithForward);
+    RUN_TEST_CASE(sithInteraction, WaterSurfaceQueryShowsLedgePullUpWithJump);
+    RUN_TEST_CASE(sithInteraction, PushPullClimbQueriesLeaveTheCollisionScratchUnchanged);
 }

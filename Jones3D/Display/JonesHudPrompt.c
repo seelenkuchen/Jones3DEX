@@ -5,21 +5,34 @@
 #include <std/General/stdConfig.h>
 
 static JonesHudInteractionPrompt JonesHudPrompt_interaction = JONESHUD_INTERACTIONPROMPT_NONE;
+static JonesControlActions JonesHudPrompt_control = JONESCONTROL_ACTION_ACTIVATE;
 static bool JonesHudPrompt_bEnabled = J3D_QOL_VALUE(true, false);
 
-void J3DAPI JonesHudPrompt_SetInteraction(JonesHudInteractionPrompt prompt)
+void J3DAPI JonesHudPrompt_SetInteraction(JonesHudInteractionPrompt prompt,
+    JonesControlActions control)
 {
-    if ( prompt < JONESHUD_INTERACTIONPROMPT_NONE || prompt > JONESHUD_INTERACTIONPROMPT_PICKUP )
+    if ( prompt < JONESHUD_INTERACTIONPROMPT_NONE || prompt > JONESHUD_INTERACTIONPROMPT_CLIMB )
     {
         prompt = JONESHUD_INTERACTIONPROMPT_NONE;
     }
 
+    if ( control < JONESCONTROL_ACTION_WALKFORWARD || control >= JONESCONTROL_ACTION_NUMACTIONS )
+    {
+        control = JONESCONTROL_ACTION_ACTIVATE;
+    }
+
     JonesHudPrompt_interaction = prompt;
+    JonesHudPrompt_control     = control;
 }
 
 JonesHudInteractionPrompt J3DAPI JonesHudPrompt_GetInteraction(void)
 {
     return JonesHudPrompt_interaction;
+}
+
+JonesControlActions J3DAPI JonesHudPrompt_GetControl(void)
+{
+    return JonesHudPrompt_control;
 }
 
 bool JonesHud_LoadInteractionPromptsConfig(void)
