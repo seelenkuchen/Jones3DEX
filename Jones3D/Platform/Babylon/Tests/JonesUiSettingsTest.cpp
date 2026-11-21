@@ -533,7 +533,13 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, -1.0f)
         == doctest::Approx(0.0f));
+#ifdef J3D_QOL_IMPROVEMENTS
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING, -1) == 2);
+#else
+    // Without QOL the row starts at Clamp (0); stepping right from the first choice selects
+    // Neutral (1), not Filmic.
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING, -1) == 1);
+#endif
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, -1.0f)
         == doctest::Approx(0.9f));
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING, -1) == 1);
