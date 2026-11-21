@@ -458,8 +458,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 sharpening, 14 tone mapping, 15 exposure, 16 colour grading, 17 anisotropic filtering,
-    // 18 crisp pixels, 19 Brightness..., 20 OK, 21 back.
+    // 13 depth of field (cutscenes), 14 depth of field (gameplay), 15 sharpening, 16 tone mapping,
+    // 17 exposure, 18 colour grading, 19 anisotropic filtering, 20 crisp pixels, 21 Brightness...,
+    // 22 OK, 23 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -485,6 +486,10 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // SMAA -> Off
     testContext.platform.PushKey(platform::Key::Down);  // bloom
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // depth of field (cutscenes)
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);  // depth of field (gameplay)
+    testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Down);  // sharpening
     testContext.platform.PushKey(platform::Key::Left);  // Low -> Off
     testContext.platform.PushKey(platform::Key::Down);  // tone mapping
@@ -531,6 +536,15 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
         == doctest::Approx(1.25f));
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Enhanced starts both on, so Enter turns them off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES, true));
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY, true));
+#else
+    // Without QOL both start off, so Enter turns them on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES, false));
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY, false));
+#endif
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, -1.0f)
         == doctest::Approx(0.0f));
 #ifdef J3D_QOL_IMPROVEMENTS
@@ -1632,10 +1646,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 18).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 20).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 18; ++row )
+    for ( int row = 0; row < 20; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

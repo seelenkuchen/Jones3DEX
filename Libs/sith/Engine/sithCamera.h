@@ -117,6 +117,15 @@ void sithCamera_RestoreExtCamera(void);
 SithThing* J3DAPI sithCamera_GetPrimaryFocus(const SithCamera* pCamera);
 SithThing* J3DAPI sithCamera_GetSecondaryFocus(const SithCamera* pCamera);
 
+// Added: the thing the current camera's depth of field focuses on, for presentation only. The
+// gameplay and idle-style cameras use their primary focus thing (Indy for the play cameras); the
+// cinematic cutscene camera uses its secondary focus thing, the look target, because its primary
+// is the camera anchor. NULL when the camera has no such focus.
+SithThing* J3DAPI sithCamera_GetRenderFocusThing(const SithCamera* pCamera);
+
+// Added: true for the script-driven cinematic camera, the cutscene camera.
+bool sithCamera_IsCutsceneCamera(const SithCamera* pCamera);
+
 void J3DAPI sithCamera_Update(SithCamera* pCamera);
 void sithCamera_RenderScene(void);
 

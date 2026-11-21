@@ -40,6 +40,9 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS                "engine.renderer.brightness" // Added: M9.11 calibration gamma after the tone map
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM                     "engine.renderer.bloom" // Added: M9.12 bloom level
 #define JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING              "engine.renderer.colorGrading" // Added: M9.13 color-grading preset
+#define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES             "engine.renderer.dof.cutscenes" // Added: M9.14 depth of field in cutscenes
+#define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY              "engine.renderer.dof.gameplay" // Added: M9.14 depth of field in gameplay
+#define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_STRENGTH              "engine.renderer.dof.strength" // Added: M9.14 depth-of-field strength
 
 
 // Returns 0 for success and 1 indicating error
