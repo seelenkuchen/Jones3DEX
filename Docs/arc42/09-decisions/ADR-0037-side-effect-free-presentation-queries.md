@@ -44,3 +44,25 @@ while the HUD is drawn into the game frame at the render resolution.
 - The prompt draws at the window's pixel size, independent of the game render resolution.
 - A screenshot taken while the HUD overlay is installed uses the present capture path, so it includes the
   prompt and is window-sized, like a menu screenshot.
+
+## Amendment: Push/Pull, climb-up and climb prompts (2026-11-15)
+
+The prompt now also covers grabbing a movable object, climbing on or pulling up, and mounting a climbable
+wall. The same rule applies to each kind:
+
+- **Finding is split from acting.** `sithPlayerControls_FindPushPullThing` is the standing press's grab
+  search; `sithPlayerControls_CheckPullObject`/`CheckPushObject` are its move checks, and the press keeps
+  only the voice, timer and grab-state side effects it had. `sithPlayerControls_FindClimbWall` and
+  `MountClimbWall` split `TryMountClimbWall`; `CheckClimbPullUp` is shared by the Activate and Forward
+  branches of `ProcessClimbMove`; `CheckWaterLedge` takes a `bMoveToLedge` flag so the query gets the same
+  answer without the grab-position move. The query calls the same helpers, so the label and the press
+  cannot disagree.
+- **The query changes no state.** Every new search runs inside the read-only collision scope. The query also
+  never snaps the player's orientation, clears a puppet mode, plays a voice line or moves a thing, which
+  the press does only after its decision.
+- **The prompt shows the binding the press reads.** The query reports the Sith control function
+  (Activate for Use, Pick up and push/pull; Jump for climb-on, wall mount and water ledge; Forward for the
+  hanging pull-up). The overlay maps that to the active scheme instead of always using Activate.
+- Labels are **Push**, **Pull** or **Push | Pull** from the two move checks, **Climb up** for climb-on and
+  pull-up, and **Climb** for a climbable-wall mount. Priority follows the press: items before Activate,
+  Activate before push/pull, and 2m climb-on before 1m climb-on before wall mount.

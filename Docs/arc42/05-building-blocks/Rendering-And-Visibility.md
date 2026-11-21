@@ -839,20 +839,26 @@ The back buffer lives on the GPU in `stdRenderBabylon`'s color target, where `st
 
 ## Interaction Prompt Overlay
 
-The Use/Pick up interaction prompt is presentation, so it does not enter the game frame or the simulation.
-The HUD asks the player controls once per frame what the activation key would do, caches the answer in
+The interaction prompt is presentation, so it does not enter the game frame or the simulation. The HUD asks
+the player controls once per frame what the interaction and climb keys would do, caches the answer in
 [`JonesHudPrompt.c`](../../../Jones3D/Display/JonesHudPrompt.c), and the Babylon column draws it from a second
 present overlay in [`JonesHudPromptOverlay.cpp`](../../../Jones3D/Platform/Babylon/JonesHudPromptOverlay.cpp).
 The overlay runs after the post chain and the present pass, at the window's native pixel size like the menus
-(ADR-0035), maps `JONESCONTROL_ACTION_ACTIVATE` through the active scheme and the last used device to its Xelu
-icon, and draws the icon and verb at the bottom centre. It hides while a menu overlay is installed. The target
-query is the same finding half as `sithPlayerActions_Activate`, and both the surface/thing query and the item
-search run inside `sithCollision_BeginReadOnlySearch`/`EndReadOnlySearch`, so the prompt can never change the
-collision scratch or the simulation ([ADR-0037](../09-decisions/ADR-0037-side-effect-free-presentation-queries.md)).
-**Use** and **Pick up** are offered only when at least one COG that the press would message (the thing's own,
-template or class COG, its captured COG, or a matching link) has an `activated` handler; a COG-linked cactus
-without one gets no prompt. The developer log reports each change with the surface index or thing name, the
-handler COG names and the sith frame number.
+(ADR-0035), maps the press's control action (Activate, Jump or Forward) through the active scheme and the last
+used device to its Xelu icon, and draws the icon and verb at the bottom centre. It hides while a menu overlay
+is installed. Each target query is the same finding half as its press: `sithPlayerActions_Activate`, the
+push/pull finder and move checks, `ClimbOn1m`/`ClimbOn2m`, the climb-wall mount split, `ClimbPullUp`, the
+hanging pull-up, and the water-ledge check. Every search runs inside
+`sithCollision_BeginReadOnlySearch`/`EndReadOnlySearch`, so the prompt can never change the collision scratch
+or the simulation
+([ADR-0037](../09-decisions/ADR-0037-side-effect-free-presentation-queries.md)).
+**Use**, **Pick up**, **Push**, **Pull** and **Push | Pull** use the Activate binding; **Climb up** uses
+Activate at the top of a climbable wall, Forward while hanging and Jump for a climb-on or water ledge; **Climb**
+uses Jump to mount a climbable wall. **Use** and **Pick up** are offered only when at least one COG that the
+press would message (the thing's own, template or class COG, its captured COG, or a matching link) has an
+`activated` handler; a COG-linked cactus without one gets no prompt. The developer log reports each change
+with the kind, the surface index or thing name, the handler COG names where they apply, and the sith frame
+number.
 
 ## Where OpenJones3D Extends The Original Renderer
 

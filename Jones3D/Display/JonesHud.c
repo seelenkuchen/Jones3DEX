@@ -401,7 +401,7 @@ void JonesHud_Shutdown(void)
         return;
     }
 
-    JonesHudPrompt_SetInteraction(JONESHUD_INTERACTIONPROMPT_NONE); // Added
+    JonesHudPrompt_SetInteraction(JONESHUD_INTERACTIONPROMPT_NONE, JONESCONTROL_ACTION_ACTIVATE); // Added
     JonesHud_ResetInteractionPromptLog(); // Added
     // Fixed: Release menu-owned audio during HUD teardown.
     JonesHud_StopMenuMusic();
@@ -947,7 +947,7 @@ error:
 
 void JonesHud_Close(void)
 {
-    JonesHudPrompt_SetInteraction(JONESHUD_INTERACTIONPROMPT_NONE); // Added
+    JonesHudPrompt_SetInteraction(JONESHUD_INTERACTIONPROMPT_NONE, JONESCONTROL_ACTION_ACTIVATE); // Added
     JonesHud_ResetInteractionPromptLog(); // Added
     // Fixed: Release menu-owned audio during HUD teardown.
     JonesHud_StopMenuMusic();
@@ -1073,14 +1073,58 @@ int JonesHud_IsMenuEnabled(void)
 
 // Added: the last prompt target the developer log reported. Only a change writes a line.
 static JonesHudInteractionPrompt JonesHud_lastInteractionPrompt = JONESHUD_INTERACTIONPROMPT_NONE;
+static JonesControlActions JonesHud_lastInteractionControl = JONESCONTROL_ACTION_ACTIVATE;
 static const SithThing* JonesHud_pLastInteractionThing   = NULL;
 static const SithSurface* JonesHud_pLastInteractionSurface = NULL;
 
 static void JonesHud_ResetInteractionPromptLog(void)
 {
     JonesHud_lastInteractionPrompt    = JONESHUD_INTERACTIONPROMPT_NONE;
+    JonesHud_lastInteractionControl   = JONESCONTROL_ACTION_ACTIVATE;
     JonesHud_pLastInteractionThing    = NULL;
     JonesHud_pLastInteractionSurface  = NULL;
+}
+
+static const char* JonesHud_InteractionPromptVerb(JonesHudInteractionPrompt prompt)
+{
+    switch ( prompt )
+    {
+        case JONESHUD_INTERACTIONPROMPT_USE:       return "Use";
+        case JONESHUD_INTERACTIONPROMPT_PICKUP:    return "Pick up";
+        case JONESHUD_INTERACTIONPROMPT_PUSH:      return "Push";
+        case JONESHUD_INTERACTIONPROMPT_PULL:      return "Pull";
+        case JONESHUD_INTERACTIONPROMPT_PUSH_PULL: return "Push | Pull";
+        case JONESHUD_INTERACTIONPROMPT_CLIMB_UP:  return "Climb up";
+        case JONESHUD_INTERACTIONPROMPT_CLIMB:     return "Climb";
+        default:                                   return "none";
+    }
+}
+
+// Added: the query reports the Sith control function the press reads; the prompt draws the same
+// action's binding from the active scheme.
+static JonesControlActions JonesHud_InteractionPromptControl(SithControlFunction control)
+{
+    switch ( control )
+    {
+        case SITHCONTROL_JUMP:    return JONESCONTROL_ACTION_JUMP;
+        case SITHCONTROL_FORWARD: return JONESCONTROL_ACTION_WALKFORWARD;
+        default:                  return JONESCONTROL_ACTION_ACTIVATE;
+    }
+}
+
+static JonesHudInteractionPrompt JonesHud_InteractionPromptFromKind(SithPlayerInteractionKind kind)
+{
+    switch ( kind )
+    {
+        case SITHPLAYERINTERACTION_USE:       return JONESHUD_INTERACTIONPROMPT_USE;
+        case SITHPLAYERINTERACTION_PICKUP:    return JONESHUD_INTERACTIONPROMPT_PICKUP;
+        case SITHPLAYERINTERACTION_PUSH:      return JONESHUD_INTERACTIONPROMPT_PUSH;
+        case SITHPLAYERINTERACTION_PULL:      return JONESHUD_INTERACTIONPROMPT_PULL;
+        case SITHPLAYERINTERACTION_PUSH_PULL: return JONESHUD_INTERACTIONPROMPT_PUSH_PULL;
+        case SITHPLAYERINTERACTION_CLIMB_UP:  return JONESHUD_INTERACTIONPROMPT_CLIMB_UP;
+        case SITHPLAYERINTERACTION_CLIMB:     return JONESHUD_INTERACTIONPROMPT_CLIMB;
+        default:                              return JONESHUD_INTERACTIONPROMPT_NONE;
+    }
 }
 
 static void JonesHud_FormatPromptCogs(const SithThing* pThing, const SithSurface* pSurface,
@@ -1114,11 +1158,12 @@ static void JonesHud_FormatPromptCogs(const SithThing* pThing, const SithSurface
 }
 
 static void JonesHud_LogInteractionPrompt(JonesHudInteractionPrompt prompt,
-    const SithPlayerInteraction* pInteraction)
+    JonesControlActions control, const SithPlayerInteraction* pInteraction)
 {
     const SithThing* pThing = pInteraction ? pInteraction->pThing : NULL;
     const SithSurface* pSurface = pInteraction ? pInteraction->pSurface : NULL;
     if ( prompt == JonesHud_lastInteractionPrompt
+        && control == JonesHud_lastInteractionControl
         && pThing == JonesHud_pLastInteractionThing
         && pSurface == JonesHud_pLastInteractionSurface )
     {
@@ -1126,33 +1171,43 @@ static void JonesHud_LogInteractionPrompt(JonesHudInteractionPrompt prompt,
     }
 
     JonesHud_lastInteractionPrompt   = prompt;
+    JonesHud_lastInteractionControl  = control;
     JonesHud_pLastInteractionThing   = pThing;
     JonesHud_pLastInteractionSurface = pSurface;
 
     const size_t frameCount = sithMain_g_frameNumber;
+    const char* pVerb       = JonesHud_InteractionPromptVerb(prompt);
     if ( prompt == JONESHUD_INTERACTIONPROMPT_NONE )
     {
         STDLOG_STATUS("Interaction prompt: none (frame %zu)\n", frameCount);
     }
-    else if ( pSurface )
+    else if ( prompt == JONESHUD_INTERACTIONPROMPT_USE && pSurface )
     {
         char aCogs[256];
         JonesHud_FormatPromptCogs(pThing, pSurface, aCogs, sizeof(aCogs));
         STDLOG_STATUS("Interaction prompt: Use surface %d (cogs %s, frame %zu)\n",
             sithSurface_GetSurfaceIndex(pSurface), aCogs, frameCount);
     }
-    else if ( pThing )
+    else if ( prompt == JONESHUD_INTERACTIONPROMPT_USE && pThing )
     {
         char aCogs[256];
         JonesHud_FormatPromptCogs(pThing, pSurface, aCogs, sizeof(aCogs));
         STDLOG_STATUS("Interaction prompt: %s '%s' (thing %d, cogs %s, frame %zu)\n",
-            prompt == JONESHUD_INTERACTIONPROMPT_PICKUP ? "Pick up" : "Use",
-            pThing->aName, pThing->idx, aCogs, frameCount);
+            pVerb, pThing->aName, pThing->idx, aCogs, frameCount);
+    }
+    else if ( pSurface )
+    {
+        STDLOG_STATUS("Interaction prompt: %s surface %d (frame %zu)\n",
+            pVerb, sithSurface_GetSurfaceIndex(pSurface), frameCount);
+    }
+    else if ( pThing )
+    {
+        STDLOG_STATUS("Interaction prompt: %s '%s' (thing %d, frame %zu)\n",
+            pVerb, pThing->aName, pThing->idx, frameCount);
     }
     else
     {
-        STDLOG_STATUS("Interaction prompt: %s (frame %zu)\n",
-            prompt == JONESHUD_INTERACTIONPROMPT_PICKUP ? "Pick up" : "Use", frameCount);
+        STDLOG_STATUS("Interaction prompt: %s (frame %zu)\n", pVerb, frameCount);
     }
 }
 
@@ -1161,6 +1216,7 @@ static void JonesHud_LogInteractionPrompt(JonesHudInteractionPrompt prompt,
 void JonesHud_UpdateInteractionPrompt(void)
 {
     JonesHudInteractionPrompt prompt = JONESHUD_INTERACTIONPROMPT_NONE;
+    JonesControlActions control       = JONESCONTROL_ACTION_ACTIVATE;
     SithPlayerInteraction interaction;
     STD_ZEROMEM(&interaction, sizeof(interaction));
 
@@ -1173,18 +1229,13 @@ void JonesHud_UpdateInteractionPrompt(void)
         && !JonesHud_pCurInvChangedItem
         && sithPlayerControls_QueryInteraction(sithPlayer_g_pLocalPlayerThing, &interaction) )
     {
-        if ( interaction.kind == SITHPLAYERINTERACTION_PICKUP )
-        {
-            prompt = JONESHUD_INTERACTIONPROMPT_PICKUP;
-        }
-        else if ( interaction.kind == SITHPLAYERINTERACTION_USE )
-        {
-            prompt = JONESHUD_INTERACTIONPROMPT_USE;
-        }
+        prompt  = JonesHud_InteractionPromptFromKind(interaction.kind);
+        control = JonesHud_InteractionPromptControl(interaction.control);
     }
 
-    JonesHudPrompt_SetInteraction(prompt);
-    JonesHud_LogInteractionPrompt(prompt, prompt != JONESHUD_INTERACTIONPROMPT_NONE ? &interaction : NULL);
+    JonesHudPrompt_SetInteraction(prompt, control);
+    JonesHud_LogInteractionPrompt(prompt, control,
+        prompt != JONESHUD_INTERACTIONPROMPT_NONE ? &interaction : NULL);
 }
 
 void JonesHud_Process(void) // maybe this function should be called something eles??
