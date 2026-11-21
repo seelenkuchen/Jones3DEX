@@ -92,6 +92,16 @@ size_t J3DAPI std3D_GetMipMapCount(const tSystemTexture* pTexture);
 void J3DAPI std3D_UpdateFrameCount(tSystemTexture* pTexture);
 size_t J3DAPI std3D_FindClosestFormat(const ColorInfo* pMatch);
 
+// Added: the per-frame focus input of the optional depth-of-field stage (M9.14, presentation
+// only). distance is the view-space distance from the camera to the thing the current camera looks
+// at, bCutscene true for a cutscene camera (near and far blur) and false for a gameplay camera
+// (background blur only). deltaTime, in seconds of game time, smooths the distance towards the
+// target; a non-positive value snaps it. The backend keeps the last near and far plane of
+// std3D_SetProjection for the depth linearisation. Backends without depth of field (Null, and the
+// replay path) ignore the call, and it records nothing in a capture. It changes no simulation
+// state.
+void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime);
+
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);

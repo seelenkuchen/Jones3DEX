@@ -148,6 +148,9 @@ namespace
     bool std3D_bTexturePixelated = false;
     tSysTexture* std3D_pCurTex             = nullptr;
     float std3D_zDepth                     = 0.0f;
+    // Added: the last projection's planes, for std3D_SetFocus's depth linearisation.
+    float std3D_nearPlane                  = 0.1f;
+    float std3D_farPlane                   = 1000.0f;
     bool std3D_bRenderFog                  = true;
     float std3D_fogStartDepth              = 0.0f;
     float std3D_fogEndDepth                = 0.0f;
@@ -2447,7 +2450,22 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
     // The projection matrix std3DX9.c set is unused by its pre-transformed vertices; only its
     // fixed-function fog table used the depth scale.
     std3D_zDepth = distance * 10.0f;
+
+    // Added: the depth-of-field stage linearises the depth target with these planes.
+    std3D_nearPlane = nearPlane;
+    std3D_farPlane  = farPlane;
     return 0;
+}
+
+void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime)
+{
+    // Added: presentation only; a backend without depth of field ignores the call.
+    if ( !std3D_pRenderDevice || !stdRenderBabylon_IsOpen() )
+    {
+        return;
+    }
+
+    stdRenderBabylon_SetFocus(distance, bCutscene, std3D_nearPlane, std3D_farPlane, deltaTime);
 }
 
 void J3DAPI std3D_EnableFog(int bEnabled, float density)

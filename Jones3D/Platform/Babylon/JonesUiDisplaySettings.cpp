@@ -86,6 +86,8 @@ namespace
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayBloomText = "Bloom"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayDofCutscenesText = "Depth of field (cutscenes)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayDofGameplayText = "Depth of field (gameplay)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplaySharpeningText = "Sharpening"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayToneMappingText = "Tone mapping"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayExposureText = "Exposure"; // TODO: [COMPAT]
@@ -110,6 +112,11 @@ namespace
     constexpr int kJonesDisplayBloomValues[] = { 0, 1, 2, 3 };
     constexpr const char* kJonesDisplayBloomLabels[] = { "Off", "Low", "Medium", "High" };
     constexpr std::size_t kJonesDisplayBloomDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.14 depth-of-field rows. Both are on in Enhanced builds and off in Retail/QOL-off
+    // ones. The strength has no row; the Options apply path leaves its key as it is.
+    constexpr bool kJonesDisplayDofCutscenesDefault = J3D_QOL_VALUE(1, 0) != 0;
+    constexpr bool kJonesDisplayDofGameplayDefault  = J3D_QOL_VALUE(1, 0) != 0;
 
     // Added: M9.9 contrast-adaptive sharpening choices. Low (0.3) is the Enhanced default, off in
     // Retail/QOL-off builds.
@@ -531,6 +538,18 @@ namespace
             values.bloom < STD_ARRAYLEN(kJonesDisplayBloomValues)
                 ? values.bloom : kJonesDisplayBloomDefault });
 
+        // Added: M9.14. Depth of field softens the background; cutscenes blur both sides of the
+        // focus. The HUD, menus and prompts are never blurred.
+        layout.dofCutscenes = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayDofCutscenesText), std::string(), true,
+            values.bDofCutscenes });
+
+        layout.dofGameplay = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayDofGameplayText), std::string(), true,
+            values.bDofGameplay });
+
         // Added: M9.9. Contrast-adaptive sharpening restores detail lost to a low render scale or
         // to SMAA; the HUD, menus and prompts are never sharpened.
         std::vector<std::string> sharpeningOptions;
@@ -745,6 +764,10 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
         JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, J3D_QOL_VALUE(1, 0));
     model.bloom = std::clamp(JonesUiDisplay_ReadConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM,
         J3D_QOL_VALUE(1, 0)), 0, (int)STD_ARRAYLEN(kJonesDisplayBloomValues) - 1);
+    model.bDofCutscenes = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
+        kJonesDisplayDofCutscenesDefault);
+    model.bDofGameplay = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY,
+        kJonesDisplayDofGameplayDefault);
     model.sharpening = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, J3D_QOL_VALUE(0.3f, 0.0f)), 0.0f, 1.0f);
     model.toneMapping = JonesUiDisplay_ReadConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING,
@@ -773,6 +796,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
     values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
     values.bloom = JonesUiDisplay_BloomIndex(model.bloom);
+    values.bDofCutscenes = model.bDofCutscenes;
+    values.bDofGameplay = model.bDofGameplay;
     values.sharpening = JonesUiDisplay_SharpeningIndex(model.sharpening);
     values.toneMapping = JonesUiDisplay_ToneMappingIndex(model.toneMapping);
     values.exposure = (double)model.exposure;
@@ -826,6 +851,10 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.antiAliasing));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.bloom,
         values.bloom));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofCutscenes,
+        values.bDofCutscenes));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofGameplay,
+        values.bDofGameplay));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.sharpening,
         values.sharpening));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.toneMapping,
@@ -1037,6 +1066,13 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplayBloomValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM,
         kJonesDisplayBloomValues[bloom]);
+
+    // Added: M9.14. Read when the frame owner opens, like bloom. The strength key is only read
+    // there, so this screen leaves it unchanged.
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
+        values.bDofCutscenes);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY,
+        values.bDofGameplay);
 
     // Added: M9.9. Read when the frame owner opens, like anti-aliasing.
     const std::size_t sharpening = std::min(values.sharpening,

@@ -17,6 +17,14 @@
     prefilter and a downsample/upsample chain. The HUD, 2D layer, menus and prompts are never
     bloomed. Off skips the stage and presents exactly the previous image. Applies when the display
     reopens.
+  - **Options > Display** has **Depth of field (cutscenes)** and **Depth of field (gameplay)** rows
+    (`engine.renderer.dof.cutscenes` and `.gameplay`; both on by default in Enhanced and off in
+    Retail, with `engine.renderer.dof.strength` 0.5 to 2.0 at 1.0). A stage after the post chain and
+    before bloom softens the 3D scene away from the camera's focus, read each frame without touching
+    the simulation. Cutscenes soften both nearer and farther than the focus; gameplay softens only
+    the far background, starting well behind Indy, so the foreground and nearby geometry stay
+    sharp. The HUD, 2D layer, menus and prompts are never softened. Both off skip the stage and
+    present exactly the previous image. Applies when the display reopens.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring

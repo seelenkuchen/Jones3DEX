@@ -627,6 +627,14 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
     return 0;
 }
 
+void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime)
+{
+    // Added: depth of field is a Babylon presentation stage; the Null column draws nothing.
+    J3D_UNUSED(distance);
+    J3D_UNUSED(bCutscene);
+    J3D_UNUSED(deltaTime);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     // Added: Fog state is stored without device validation; nothing consumes it on the

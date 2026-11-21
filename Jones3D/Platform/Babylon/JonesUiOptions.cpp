@@ -351,6 +351,12 @@ namespace
         screen.help[layout.bloom] =
             "Add a soft glow around bright parts of the 3D scene; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
+        screen.help[layout.dofCutscenes] =
+            "Soften the picture away from the focus in cutscenes; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.dofGameplay] =
+            "Soften only the far background during play, leaving Indy and the foreground sharp; "
+            "the HUD, menus and prompts are unchanged. Applies when the display reopens.";
         screen.help[layout.sharpening] =
             "Restore detail softened by a low render scale or by anti-aliasing; the HUD, menus "
             "and prompts are unchanged. Applies when the display reopens.";

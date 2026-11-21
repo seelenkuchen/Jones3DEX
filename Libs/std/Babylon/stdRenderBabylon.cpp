@@ -114,6 +114,30 @@ namespace
     constexpr float stdRenderBabylon_kBloomThreshold = 0.6f;
     constexpr float stdRenderBabylon_kBloomKnee      = 0.3f;
 
+    // Added: the built-in depth-of-field stage (M9.14). engine.renderer.dof.cutscenes and
+    // engine.renderer.dof.gameplay are read when the frame owner opens; the strength scales the
+    // gather radius and is clamped to 0.5..2.0. The circle of confusion is computed from the
+    // linearised depth in the shader; the constants here are its shape and the gather's radius.
+    // Gameplay blurs the background only: nothing nearer than the focus blurs, and the ramp starts
+    // at three times the focus distance (with an absolute floor for a first-person camera whose
+    // focus distance is nearly zero) over a span that keeps the ramp gentle. Cutscene mode ramps
+    // from either side of the focus, with a small dead zone so the subject stays sharp.
+    constexpr const char* stdRenderBabylon_kDofCutscenesKey = "engine.renderer.dof.cutscenes";
+    constexpr const char* stdRenderBabylon_kDofGameplayKey  = "engine.renderer.dof.gameplay";
+    constexpr const char* stdRenderBabylon_kDofStrengthKey  = "engine.renderer.dof.strength";
+    constexpr float stdRenderBabylon_kMinDofStrength        = 0.5f;
+    constexpr float stdRenderBabylon_kMaxDofStrength        = 2.0f;
+    constexpr float stdRenderBabylon_kDofFocusSmoothingTime = 0.2f; // seconds to reach a new focus
+    constexpr float stdRenderBabylon_kDofMaxRadius          = 10.0f; // half-res texels at strength 1
+    constexpr float stdRenderBabylon_kDofGameplayStartScale = 3.0f;
+    constexpr float stdRenderBabylon_kDofGameplayMinStart    = 6.0f;
+    constexpr float stdRenderBabylon_kDofGameplaySpanScale  = 8.0f;
+    constexpr float stdRenderBabylon_kDofGameplayMinSpan     = 16.0f;
+    constexpr float stdRenderBabylon_kDofCutsceneDeadScale  = 0.1f;
+    constexpr float stdRenderBabylon_kDofCutsceneSpanScale  = 0.6f;
+    constexpr float stdRenderBabylon_kDofCutsceneMinDead     = 0.05f;
+    constexpr float stdRenderBabylon_kDofCutsceneMinSpan     = 0.5f;
+
     struct StdRenderBabylonState
     {
         render::Device* pDevice = nullptr;
@@ -191,6 +215,28 @@ namespace
         render::PipelineHandle bloomUpsamplePipeline;
         render::PipelineHandle bloomCompositePipeline;
 
+        // Added: the built-in depth-of-field stage after the post chain and before bloom. The
+        // half-res target holds the gather blur, the scene-sized target the composited result.
+        // focusDistance is the smoothed input; focusTarget is what the game last asked for.
+        bool bDofCutscenes = true;
+        bool bDofGameplay  = true;
+        float dofStrength  = 1.0f;
+        bool bDofSetupFailed = false;
+        bool bDofRan         = false;
+        bool bDofLogged      = false;
+        bool bHasFocus       = false;
+        bool bFocusCutscene  = false;
+        float focusTarget    = 0.0f;
+        float focusDistance  = 0.0f;
+        float focusNearPlane = 0.1f;
+        float focusFarPlane  = 1000.0f;
+        render::TextureHandle dofBlurTarget;
+        render::TextureHandle dofColorTarget;
+        uint32_t dofWidth  = 0;
+        uint32_t dofHeight = 0;
+        render::PipelineHandle dofGatherPipeline;
+        render::PipelineHandle dofCompositePipeline;
+
         // The final pass's tone map, and whether it runs the tone-map shader (false only when a test
         // forced the pre-M9.3 path). Opening reads the operator and exposure from the config.
         StdRenderBabylonToneMap toneMap;
@@ -238,9 +284,10 @@ namespace
 
     StdRenderBabylonState stdRenderBabylon_state;
 
-    // The post chain's output texture, defined with the chain below; the bloom stage and the final
-    // pass both read it.
+    // The post chain's output texture, defined with the chain below; the depth-of-field stage reads
+    // it, and the bloom stage and the final pass read the depth-of-field output.
     render::TextureHandle stdRenderBabylon_ChainSource();
+    render::TextureHandle stdRenderBabylon_SceneSource();
 
 #ifdef J3D_TEST
     bool stdRenderBabylon_bLegacyPresentationForTest = false;
@@ -898,7 +945,7 @@ namespace
             stdRenderBabylon_state.bBloomLogged = true;
         }
 
-        const render::TextureHandle scene = stdRenderBabylon_ChainSource();
+        const render::TextureHandle scene = stdRenderBabylon_SceneSource();
         const float aPrefilter[4] = { stdRenderBabylon_kBloomThreshold,
             stdRenderBabylon_kBloomKnee, 1.0f / (float)stdRenderBabylon_state.width,
             1.0f / (float)stdRenderBabylon_state.height };
@@ -962,6 +1009,220 @@ namespace
         }
 
         stdRenderBabylon_state.bBloomRan = true;
+        return true;
+    }
+
+    // Added: frees the depth-of-field stage's targets. Recreated by the next present with the stage
+    // active after a scene size or render scale change.
+    void stdRenderBabylon_FreeDoFTargets()
+    {
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.dofBlurTarget);
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.dofColorTarget);
+        stdRenderBabylon_state.dofBlurTarget  = {};
+        stdRenderBabylon_state.dofColorTarget = {};
+        stdRenderBabylon_state.dofWidth       = 0;
+        stdRenderBabylon_state.dofHeight      = 0;
+        stdRenderBabylon_state.bDofRan        = false;
+    }
+
+    // Added: the half-res gather target and the scene-sized composite target, made when their size
+    // changes. False, logging why, when one can't be created.
+    bool stdRenderBabylon_EnsureDoFTargets(uint32_t width, uint32_t height)
+    {
+        if ( width == 0 || height == 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.dofBlurTarget.isNull()
+            && stdRenderBabylon_state.dofWidth == width
+            && stdRenderBabylon_state.dofHeight == height )
+        {
+            return true;
+        }
+
+        stdRenderBabylon_FreeDoFTargets();
+
+        render::TextureDesc desc;
+        desc.mipLevels = 1;
+        desc.format    = stdRenderBabylon_state.colorFormat;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+
+        desc.width  = std::max(1u, (width + 1u) / 2u);
+        desc.height = std::max(1u, (height + 1u) / 2u);
+        const render::TextureHandle blur = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( blur.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u depth-of-field blur target.\n",
+                desc.width, desc.height);
+            stdRenderBabylon_FreeDoFTargets();
+            return false;
+        }
+
+        desc.width  = width;
+        desc.height = height;
+        const render::TextureHandle composite = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( composite.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u depth-of-field composite.\n",
+                width, height);
+            stdRenderBabylon_state.pDevice->destroyTexture(blur);
+            stdRenderBabylon_FreeDoFTargets();
+            return false;
+        }
+
+        stdRenderBabylon_state.dofBlurTarget  = blur;
+        stdRenderBabylon_state.dofColorTarget = composite;
+        stdRenderBabylon_state.dofWidth       = width;
+        stdRenderBabylon_state.dofHeight      = height;
+        return true;
+    }
+
+    // Added: the depth-of-field pipelines, made on first use.
+    bool stdRenderBabylon_EnsureDoFResources()
+    {
+        if ( stdRenderBabylon_state.bDofSetupFailed )
+        {
+            return false;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader = stdBabylon::shaders::presentVert();
+        desc.primitive    = render::PrimitiveType::TriangleList;
+        desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_state.colorFormat, {} } };
+
+        if ( stdRenderBabylon_state.dofGatherPipeline.isNull() )
+        {
+            desc.fragmentShader = stdBabylon::shaders::dofGatherFrag();
+            stdRenderBabylon_state.dofGatherPipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+        }
+        if ( stdRenderBabylon_state.dofCompositePipeline.isNull() )
+        {
+            desc.fragmentShader = stdBabylon::shaders::dofCompositeFrag();
+            stdRenderBabylon_state.dofCompositePipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+        }
+
+        if ( stdRenderBabylon_state.dofGatherPipeline.isNull()
+            || stdRenderBabylon_state.dofCompositePipeline.isNull()
+            || !stdRenderBabylon_EnsurePresentSampler()
+            || !stdRenderBabylon_EnsureFinalSampler() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the depth-of-field passes.\n");
+            stdRenderBabylon_state.bDofSetupFailed = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    // Added: the depth-of-field stage over the post chain's output. It gathers a circle-of-confusion
+    // weighted blur into a half-res target and composites it back over the scene, so the tone map
+    // and bloom read the result. False, having logged nothing, when a resource or pass fails.
+    bool stdRenderBabylon_RecordDoF(render::CommandList& list)
+    {
+        if ( !stdRenderBabylon_state.bHasFocus || stdRenderBabylon_state.colorTarget.isNull()
+            || stdRenderBabylon_state.depthTarget.isNull() || !stdRenderBabylon_state.bDepthSampled )
+        {
+            return false;
+        }
+
+        const bool bCutscene = stdRenderBabylon_state.bFocusCutscene;
+        if ( bCutscene ? !stdRenderBabylon_state.bDofCutscenes : !stdRenderBabylon_state.bDofGameplay )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_EnsureDoFResources()
+            || !stdRenderBabylon_EnsureDoFTargets(stdRenderBabylon_state.width,
+                stdRenderBabylon_state.height) )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.bDofLogged )
+        {
+            STDLOG_STATUS("stdRenderBabylon: depth of field on, %s, strength %g, focus %g.\n",
+                bCutscene ? "cutscenes" : "gameplay", (double)stdRenderBabylon_state.dofStrength,
+                (double)stdRenderBabylon_state.focusDistance);
+            stdRenderBabylon_state.bDofLogged = true;
+        }
+
+        const render::TextureHandle scene = stdRenderBabylon_ChainSource();
+        const render::TextureHandle blur  = stdRenderBabylon_state.dofBlurTarget;
+        const uint32_t blurWidth  = std::max(1u, (stdRenderBabylon_state.width + 1u) / 2u);
+        const uint32_t blurHeight = std::max(1u, (stdRenderBabylon_state.height + 1u) / 2u);
+        const float aDof[4] = { stdRenderBabylon_state.focusDistance,
+            stdRenderBabylon_state.focusNearPlane, stdRenderBabylon_state.focusFarPlane,
+            bCutscene ? 1.0f : 0.0f };
+        const float aParams[4] = { stdRenderBabylon_state.dofStrength,
+            stdRenderBabylon_kDofMaxRadius, 1.0f / (float)blurWidth, 1.0f / (float)blurHeight };
+
+        // Added: the circle of confusion's ramp. In gameplay x is where the blur starts and y its
+        // span; in cutscene mode x is the dead zone around the focus and y its span. Keeping the
+        // tuning here means the shaders carry no magic numbers of their own.
+        const float focus = stdRenderBabylon_state.focusDistance;
+        const float ramp  = bCutscene
+            ? std::max(focus * stdRenderBabylon_kDofCutsceneDeadScale, stdRenderBabylon_kDofCutsceneMinDead)
+            : std::max(focus * stdRenderBabylon_kDofGameplayStartScale, stdRenderBabylon_kDofGameplayMinStart);
+        const float span  = bCutscene
+            ? std::max(focus * stdRenderBabylon_kDofCutsceneSpanScale, stdRenderBabylon_kDofCutsceneMinSpan)
+            : std::max(focus * stdRenderBabylon_kDofGameplaySpanScale, stdRenderBabylon_kDofGameplayMinSpan);
+        const float aCoC[4] = { ramp, span, 0.0f, 0.0f };
+
+        render::PassDesc gatherPass;
+        gatherPass.colorTargets.push_back(render::ColorAttachment{ blur, 0,
+            render::LoadOp::DontCare, render::StoreOp::Store, {} });
+        if ( !list.beginPass(gatherPass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(stdRenderBabylon_state.dofGatherPipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, scene,
+            stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 1, stdRenderBabylon_state.depthTarget,
+            stdRenderBabylon_state.presentSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(aDof, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 1,
+            std::as_bytes(std::span<const float>(aParams, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 2,
+            std::as_bytes(std::span<const float>(aCoC, 4u)));
+        list.draw(3);
+        if ( !list.endPass() )
+        {
+            return false;
+        }
+
+        render::PassDesc compositePass;
+        compositePass.colorTargets.push_back(render::ColorAttachment{
+            stdRenderBabylon_state.dofColorTarget, 0, render::LoadOp::DontCare,
+            render::StoreOp::Store, {} });
+        if ( !list.beginPass(compositePass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(stdRenderBabylon_state.dofCompositePipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, scene,
+            stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 1, blur,
+            stdRenderBabylon_state.finalSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 2, stdRenderBabylon_state.depthTarget,
+            stdRenderBabylon_state.presentSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(aDof, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 1,
+            std::as_bytes(std::span<const float>(aCoC, 4u)));
+        list.draw(3);
+        if ( !list.endPass() )
+        {
+            return false;
+        }
+
+        stdRenderBabylon_state.bDofRan = true;
         return true;
     }
 
@@ -1202,8 +1463,20 @@ namespace
         return stdRenderBabylon_state.aPostTargets[(numPasses - 1) % 2];
     }
 
+    // Added: the scene after the post chain and the depth-of-field stage, which bloom then reads.
+    render::TextureHandle stdRenderBabylon_SceneSource()
+    {
+        if ( stdRenderBabylon_state.bDofRan
+            && !stdRenderBabylon_state.dofColorTarget.isNull() )
+        {
+            return stdRenderBabylon_state.dofColorTarget;
+        }
+
+        return stdRenderBabylon_ChainSource();
+    }
+
     // The texture the final tone map samples: the bloom composite after a presenting submit ran the
-    // bloom stage, else the post chain's output or the back buffer.
+    // bloom stage, else the depth-of-field output, the post chain's output or the back buffer.
     render::TextureHandle stdRenderBabylon_PresentSource()
     {
         if ( stdRenderBabylon_state.bBloomRan
@@ -1212,7 +1485,7 @@ namespace
             return stdRenderBabylon_state.bloomCompositeTarget;
         }
 
-        return stdRenderBabylon_ChainSource();
+        return stdRenderBabylon_SceneSource();
     }
 
     // The post-processing chain into the frame: pass i reads the output of pass i - 1 (the back buffer
@@ -1801,6 +2074,16 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         const int bloom = std::clamp(stdConfig_GetInt(stdRenderBabylon_kBloomKey,
             J3D_QOL_VALUE(1, 0)), 0, stdRenderBabylon_kBloomMaxLevel);
         stdRenderBabylon_state.bloom = stdRenderBabylon_aBloomStrength[bloom];
+
+        // Added: depth of field is on by default in Enhanced builds and off in Retail/QOL-off ones,
+        // with a separate row for cutscenes and for gameplay. The strength clamps to 0.5..2.0.
+        stdRenderBabylon_state.bDofCutscenes =
+            stdConfig_GetBool(stdRenderBabylon_kDofCutscenesKey, J3D_QOL_VALUE(1, 0) != 0);
+        stdRenderBabylon_state.bDofGameplay =
+            stdConfig_GetBool(stdRenderBabylon_kDofGameplayKey, J3D_QOL_VALUE(1, 0) != 0);
+        stdRenderBabylon_state.dofStrength = std::clamp(stdConfig_GetFloat(
+            stdRenderBabylon_kDofStrengthKey, 1.0f), stdRenderBabylon_kMinDofStrength,
+            stdRenderBabylon_kMaxDofStrength);
     }
 #ifdef J3D_TEST
     stdRenderBabylon_state.bToneMap = !stdRenderBabylon_bLegacyPresentationForTest;
@@ -1888,6 +2171,8 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomDownsamplePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomUpsamplePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomCompositePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.dofGatherPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.dofCompositePipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.colorGradingLut);
@@ -1918,6 +2203,7 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_FreeSmaaTargets();
     stdRenderBabylon_FreeCasTarget();
     stdRenderBabylon_FreeBloomTargets();
+    stdRenderBabylon_FreeDoFTargets();
     stdRenderBabylon_state.colorTarget     = {};
     stdRenderBabylon_state.depthTarget     = {};
     stdRenderBabylon_state.normalTarget    = {};
@@ -2331,6 +2617,90 @@ float stdRenderBabylon_GetBloom()
     return stdRenderBabylon_state.bloom;
 }
 
+bool stdRenderBabylon_SetDepthOfField(bool bCutscenes, bool bGameplay, float strength)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetDepthOfField: not open.\n");
+        return false;
+    }
+
+    if ( !std::isfinite(strength) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetDepthOfField: strength %g is not finite.\n",
+            (double)strength);
+        return false;
+    }
+
+    const float clamped = std::clamp(strength, stdRenderBabylon_kMinDofStrength,
+        stdRenderBabylon_kMaxDofStrength);
+    if ( clamped != strength )
+    {
+        STDLOG_STATUS("stdRenderBabylon: depth of field strength %g is outside %g..%g; using %g.\n",
+            (double)strength, (double)stdRenderBabylon_kMinDofStrength,
+            (double)stdRenderBabylon_kMaxDofStrength, (double)clamped);
+    }
+
+    stdRenderBabylon_state.bDofCutscenes  = bCutscenes;
+    stdRenderBabylon_state.bDofGameplay   = bGameplay;
+    stdRenderBabylon_state.dofStrength    = clamped;
+    stdRenderBabylon_state.bDofSetupFailed = false;
+    stdRenderBabylon_state.bDofRan         = false;
+    stdRenderBabylon_state.bDofLogged      = false;
+    return true;
+}
+
+bool stdRenderBabylon_GetDepthOfFieldCutscenes()
+{
+    return stdRenderBabylon_state.bDofCutscenes;
+}
+
+bool stdRenderBabylon_GetDepthOfFieldGameplay()
+{
+    return stdRenderBabylon_state.bDofGameplay;
+}
+
+float stdRenderBabylon_GetDepthOfFieldStrength()
+{
+    return stdRenderBabylon_state.dofStrength;
+}
+
+void stdRenderBabylon_SetFocus(float distance, bool bCutscene, float nearPlane, float farPlane,
+    float deltaTime)
+{
+    if ( !stdRenderBabylon_state.pDevice || !std::isfinite(distance) )
+    {
+        return;
+    }
+
+    const float clamped = std::max(distance, 0.0f);
+    stdRenderBabylon_state.bFocusCutscene = bCutscene;
+    stdRenderBabylon_state.focusNearPlane = std::isfinite(nearPlane) ? nearPlane : 0.1f;
+    stdRenderBabylon_state.focusFarPlane  = std::isfinite(farPlane) ? farPlane : 1000.0f;
+    stdRenderBabylon_state.focusTarget    = clamped;
+
+    if ( !stdRenderBabylon_state.bHasFocus )
+    {
+        stdRenderBabylon_state.focusDistance = clamped;
+        stdRenderBabylon_state.bHasFocus     = true;
+        return;
+    }
+
+    // Added: an exponential approach whose remaining gap falls to about 2% over the first 0.2 s of
+    // game time, so the transition is frame-rate independent and settles quickly. A non-positive
+    // step snaps instead (a paused or reset clock).
+    const float alpha = deltaTime > 0.0f
+        ? 1.0f - std::exp(-4.0f * deltaTime / stdRenderBabylon_kDofFocusSmoothingTime)
+        : 1.0f;
+    stdRenderBabylon_state.focusDistance +=
+        (stdRenderBabylon_state.focusTarget - stdRenderBabylon_state.focusDistance) * alpha;
+}
+
+float stdRenderBabylon_GetFocusDistance()
+{
+    return stdRenderBabylon_state.focusDistance;
+}
+
 render::CommandList& stdRenderBabylon_GetFrame()
 {
     STD_ASSERTREL(stdRenderBabylon_state.pDevice);
@@ -2372,6 +2742,22 @@ namespace
             if ( bPresent )
             {
                 stdRenderBabylon_RecordPostChain(list);
+
+                // Added: the depth-of-field stage on the HDR scene, after the post chain and before
+                // bloom. Both Options rows off, or no focus set this run, skips it entirely so the
+                // image is byte-identical. A failure is logged once and the scene is presented
+                // without it.
+                stdRenderBabylon_state.bDofRan = false;
+                if ( !stdRenderBabylon_state.bDofSetupFailed
+                    && !stdRenderBabylon_RecordDoF(list)
+                    && stdRenderBabylon_state.bHasFocus
+                    && (stdRenderBabylon_state.bFocusCutscene
+                        ? stdRenderBabylon_state.bDofCutscenes
+                        : stdRenderBabylon_state.bDofGameplay) )
+                {
+                    STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the depth-of-field stage; presenting without it.\n");
+                    stdRenderBabylon_state.bDofSetupFailed = true;
+                }
 
                 // Added: the built-in bloom stage before the tone map. When its resources or passes
                 // can't be made it is skipped for this and later presents, so the scene is shown

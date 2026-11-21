@@ -547,6 +547,15 @@ void sithRender_Draw(void)
     // Set projection
     std3D_SetProjection(sithCamera_g_pCurCamera->rdCamera.fov, sithCamera_g_pCurCamera->rdCamera.pFrustum->nearPlane, sithCamera_g_pCurCamera->rdCamera.pFrustum->farPlane);
 
+    // Added: the depth-of-field stage's per-frame focus input (presentation only). It reads the
+    // current camera and its focus thing, and nothing here marks a thing or sector.
+    SithThing* pFocusThing = sithCamera_GetRenderFocusThing(sithCamera_g_pCurCamera);
+    if ( pFocusThing )
+    {
+        const float focusDistance = rdVector_Dist3(&sithCamera_g_pCurCamera->lookPos, &pFocusThing->pos);
+        std3D_SetFocus(focusDistance, sithCamera_IsCutsceneCamera(sithCamera_g_pCurCamera), sithTime_g_frameTimeFlex);
+    }
+
     // Now draw everything
     sithRender_RenderSectors();
 

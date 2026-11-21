@@ -7,8 +7,10 @@
 // it; also sampled) that std3D's scene passes write beside the color. stdDisplay opens it
 // (stdDisplay_Open), sizes the back buffer (stdDisplay_SetMode) and ends each frame at
 // stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
-// chain, an ordered list of full-screen passes that is empty by default, then the built-in bloom
-// stage when it is on, and then, on a device with a swapchain, runs the built-in final tone-map pass
+// chain, an ordered list of full-screen passes that is empty by default, then the built-in
+// depth-of-field stage when its cutscene or gameplay option is on and the game set a focus, then
+// the built-in bloom stage when it is on, and then, on a device with a swapchain, runs the built-in
+// final tone-map pass
 // over that output (the back buffer color when the chain is empty and bloom is off) and writes it
 // to the swapchain at the presented size, sampling with linear filtering when the render scale is
 // not 1 so supersampled scenes resolve cleanly. When the
@@ -207,6 +209,38 @@ float stdRenderBabylon_GetSharpening();
 // the next open. Closing frees the stage's targets and pipelines.
 bool stdRenderBabylon_SetBloom(float strength);
 float stdRenderBabylon_GetBloom();
+
+// Added: the built-in depth-of-field stage on the HDR scene, after the post-processing chain and
+// before bloom. The game feeds it each frame with std3D_SetFocus: the view-space distance from the
+// camera to its focus thing, whether the camera is a cutscene camera, and the frame's near and far
+// planes. The renderer smooths the distance over about 0.2 s of game time (it is presentation
+// state, never saved or simulated). The circle of confusion comes from the depth target
+// (linearised with the near and far planes): gameplay mode blurs only the background, with the
+// clear blur starting at three times the focus distance and strengthening over the next several
+// times that, so Indy, the foreground and the HUD-less near geometry stay sharp; cutscene mode
+// blurs both nearer and farther than the focus. A half-resolution gather blur (20 taps in a disc)
+// weighted by the circle of confusion is composited back over the scene with the same weight. The
+// constants live in stdRenderBabylon.cpp. Both options off, or no focus set this run, skip the
+// stage and the image is byte-identical to the path without it. The HUD layer, menus and prompts
+// come after and are untouched. Opening reads engine.renderer.dof.cutscenes and
+// engine.renderer.dof.gameplay (default 1 in Enhanced builds, 0 without QOL) and
+// engine.renderer.dof.strength (0.5..2.0, default 1.0); this setter changes them until the next
+// open. Closing frees the stage's targets and pipelines.
+bool stdRenderBabylon_SetDepthOfField(bool bCutscenes, bool bGameplay, float strength);
+bool stdRenderBabylon_GetDepthOfFieldCutscenes();
+bool stdRenderBabylon_GetDepthOfFieldGameplay();
+float stdRenderBabylon_GetDepthOfFieldStrength();
+
+// The smoothed focus distance in view-space units, or 0 before the first std3D_SetFocus. Tests
+// read it to prove the smoothing reaches its target.
+float stdRenderBabylon_GetFocusDistance();
+
+// Added: the per-frame focus input of the depth-of-field stage, called by std3D_SetFocus. distance
+// is in view-space units, bCutscene selects the cutscene ramp, nearPlane and farPlane linearise the
+// depth target, and deltaTime is the frame's game time in seconds. The distance is smoothed here,
+// in presentation state only. A non-finite distance is ignored; a non-positive deltaTime snaps.
+void stdRenderBabylon_SetFocus(float distance, bool bCutscene, float nearPlane, float farPlane,
+    float deltaTime);
 
 // The command list of the frame being recorded; begins a frame when none is. Must be open. The
 // reference is valid until stdRenderBabylon_SubmitFrame or stdRenderBabylon_Close.

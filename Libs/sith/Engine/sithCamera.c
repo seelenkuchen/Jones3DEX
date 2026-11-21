@@ -572,6 +572,29 @@ SithThing* J3DAPI sithCamera_GetSecondaryFocus(const SithCamera* pCamera)
     return pCamera->pSecondaryFocusThing;
 }
 
+SithThing* J3DAPI sithCamera_GetRenderFocusThing(const SithCamera* pCamera)
+{
+    // Added: presentation-only read of the camera's focus. The cinematic camera's primary focus is
+    // its position anchor, so its look target (the secondary focus) is what depth of field follows.
+    if ( !pCamera )
+    {
+        return NULL;
+    }
+
+    if ( pCamera->type == SITHCAMERA_CINEMATIC )
+    {
+        return pCamera->pSecondaryFocusThing;
+    }
+
+    return pCamera->pPrimaryFocusThing;
+}
+
+bool sithCamera_IsCutsceneCamera(const SithCamera* pCamera)
+{
+    // Added: the cinematic camera is the scripted cutscene camera.
+    return pCamera && pCamera->type == SITHCAMERA_CINEMATIC;
+}
+
 void J3DAPI sithCamera_Update(SithCamera* pCamera)
 {
     double v1;
