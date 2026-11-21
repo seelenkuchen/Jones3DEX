@@ -344,6 +344,9 @@ namespace
         screen.help[layout.renderScale] =
             "Render the 3D world above (sharper) or below its resolution; menus stay native "
             "and the display size is unchanged. Applies when the display reopens.";
+        screen.help[layout.antiAliasing] =
+            "Smooth the 3D scene's edges with SMAA; the HUD, menus and prompts are unchanged. "
+            "Applies when the display reopens.";
         screen.help[layout.anisotropic] =
             "Sharpen world and model textures seen at a slant. Higher levels cost more and apply "
             "when the display reopens.";
