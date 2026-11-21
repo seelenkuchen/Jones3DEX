@@ -43,6 +43,7 @@
 #include <sound/DriverOutput.h>
 
 #include <sith/Devices/sithControl.h>
+#include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithPuppet.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/Gameplay/sithOverlayMap.h>
@@ -446,12 +447,13 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     JonesDisplaySettings settings = DefaultDisplaySettings();
     sithModel_EnableHiPoly(1);
     sithRender_g_fogDensity = 100.0f;
+    sithCamera_SetGameplayFOV(0.0f);
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
-    // 7 hi-poly, 8 lit faces, 9 OK, 10 back.
+    // 7 hi-poly, 8 lit faces, 9 field of view, 10 OK, 11 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -469,6 +471,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Enter); // hi-poly off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // lit faces off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Left); // field of view 90 -> 89
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
 
@@ -496,6 +500,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, -1) == 2);
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, true));
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true));
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, 0.0f) == doctest::Approx(89.0f));
+    CHECK(sithCamera_GetGameplayFOV() == doctest::Approx(89.0f));
     char aDisplay[128] = { 0 };
     CHECK(stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aDisplay,
         sizeof(aDisplay), ""));
@@ -506,6 +512,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_BUFFERING, true));
     CHECK_FALSE(sithModel_IsHiPolyEnabled());
     CHECK(sithRender_g_fogDensity == doctest::Approx(99.0f));
+
+    // Leave the shared option at its default for the following cases.
+    sithCamera_SetGameplayFOV(0.0f);
 }
 
 TEST_CASE("the display screen back writes nothing")

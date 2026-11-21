@@ -2771,6 +2771,10 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
     int bHiPoly = stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, false);
     sithModel_EnableHiPoly(bHiPoly); // Added
 
+    // Added: the player's Field of view option. 0 or a missing key keeps the original default,
+    // so a run with no option behaves exactly as before.
+    sithCamera_SetGameplayFOV(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, 0.0f));
+
     JonesMain_pStartupDisplayEnv = pDisplayEnv;
 
     stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aText, STD_ARRAYLEN(aText), "");

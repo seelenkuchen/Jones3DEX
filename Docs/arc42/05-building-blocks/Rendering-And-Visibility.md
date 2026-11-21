@@ -104,6 +104,23 @@ It then runs the frame in this order:
 
 That ordering is deliberate. The visible sector pass establishes the spatial window for the rest of the frame, the off-screen pass expands that window for nearby thing/light influence, and only then does actual geometry submission begin.
 
+### Simulation visibility and the Field of view option
+
+The visibility pass does more than cull pixels: the sectors and things it reaches send `SIGHTED` to
+COG-linked things and sectors, wake sleeping AI and stamp `renderFrame`, which `IsThingVisible` and the
+destroy guards read. Widening the drawing frustum would therefore change the simulation.
+
+The **Options > Display** Field of view option (`engine.renderer.fov`,
+[Jones.cfg](../../Jones.cfg.md)) is presentation only. When the current camera uses the option and its
+FOV differs from the default, [`sithRender_Draw()`](../../../Libs/sith/Engine/sithRender.c) runs
+[`sithRender_MarkSimulationVisibility()`](../../../Libs/sith/Engine/sithRender.c) first: it points the
+camera at `SITHCAMERA_FOVDEFAULT`, walks the visible sectors and the off-screen thing sectors, and
+applies only the simulation marks through `sithRender_MarkThingSeen()`. It then advances the render
+tick, restores the chosen FOV and draws normally with the marks suppressed. The simulation thus sees
+exactly the default-FOV result at any option value, while the picture uses the chosen FOV. Cutscene
+cameras and an authored FOV (a COG, a scripted lerp or the `fov` console command) do not take part:
+`SITH_TF_SEEN` and the sector marks keep their original coupling to those cameras.
+
 ## High-Level Portal System Overview
 
 At a high level, the visibility system is a portal renderer built on the sector/adjoin graph.

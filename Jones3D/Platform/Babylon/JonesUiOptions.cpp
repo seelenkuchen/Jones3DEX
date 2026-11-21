@@ -339,6 +339,8 @@ namespace
             "Use the high-polygon models; the game must restart to apply the change.";
         screen.help[layout.litFaces] =
             "Light world faces when the display reopens.";
+        screen.help[layout.gameplayFOV] =
+            "Set how wide the view is. It changes only the picture, not the game.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
