@@ -5,15 +5,19 @@
 
 #pragma once
 
+#include <babylon/platform/Event.h>
 #include <babylon/ui/Widget.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace babylon::ui
 {
+
+    class Ui;
 
     // Identifies one pushed screen for the life of a Ui. Ids are unique,
     // never reused and never 0; 0 is the invalid id Ui::push returns for a
@@ -26,6 +30,22 @@ namespace babylon::ui
     // screen wrapper decides what its return value means. The default for
     // closing with back is Screen::backResult.
     using ResultCode = std::int64_t;
+
+    // Draws a screen that the declarative widgets cannot express, such as a
+    // diagram with callouts. When set it replaces the default panel, title
+    // and widget drawing; the callback draws the whole canvas itself through
+    // the painter and may use the ui's skin and canvas size. It runs inside
+    // the canvas clip, so it must not leave an unbalanced clip.
+    using ScreenDrawCallback = std::function<void(Ui& ui, Painter& painter, const Size& canvas)>;
+
+    // Consumes one platform event before the ui's own navigation and mouse
+    // handling. pointer is the pointer position in canvas units and valid
+    // only when pointerValid is true. Return true when the screen handled the
+    // event, so the ui leaves the widgets and the navigation map alone;
+    // return false to let the default handling run. The callback may push,
+    // pop or replace screens on ui, exactly like a modal event handler.
+    using ScreenEventCallback = std::function<bool(Ui& ui, const platform::Event& event,
+        const Point& pointer, bool pointerValid)>;
 
     // One screen, declared in code: a title and a vertical list of widgets.
     // Ui lays it out automatically and owns a copy from push until close,
@@ -85,6 +105,14 @@ namespace babylon::ui
         // widget, so a prompt that must default to a safe answer sets this
         // to that answer's button index.
         std::size_t initialFocus = kNoWidget;
+
+        // Optional custom drawing for a screen whose look the widgets cannot
+        // express. When set, widgets still take part in navigation and events
+        // unless event also consumes them, but they are not drawn.
+        ScreenDrawCallback draw;
+
+        // Optional raw event tap, called before the default handling.
+        ScreenEventCallback event;
     };
 
 }

@@ -28,7 +28,11 @@ static SithSurface* sithSurface_apUnsyncedSurfaces[32] = { 0 }; // Added: Init t
 static size_t sithSurface_numUnsyncedSurfaces = 0; // Added: Init to 0
 
 void sithSurface_ResetGlobals(void)
-{}
+{
+    // Added: the unsynced-surface list is run state.
+    sithSurface_numUnsyncedSurfaces = 0;
+    STD_ZEROMEM(sithSurface_apUnsyncedSurfaces, sizeof(sithSurface_apUnsyncedSurfaces));
+}
 
 void J3DAPI sithSurface_HideSectorAdjoin(SithSurfaceAdjoin* pAdjoin)
 {

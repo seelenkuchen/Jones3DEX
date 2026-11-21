@@ -21,6 +21,11 @@ FetchContent_Declare(SDL3
     FIND_PACKAGE_ARGS 3.4.18 CONFIG)
 FetchContent_MakeAvailable(SDL3)
 
+# Packaging installs SDL3's license from the fetched source (M8.5). The
+# source variable lives in this directory's scope, so publish it globally for
+# the install rules in the game directory, which is a sibling.
+set_property(GLOBAL PROPERTY BABYLON_SDL3_SOURCE_DIR "${sdl3_SOURCE_DIR}")
+
 # The one name Babylon links against: a static FetchContent build provides the
 # namespaced alias SDL3::SDL3-static, an installed SDL3 at least SDL3::SDL3.
 # Modules list ${BABYLON_SDL3_TARGET} in LIBS and allowed-deps.txt gives it

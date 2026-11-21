@@ -43,6 +43,14 @@ void JonesDisplay_Close(void);
 int J3DAPI JonesDisplay_Restart(JonesDisplaySettings* pSettings);
 void J3DAPI JonesDisplay_SetDefaultVideoMode(const StdDisplayEnvironment* pEnv, JonesDisplaySettings* pDisplaySettings);
 
+// Added: resolves the video mode a run starts with. A width or height already in Jones.cfg always
+// wins; a missing one takes the desktop mode's size when pDesktopMode is usable (see
+// stdDisplay_GetDesktopMode), else 640x480. Writes the resolved size to pWidth and pHeight. This is
+// a first-start default only: it writes no config and opens no display.
+void J3DAPI JonesDisplay_ResolveFirstRunMode(const StdVideoMode* pDesktopMode,
+    int bHasWidth, int width, int bHasHeight, int height,
+    int* pWidth, int* pHeight);
+
 void J3DAPI JonesDisplay_EnableDualMonitor(int bEnable);
 int J3DAPI JonesDisplay_UpdateDualScreenWindowSize(const JonesDisplaySettings* pSettings);
 

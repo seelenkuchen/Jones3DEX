@@ -15,7 +15,9 @@ namespace babylon::files
     // FileSystem on the host file system through SDL3 (ADR-0017): files
     // over SDL_IOFromFile, the tree over SDL_GetPathInfo,
     // SDL_CreateDirectory, SDL_RemovePath and SDL_EnumerateDirectory, base
-    // and user path over SDL_GetBasePath and SDL_GetPrefPath (ADR-0019).
+    // and user path over SDL_GetBasePath and SDL_GetPrefPath (ADR-0019);
+    // CreateMode::NoCreate mirrors SDL's per-platform base folder without
+    // creating anything.
     // '/'-separated paths are translated to the native form inside the
     // backend; relative paths resolve against the process working
     // directory, as they do on the host. Case is passed through

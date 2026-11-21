@@ -42,6 +42,8 @@ builds in two columns: the Null column (non-Windows) and the Babylon column
     - [🐧 Native Unit Builds](#native-unit-builds)
     - [🪟 Windows Unit Builds](#windows-unit-builds)
     - [🤖 CI Columns](#ci-columns)
+    - [📦 Release Workflow](#release-workflow)
+    - [🧰 Checking A Package Locally](#local-package-checks)
     - [🔎 Intermittent Failures](#intermittent-failures)
     - [⏱️ Timeouts And Shared Devices](#timeouts-and-shared-devices)
 - [📋 Validation Report](#validation-report)
@@ -268,6 +270,7 @@ startup and a stable module-level CTest entry.
 | `soundTests` | `sound` | Deterministic lip-sync generation and lookup, AudioLib codec and header vectors | Available |
 | `smushTests` | `smush` | INSANE movie player: core, bitmap, codec, sound, stream areas and original-engine assembly vectors | Available |
 | `sithTests` | `sith` | World thing/template I/O, voice lip-sync, camera interpolation, player physics at the original 50 Hz step, and the cogstatus console command bounds | Available |
+| `sithInteractionTests` | `sith.Interaction` | Interaction prompt target query and each press share the same surface, thing, item, movable object, climb-on, climb-wall and pull-up decision; Use/Pick up require an activated handler on a linked COG; excluded cases leave no prompt; repeated queries leave the collision scratch unchanged | Available |
 | `sithThingQuetzVecTests` | `sith.ThingQuetz` | Original-engine vectors of the Quetz tail functions (world-state harness, `Libs/sith/Tests/Vec`) | Available |
 | `sithAIInstinctVecTests` | `sith.AIInstinct` | Original-engine vectors of the instinct registration (world-state harness) | Available |
 | `sithAIInstinctFnVecTests` | `sith.AIInstinctFn` | Original-engine vectors of the instinct functions (world-state harness) | Available |
@@ -360,6 +363,11 @@ simulation. See [ADR-0003](arc42/09-decisions/ADR-0003-fidelity-split.md) and
 cd <game>/Resource
 <build>/Jones3D/Jones3D-headless --load ../SaveGames/<save>.nds --frames 1000 --state state.txt
 ```
+
+The developer check `--runs 2` runs the whole game twice in one process, resetting
+every global between runs; a second in-process run must give the same trace as the
+first. `--state` is written from the last run only, so compare it with the state of a
+`--runs 1` run. `--runs` accepts 1 to 3 and is not a player option.
 
 Every column builds `Jones3D-headless`: the Null column, the Babylon column
 (`-DJONES3D_PLATFORM_BABYLON=ON`) on Linux and macOS, and the Babylon column on 64-bit
@@ -508,6 +516,14 @@ same command stream, and that the target keeps its clear color. A draw whose sha
 uniform slot that was not filled earlier in the pass is dropped with one warning on every device. The SDL
 image checks skip on a host without a GPU device, as above; the Null cases always run.
 
+`Babylon/uirender/tests/RenderPainterTest.cpp` covers the `uirender` module (ADR-0033). Against the Null
+device it checks that quads sharing a texture and clip become one `Draw`, that the clip stack sets the
+scissor, that a baked Jost font is created once and measures the glyphs it draws, and that an uploaded
+image switches the batch texture. On the SDL GPU device it draws a filled rectangle and a text line into a
+480x480 offscreen Rgba8 target, reads it back, and checks the rectangle's center, a background corner and
+non-background pixels in the text area. CTest runs it as `babylon.uirender`; its GPU case follows the same
+skip and `BABYLON_REQUIRE_GPU=1` rules as `babylon.render`.
+
 The first configure fetches SDL_shadercross at its pinned commit and builds it with the pinned DXC release,
 which takes about 50 seconds; later configures reuse the cache in `${BABYLON_CACHE_DIR}` (`.cache/`, or
 `Babylon/.cache` in the standalone build). An offline configure needs that cache already populated or
@@ -624,7 +640,7 @@ Tests that can change fullscreen display modes, reset or recreate graphics devic
 ### 🎧 M7 UI, Screen And Audio Tests
 
 The in-game screens are tested by `Jones3D.UiPainter`, which builds `Jones3DUiPainterTests` from
-`JonesUiPainterTest.cpp`, `JonesUiModalTest.cpp`, `JonesUiSaveLoadTest.cpp`, `JonesUiMainMenuTest.cpp`,
+`JonesUiRenderTest.cpp`, `JonesUiModalTest.cpp`, `JonesUiSaveLoadTest.cpp`, `JonesUiMainMenuTest.cpp`,
 `JonesUiEndScreensTest.cpp`, `JonesUiSettingsTest.cpp`, `JonesUiPauseMenuTest.cpp` and
 `JonesUiStoreTest.cpp`, together with the screen sources. The suite is labelled `unit;Jones3D` and runs with
 SDL's offscreen video driver, so it needs no display.
@@ -635,12 +651,13 @@ SDL's offscreen video driver, so it needs no display.
   written only on OK, the start-mode mapping per column, the pause menu's thumbnail capture, the HUD system
   items it shares, and Game Over's nested Load and sound channel. Headless runs check the Null stubs'
   answers.
-- The GPU cases draw sample screens with a synthetic `rdFont` and material on the SDL GPU device, read the
-  back buffer and write a BMP for review: `ui-painter-sample.bmp` (settings), `ui-message-sample.bmp`,
-  `ui-mainmenu-sample.bmp`, `ui-save-sample.bmp`, `ui-levelcompleted-sample.bmp`,
-  `ui-store-sample.bmp` and `ui-display-sample.bmp`. Linux CI runs them on Mesa's lavapipe; without a GPU
-  device they print a skip and pass, and `BABYLON_REQUIRE_GPU=1` makes that a failure. The rendered BMPs
-  were reviewed with the slices.
+- `JonesUiRenderTest.cpp` covers the asset and drawing layer: it loads the packaged Cinzel/Jost font and a
+  prompt PNG through `JonesUiAssets`, checks `measureText`, draws text and a PNG with `RenderPainter` and
+  reads the pixels back, widens an RGB save thumbnail and checks its colours, clips a fill, and draws the
+  present overlay to prove the background image, overlay shade, dim and screen layering. The render-painter
+  font-case in `Babylon/uirender/tests/RenderPainterTest.cpp` covers scale-dependent baking and the
+  reference raster. Linux CI runs the GPU cases on Mesa's lavapipe; without a GPU device they print a skip
+  and pass, and `BABYLON_REQUIRE_GPU=1` makes that a failure.
 - The `ui` module's own `babylon.ui` suite covers widgets, layout, navigation, cvar binding and text entry;
   its `NullPainter` records draw calls for the screen tests.
 
@@ -654,6 +671,36 @@ sound layer's suite (`sound.Babylon`) checks `DriverBabylon.cpp` on a Null voice
 covers the cutscene stream's pushed blocks, gain, queue limit and pacing. Every clock read in `Sound.c` goes
 through `Sound_GetTimeMsec()`, which `J3D_TEST` overrides with `Sound_TestSetTimeMsec()`; the sound tests use
 that clock instead of the platform clock, so the ADR-0027 cases run the same in every column.
+
+<a name="setup-wizard-tests"></a>
+
+### 🧙 Setup Wizard And GOG Installer Tests
+
+The setup wizard's model and screen builders are covered by `Jones3D.SetupWizard`
+(`Jones3DSetupWizardTests`), built from `JonesSetupWizardTest.cpp` and the wizard, window, host, GOG
+installer, install engine, data check and data locate sources. The model cases use `NullPlatform`,
+`NullProcess` and temporary folders holding fake game data; the screen cases lay every step out with a
+`NullPainter`. The suite needs no window, GPU, installer or game assets. It covers the source rows and
+incomplete sources, both pickers and **Search again**, the GOG and disc licence paths, **Next to the
+game**, copy-saves, the GOG two-phase extraction, progress and cancel, disc 2, the done check and the
+exact screen layout.
+
+`Jones3D.GogInstaller` (`Jones3DGogInstallerTests`) covers finding innoextract, reading an installer's
+EULA, parsing innoextract's progress and file lines, extraction through `NullProcess`, and the
+not-started, failed and cancelled outcomes.
+
+There is no headless walkthrough of the wizard: its window loop needs a platform window and a GPU device,
+and the fallback still needs a platform's dialogs. For an end-to-end check, run the windowed program on a
+virtual display from an empty working directory, with an empty user directory and no `--data`:
+
+```bash
+Xvfb :99 -screen 0 1024x768x24 &
+DISPLAY=:99 <build>/Jones3D/Jones3D --user-dir /tmp/jones3d-setup-walkthrough
+```
+
+The wizard should open before the game window. Walk the source selection, licence (for a disc or GOG
+installer), location, progress, disc 2 and done steps, then check the installed `GameData` and start the
+game. With no game data to select, only the source and quit paths can be checked this way.
 
 <a name="original-engine-io-test-vectors"></a>
 
@@ -835,13 +882,22 @@ ctest --test-dir build/native -N -L unit
 ctest --test-dir build/native --output-on-failure -L unit
 ```
 
-Sanitizer build (GCC; Clang needs its sanitizer runtime installed):
+Sanitizer build (Clang):
 
 ```bash
-cmake -S . -B build/asan -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Debug -DJONES3D_SANITIZE=ON
+cmake -S . -B build/asan -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DJONES3D_SANITIZE=ON
 cmake --build build/asan
 ctest --test-dir build/asan --output-on-failure -L unit
 ```
+
+The GPU unit suites (`std.std3DOnBabylon`, `Jones3D.UiPainter`) create a real
+Vulkan device. The loader dlcloses the driver when the device is destroyed, and
+LeakSanitizer then reports the driver's still-owned allocations as leaks, with
+stacks under libc's thread start instead of in our code. Sanitizer builds
+therefore preload the Mesa lavapipe driver (`vulkan_lvp`) so it stays mapped.
+`JONES3D_SANITIZE_GPU_DRIVER_PRELOAD` overrides the `;`-separated library list;
+when lavapipe is not found the suites still build, and configure prints a
+status line that they may report driver allocations as leaks.
 
 <a name="windows-unit-builds"></a>
 
@@ -946,6 +1002,54 @@ macOS back on.
 
 Traces need game data, so CI runs none; compare them locally on the Null, Babylon
 and 64-bit Windows columns (see [Trace Tests](#trace-tests)).
+
+<a name="release-workflow"></a>
+
+### 📦 Release Workflow
+
+The [release workflow](../.github/workflows/release.yml) runs on `v*` tags and on `workflow_dispatch`. It
+builds the Babylon column in Release on Linux and Windows and runs the unit suites in both:
+
+- `linux-appimage` on `ubuntu-24.04` configures with `-DJONES3D_PLATFORM_BABYLON=ON -DCMAKE_BUILD_TYPE=Release`,
+  builds, lists and runs `ctest -L unit` with Mesa's lavapipe (`BABYLON_REQUIRE_GPU=1`), installs the game
+  component, builds innoextract with `packaging/linux/build-innoextract.sh`, and builds the AppImage with
+  `packaging/linux/make-appimage.sh`. It extracts the AppImage and runs the bundled innoextract to check it.
+- `windows-zip` on `windows-2025-vs2026` configures the Babylon column with MSVC x64, builds in Release,
+  lists and runs `ctest -C Release -L unit`, and packs the game component with CPack into the Windows zip.
+
+Both jobs upload the artifact to the workflow run. The workflow has read-only permissions and creates no
+release.
+
+<a name="local-package-checks"></a>
+
+### 🧰 Checking A Package Locally
+
+Run the unit and source-boundary checks first:
+
+```bash
+ctest --test-dir build/native --output-on-failure -L unit
+ctest --test-dir build/native --output-on-failure -L check
+python3 Scripts/checkboundary.py --check
+```
+
+Then install the game component, build innoextract for the AppImage, and build the AppImage from it:
+
+```bash
+cmake --install build --prefix staging --component game
+packaging/linux/build-innoextract.sh build/innoextract
+INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0-alpha
+APPIMAGE_EXTRACT_AND_RUN=1 build/out/Jones3D_EX-0.5.0-alpha-x86_64.AppImage --version
+build/out/Jones3D_EX-0.5.0-alpha-x86_64.AppImage --appimage-extract
+squashfs-root/usr/bin/innoextract --version
+ldd squashfs-root/usr/bin/innoextract
+```
+
+`APPIMAGE_EXTRACT_AND_RUN=1` runs the AppImage without FUSE. The extracted
+`usr/bin/innoextract` is the copy the setup wizard uses to unpack the GOG
+installer; `ldd` should list only the C runtime, or the libraries bundled with
+it. The headless runner is in the `tools` component and is not packaged. On
+Windows, `cpack --config build/CPackConfig.cmake -C Release -B build/out` makes
+the zip. No package contains game data.
 
 <a name="intermittent-failures"></a>
 

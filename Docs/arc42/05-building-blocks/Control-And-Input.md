@@ -183,9 +183,10 @@ The binding layer can:
 
 This lets the engine map many hardware forms onto the same movement and camera model without rewriting the gameplay code.
 
-The Modern control style adds a per-frame override layer on top of the bindings. `sithControl_SetKeyOverride()` makes a movement function read as pressed with an axis amount (0..1) and a one-press edge, `sithControl_SuppressKey()` makes a function without an override read as released, and `sithControl_ClearKeyOverrides()` drops both at the next frame. Overrides take precedence over suppressions, so Modern can suppress a real movement binding and drive the same function virtually. `engine.input.controlStyle` selects Modern or Classic; QOL builds default to Modern, non-QOL builds always use Classic.
+The Modern control style adds a per-frame override layer on top of the bindings. `sithControl_SetKeyOverride()` makes a movement function read as pressed with an axis amount (0..1) and a one-press edge, `sithControl_SuppressKey()` makes a function without an override read as released, and `sithControl_ClearKeyOverrides()` drops both at the next frame. Overrides take precedence over suppressions, so Modern can suppress a real movement binding and drive the same function virtually. `engine.input.keyboardControlStyle` selects the keyboard and mouse style and `engine.input.gamepadControlStyle` the gamepad style. QOL builds default to Classic keyboard and mouse and Modern gamepad; non-QOL builds always use Classic for both. The old `engine.input.controlStyle` is read only for migration: `classic` sets both styles to Classic, `modern` or a missing key gives the defaults.
 
-Target lock is the `TARGETLOCK` key function, active only in Modern. It acquires the live
+Target lock is the `TARGETLOCK` key function, active whenever the Enhanced movement translator runs
+(QOL builds). It acquires the live
 actor closest to the free camera's forward direction within 35 degrees and the track range that
 is visible from the camera's eye, then keeps it while visible from the camera and in range from
 Indy. Indy's own line of sight does not matter. Its defaults are `F` and the right
@@ -195,14 +196,22 @@ add an action to the `.kfg` format, so files written before it still load.
 
 ## Modern Control Style End To End
 
-`engine.input.controlStyle` is read once in `JonesControl_Startup` and stored in `sithControl`, so
-the movement, camera and binder code all see the same answer. QOL builds default to Modern and
-write the key back; the Retail profile always uses Classic and neither reads nor writes it.
+The two style keys are read once in `JonesControl_Startup` and stored in `sithControl` as separate
+keyboard/mouse and gamepad flags, so the camera and binder code see the same answers. QOL builds
+default to keyboard and mouse Classic and gamepad Modern, and write the two keys only on a new
+install or after Options writes them; an existing config with only the old key is left alone until
+the player changes the setting. The Retail profile always uses Classic and neither reads nor writes
+the new keys. `sithControl_IsModernControlStyle()` means "either device is Modern" for the shared
+free camera and Look snap. `sithControl_IsModernMovementEnabled()` is the translator: always true in
+QOL builds, false in Retail/non-QOL.
 
 Each player frame runs `sithModernControls_Update` before the original movement code. It clears the
-previous frame's virtual keys, classifies the current move status, reads the stick and the real
-movement keys, and writes the frame's `FORWARD`, `BACK`, `TURNLEFT`, `TURNRIGHT` and `RUNFWD`
-overrides. `sithModernControls_Compute` is the pure part: given a screen-space move vector, the
+previous frame's virtual keys, classifies the current move status, reads the left stick and the
+translator's keyboard movement keys (`FORWARD`, `BACK`, `TURNLEFT`, `TURNRIGHT`, run), and writes
+the frame's `FORWARD`, `BACK`, `TURNLEFT`, `TURNRIGHT` and `RUNFWD` overrides. Keyboard Modern adds
+the A/D sidestep bindings as lateral movement; Keyboard Classic leaves them to the original
+sidestep, which is the keyboard behaviour before the option existed. The translator owns the
+movement in both styles, so its transition skip and ground acceleration always run in QOL builds. `sithModernControls_Compute` is the pure part: given a screen-space move vector, the
 camera and player yaws and a mode, it returns the original keys to press and their amounts plus the
 heading to face. The classifier returns three modes:
 
@@ -216,8 +225,10 @@ heading to face. The classifier returns three modes:
   the real keys keep their original meaning.
 - **None**: jump, fall and forced-move states; the real keys pass through untouched.
 
-The free camera is world-anchored in `sithModernCamera`: right-stick and mouse motion orbit it, the
-original camera collision stays, and a camera set by a COG script or cutscene wins while active.
+The free camera is world-anchored in `sithModernCamera`: right-stick motion orbits it in the Modern
+gamepad style and mouse motion in the Modern keyboard and mouse style (where the mouse X/Y axes are
+bound to `MOUSETURN`/`PITCH`), the original camera collision stays, and a camera set by a COG script
+or cutscene wins while active.
 Quick-step is a held modifier, RB or Left Alt, plus a direction. The camera-relative push is
 resolved to the nearest of Indy's four directions: left and right play the original sidestep force
 move; forward and back play one shared timed step over the sidestep's 0.1-unit travel. The timed
@@ -243,9 +254,9 @@ style only. Classic reads only its bindings.
 
 ### Default schemes
 
-A new install picks the `JONES_STR_DFLTMODERN` ("Modern keyboard and gamepad") scheme when the style
-is Modern and the `JONES_STR_DFLTPAD` ("Keyboard and gamepad") scheme when it is Classic. A
-remembered active scheme is never replaced. See
+A new install picks the `JONES_STR_DFLTMODERN` ("Modern keyboard and gamepad") scheme when either
+style is Modern and the `JONES_STR_DFLTPAD` ("Keyboard and gamepad") scheme when both are Classic.
+A remembered active scheme is never replaced. See
 [In-Game-Menus.md](In-Game-Menus.md#default-keyboard-and-gamepad-scheme) for the scheme file format
 and the pad layout of the Classic default.
 
@@ -285,8 +296,8 @@ and the pad layout of the Classic default.
 | Input | Action |
 |---|---|
 | W / S | Forward / back, relative to the camera |
-| A / D | Turn left / right, relative to the camera |
-| Arrow keys | Same as W / S / A / D |
+| A / D | Move left / right, relative to the camera |
+| Arrow keys | Forward / back and left / right, relative to the camera |
 | Mouse | Free camera (with `controls.mouse` on) |
 | Left Shift | Hold to run; a small stick push walks |
 | Space | Jump |

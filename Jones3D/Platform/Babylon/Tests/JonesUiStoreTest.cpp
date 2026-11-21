@@ -2,7 +2,7 @@
 // The cart functions are checked against hand-computed cases from the original
 // jonesConfig_AddStoreCartItem/RemoveStoreCartItem/ClearStoreCart and the purchase message of
 // jonesConfig_InitPurchaseMessageBox. The screen is driven by one scripted platform event per
-// frame for one purchase and one cancel. The drawing sample lives in JonesUiPainterTest.cpp.
+// frame for one purchase and one cancel. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdint>
@@ -112,6 +112,23 @@ namespace
         bool showMessageBox(std::string_view, std::string_view) override
         {
             return false;
+        }
+
+        std::optional<std::size_t> askChoice(std::string_view, std::string_view,
+            std::span<const std::string_view>) override
+        {
+            return std::nullopt;   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
+        {
+            return {};   // these tests never ask for a dialog
         }
 
         bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override

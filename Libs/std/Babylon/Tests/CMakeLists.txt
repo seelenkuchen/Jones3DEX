@@ -29,6 +29,9 @@ target_compile_definitions(stdBabylonTests PRIVATE
     J3D_TEST
     # The stdControlNull.c this suite compiles has to agree with the game's Babylon column.
     STDCONTROL_BABYLON_DEVICES=1
+    # Added: keep Unity's malloc/free macros out of C++: inline STL code compiled here would share
+    # one COMDAT with production and free CRT memory through unity_free, corrupting the heap in Release.
+    $<$<COMPILE_LANGUAGE:CXX>:UNITY_FIXTURE_NO_EXTRAS>
 )
 
 # The test and the adapter files include <std/...> (via Libs) and <babylon/...> (via the links).

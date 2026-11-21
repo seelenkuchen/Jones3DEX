@@ -251,6 +251,30 @@ void J3DAPI JonesDisplay_SetDefaultVideoMode(const StdDisplayEnvironment* pEnv, 
     }
 }
 
+void J3DAPI JonesDisplay_ResolveFirstRunMode(const StdVideoMode* pDesktopMode,
+    int bHasWidth, int width, int bHasHeight, int height,
+    int* pWidth, int* pHeight)
+{
+    int desktopWidth  = 640;
+    int desktopHeight = 480;
+
+    if ( pDesktopMode && pDesktopMode->rasterInfo.width && pDesktopMode->rasterInfo.height )
+    {
+        desktopWidth  = (int)pDesktopMode->rasterInfo.width;
+        desktopHeight = (int)pDesktopMode->rasterInfo.height;
+    }
+
+    if ( pWidth )
+    {
+        *pWidth = bHasWidth ? width : desktopWidth;
+    }
+
+    if ( pHeight )
+    {
+        *pHeight = bHasHeight ? height : desktopHeight;
+    }
+}
+
 int J3DAPI JonesDisplay_Open(JonesDisplaySettings* pSettings)
 {
     if ( JonesDisplay_pCanvas )

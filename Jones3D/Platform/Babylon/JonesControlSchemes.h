@@ -61,8 +61,10 @@ void J3DAPI JonesControlSchemes_BindActive(void);
 // The loaded active scheme, or NULL. Owned by the module; do not free.
 const JonesControlsScheme* J3DAPI JonesControlSchemes_GetActiveScheme(void);
 
-// The directory the original built: <installPath>\<SITHSTRING_KEYSETS> when installPath is set,
-// else ..\<SITHSTRING_KEYSETS> relative to the working directory. Empty before startup.
+// The writable key-sets directory: <user directory>\KeySets when a user directory is set,
+// otherwise the original <installPath>\<SITHSTRING_KEYSETS> (or ..\<SITHSTRING_KEYSETS> relative
+// to the working directory when installPath is empty). Shipped key sets stay readable from their
+// original directory. Empty before startup.
 const char* J3DAPI JonesControlSchemes_GetDirectory(void);
 
 // True when a binding uses the trailing EXTRAS section (mouse buttons, right stick and the Z

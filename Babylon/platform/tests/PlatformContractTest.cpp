@@ -15,10 +15,13 @@
 
 #include <doctest.h>
 
+#include <array>
 #include <initializer_list>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace
@@ -374,4 +377,54 @@ TEST_CASE("The SDL window toggles fullscreen when its driver has a display")
         CHECK_FALSE(window->fullscreen());
         CHECK(sink.records().empty());
     }
+}
+
+TEST_CASE("The SDL platform refuses empty and too long choice boxes before showing one")
+{
+    // A valid list would open a real modal box, so only the refusals are
+    // checked here; they happen before SDL is asked to show anything.
+    const std::unique_ptr<Platform> platform = babylon::platform::createSdlPlatform();
+    if ( platform == nullptr )
+    {
+        FAIL("createSdlPlatform() returned nullptr: run this test with "
+            "the offscreen or dummy video driver");
+    }
+    babylon::log::CaptureSink sink;
+
+    CHECK_FALSE(platform->askChoice("Babylon test", "No buttons",
+        std::span<const std::string_view>{}).has_value());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == Level::Warning);
+    sink.clear();
+
+    std::array<std::string_view, babylon::platform::kMaxChoiceButtons + 1> tooMany{};
+    for ( std::string_view& button : tooMany )
+    {
+        button = "Button";
+    }
+    CHECK_FALSE(platform->askChoice("Babylon test", "Too many", tooMany).has_value());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == Level::Warning);
+}
+
+TEST_CASE("The SDL platform refuses an invalid file filter before showing a picker")
+{
+    // A valid filter would open a real modal picker, so only the refusal is
+    // checked here; it happens before SDL is asked to show anything.
+    const std::unique_ptr<Platform> platform = babylon::platform::createSdlPlatform();
+    if ( platform == nullptr )
+    {
+        FAIL("createSdlPlatform() returned nullptr: run this test with "
+            "the offscreen or dummy video driver");
+    }
+    babylon::log::CaptureSink sink;
+
+    const std::array<babylon::platform::FileFilter, 1> emptyPattern{
+        babylon::platform::FileFilter{ "Installers", "" } };
+    const babylon::platform::PathChoice choice =
+        platform->chooseFile("Babylon test", "", emptyPattern);
+    CHECK(choice.result == babylon::platform::PathChoiceResult::Unavailable);
+    CHECK(choice.path.empty());
+    REQUIRE(sink.records().size() == 1);
+    CHECK(sink.records()[0].level == Level::Warning);
 }

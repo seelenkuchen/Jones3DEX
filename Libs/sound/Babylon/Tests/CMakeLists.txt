@@ -13,6 +13,9 @@ add_executable(soundDriverBabylonTests
 
 target_compile_definitions(soundDriverBabylonTests PRIVATE
     J3D_TEST
+    # Added: keep Unity's malloc/free macros out of C++: inline STL code compiled here would share
+    # one COMDAT with production and free CRT memory through unity_free, corrupting the heap in Release.
+    $<$<COMPILE_LANGUAGE:CXX>:UNITY_FIXTURE_NO_EXTRAS>
 )
 
 set_property(SOURCE soundBabylonTestRunner.cpp APPEND PROPERTY COMPILE_DEFINITIONS

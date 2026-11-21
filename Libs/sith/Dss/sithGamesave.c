@@ -31,6 +31,7 @@
 #include <std/General/stdConffile.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdFnames.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/stdDisplay.h>
 
@@ -38,8 +39,8 @@
 
 static int sithGamesave_state;
 
-static char sithGamesave_aCurFilename[128];
-static char sithGamesave_aLastFilename[128];
+static char sithGamesave_aCurFilename[STDUSERDIR_MAXPATH]; // Altered: room for user-directory paths (M8.2b)
+static char sithGamesave_aLastFilename[STDUSERDIR_MAXPATH]; // Altered: room for user-directory paths (M8.2b)
 static int sithGamesave_aNdsSaveSectionSizes[15];
 
 static char sithGamesave_aPrevLevelFilename[64];
@@ -65,7 +66,17 @@ int J3DAPI sithGamesave_WriteThumbnail(tFileHandle fh);
 int J3DAPI sithGamesave_SeekThumbnail(tFileHandle fh);
 
 void sithGamesave_ResetGlobals(void)
-{}
+{
+    // Added: a save in progress and the statistics lock must not carry into a second run.
+    sithGamesave_state            = SITHGAMESAVE_NONE;
+    sithGamesave_bStatisticsLocked = 0;
+    sithGamesave_pfSaveGameCallback = NULL;
+    STD_ZEROMEM(sithGamesave_aCurFilename, sizeof(sithGamesave_aCurFilename));
+    STD_ZEROMEM(sithGamesave_aLastFilename, sizeof(sithGamesave_aLastFilename));
+    STD_ZEROMEM(sithGamesave_aPrevLevelFilename, sizeof(sithGamesave_aPrevLevelFilename));
+    STD_ZEROMEM(sithGamesave_aNdsSaveSectionSizes, sizeof(sithGamesave_aNdsSaveSectionSizes));
+    STD_ZEROMEM(&sithGamesave_gameStatistics, sizeof(sithGamesave_gameStatistics));
+}
 
 SithGameStatistics* sithGamesave_GetGameStatistics(void)
 {

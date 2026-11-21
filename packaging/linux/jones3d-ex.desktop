@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Jones3D EX
+Comment=Enhanced engine for Indiana Jones and the Infernal Machine (needs the original game data)
+Exec=Jones3D
+Icon=jones3d-ex
+Categories=Game;

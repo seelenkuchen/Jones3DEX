@@ -371,9 +371,10 @@ int _vsnwprintf_s(wchar_t* pBuf, size_t bufSize, size_t count, const wchar_t* pF
     return j3dcrt_WPrintS(pBuf, bufSize, count, pFormat, args);
 }
 
-// Added: the path size the resolver writes, matching the Windows MAX_PATH limit the engine's path
-// buffers are sized for. A longer path is passed to the C runtime unresolved.
-#define J3DCRT_MAXPATH 260
+// Added: the path size the resolver writes. It follows the engine's longest data path buffer
+// (STD_MAX_DATAPATH, STDUSERDIR_MAXPATH + 64) so long install folders resolve too (M8 wizard).
+// A longer path is passed to the C runtime unresolved.
+#define J3DCRT_MAXPATH 576 // Altered: room for long data paths (M8 wizard), was 260
 
 // Added: the longest directory entry name the resolver matches, and the search order it picks from:
 // case-insensitive name order with the byte order breaking ties, so the choice does not depend on

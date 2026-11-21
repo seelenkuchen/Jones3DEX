@@ -24,6 +24,26 @@ void J3DAPI sithWhip_ProcessWhipClimbMove(SithThing* pThing, float secDeltaTime)
 SithThing* sithWhip_GetWhipSwingThing(void);
 SithThing* sithWhip_GetWhipClimbThing(void);
 
+// Added: the whip searches that set the sithWhip aim targets, shared with the tests.
+int J3DAPI sithWhip_SearchWhipSwingThing(SithThing* pThing);
+int J3DAPI sithWhip_SearchWhipClimbThing(SithThing* pThing);
+
+// Added: the swing-before-climb choice and target flag rule the activation press uses. Returns 1
+// when the target allows the action, and always reports the target the press would act on.
+int J3DAPI sithWhip_ChooseWhipPressTarget(SithThing* pSwingThing, SithThing* pClimbThing, SithThing** ppTarget, int* pbSwing);
+
+// Added: the target a quick whip press would use right now. It runs the whip searches inside
+// sithCollision's read-only scope, applies the same target choice as the press, and changes no
+// state (the sithWhip globals, the collision scratch and the things are left alone). Returns 1
+// when the target allows the action. The outputs are cleared first, so they are always set.
+int J3DAPI sithWhip_QueryQuickWhipTarget(SithThing* pThing, SithThing** ppTarget, int* pbSwing);
+
+#ifdef J3D_TEST
+// Added: installs the whip-aim targets without running the collision search, so the interaction
+// query tests reach the same target choice the press uses.
+void sithWhip_SetTargetsForTest(SithThing* pSwing, SithThing* pClimb);
+#endif
+
 void sithWhip_Reset(void);
 
 int J3DAPI sithWhip_Save(DPID idTo, uint32_t outstream);

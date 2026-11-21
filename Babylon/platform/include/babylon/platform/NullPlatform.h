@@ -7,10 +7,14 @@
 
 #include <babylon/platform/Platform.h>
 
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace babylon::platform
 {
@@ -48,6 +52,79 @@ namespace babylon::platform
         [[nodiscard]] bool showMessageBox(std::string_view title,
             std::string_view text) override;
 
+        // There is no native choice box here. By default the title and text
+        // go to one babylon::log::warning line and the answer is nullopt;
+        // setChoiceAnswer() scripts a different answer, which is returned
+        // unchanged (nullopt keeps the default). An empty or too long button
+        // list is always refused with one warning, even when an answer is
+        // scripted, so it is never reported as shown. Every call is recorded
+        // for lastChoice(), including the refused ones.
+        [[nodiscard]] std::optional<std::size_t> askChoice(
+            std::string_view title, std::string_view text,
+            std::span<const std::string_view> buttons) override;
+
+        // The answer askChoice() returns next, or nullopt for the default.
+        void setChoiceAnswer(std::optional<std::size_t> answer);
+
+        // One askChoice() call as this backend recorded it.
+        struct ChoiceRequest
+        {
+            std::string title;
+            std::string text;
+            std::vector<std::string> buttons;
+        };
+
+        // The last askChoice() call, or nullopt if none was made.
+        std::optional<ChoiceRequest> lastChoice() const;
+
+        // There is no native folder picker here. By default the title goes to
+        // one babylon::log::warning line and the result is Unavailable;
+        // setFolderAnswer() scripts a different answer, which is returned
+        // unchanged. Every call is recorded for lastFolder(), including the
+        // default one.
+        [[nodiscard]] PathChoice chooseFolder(std::string_view title,
+            std::string_view defaultLocation) override;
+
+        // The answer chooseFolder() returns next; the default is Unavailable
+        // with an empty path.
+        void setFolderAnswer(PathChoice answer);
+
+        // One chooseFolder() call as this backend recorded it.
+        struct FolderRequest
+        {
+            std::string title;
+            std::string defaultLocation;
+        };
+
+        // The last chooseFolder() call, or nullopt if none was made.
+        std::optional<FolderRequest> lastFolder() const;
+
+        // There is no native file picker here. By default the title goes to
+        // one babylon::log::warning line and the result is Unavailable;
+        // setFileAnswer() scripts a different answer, which is returned
+        // unchanged. A filter with an invalid pattern is refused with one
+        // warning, even when an answer is scripted, so it is never reported as
+        // shown. Every call is recorded for lastFile(), including the refused
+        // ones and the default one.
+        [[nodiscard]] PathChoice chooseFile(std::string_view title,
+            std::string_view defaultLocation,
+            std::span<const FileFilter> filters) override;
+
+        // The answer chooseFile() returns next; the default is Unavailable
+        // with an empty path.
+        void setFileAnswer(PathChoice answer);
+
+        // One chooseFile() call as this backend recorded it.
+        struct FileRequest
+        {
+            std::string title;
+            std::string defaultLocation;
+            std::vector<FileFilter> filters;
+        };
+
+        // The last chooseFile() call, or nullopt if none was made.
+        std::optional<FileRequest> lastFile() const;
+
         // There is no device to vibrate: the call is recorded (with its
         // intensities clamped and its duration capped, as the interface
         // promises) and always returns false.
@@ -73,6 +150,12 @@ namespace babylon::platform
         std::deque<Event> m_events;
         std::optional<RumbleCall> m_lastRumble;
         GamepadType m_gamepadType = GamepadType::Unknown;
+        std::optional<std::size_t> m_choiceAnswer;
+        std::optional<PathChoice> m_folderAnswer;
+        std::optional<PathChoice> m_fileAnswer;
+        std::optional<ChoiceRequest> m_lastChoice;
+        std::optional<FolderRequest> m_lastFolder;
+        std::optional<FileRequest> m_lastFile;
     };
 
 }

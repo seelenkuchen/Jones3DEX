@@ -23,6 +23,52 @@ void sithPlayerControls_Reset(void);
 void J3DAPI sithPlayerControls_PuppetCallback(SithThing* pThing, int track, rdKeyMarkerType markerType);
 int J3DAPI sithPlayerControls_Process(SithThing* pPlayerThing, float secDeltaTime);
 
+// Added: what the activation and climb keys would do in the player's current movement state, for
+// the on-screen interaction prompt. The query follows the same order and guards as the input paths
+// (whip swing or climb while the whip is drawn or when quick whip can reach a target; item,
+// Activate, push/pull while standing; climb-on and wall mount while standing, walking or running;
+// pull-up while hanging or on a climbable wall; water ledge while swimming), changes no state, and
+// leaves the collision scratch as it found it.
+// It is 0 when a press would do nothing this slice can label.
+typedef enum eSithPlayerInteractionKind
+{
+    SITHPLAYERINTERACTION_NONE = 0,
+    SITHPLAYERINTERACTION_USE,
+    SITHPLAYERINTERACTION_PICKUP,
+    SITHPLAYERINTERACTION_PUSH,
+    SITHPLAYERINTERACTION_PULL,
+    SITHPLAYERINTERACTION_PUSH_PULL,
+    SITHPLAYERINTERACTION_CLIMB_UP,
+    SITHPLAYERINTERACTION_CLIMB,
+    SITHPLAYERINTERACTION_WHIP_SWING,
+    SITHPLAYERINTERACTION_WHIP_CLIMB,
+} SithPlayerInteractionKind;
+
+typedef struct sSithPlayerInteraction
+{
+    SithPlayerInteractionKind kind;
+    // The binding the press for this action reads: Activate for Use, Pick up and push/pull; Jump
+    // for climb-on and wall mount; Forward for the hanging pull-up; Quick whip for the quick whip
+    // swing and climb (the keyboard and pad bindings differ; the prompt resolves them per device).
+    SithControlFunction control;
+    SithSurface* pSurface;
+    SithThing* pThing;
+    int bFloorItem; // Pick up only: the item was on the floor, not straight ahead
+} SithPlayerInteraction;
+
+// Returns 1 and fills pOut when a press would pick up an item, activate a COG-linked surface or
+// thing, grab a movable object to push or pull, climb onto a ledge, mount a climbable wall or pull
+// up from a hang. Returns 0, with pOut zeroed, otherwise. pOut must not be NULL. pSurface and
+// pThing name the target when the slice found a specific one; climb-on and water-ledge results may
+// leave both NULL. The call changes no game or collision state.
+int sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInteraction* pOut);
+
+#ifdef J3D_TEST
+// Added: starts the swim idle time at a known value, so the water-ledge query test reaches the
+// press's one-second guard without running a frame of input.
+void sithPlayerControls_SetSwimIdleTimeForTest(float sec);
+#endif
+
 int J3DAPI sithPlayerControls_BoardVehicle(SithThing* pThing, int bBoard);
 void J3DAPI sithPlayerControls_ExitVehicle(SithThing* pThing);
 

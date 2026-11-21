@@ -5,14 +5,19 @@
 // Added: std3D draws and stdDisplay presents on the render device made here, the SDL GPU device on
 // the game window (M6.6, M6.7).
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <string>
+
+#include <j3dcore/j3d.h>
 
 #include <babylon/audio/Device.h>
 #include <babylon/audio/MiniaudioDevice.h>
 #include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
 #include <babylon/files/FileSystem.h>
+#include <babylon/files/Path.h>
 #include <babylon/files/SdlFileSystem.h>
 #include <babylon/platform/Platform.h>
 #include <babylon/platform/SdlPlatform.h>
@@ -25,10 +30,24 @@
 #include <babylon/time/SdlClock.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdBabylonEvents.h>
 #include <std/Babylon/stdBabylonCvars.h>
 #include <std/Babylon/stdBabylonTour.h>
 
+#include <std/General/stdUserDir.h>
+
+#include <Jones3D/Main/JonesDataLocate.h>
+#include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesSetupHost.h>
+#include <Jones3D/Platform/Babylon/JonesSetupWindow.h>
+
+#ifdef _WIN32
+// Added: windows.h stays out of this composition root (the platform boundary), so name the one
+// kernel32 entry point the UTF-8 startup check needs. Windows builds are 64-bit, where every
+// function uses one calling convention.
+extern "C" __declspec(dllimport) unsigned int __stdcall GetACP(void);
+#endif
 
 namespace
 {
@@ -37,14 +56,248 @@ namespace
     void PrintUsage(const char* pProgramName)
     {
         fprintf(stderr,
-            "usage: %s [--load <save.nds>] [--input <script>] [--quit-after-script] "
-            "[--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] [--present-log <file>]\n",
+            "usage: %s [--version] [--user-dir <dir>] [--load <save.nds>] [--data <dir>] "
+            "[--hash-data <dir>] [--input <script>] "
+            "[--quit-after-script] [--screenshot-dir <dir> --screenshot-at <n>[,<n>...]] "
+            "[--present-log <file>]\n",
             pProgramName ? pProgramName : "Jones3D");
     }
+
+    // Added: --user-dir is taken out before the game command line is built, like --load. It is
+    // validated here so a missing value stops the run before any engine code.
+    bool TakeUserDirOption(int* pArgc, char** argv, std::string& rUserDir, bool& rHasUserDir,
+        std::string& rError)
+    {
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--user-dir") != 0 )
+            {
+                continue;
+            }
+
+            if ( i + 1 >= *pArgc )
+            {
+                rError = "--user-dir needs a value";
+                return false;
+            }
+
+            rUserDir    = argv[++i];
+            rHasUserDir = true;
+        }
+
+        int numKept = 1;
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--user-dir") == 0 )
+            {
+                ++i;
+                continue;
+            }
+
+            argv[numKept++] = argv[i];
+        }
+
+        *pArgc = numKept;
+        return true;
+    }
+
+    // Added: the data tool runs without a display, so its option is taken out before the tour
+    // parser and before any SDL platform, window, audio or render device exists.
+    bool TakeDataToolOptions(int* pArgc, char** argv, std::string& rHashDir, bool& rHasHash,
+        std::string& rError)
+    {
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--hash-data") == 0 )
+            {
+                if ( i + 1 >= *pArgc )
+                {
+                    rError = "--hash-data needs a value";
+                    return false;
+                }
+
+                rHashDir = argv[++i];
+                rHasHash = true;
+            }
+        }
+
+        int numKept = 1;
+        for ( int i = 1; i < *pArgc; ++i )
+        {
+            if ( strcmp(argv[i], "--hash-data") == 0 )
+            {
+                ++i;
+                continue;
+            }
+
+            argv[numKept++] = argv[i];
+        }
+
+        *pArgc = numKept;
+        return true;
+    }
+
+    // Added: the quick data probe the search uses, without hashing: a folder or its Resource
+    // subfolder with the three required GOBs.
+    bool HasCompleteGameData(const std::string& directory)
+    {
+        if ( directory.empty() )
+        {
+            return false;
+        }
+
+        JonesDataLocateCandidate candidate = {};
+        if ( directory.size() + 1 > sizeof(candidate.aPath) )
+        {
+            return false;
+        }
+
+        std::memcpy(candidate.aPath, directory.c_str(), directory.size() + 1);
+        candidate.rule = JONESDATALOCATE_RULE_EXECUTABLE_DIR;
+
+        JonesDataLocateResult result = {};
+        return JonesDataLocate_Search(&candidate, 1, &result);
+    }
+
+    // Added: the folder of the program the player launched: the AppImage file's folder when the
+    // AppImage runtime set APPIMAGE, else the executable's own folder. The mounted usr/bin of an
+    // AppImage is temporary and read-only, so it must never receive GameData or user files.
+    std::string NormalizeDirectory(std::string directory)
+    {
+        while ( directory.size() > 1
+            && (directory.back() == '/' || directory.back() == '\\') )
+        {
+            directory.pop_back();
+        }
+
+        return directory;
+    }
+
+    // Added: decides the windowed run's writable directory once, before JonesMain_Startup: an
+    // explicit --user-dir, the executable's directory when its GameData folder holds the complete
+    // game data (the wizard's "next to the game" choice), else the platform user path. A failed
+    // platform lookup falls back to the working directory.
+    std::string ResolveUserDir(babylon::files::FileSystem& fs, const std::string& exeDir,
+        bool bHasUserDir, const std::string& userDir)
+    {
+        if ( bHasUserDir )
+        {
+            return userDir;
+        }
+
+        if ( !exeDir.empty()
+          && HasCompleteGameData(babylon::files::joinPath(exeDir, JONESDATALOCATE_GAMEDATA_DIR)) )
+        {
+            return exeDir;
+        }
+
+        // Added: the wizard only shows this path, so asking for it must not
+        // leave an empty user folder behind when "next to the game" is chosen.
+        std::string path = fs.userPath("", "Jones3DEX", babylon::files::CreateMode::NoCreate);
+        if ( path.empty() )
+        {
+            fprintf(stderr,
+                "WARNING: Jones3D: could not find a per-user data directory, using the working "
+                "directory!\n");
+            return {};
+        }
+
+        return path;
+    }
+
 }
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    // Added: the executable's manifest turns on the UTF-8 code page; warn once when it did not
+    // take (Windows before 10 1903), because the game passes non-ASCII char* paths to the CRT.
+    if ( GetACP() != 65001 )
+    {
+        fprintf(stderr,
+            "WARNING: UTF-8 code page not active; paths with non-ASCII characters may fail\n");
+    }
+#endif
+
+    // Added: --version prints the build's version and exits before any engine code runs.
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp(argv[i], "--version") == 0 )
+        {
+            printf("%s\n", J3D_VERSION_FULL);
+            return 0;
+        }
+    }
+
+    // Added: the user directory option comes out first, so neither the tour parser nor the game
+    // command line sees it.
+    std::string userDir;
+    bool bHasUserDir = false;
+    std::string userDirError;
+    if ( !TakeUserDirOption(&argc, argv, userDir, bHasUserDir, userDirError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: %s\n", userDirError.c_str());
+        PrintUsage(argv[0]);
+        return 1;
+    }
+
+    // Added: --hash-data is a tool. It is taken out before the tour parser and runs before any SDL
+    // platform, window, audio or render device is created, so it works over SSH with no display.
+    std::string hashDataDir;
+    bool bHasHashData = false;
+    std::string dataToolError;
+    if ( !TakeDataToolOptions(&argc, argv, hashDataDir, bHasHashData, dataToolError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: %s\n", dataToolError.c_str());
+        PrintUsage(argv[0]);
+        return 1;
+    }
+
+    // Added: the file system is all the data tools need, and ResolveUserDir needs it too. It is
+    // created before the platform so the tools never reach SDL video.
+    std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
+    if ( !pFileSystem )
+    {
+        fprintf(stderr, "ERROR: Jones3D: could not create the SDL file system!\n");
+        return 1;
+    }
+
+    // Added: APPIMAGE names the .AppImage file; use its folder for installs and the data search,
+    // while innoextract still comes from the real executable's folder (AppDir/usr/bin).
+    const std::string realExeDir = NormalizeDirectory(pFileSystem->basePath());
+    std::string exeDir = JonesSetupHost_AppImageDir();
+    if ( exeDir.empty() )
+    {
+        exeDir = realExeDir;
+    }
+
+    const std::string userDirPath = ResolveUserDir(*pFileSystem, exeDir, bHasUserDir, userDir);
+    if ( bHasHashData )
+    {
+        // Added: JonesDataLocate's tool only needs the file system (stdUserDir_Set reaches the file
+        // utilities through it). No platform, window, audio or render device is created.
+        StdBabylonContext toolContext = {};
+        toolContext.pFileSystem = pFileSystem.get();
+        stdBabylon_SetContext(&toolContext);
+
+        Jones3D_ResetAllGlobals();
+        if ( !stdUserDir_Set(userDirPath.c_str()) )
+        {
+            fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
+                STDUSERDIR_MAXPATH - 1);
+            stdBabylon_SetContext(nullptr);
+            return 1;
+        }
+
+        const int toolExitCode = JonesDataLocate_HashData(hashDataDir.c_str());
+        stdBabylon_SetContext(nullptr);
+        return toolExitCode;
+    }
+
+    // Added: the game data search no longer reads platform paths itself. The composition root
+    // passes what it already has from the file system.
+    JonesDataLocate_SetHostDirs(exeDir.c_str(), pFileSystem->currentPath().c_str());
+
     // Added: the scripted tour's options are taken out before the game command line is built, so
     // they never reach JonesMain_Startup. Parsing the whole tour command line up front means a bad
     // option exits before any engine code runs, like the headless runner's --input.
@@ -65,70 +318,150 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const babylon::platform::WindowDesc desc{ "Jones3D EX", { 640, 480 }, false };
-    std::unique_ptr<babylon::platform::Window> pWindow = pPlatform->createWindow(desc);
-    if ( !pWindow )
+    // Added: before the game window exists, check whether the game files are there. The probe
+    // needs only the file system, exactly like the --hash-data path. When nothing is found the
+    // setup window installs the data first, and the game starts with the user directory it chose.
+    std::string runUserDir = userDirPath;
     {
-        fprintf(stderr, "ERROR: Jones3D: could not create the game window!\n");
-        return 1;
+        StdBabylonContext dataContext = {};
+        dataContext.pFileSystem = pFileSystem.get();
+        stdBabylon_SetContext(&dataContext);
+
+        // Added: this probe only reads the user directory, so it is not created here. A chosen
+        // path still joins the search; JonesBabylon_Run creates the directory that the game really
+        // uses, after the setup window has returned.
+        if ( !stdUserDir_SetNoCreate(runUserDir.c_str()) )
+        {
+            fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
+                STDUSERDIR_MAXPATH - 1);
+            stdBabylon_SetContext(nullptr);
+            return 1;
+        }
+
+        JonesDataLocateResult dataResult = {};
+        const bool bHasGameData = JonesDataLocate_Startup("", &dataResult);
+        stdBabylon_SetContext(nullptr);
+
+        if ( !bHasGameData )
+        {
+            fprintf(stderr, "Game data: not found, opening the setup window.\n");
+
+            std::string setupUserDir;
+            std::string setupDataDir;
+            const JonesSetupResult setupResult = JonesSetupWindow_Run(*pPlatform,
+                *pFileSystem, runUserDir, exeDir, setupUserDir, setupDataDir, false,
+                realExeDir);
+            if ( setupResult != JonesSetupResult::Installed )
+            {
+                return 0;
+            }
+
+            runUserDir = setupUserDir;
+        }
     }
 
-    // Added: read the tour's input script and open its files now, so a bad script or path stops the
-    // run before any engine code. The script's events carry the game window id.
-    if ( !stdBabylonTour_Configure(tourOptions, pWindow->id(), tourError) )
+    for ( ;; )
     {
-        fprintf(stderr, "ERROR: Jones3D: %s\n", tourError.c_str());
-        return 1;
+        // Added: a request from the previous run (Options > Run setup again posts one) must not
+        // close the next run's main menu. The pump state is per run; the platform queue is not ours.
+        stdBabylonEvents_Reset();
+
+        bool bSetupRequested = false;
+        int exitCode = 0;
+
+        // Everything of one game run lives in this scope: the window closes, then the render and
+        // audio devices, before the setup window makes a window of its own.
+        {
+            const babylon::platform::WindowDesc desc{ "Jones3D EX", { 640, 480 }, false };
+            std::unique_ptr<babylon::platform::Window> pWindow = pPlatform->createWindow(desc);
+            if ( !pWindow )
+            {
+                fprintf(stderr, "ERROR: Jones3D: could not create the game window!\n");
+                return 1;
+            }
+
+            // Added: read the tour's input script and open its files now, so a bad script or path
+            // stops the run before any engine code. The script's events carry the game window id.
+            if ( !stdBabylonTour_Configure(tourOptions, pWindow->id(), tourError) )
+            {
+                fprintf(stderr, "ERROR: Jones3D: %s\n", tourError.c_str());
+                return 1;
+            }
+
+            std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
+            babylon::time::NullClock virtualClock;
+            // Added: the run's cvars (ADR-0020), registered before finishStartup() like in the
+            // headless root, so every run of this column has a cvar registry in its context.
+            babylon::cvars::Registry cvars;
+            if ( !stdBabylonCvars_RegisterGame(cvars) )
+            {
+                fprintf(stderr, "ERROR: Jones3D: could not register the game cvars!\n");
+                return 1;
+            }
+
+            cvars.finishStartup();
+
+            // Added: the render device draws to the window, so it is made after the window and,
+            // declared later, destroyed before it. Without a GPU the game still runs, on the Null
+            // device.
+            std::unique_ptr<babylon::render::Device> pRenderDevice = babylon::render::createSdlGpuDevice(pWindow.get());
+            if ( !pRenderDevice )
+            {
+                fprintf(stderr, "WARNING: Jones3D: no SDL GPU device for the window, nothing will be drawn!\n");
+                babylon::render::NullDeviceDesc nullDesc;
+                nullDesc.record = false; // a whole game session: keep no record of its frames
+                pRenderDevice   = babylon::render::createNullDevice(nullDesc);
+            }
+
+            // Added: the game plays on miniaudio (ADR-0010). createMiniaudioDevice() always returns
+            // a device, so it is a trial open() that tells whether miniaudio can start; when it
+            // cannot, the run falls back to a Null device and plays silently. The sound driver
+            // opens the device itself later.
+            std::unique_ptr<babylon::audio::Device> pAudioDevice = babylon::audio::createMiniaudioDevice();
+            if ( !pAudioDevice || !pAudioDevice->open() )
+            {
+                fprintf(stderr, "WARNING: Jones3D: miniaudio could not start, sound is silent!\n");
+                pAudioDevice = babylon::audio::createNullDevice();
+            }
+
+            // The command line behind argv[0] and the --load option belong to the run:
+            // JonesBabylon_Run takes main's arguments directly, like the headless entry. The
+            // windowed run has no script platform: every event comes from the SDL platform itself.
+            StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), pPlatform.get(),
+                nullptr, pWindow.get(), &cvars, pRenderDevice.get(), pAudioDevice.get() };
+            stdBabylon_SetContext(&context);
+            exitCode = JonesBabylon_Run(tourArgc, argv, runUserDir.c_str());
+            stdBabylon_SetContext(nullptr);
+
+            // Added: close the present log and forget the tour after the run that used it.
+            stdBabylonTour_Shutdown();
+
+            bSetupRequested = JonesBabylon_IsSetupRequested();
+        }
+
+        if ( !bSetupRequested )
+        {
+            return exitCode;
+        }
+
+        // Added: Options > Game data > Run setup again... ended the run with a setup request. The
+        // run objects above are gone; the setup runs in rerun mode and the loop then starts the
+        // game again from the window creation step.
+        JonesBabylon_ClearSetupRequested();
+
+        fprintf(stderr, "Game data: running the setup again.\n");
+
+        std::string setupUserDir;
+        std::string setupDataDir;
+        const JonesSetupResult setupResult = JonesSetupWindow_Run(*pPlatform, *pFileSystem,
+            runUserDir, exeDir, setupUserDir, setupDataDir, true, realExeDir);
+        if ( setupResult == JonesSetupResult::Installed )
+        {
+            runUserDir = setupUserDir;
+        }
+        else if ( setupResult == JonesSetupResult::Failed )
+        {
+            return 1;
+        }
     }
-
-    std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
-    std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
-    babylon::time::NullClock virtualClock;
-    // Added: the run's cvars (ADR-0020), registered before finishStartup() like in the headless root,
-    // so every run of this column has a cvar registry in its context.
-    babylon::cvars::Registry cvars;
-    if ( !stdBabylonCvars_RegisterGame(cvars) )
-    {
-        fprintf(stderr, "ERROR: Jones3D: could not register the game cvars!\n");
-        return 1;
-    }
-
-    cvars.finishStartup();
-
-    // Added: the render device draws to the window, so it is made after the window and, declared
-    // later, destroyed before it. Without a GPU the game still runs, on the Null device.
-    std::unique_ptr<babylon::render::Device> pRenderDevice = babylon::render::createSdlGpuDevice(pWindow.get());
-    if ( !pRenderDevice )
-    {
-        fprintf(stderr, "WARNING: Jones3D: no SDL GPU device for the window, nothing will be drawn!\n");
-        babylon::render::NullDeviceDesc nullDesc;
-        nullDesc.record = false; // a whole game session: keep no record of its frames
-        pRenderDevice   = babylon::render::createNullDevice(nullDesc);
-    }
-
-    // Added: the game plays on miniaudio (ADR-0010). createMiniaudioDevice() always returns a device,
-    // so it is a trial open() that tells whether miniaudio can start; when it cannot, the run falls
-    // back to a Null device and plays silently. The sound driver opens the device itself later.
-    std::unique_ptr<babylon::audio::Device> pAudioDevice = babylon::audio::createMiniaudioDevice();
-    if ( !pAudioDevice || !pAudioDevice->open() )
-    {
-        fprintf(stderr, "WARNING: Jones3D: miniaudio could not start, sound is silent!\n");
-        pAudioDevice = babylon::audio::createNullDevice();
-    }
-
-    // The command line behind argv[0] and the --load option belong to the run: JonesBabylon_Run
-    // takes main's arguments directly, like the headless entry. The windowed run has no script
-    // platform: every event comes from the SDL platform itself.
-    StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), pPlatform.get(),
-        nullptr, pWindow.get(), &cvars, pRenderDevice.get(), pAudioDevice.get() };
-    stdBabylon_SetContext(&context);
-    int exitCode = JonesBabylon_Run(tourArgc, argv);
-    stdBabylon_SetContext(nullptr);
-
-    // Added: close the present log and forget the tour after the run that used it.
-    stdBabylonTour_Shutdown();
-
-    // Scope end destroys pWindow before pPlatform, the order the Platform interface requires.
-    // Added: and pRenderDevice before pWindow, which the SDL GPU device's swapchain needs.
-    return exitCode;
 }

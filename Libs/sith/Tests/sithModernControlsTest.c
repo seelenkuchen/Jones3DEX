@@ -241,6 +241,8 @@ TEST_SETUP(sithModernControls)
     sithControl_RegisterAxisFunction(SITHCONTROL_BACK, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_TURNLEFT, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_TURNRIGHT, SITHCONTROLFUNCTION_KEY);
+    sithControl_RegisterAxisFunction(SITHCONTROL_LEFT, SITHCONTROLFUNCTION_KEY);
+    sithControl_RegisterAxisFunction(SITHCONTROL_RIGHT, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_JUMP, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_RUNFWD, SITHCONTROLFUNCTION_KEY);
     sithControl_RegisterAxisFunction(SITHCONTROL_ACT1, SITHCONTROLFUNCTION_KEY);
@@ -257,6 +259,8 @@ TEST_SETUP(sithModernControls)
     sithControl_BindControl(SITHCONTROL_BACK, STDKEY_DOWN, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_TURNLEFT, STDKEY_LEFT, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_TURNRIGHT, STDKEY_RIGHT, (SithControlBindFlag)0);
+    sithControl_BindControl(SITHCONTROL_LEFT, STDKEY_A, (SithControlBindFlag)0);
+    sithControl_BindControl(SITHCONTROL_RIGHT, STDKEY_D, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_JUMP, STDKEY_X, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_RUNFWD, STDKEY_LSHIFT, (SithControlBindFlag)0);
     sithControl_BindControl(SITHCONTROL_ACT1, STDKEY_SPACE, (SithControlBindFlag)0);
@@ -698,6 +702,51 @@ TEST(sithModernControls, SelectLockTargetKeepsRangeFromIndy)
 }
 
 #ifdef J3D_QOL_IMPROVEMENTS
+TEST(sithModernControls, UpdateKeyboardModernTurnsASideStepIntoCameraRelativeMove)
+{
+    int pressed = -1;
+
+    sithControl_SetModernKeyboardStyle(true);
+    sithControl_SetModernGamepadStyle(false);
+    sithModernControlsTest_ReadKey(STDKEY_A, 1);
+
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    // A is lateral movement into the Modern layer and never reaches the original sidestep.
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_LEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, &pressed));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f,
+        sithControl_GetKeyAsAxisNormalized(SITHCONTROL_FORWARD));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_TURNLEFT, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_A, 0);
+}
+
+TEST(sithModernControls, UpdateKeyboardClassicKeepsTheTranslatorButNotAD)
+{
+    sithControl_SetModernKeyboardStyle(false);
+    sithControl_SetModernGamepadStyle(true);
+    TEST_ASSERT_TRUE(sithControl_IsModernMovementEnabled());
+
+    // The keys the translator read before the option existed still move Indy camera-relative.
+    sithModernControlsTest_ReadKey(STDKEY_UP, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f,
+        sithControl_GetKeyAsAxisNormalized(SITHCONTROL_FORWARD));
+    sithModernControlsTest_ReadKey(STDKEY_UP, 0);
+
+    // A is not one of those keys, so the Classic sidestep stays the real key.
+    sithModernControlsTest_ReadKey(STDKEY_A, 1);
+    sithModernControls_Update(&sithModernControlsTest_player, 0.01f);
+
+    TEST_ASSERT_EQUAL_INT(1, sithControl_GetKey(SITHCONTROL_LEFT, NULL));
+    TEST_ASSERT_EQUAL_INT(0, sithControl_GetKey(SITHCONTROL_FORWARD, NULL));
+
+    sithModernControlsTest_ReadKey(STDKEY_A, 0);
+}
+
 TEST(sithModernControls, UpdateAppliesOverridesWhenModern)
 {
     int pressed = -1;
@@ -2198,6 +2247,8 @@ TEST_GROUP_RUNNER(sithModernControls)
     RUN_TEST_CASE(sithModernControls, LockedSidestepDropsFinishedStepForChaining);
     RUN_TEST_CASE(sithModernControls, QuickStepBackStartsTheTimedStep);
 #ifdef J3D_QOL_IMPROVEMENTS
+    RUN_TEST_CASE(sithModernControls, UpdateKeyboardModernTurnsASideStepIntoCameraRelativeMove);
+    RUN_TEST_CASE(sithModernControls, UpdateKeyboardClassicKeepsTheTranslatorButNotAD);
     RUN_TEST_CASE(sithModernControls, UpdateAppliesOverridesWhenModern);
     RUN_TEST_CASE(sithModernControls, UpdateSwimUsesCameraPitchAndSwimForward);
     RUN_TEST_CASE(sithModernControls, UpdateSwimRespectsTheOriginalPitchClamp);

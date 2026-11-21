@@ -25,14 +25,19 @@ namespace
 {
     WKERNELACTIVATEPROC wkernelBabylon_pfActivate = nullptr;
     WKERNELSKIPPROC wkernelBabylon_pfIntroSkip     = nullptr;
+    bool wkernelBabylon_bIntroLeftPressed = false;
 
     // True when the frame's input holds a skip key of the Win32 intro window procedure: a press of Enter (VK_RETURN,
-    // both Enter keys) or Escape, or a release of the left mouse button.
+    // both Enter keys) or Escape, or a release of the left mouse button that was pressed after the skip callback
+    // was installed. The click that started the intro from a menu must not skip it: its release arrives while the
+    // callback is installed, but its press came before the intro, so only a release that follows a press seen here
+    // counts.
     bool wkernelBabylon_IsIntroSkip(const babylon::input::InputState& rInput)
     {
         using babylon::platform::Key;
         return rInput.keyPressed(Key::Enter) || rInput.keyPressed(Key::KeypadEnter) || rInput.keyPressed(Key::Escape)
-            || rInput.mouseButtonReleased(babylon::platform::MouseButton::Left);
+            || ( wkernelBabylon_bIntroLeftPressed
+                 && rInput.mouseButtonReleased(babylon::platform::MouseButton::Left) );
     }
 
     // Hands every recorded focus change, oldest first, to the activation callback.
@@ -63,9 +68,22 @@ int wkernel_PeekProcessEvents(void)
     stdBabylonEvents_Pump();
     wkernelBabylon_DeliverFocusChanges();
 
-    if ( wkernelBabylon_pfIntroSkip && wkernelBabylon_IsIntroSkip(rInput) )
+    if ( wkernelBabylon_pfIntroSkip )
     {
-        wkernelBabylon_pfIntroSkip();
+        if ( rInput.mouseButtonPressed(babylon::platform::MouseButton::Left) )
+        {
+            wkernelBabylon_bIntroLeftPressed = true;
+        }
+
+        if ( wkernelBabylon_IsIntroSkip(rInput) )
+        {
+            wkernelBabylon_pfIntroSkip();
+
+            if ( rInput.mouseButtonReleased(babylon::platform::MouseButton::Left) )
+            {
+                wkernelBabylon_bIntroLeftPressed = false;
+            }
+        }
     }
 
     // 1 is the WM_QUIT answer of the Win32 version; the game ends its loop on it.
@@ -139,6 +157,7 @@ WKERNELSKIPPROC J3DAPI wkernel_SetIntroSkipCallback(WKERNELSKIPPROC pfProc)
 {
     WKERNELSKIPPROC pfCurProc = wkernelBabylon_pfIntroSkip;
     wkernelBabylon_pfIntroSkip = pfProc;
+    wkernelBabylon_bIntroLeftPressed = false;
     return pfCurProc;
 }
 

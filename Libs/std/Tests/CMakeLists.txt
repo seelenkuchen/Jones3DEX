@@ -24,6 +24,7 @@ set(STD_GENERAL_TEST_SOURCES
     "${STD_GENERAL_TEST_DIR}/stdFileUtilTest.c"
     "${STD_GENERAL_TEST_DIR}/stdJSONTest.c"
     "${STD_GENERAL_TEST_DIR}/stdStrTableTest.c"
+    "${STD_GENERAL_TEST_DIR}/stdUserDirTest.c"
     # Added: the suites of surviving code that only the Win32/DirectX build ran (M6.3f): stdGob.c and
     # stdPlatform.c, and the header contracts of std3D, stdDisplay, stdControl, stdComm and stdWin95,
     # restored from std/Win95/Tests against the Null backends below.
@@ -48,6 +49,7 @@ set(STD_GENERAL_TESTED_SOURCES
     "${STD_GENERAL_SOURCE_DIR}/stdMemory.c"
     "${STD_GENERAL_SOURCE_DIR}/stdPlatform.c"
     "${STD_GENERAL_SOURCE_DIR}/stdStrTable.c"
+    "${STD_GENERAL_SOURCE_DIR}/stdUserDir.c"
     "${STD_GENERAL_SOURCE_DIR}/stdUtil.c"
     "${STD_GENERAL_SOURCE_DIR}/stdHashtbl.c"
     "${STD_GENERAL_SOURCE_DIR}/stdFnames.c"
@@ -253,6 +255,9 @@ if (J3D_PLATFORM_BABYLON)
         J3D_TEST
         STD_GENERAL_TEST_TV_DIR="${STD_GENERAL_TEST_DIR}/tv"
         STDRENDERREPLAYTEST_VBUFFERFILL_OK=1
+        # Added: keep Unity's malloc/free macros out of C++: inline STL code compiled here would share
+        # one COMDAT with production and free CRT memory through unity_free, corrupting the heap in Release.
+        $<$<COMPILE_LANGUAGE:CXX>:UNITY_FIXTURE_NO_EXTRAS>
     )
 
     target_include_directories(std3DBabylonTests PRIVATE
@@ -302,4 +307,6 @@ if (J3D_PLATFORM_BABYLON)
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/std3DOnBabylon"
         ENVIRONMENT "SDL_VIDEO_DRIVER=$<IF:$<PLATFORM_ID:Darwin>,dummy,offscreen>"
     )
+    # Added: keep the Vulkan driver loaded under ASan so the device teardown is not a false leak.
+    jones3d_sanitize_preload_gpu_driver(std.std3DOnBabylon)
 endif()

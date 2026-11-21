@@ -111,7 +111,7 @@ static size_t J3DAPI JonesHudTest_GetNumJoysticks(void)
 {
     return 1;
 }
-static bool J3DAPI JonesHudTest_IsModernControlStyle(void)
+static bool J3DAPI JonesHudTest_IsModernGamepadStyle(void)
 {
     return JonesHudTest_bModernStyle != 0;
 }
@@ -129,7 +129,7 @@ static int J3DAPI JonesHudTest_GetControlKey(SithControlFunction functionId, int
     }
     return 0;
 }
-#define sithControl_IsModernControlStyle JonesHudTest_IsModernControlStyle
+#define sithControl_IsModernGamepadStyle JonesHudTest_IsModernGamepadStyle
 #define sithControl_GetKey JonesHudTest_GetControlKey
 #ifndef JONESHUD_TEST_SOURCE
 #define JONESHUD_TEST_SOURCE "../JonesHud.c"

@@ -1,5 +1,6 @@
 #include <unity_fixture.h>
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -635,14 +636,14 @@ static const uint8_t* SmushAsmTest_ReplayBlock(SmushAsmTestMotionReplay* p, cons
 // address belongs to a harness allocation, including its intentional margins.
 // The sequence test first verifies the unbounded reference against the original
 // corpus, then uses bounded reference output as its exact adapted expectation.
-void SmushAsmTest_ReplayCodec2(uint16_t* pDst, uint8_t* pSrc, int offset1, int offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette, int bounded, int (*pfnContains)(uintptr_t, size_t))
+void SmushAsmTest_ReplayCodec2(uint16_t* pDst, uint8_t* pSrc, ptrdiff_t offset1, ptrdiff_t offset2, int width, int16_t* pMotion, uint8_t* pParams, int height, int nextLine, Bl16Small* pSmall, Bl16Big* pBig, uint16_t* pPalette, int bounded, int (*pfnContains)(uintptr_t, size_t))
 {
     J3D_UNUSED(nextLine);
     TEST_ASSERT_NOT_NULL(pfnContains);
     SmushAsmTestMotionReplay replay = { 0 };
     replay.current = (uintptr_t)pDst;
-    replay.previous = (uintptr_t)pDst + (intptr_t)(int32_t)((uint32_t)offset1 * 2u);
-    replay.delta = (uintptr_t)pDst + (intptr_t)(int32_t)((uint32_t)offset2 * 2u);
+    replay.previous = (int64_t)replay.current + (int64_t)offset1 * 2;
+    replay.delta = (int64_t)replay.current + (int64_t)offset2 * 2;
     replay.lineSize = (int32_t)((uint32_t)width * 2u);
     replay.imageSize = (size_t)(uint32_t)width * (((uint32_t)height + 7u) & ~7u) * 2u;
     replay.pMotion = pMotion;
@@ -694,8 +695,9 @@ static void SmushAsmTest_AdaptBoundedMotion(const uintptr_t a[12], SmushAsmTestB
     TEST_ASSERT_NOT_NULL(replay.pInvalid);
     memcpy(replay.pOriginal, pImage->pAlloc, replay.size);
     replay.current = (int64_t)(a[0] - (uintptr_t)pImage->pAlloc);
-    replay.previous = replay.current + (int32_t)((uint32_t)a[2] * 2u);
-    replay.delta = replay.current + (int32_t)((uint32_t)a[3] * 2u);
+    // The vector arguments reach dbloc16_Codec2 as int, then as ptrdiff_t (see SmushAsmTest_Call)
+    replay.previous = replay.current + (int64_t)(int32_t)(uint32_t)a[2] * 2;
+    replay.delta = replay.current + (int64_t)(int32_t)(uint32_t)a[3] * 2;
     replay.lineSize = (int32_t)((uint32_t)a[4] * 2u);
     replay.imageSize = (size_t)(uint32_t)a[4] * (((uint32_t)a[7] + 7u) & ~7u) * 2u;
     replay.pMotion = (const int16_t*)a[5];
@@ -1035,6 +1037,64 @@ TEST(SmushAsm, Codec2OverlappingMotionKeepsOriginalDwordOrdering)
     }
 }
 
+// Added: 64-bit regression. After the main menu the heap can place the movie's
+// frame buffers more than 2^31 uint16 elements apart; the block codec used to
+// carry that distance in an int. Reserve a large range, put the destination at
+// the high end and the reference frame at the low end, and copy the whole block
+// from the reference frame through a motion opcode.
+TEST(SmushAsm, Codec2CopiesAcrossLargeBufferDistance)
+{
+#ifdef _WIN32
+    TEST_IGNORE_MESSAGE("needs POSIX mmap; skipped on Windows");
+#else
+    static const size_t rangeSize = (size_t)8 << 30;
+    size_t pageSize = SmushAsmTest_PageSize();
+    int flags       = MAP_PRIVATE | MAP_ANONYMOUS;
+#ifdef MAP_NORESERVE
+    flags |= MAP_NORESERVE;
+#endif
+    void* pMap = mmap(NULL, rangeSize, PROT_NONE, flags, -1, 0);
+    if ( pMap == MAP_FAILED )
+    {
+        TEST_IGNORE_MESSAGE("could not reserve 8 GiB; skipping the 64-bit buffer-distance test");
+    }
+
+    uint8_t* pLow  = (uint8_t*)pMap;
+    uint8_t* pHigh = (uint8_t*)pMap + rangeSize - pageSize;
+    if ( mprotect(pLow, pageSize, PROT_READ | PROT_WRITE) != 0
+        || mprotect(pHigh, pageSize, PROT_READ | PROT_WRITE) != 0 )
+    {
+        munmap(pMap, rangeSize);
+        TEST_IGNORE_MESSAGE("could not commit the reserved range; skipping the 64-bit buffer-distance test");
+    }
+
+    uint16_t* pCurrent   = (uint16_t*)pHigh;
+    uint16_t* pReference = (uint16_t*)pLow;
+    uint16_t aExpected[64];
+    for ( unsigned i = 0; i < 64u; ++i )
+    {
+        aExpected[i]  = (uint16_t)(0x100u + i);
+        pReference[i] = aExpected[i];
+        pCurrent[i]   = 0xAAAAu;
+    }
+
+    // The distance is close to 2^32 elements and cannot be represented in an int.
+    ptrdiff_t offset = pReference - pCurrent;
+    TEST_ASSERT_TRUE(offset < -(ptrdiff_t)0x7FFFFFFF || offset > (ptrdiff_t)0x7FFFFFFF);
+
+    uint8_t aStream[3] = { 0xF5u, 0u, 0u }; // a 16-bit motion vector of 0 copies the block from the previous frame
+    dbloc16_Codec2(pCurrent, aStream, offset, offset, 8, NULL, NULL, 8, 0, NULL, NULL, NULL);
+
+    TEST_ASSERT_EQUAL_MEMORY(aExpected, pCurrent, sizeof(aExpected));
+    for ( unsigned i = 0; i < 64u; ++i )
+    {
+        TEST_ASSERT_EQUAL_UINT16(aExpected[i], pReference[i]);
+    }
+
+    munmap(pMap, rangeSize);
+#endif
+}
+
 TEST(SmushAsm, TestOriginalBloc16Asm)
 {
     static const uint32_t aProcs[] = { SMUSHASM_PROC_INTERPOLATE, SMUSHASM_PROC_CODEC2 };
@@ -1081,6 +1141,7 @@ TEST_GROUP_RUNNER(SmushAsm)
     RUN_TEST_CASE(SmushAsm, Codec2MotionIgnoresReadableBytesOutsideImage);
     RUN_TEST_CASE(SmushAsm, Codec2DeltaReadsIncludeRoundedRowsAtGuardedBoundaries);
     RUN_TEST_CASE(SmushAsm, Codec2OverlappingMotionKeepsOriginalDwordOrdering);
+    RUN_TEST_CASE(SmushAsm, Codec2CopiesAcrossLargeBufferDistance);
     RUN_TEST_CASE(SmushAsm, TestOriginalBloc16Asm);
     RUN_TEST_CASE(SmushAsm, TestOriginalDecodeAsm);
     RUN_TEST_CASE(SmushAsm, TestOriginalMixerAsm);

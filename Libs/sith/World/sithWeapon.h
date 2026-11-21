@@ -15,6 +15,7 @@ J3D_EXTERN_C_START
 #define SITHWEAPON_HOLSTERBACK   3
 
 #define SITHWEAPON_CFG_GAMEPLAY_BLOODSPLATTER                       "gameplay.bloodSplatter"
+#define SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP                           "gameplay.quickWhip"
 #define SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED   "engine.renderer.vfx.weapon.fireFlash.enabled"
 #define SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_THRESHOLD "engine.renderer.vfx.weapon.fireFlash.ambientThreshold"
 
@@ -90,6 +91,22 @@ SithThing* J3DAPI sithWeapon_FireProjectileEx(SithThing* pShooter, const SithThi
 void J3DAPI sithWeapon_CreateWeaponFireFx(SithThing* pThing, rdVector3* pos);
 SithThing* J3DAPI sithWeapon_WeaponFireProjectile(SithThing* pShooter, const SithThing* pProjectileTemplate, const rdVector3* pFireDir, rdVector3* pFirePos, tSoundHandle hFireSnd, SithPuppetSubMode submode, float extra, SithFireProjectileFlags flags, float secDeltaTime);
 int J3DAPI sithWeapon_ActivateWhip(SithThing* pThing, SithCog* pCog);
+
+// Added: 1 when a press of the activation key would start a whip swing (*pbSwing = 1) or whip
+// climb (*pbSwing = 0) right now, 0 otherwise. It uses the press's own guards (whip drawn, the
+// activation wait passed, not already activated, the inventory flag, moveStatus at most RUNNING,
+// controls enabled) and the same target choice, and changes no state.
+int J3DAPI sithWeapon_QueryWhipPress(const SithThing* pThing, int* pbSwing);
+
+// Added: the Modern quick whip option (W10d). It defaults off in a non-QOL build, where the
+// setter does nothing and sithWeapon_IsQuickWhipEnabled always returns 0.
+void J3DAPI sithWeapon_SetQuickWhipEnabled(int bEnabled);
+int sithWeapon_IsQuickWhipEnabled(void);
+
+// Added: all the quick whip availability conditions, including the read-only target query.
+// Returns 1 when a quick whip press would act and reports the target and kind it would use. It
+// changes no state. The outputs are cleared first, so they are always set.
+int J3DAPI sithWeapon_CanQuickWhip(SithThing* pThing, SithThing** ppTarget, int* pbSwing);
 
 void sithWeapon_ResetGlobals(void);
 

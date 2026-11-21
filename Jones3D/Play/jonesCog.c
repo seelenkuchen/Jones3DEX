@@ -48,6 +48,12 @@ void jonesCog_ResetGlobals(void)
     memset(&jonesCog_g_bMenuVisible, 0, sizeof(jonesCog_g_bMenuVisible));
     memset(&jonesCog_g_bEnableGamesave, 0, sizeof(jonesCog_g_bEnableGamesave));
     memset(&jonesCog_g_dword_17EFFCC, 0, sizeof(jonesCog_g_dword_17EFFCC));
+
+    // Added: cutscene, interface and overlay state are per-run state.
+    jonesCog_curCutsceneType     = -1;
+    jonesCog_bInterfaceEnabled   = -1;
+    jonesCog_bOverlayMapVisible  = false;
+    jonesCog_bStartup            = false;
 }
 
 int jonesCog_Startup(void)

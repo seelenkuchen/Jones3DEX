@@ -2,7 +2,7 @@
 // platform that delivers one scripted event per frame and a Null painter, so the screens run
 // exactly as in the game loop without a window or a GPU. The resolution list is built from a
 // synthetic display environment and the output-device list from a Null audio device with several
-// outputs. The drawing sample lives in JonesUiPainterTest.cpp.
+// outputs. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdint>
@@ -29,6 +29,7 @@
 #include <babylon/ui/Ui.h>
 
 #include <Jones3D/Display/JonesDisplay.h>
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
@@ -208,6 +209,23 @@ namespace
             return false;
         }
 
+        std::optional<std::size_t> askChoice(std::string_view, std::string_view,
+            std::span<const std::string_view>) override
+        {
+            return std::nullopt;   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
         bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
         {
             return false;
@@ -368,6 +386,17 @@ extern "C" JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
 // the game layer.
 extern "C" void JonesMain_RefreshDisplayDevice(void)
 {
+}
+
+// Added: the real getters live in Jones3D/Main/JonesMain.c, which this executable does not link.
+extern "C" const char* JonesMain_GetDataRelease(void)
+{
+    return nullptr;
+}
+
+extern "C" const char* JonesMain_GetInstallPath(void)
+{
+    return "";
 }
 
 TEST_CASE("the display resolution list is deduplicated by size")
@@ -691,6 +720,44 @@ TEST_CASE("the sound screen back writes nothing")
     CHECK(std::string(aOutput) == "device-a");
 }
 
+TEST_CASE("loading a config without the interaction prompt key leaves it absent")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
+    CHECK(JonesHud_LoadInteractionPromptsConfig() == J3D_QOL_VALUE(true, false));
+    CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
+
+    // A normal run shutdown writes the config; a missing key must stay missing.
+    stdConfig_Shutdown();
+    stdJSON_Shutdown();
+    REQUIRE(stdJSON_Startup());
+    REQUIRE(stdConfig_Startup(kConfigPath));
+    CHECK_FALSE(stdConfig_Contains(JONESHUD_CFG_HUD_INTERACTIONPROMPTS));
+}
+
+TEST_CASE("quick whip reads its config key")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK_FALSE(stdConfig_Contains(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP));
+    sithWeapon_Open();
+    CHECK(sithWeapon_IsQuickWhipEnabled() == J3D_QOL_VALUE(true, false));
+    CHECK(stdConfig_Contains(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP));
+    CHECK(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, false)
+        == (J3D_QOL_VALUE(true, false) != 0));
+
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, false));
+    sithWeapon_Open();
+    CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
+    sithWeapon_Open();
+    CHECK(sithWeapon_IsQuickWhipEnabled() == (J3D_QOL_VALUE(true, false) != 0));
+}
+
 TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
 {
     SettingsTestContext testContext;
@@ -704,6 +771,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     sithControl_SetModernControlStyle(true);
     JonesReticle_Enable(false);
     sithWeapon_EnableBloodSplatter(false);
+    sithWeapon_SetQuickWhipEnabled(true);
 
     REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
@@ -713,13 +781,15 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 control style,
-    // 6 reticle, 7 blood, 8 profile (disabled), 9 profile note, 10 enhancements heading,
-    // 11 fire flash, 12 external materials, 13 external keyframes, 14 OK, 15 back.
+    // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
+    // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading,
+    // 10 interaction prompts, 11 quick whip, 12 fire flash, 13 external materials,
+    // 14 external keyframes, 15 OK, 16 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -730,13 +800,13 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // default to run on
     testContext.platform.PushKey(platform::Key::Down);
-#ifdef J3D_QOL_IMPROVEMENTS
-    testContext.platform.PushKey(platform::Key::Right); // control style Modern -> Classic
-#endif
-    testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // reticle on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // blood on
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // interaction prompts off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // quick whip off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // fire flash off
     testContext.platform.PushKey(platform::Key::Down);
@@ -758,17 +828,11 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 1);
     CHECK((sithControl_g_controlOptions & 0x02) != 0);
     CHECK(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false));
-#ifdef J3D_QOL_IMPROVEMENTS
-    CHECK_FALSE(sithControl_IsModernControlStyle());
-    char aControlStyle[16] = { 0 };
-    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aControlStyle,
-        sizeof(aControlStyle), ""));
-    CHECK(std::string(aControlStyle) == "classic");
-#else
-    CHECK_FALSE(sithControl_IsModernControlStyle());
-#endif
     CHECK(JonesReticle_IsEnabled());
     CHECK(sithWeapon_IsBloodSplatterEnabled());
+    CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
+    CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+    CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
@@ -819,10 +883,6 @@ TEST_CASE("the gameplay screen back writes nothing")
     CHECK(stdConfig_GetInt(SITH_CFG_GAMEPLAY_DIFFICULTY, -1) == 0);
     CHECK((sithControl_g_controlOptions & 0x02) == 0);
     CHECK_FALSE(stdConfig_GetBool(JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, true));
-#ifdef J3D_QOL_IMPROVEMENTS
-    CHECK(sithControl_IsModernControlStyle());
-#endif
-    CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
     CHECK_FALSE(JonesReticle_IsEnabled());
     CHECK_FALSE(sithWeapon_IsBloodSplatterEnabled());
     CHECK(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, false));
@@ -844,6 +904,8 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
     REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     REQUIRE(stdConfig_SetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     REQUIRE(stdConfig_SetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    REQUIRE(stdConfig_SetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
+    sithWeapon_SetQuickWhipEnabled(true);
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
@@ -855,6 +917,9 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
 
     REQUIRE(JonesUiGameplay_RunGameplayScreen(ui, &painter, false) == 1);
 
+    CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
+    CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+    CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
@@ -924,12 +989,12 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
             || std::holds_alternative<babylon::ui::TextEntry>(widget);
     };
 
-    const char* const aTabs[] = { "Gameplay", "Controls", "Display", "Sound" };
+    const char* const aTabs[] = { "Gameplay", "Controls", "Display", "Sound", "Game data" };
     bool bHasPerformance = false;
-    for ( std::size_t tab = 0; tab < 4; ++tab )
+    for ( std::size_t tab = 0; tab < 5; ++tab )
     {
         const babylon::ui::Screen screen = JonesUiOptions_BuildTabScreenForTest(tab, data);
-        REQUIRE(screen.tabs.size() == 4u);
+        REQUIRE(screen.tabs.size() == 5u);
         CHECK(screen.activeTab == tab);
         CHECK(screen.title == "Options");
         for ( std::size_t i = 0; i < screen.tabs.size(); ++i )
@@ -938,6 +1003,8 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
         }
 
         REQUIRE(screen.help.size() == screen.widgets.size());
+        bool bHasApply = false;
+        bool bHasCancel = false;
         for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
         {
             if ( isInteractive(screen.widgets[i]) )
@@ -949,33 +1016,154 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
             {
                 bHasPerformance = bHasPerformance || choice->text == "Performance";
             }
+            if ( const babylon::ui::Button* pButton =
+                    std::get_if<babylon::ui::Button>(&screen.widgets[i]) )
+            {
+                if ( pButton->action == 2 )
+                {
+                    bHasCancel = true;
+                }
+                if ( pButton->action == 1 )
+                {
+                    bHasApply = true;
+                    CHECK(pButton->text == "Apply");
+                }
+            }
+        }
+
+        // Leaving a tab keeps its changes, so the Cancel row is gone and the accept row is Apply.
+        CHECK(bHasApply);
+        CHECK_FALSE(bHasCancel);
+        CHECK(screen.backResult == 1);
+    }
+
+    // Added: the Controls tab has the mouse camera row, which the player could not see before.
+    const babylon::ui::Screen controlsTab = JonesUiOptions_BuildTabScreenForTest(1, data);
+    bool bHasMouseCamera = false;
+    bool bHasController = false;
+    bool bHasKeyboard = false;
+    for ( const babylon::ui::Widget& widget : controlsTab.widgets )
+    {
+        if ( const babylon::ui::Toggle* pToggle = std::get_if<babylon::ui::Toggle>(&widget) )
+        {
+            bHasMouseCamera = bHasMouseCamera || pToggle->text == "Mouse camera";
+        }
+        if ( const babylon::ui::Button* pButton = std::get_if<babylon::ui::Button>(&widget) )
+        {
+            bHasController = bHasController || pButton->text == "Controller";
+            bHasKeyboard = bHasKeyboard || pButton->text == "Keyboard & Mouse";
         }
     }
+    CHECK(bHasMouseCamera);
+    CHECK(bHasController);
+    CHECK(bHasKeyboard);
 
     // ADR-0028: the Display tab drops the row, while the stored level is still read and written.
     CHECK_FALSE(bHasPerformance);
     CHECK(bHasPerformance == false);
 
-    // Added: the Gameplay tab has the Control style row with both values and help.
-    const babylon::ui::Screen gameplay = JonesUiOptions_BuildTabScreenForTest(0, data);
-    bool bHasControlStyle = false;
-    for ( std::size_t i = 0; i < gameplay.widgets.size(); ++i )
+    // Added: the Control style rows moved to the Controls tab, next to Mouse camera.
+    bool bHasKeyboardStyle = false;
+    bool bHasGamepadStyle = false;
+    for ( std::size_t i = 0; i < controlsTab.widgets.size(); ++i )
     {
         if ( const babylon::ui::Choice* choice =
-                std::get_if<babylon::ui::Choice>(&gameplay.widgets[i]) )
+                std::get_if<babylon::ui::Choice>(&controlsTab.widgets[i]) )
         {
-            if ( choice->text == "Control style" )
+            if ( choice->text == "Keyboard & mouse style" )
             {
-                bHasControlStyle = true;
+                bHasKeyboardStyle = true;
                 REQUIRE(choice->options.size() == 2u);
                 CHECK(choice->options[0] == "Modern");
                 CHECK(choice->options[1] == "Classic");
-                REQUIRE(gameplay.help.size() == gameplay.widgets.size());
-                CHECK(!gameplay.help[i].empty());
+                CHECK(choice->enabled);
+                REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
+                CHECK(!controlsTab.help[i].empty());
+            }
+            if ( choice->text == "Gamepad style" )
+            {
+                bHasGamepadStyle = true;
+                REQUIRE(choice->options.size() == 2u);
+                CHECK(choice->options[0] == "Modern");
+                CHECK(choice->options[1] == "Classic");
+                CHECK(choice->enabled);
+                REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
+                CHECK(!controlsTab.help[i].empty());
             }
         }
     }
-    CHECK(bHasControlStyle);
+    CHECK(bHasKeyboardStyle);
+    CHECK(bHasGamepadStyle);
+
+    // The Gameplay tab no longer has a Control style row.
+    const babylon::ui::Screen gameplay = JonesUiOptions_BuildTabScreenForTest(0, data);
+    for ( const babylon::ui::Widget& widget : gameplay.widgets )
+    {
+        if ( const babylon::ui::Choice* choice = std::get_if<babylon::ui::Choice>(&widget) )
+        {
+            CHECK(choice->text != "Control style");
+        }
+    }
+}
+
+TEST_CASE("the Game data tab shows the release and folder and disables setup during a level")
+{
+    JonesUiOptionsData data;
+    data.pRelease     = "GOG.com 1.0";
+    data.pInstallPath = "/home/player/Jones3DEX/GameData";
+
+    const babylon::ui::Screen screen = JonesUiOptions_BuildTabScreenForTest(4, data);
+    REQUIRE(screen.tabs.size() == 5u);
+    CHECK(screen.tabs[4] == "Game data");
+    CHECK(screen.activeTab == 4u);
+
+    bool bHasRelease = false;
+    bool bHasFolder = false;
+    bool bHasSetupButton = false;
+    for ( std::size_t i = 0; i < screen.widgets.size(); ++i )
+    {
+        if ( const babylon::ui::Label* pLabel =
+                std::get_if<babylon::ui::Label>(&screen.widgets[i]) )
+        {
+            if ( pLabel->text == "Release" )
+            {
+                bHasRelease = true;
+                CHECK(pLabel->value == "GOG.com 1.0");
+            }
+            if ( pLabel->text == "Folder" )
+            {
+                bHasFolder = true;
+                CHECK(pLabel->value.find("GameData") != std::string::npos);
+            }
+        }
+
+        if ( const babylon::ui::Button* pButton =
+                std::get_if<babylon::ui::Button>(&screen.widgets[i]) )
+        {
+            if ( pButton->text == "Run setup again..." )
+            {
+                bHasSetupButton = true;
+                CHECK(pButton->enabled);
+                REQUIRE(screen.help.size() == screen.widgets.size());
+                CHECK_FALSE(screen.help[i].empty());
+            }
+        }
+    }
+
+    CHECK(bHasRelease);
+    CHECK(bHasFolder);
+    CHECK(bHasSetupButton);
+
+    data.bLevelRunning = true;
+    const babylon::ui::Screen paused = JonesUiOptions_BuildTabScreenForTest(4, data);
+    for ( const babylon::ui::Widget& widget : paused.widgets )
+    {
+        const babylon::ui::Button* pButton = std::get_if<babylon::ui::Button>(&widget);
+        if ( pButton && pButton->text == "Run setup again..." )
+        {
+            CHECK_FALSE(pButton->enabled);
+        }
+    }
 }
 
 TEST_CASE("Q and E switch options tabs and keep a changed value")
@@ -1012,14 +1200,115 @@ TEST_CASE("Q and E switch options tabs and keep a changed value")
     testContext.platform.PushKey(platform::Key::E);     // Display
     testContext.platform.PushKey(platform::Key::Q);     // Controls
     testContext.platform.PushKey(platform::Key::Q);     // Gameplay
-    testContext.platform.PushKey(platform::Key::Up);    // wrap to Back
-    testContext.platform.PushKey(platform::Key::Up);    // OK
+    testContext.platform.PushKey(platform::Key::Up);    // wrap to Apply
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
     CHECK(sithVoice_GetShowText() == 1);
     CHECK(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     CHECK(ui.screenCount() == 0u);
+}
+
+TEST_CASE("the Controls tab reads and writes the per-device control styles")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    // Start the opposite way so both directions are exercised.
+    sithControl_SetModernKeyboardStyle(true);
+    sithControl_SetModernGamepadStyle(false);
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Controls tab focus order (the scheme list is empty, so the Controller and Keyboard & Mouse
+    // buttons are disabled): Scheme, New, Mouse camera, Keyboard & mouse style, Gamepad style,
+    // Rumble, Apply.
+    testContext.platform.PushKey(platform::Key::E);     // Controls
+    testContext.platform.PushKey(platform::Key::Down);  // New
+    testContext.platform.PushKey(platform::Key::Down);  // Mouse camera
+    testContext.platform.PushKey(platform::Key::Down);  // Keyboard & mouse style
+    testContext.platform.PushKey(platform::Key::Right); // Modern -> Classic
+    testContext.platform.PushKey(platform::Key::Down);  // Gamepad style
+    testContext.platform.PushKey(platform::Key::Left);  // Classic -> Modern
+    testContext.platform.PushKey(platform::Key::Down);  // Rumble
+    testContext.platform.PushKey(platform::Key::Down);  // Apply
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK_FALSE(sithControl_IsModernKeyboardStyle());
+    CHECK(sithControl_IsModernGamepadStyle());
+
+    char aStyle[16] = { 0 };
+    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, aStyle,
+        sizeof(aStyle), ""));
+    CHECK(std::string(aStyle) == "classic");
+    CHECK(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, aStyle,
+        sizeof(aStyle), ""));
+    CHECK(std::string(aStyle) == "modern");
+    // The old single key is no longer written.
+    CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+}
+
+TEST_CASE("the retail profile locks the Controls tab style rows")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = false;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    const babylon::ui::Screen controlsTab = JonesUiOptions_BuildTabScreenForTest(1, data);
+    bool bKeyboardLocked = false;
+    bool bGamepadLocked  = false;
+    for ( const babylon::ui::Widget& widget : controlsTab.widgets )
+    {
+        if ( const babylon::ui::Choice* choice = std::get_if<babylon::ui::Choice>(&widget) )
+        {
+            if ( choice->text == "Keyboard & mouse style" )
+            {
+                bKeyboardLocked = !choice->enabled;
+            }
+            if ( choice->text == "Gamepad style" )
+            {
+                bGamepadLocked = !choice->enabled;
+            }
+        }
+    }
+
+    CHECK(bKeyboardLocked);
+    CHECK(bGamepadLocked);
 }
 
 TEST_CASE("the options Display tab still writes the stored performance level unchanged")
@@ -1057,12 +1346,57 @@ TEST_CASE("the options Display tab still writes the stored performance level unc
     testContext.platform.PushKey(platform::Key::Enter); // windowed on
     testContext.platform.PushKey(platform::Key::Up);
     testContext.platform.PushKey(platform::Key::Up);
-    testContext.platform.PushKey(platform::Key::Up);    // wrap to Back
-    testContext.platform.PushKey(platform::Key::Up);    // OK
+    testContext.platform.PushKey(platform::Key::Up);    // wrap to Apply
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
     CHECK(display.bWindowMode == 1);
     CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, -1) == 4);
+}
+
+TEST_CASE("leaving the options screen with back applies the changes")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    sithVoice_ShowText(0);
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Toggle Show Text on the Gameplay tab, switch to Display and turn windowed on, then leave
+    // with Escape instead of the Apply row.
+    testContext.platform.PushKey(platform::Key::Enter); // show text on
+    testContext.platform.PushKey(platform::Key::E);     // Controls
+    testContext.platform.PushKey(platform::Key::E);     // Display
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // windowed on
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK(sithVoice_GetShowText() == 1);
+    CHECK(stdConfig_GetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
+    CHECK(display.bWindowMode == 1);
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
+    CHECK(ui.screenCount() == 0u);
 }

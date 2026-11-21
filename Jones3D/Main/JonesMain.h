@@ -28,6 +28,11 @@ void JonesMain_SetCapture(const char* pPath, const char* pColumn);
 int J3DAPI JonesMain_Startup(const char* lpCmdLine);
 void JonesMain_Shutdown(void);
 
+// Added: the path JonesMain_Startup opens Jones.cfg from: <user directory>/Jones.cfg, or Jones.cfg
+// in the working directory when no user directory is set. Returns false, with pOut unchanged,
+// when it does not fit. Exposed for the path tests.
+bool J3DAPI JonesMain_GetConfigFilePath(char* pOut, size_t outSize);
+
 int JonesMain_Open(void);
 int JonesMain_Close(void);
 int JonesMain_HasStarted(void);
@@ -59,6 +64,13 @@ void JonesMain_ShowEndCredits(void);
 
 StdDisplayEnvironment* JonesMain_GetDisplayEnvironment(void);
 JonesDisplaySettings* JonesMain_GetDisplaySettings(void);
+
+// Added: the release name the startup data check identified, or NULL when the files did not match
+// a known release. The returned pointer stays valid for the run.
+const char* JonesMain_GetDataRelease(void);
+
+// Added: the game data folder this run found and opened, as passed to JonesFile_Open.
+const char* JonesMain_GetInstallPath(void);
 
 // Added: the level whose load-screen map the main menu shows behind its panel: the level of the
 // last save the config remembers, or the first level when there is none. Never null.

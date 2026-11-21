@@ -3,12 +3,18 @@
 
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/jonesString.h>
+#include <Jones3D/Platform/Babylon/JonesUiAssets.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 
 #include <babylon/files/FileSystem.h>
+#include <babylon/platform/Window.h>
+#include <babylon/render/CommandList.h>
+#include <babylon/render/Device.h>
 #include <babylon/ui/Skin.h>
+#include <babylon/uirender/RenderPainter.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/stdRenderBabylon.h>
 
 #include <std/General/std.h>
 #include <std/General/stdDisplay.h>
@@ -18,33 +24,26 @@
 
 namespace
 {
-    // The default HUD menu font, the same file JonesHud_Startup loads. A screen may open before
-    // the HUD exists, so the context loads its own instance.
-    constexpr const char* kJonesUiFontFile = "mat\\jonesComic Sans MS14.gcf";
-    constexpr float kJonesUiFontSize = 16.0f;
-
-    // Added: the default skin's Cinzel title and Jost rows (ADR-0028), at the same sizes as the
-    // end screens and the Options screen.
     constexpr const char* kJonesUiTitleFontFile = "fonts/Cinzel[wght].ttf";
     constexpr float kJonesUiTitleFontSize = 22.0f;
     constexpr const char* kJonesUiRowFontFile = "fonts/Jost[wght].ttf";
     constexpr float kJonesUiRowFontSize = 16.0f;
-
-    // Added: the prompt bar's Jost and the five Xelu icon sets (ADR-0028, ADR-0031).
     constexpr const char* kJonesUiPromptFontFile = "fonts/Jost[wght].ttf";
     constexpr float kJonesUiPromptFontSize = 14.0f;
 
+    // The canvas height the ui module uses.
+    constexpr float kJonesUiCanvasHeight = 480.0f;
+
     // Loads one icon file; a missing or broken file returns 0, which draws the label alone.
-    babylon::ui::ImageId LoadPromptIcon(JonesUiPainter& painter,
+    babylon::ui::ImageId LoadPromptIcon(babylon::uirender::RenderPainter& painter,
         babylon::files::FileSystem& files, const char* pRelativePath)
     {
-        return painter.registerPngImageFile(files, pRelativePath);
+        return JonesUiAssets_LoadPng(painter, files, pRelativePath);
     }
 
     // Loads the icons of one device set. A pad set has one D-pad icon for both Change
-    // directions, so changeRight stays 0. The sets are loaded once with the context, so the
-    // prompt bar never touches the file system while a screen runs.
-    JonesUiPromptIcons LoadPromptIcons(JonesUiPainter& painter,
+    // directions, so changeRight stays 0.
+    JonesUiPromptIcons LoadPromptIcons(babylon::uirender::RenderPainter& painter,
         babylon::files::FileSystem& files, const char* pSet,
         const char* pAccept, const char* pBack, const char* pTabsLeft,
         const char* pTabsRight, const char* pChange)
@@ -61,7 +60,7 @@ namespace
 
     // The keyboard set has a separate key for each Change direction; the pad sets use one D-pad
     // icon for both.
-    JonesUiPromptIcons LoadKeyboardPromptIcons(JonesUiPainter& painter,
+    JonesUiPromptIcons LoadKeyboardPromptIcons(babylon::uirender::RenderPainter& painter,
         babylon::files::FileSystem& files)
     {
         JonesUiPromptIcons icons;
@@ -74,6 +73,78 @@ namespace
         icons.changeRight = LoadPromptIcon(painter, files,
             "prompts/keyboard/Arrow_Right_Key_Dark.png");
         return icons;
+    }
+
+    // Cover-scales an image to the canvas: it keeps its aspect and fills the canvas, cropping the
+    // overhang. A zero source size stretches to the whole canvas.
+    babylon::ui::Rect CoverRect(const babylon::ui::Size& canvas,
+        const JonesUiModalBackground& background)
+    {
+        babylon::ui::Rect rect;
+        if ( !(background.width > 0.0f) || !(background.height > 0.0f) )
+        {
+            rect.width  = canvas.width;
+            rect.height = canvas.height;
+            return rect;
+        }
+
+        const float scaleX = canvas.width / background.width;
+        const float scaleY = canvas.height / background.height;
+        const float scale  = scaleX > scaleY ? scaleX : scaleY;
+        rect.width  = background.width * scale;
+        rect.height = background.height * scale;
+        rect.x = (canvas.width - rect.width) * 0.5f;
+        rect.y = (canvas.height - rect.height) * 0.5f;
+        return rect;
+    }
+
+    // The present overlay: one pass over the presented game frame, at the target's pixel size.
+    bool DrawOverlay(void* pUser, babylon::render::CommandList& list,
+        const StdRenderBabylonOverlayTarget& target)
+    {
+        JonesUiContext* pContext = static_cast<JonesUiContext*>(pUser);
+        if ( !pContext || !pContext->pUi || pContext->pUi->screenCount() == 0 )
+        {
+            return false;
+        }
+        if ( target.width == 0 || target.height == 0 )
+        {
+            return false;
+        }
+        if ( !pContext->pUi->setViewport((int)target.width, (int)target.height) )
+        {
+            return false;
+        }
+
+        babylon::uirender::FrameTarget frameTarget;
+        frameTarget.texture = target.texture;
+        frameTarget.format  = target.format;
+        frameTarget.load    = babylon::render::LoadOp::Load;
+        if ( !pContext->painter.begin(list, target.width, target.height, frameTarget) )
+        {
+            return false;
+        }
+
+        const babylon::ui::Size canvas = pContext->pUi->canvasSize();
+        const babylon::ui::Rect full{ 0.0f, 0.0f, canvas.width, canvas.height };
+        const JonesUiModalBackground& background = pContext->modalBackground;
+
+        if ( background.image != 0 )
+        {
+            pContext->painter.drawImage(background.image, CoverRect(canvas, background));
+        }
+        else if ( !background.draw )
+        {
+            pContext->painter.fillRect(full, pContext->pUi->skin().dim);
+        }
+
+        if ( background.overlay )
+        {
+            background.overlay();
+        }
+
+        pContext->pUi->draw();
+        return pContext->painter.end();
     }
 
     JonesUiContext* g_pContext = nullptr;
@@ -106,23 +177,16 @@ namespace
     }
 }
 
+JonesUiContext::JonesUiContext(babylon::render::Device& device)
+    : painter(device)
+{
+}
+
 JonesUiContext::~JonesUiContext()
 {
-    // Release the frozen frame the modal loop captured for this ui session before the painter goes.
-    if ( modalFrozenImage != 0 && pModalFramePainter )
-    {
-        pModalFramePainter->unregisterImage(modalFrozenImage);
-        modalFrozenImage = 0;
-    }
-
-    // The Ui does not use the painter when it is destroyed; the painter's destructor frees
-    // images, not fonts, so the font can go first.
+    // The overlay borrows this context; clear it before the painter and Ui go.
+    stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
     pUi.reset();
-    if ( pFont )
-    {
-        rdFont_Free(pFont);
-        pFont = nullptr;
-    }
 }
 
 JonesUiContext* JonesUiContext_Acquire()
@@ -141,94 +205,83 @@ JonesUiContext* JonesUiContext_Acquire()
     }
 
     StdBabylonContext* pContext = stdBabylon_GetContext();
-    if ( !pContext || !pContext->pCvars )
+    if ( !pContext || !pContext->pCvars || !pContext->pWindow || !pContext->pRenderDevice
+        || !pContext->pFileSystem )
     {
         return nullptr;
     }
 
-    std::unique_ptr<JonesUiContext> pState(new JonesUiContext());
-
-    pState->pFont = rdFont_Load(kJonesUiFontFile);
-    if ( !pState->pFont )
-    {
-        STDLOG_WARNING("JonesUiContext: could not load the menu font '%s'.\n", kJonesUiFontFile);
-        return nullptr;
-    }
-
-    pState->font = pState->painter.registerFont(pState->pFont, kJonesUiFontSize);
-    if ( pState->font == 0 )
+    const babylon::platform::Size windowSize = pContext->pWindow->size();
+    if ( windowSize.width <= 0 || windowSize.height <= 0 )
     {
         return nullptr;
     }
 
-    // Added: the default skin's fonts; a missing file keeps the shared rdFont, so the default skin
-    // still starts and only looks like the old HUD skin.
-    babylon::ui::FontId titleFont = pState->font;
-    babylon::ui::FontId rowFont   = pState->font;
+    std::unique_ptr<JonesUiContext> pState(new JonesUiContext(*pContext->pRenderDevice));
+    static_cast<void>(pState->painter.setPixelScale(
+        (float)windowSize.height / kJonesUiCanvasHeight));
 
-    // Added: the prompt bar's font and icons. Without a file system the labels still draw in the
-    // menu font, so a missing asset never blocks a screen.
-    if ( pContext->pFileSystem )
+    // The packaged Cinzel and Jost are required; the missing-TTF rdFont fallback is gone
+    // (ADR-0035). If one file is missing, the other font keeps the screen readable.
+    babylon::ui::FontId titleFont = JonesUiAssets_LoadFont(pState->painter,
+        *pContext->pFileSystem, kJonesUiTitleFontFile, kJonesUiTitleFontSize);
+    babylon::ui::FontId rowFont = JonesUiAssets_LoadFont(pState->painter,
+        *pContext->pFileSystem, kJonesUiRowFontFile, kJonesUiRowFontSize);
+    if ( titleFont == 0 )
     {
-        titleFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
-            kJonesUiTitleFontFile, kJonesUiTitleFontSize);
-        if ( titleFont == 0 )
-        {
-            STDLOG_WARNING("JonesUiContext: '%s' unavailable, the default skin uses the rdFont.\n",
-                kJonesUiTitleFontFile);
-            titleFont = pState->font;
-        }
-
-        rowFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
-            kJonesUiRowFontFile, kJonesUiRowFontSize);
-        if ( rowFont == 0 )
-        {
-            STDLOG_WARNING("JonesUiContext: '%s' unavailable, the default skin uses the rdFont.\n",
-                kJonesUiRowFontFile);
-            rowFont = pState->font;
-        }
-
-        pState->promptFont = pState->painter.registerTtfFontFile(*pContext->pFileSystem,
-            kJonesUiPromptFontFile, kJonesUiPromptFontSize);
-        if ( pState->promptFont == 0 )
-        {
-            STDLOG_WARNING("JonesUiContext: '%s' unavailable, prompts use the menu font.\n",
-                kJonesUiPromptFontFile);
-        }
-
-        pState->prompts.keyboard = LoadKeyboardPromptIcons(pState->painter,
-            *pContext->pFileSystem);
-        pState->prompts.xbox = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
-            "xbox", "XboxSeriesX_A.png", "XboxSeriesX_B.png", "XboxSeriesX_LB.png",
-            "XboxSeriesX_RB.png", "XboxSeriesX_Dpad.png");
-        pState->prompts.playStation = LoadPromptIcons(pState->painter,
-            *pContext->pFileSystem, "ps5", "PS5_Cross.png", "PS5_Circle.png",
-            "PS5_L1.png", "PS5_R1.png", "PS5_Dpad.png");
-        pState->prompts.nintendo = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
-            "switch", "Switch_B.png", "Switch_A.png", "Switch_LB.png", "Switch_RB.png",
-            "Switch_Dpad.png");
-        pState->prompts.steamDeck = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
-            "steamdeck", "SteamDeck_A.png", "SteamDeck_B.png", "SteamDeck_L1.png",
-            "SteamDeck_R1.png", "SteamDeck_Dpad.png");
+        titleFont = JonesUiAssets_LoadFont(pState->painter, *pContext->pFileSystem,
+            kJonesUiRowFontFile, kJonesUiTitleFontSize);
     }
+    if ( rowFont == 0 )
+    {
+        rowFont = JonesUiAssets_LoadFont(pState->painter, *pContext->pFileSystem,
+            kJonesUiTitleFontFile, kJonesUiRowFontSize);
+    }
+    if ( titleFont == 0 || rowFont == 0 )
+    {
+        STDLOG_WARNING("JonesUiContext: the menu fonts are unavailable.\n");
+        return nullptr;
+    }
+
+    pState->titleFont = titleFont;
+    pState->rowFont   = rowFont;
+    pState->promptFont = JonesUiAssets_LoadFont(pState->painter, *pContext->pFileSystem,
+        kJonesUiPromptFontFile, kJonesUiPromptFontSize);
+    if ( pState->promptFont == 0 )
+    {
+        pState->promptFont = pState->rowFont;
+    }
+
+    pState->prompts.keyboard = LoadKeyboardPromptIcons(pState->painter,
+        *pContext->pFileSystem);
+    pState->prompts.xbox = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+        "xbox", "XboxSeriesX_A.png", "XboxSeriesX_B.png", "XboxSeriesX_LB.png",
+        "XboxSeriesX_RB.png", "XboxSeriesX_Dpad.png");
+    pState->prompts.playStation = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+        "ps5", "PS5_Cross.png", "PS5_Circle.png", "PS5_L1.png", "PS5_R1.png",
+        "PS5_Dpad.png");
+    pState->prompts.nintendo = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+        "switch", "Switch_B.png", "Switch_A.png", "Switch_LB.png", "Switch_RB.png",
+        "Switch_Dpad.png");
+    pState->prompts.steamDeck = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
+        "steamdeck", "SteamDeck_A.png", "SteamDeck_B.png", "SteamDeck_L1.png",
+        "SteamDeck_R1.png", "SteamDeck_Dpad.png");
 
     pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
-    if ( !pState->pUi->setSkin(JonesUiSkin_Create(titleFont, rowFont, &pState->painter,
-            pState->promptFont)) )
+    if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->titleFont, pState->rowFont,
+            &pState->painter, pState->promptFont)) )
     {
         return nullptr;
     }
 
-    uint32_t width  = 0;
-    uint32_t height = 0;
-    stdDisplay_GetBackBufferSize(&width, &height);
-    if ( !width || !height || !pState->pUi->setViewport((int)width, (int)height) )
+    if ( !pState->pUi->setViewport(windowSize.width, windowSize.height) )
     {
         return nullptr;
     }
 
     pState->refCount = 1;
     g_pContext = pState.release();
+    stdRenderBabylon_SetPresentOverlay(&DrawOverlay, g_pContext);
     STDLOG_DEBUG("JonesUiContext_Acquire: context=%p refCount=1 (created)\n",
         (void*)g_pContext);
     return g_pContext;
@@ -243,6 +296,15 @@ JonesUiContext* JonesUiContext_GetActive(void)
 void JonesUiContext_SetActiveForTest(JonesUiContext* pContext)
 {
     g_pContext = pContext;
+}
+
+bool JonesUiContext_DrawOverlayForTest(JonesUiContext& context,
+    babylon::render::CommandList& list, std::uint32_t width, std::uint32_t height,
+    babylon::render::TextureHandle target)
+{
+    const StdRenderBabylonOverlayTarget overlayTarget{ target,
+        babylon::render::TextureFormat::Bgra8, width, height };
+    return DrawOverlay(&context, list, overlayTarget);
 }
 #endif
 

@@ -37,9 +37,6 @@ struct JonesUiMainMenuHooks
     // Continue returns the newest save's path, the same way loadGame returns a chosen one. It is
     // only called while the CONTINUE row is shown.
     std::function<bool(char* pOutPath)> continueGame;
-    // Called after the modal loop applied a window resize, for screens that rebake fonts at the
-    // new pixel scale.
-    std::function<void(int width, int height)> resized;
 };
 
 // Runs the main menu through JonesUiModal_Run until Quit, New Game, Continue or Load closes it.

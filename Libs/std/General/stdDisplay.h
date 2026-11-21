@@ -47,6 +47,12 @@ size_t stdDisplay_GetNumVideoModes(void);
 int J3DAPI stdDisplay_GetVideoMode(size_t modeNum, StdVideoMode* pDestMode); // Copies video mode at modeNum to pDestMode
 int J3DAPI stdDisplay_GetCurrentVideoMode(StdVideoMode* pDisplayMode);  // Copies current video mode to pDestMode
 
+// Added: the display's current desktop mode in pixels, for a first run's fullscreen default.
+// Returns 0 on success and fills pDestMode; returns 1 when the column has no display to ask (the
+// Null/headless column) or pDestMode is NULL, leaving pDestMode unchanged. pDestMode's color
+// info is the desktop format (32-bit). This is a query and does not open or change a mode.
+int J3DAPI stdDisplay_GetDesktopMode(StdVideoMode* pDestMode);
+
 tVBuffer* J3DAPI stdDisplay_VBufferNew(const tRasterInfo* pRasterInfo, int bUseVSurface, int bUseVideoMemory); //bUseVSurface - creates surface in system surface, otherwise in app memory is allocated
 void J3DAPI stdDisplay_VBufferFree(tVBuffer* pVBuffer);
 int J3DAPI stdDisplay_VBufferLock(tVBuffer* pVBuffer);

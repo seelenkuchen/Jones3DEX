@@ -58,6 +58,13 @@ namespace babylon::platform
         // coordinate size.
         virtual Size size() const = 0;
 
+        // The size in pixels of the display's current desktop mode, for the
+        // display that holds this window. This is the size a fullscreen
+        // window covers. Returns {0, 0} when the backend has no display, as
+        // the Null backend does. The value is a query only and does not
+        // change the window.
+        virtual Size desktopSize() const = 0;
+
         // Sets the display mode. Windowed is decorated and keeps the size
         // last set; fullscreen is desktop/borderless fullscreen on the
         // display that holds the window at that display's current

@@ -133,6 +133,23 @@ namespace
             return false;
         }
 
+        std::optional<std::size_t> askChoice(std::string_view, std::string_view,
+            std::span<const std::string_view>) override
+        {
+            return std::nullopt;   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
         bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
         {
             return false;

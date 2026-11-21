@@ -48,8 +48,13 @@ static bool aKeySuppressed[SITHCONTROL_MAXFUNCTIONS];
 // Added: functions that must read released once before they act again, set when a pause ends.
 static bool aKeyAwaitRelease[SITHCONTROL_MAXFUNCTIONS];
 
-// Added: Enhanced starts Modern; the Retail profile never leaves Classic.
-static bool sithControl_bModernControlStyle = J3D_QOL_VALUE(true, false);
+// Added: Enhanced starts with the keyboard and mouse Classic and the gamepad Modern; the Retail
+// profile never leaves Classic. The owner's play-test found the keyboard tank-like and the pad
+// twin-stick, and chose that as the default. The styles only select the camera and mouse extras;
+// the Enhanced movement translator itself is on in every QOL build.
+static bool sithControl_bModernKeyboardStyle = J3D_QOL_VALUE(false, false);
+static bool sithControl_bModernGamepadStyle = J3D_QOL_VALUE(true, false);
+static bool sithControl_bModernMovement = J3D_QOL_VALUE(true, false);
 
 const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
 {
@@ -113,6 +118,7 @@ const char* const aFunctionNames[SITHCONTROL_MAXFUNCTIONS + 1] =
     "CHALK",
     "TARGETLOCK",
     "QUICKSTEP",
+    "QUICKWHIP", // Added: Modern quick whip (W10d)
     "MAXFUNCTIONS"
 };
 
@@ -125,6 +131,18 @@ void sithControl_ResetGlobals(void)
     memset(aKeyOverrides, 0, sizeof(aKeyOverrides));
     memset(aKeySuppressed, 0, sizeof(aKeySuppressed));
     memset(aKeyAwaitRelease, 0, sizeof(aKeyAwaitRelease));
+
+    // Added: startup/open flags, callbacks, function flags and idle time must not carry over.
+    bControlStartup = false;
+    bControlOpen    = false;
+    msecPlayerIdleTime = 0;
+    numControlCallbacks = 0;
+    memset(aControlCallbacks, 0, sizeof(aControlCallbacks));
+    memset(aControlFlags, 0, sizeof(aControlFlags));
+    memset(aControlBindings, 0, sizeof(aControlBindings));
+    sithControl_bModernKeyboardStyle = J3D_QOL_VALUE(false, false);
+    sithControl_bModernGamepadStyle = J3D_QOL_VALUE(true, false);
+    sithControl_bModernMovement = J3D_QOL_VALUE(true, false);
 }
 
 int J3DAPI sithControl_Startup(int bKeyboardForeground)
@@ -492,18 +510,60 @@ void sithControl_AwaitKeyRelease(void)
 #endif
 }
 
+bool J3DAPI sithControl_IsModernKeyboardStyle(void)
+{
+    return sithControl_bModernKeyboardStyle;
+}
+
+bool J3DAPI sithControl_IsModernGamepadStyle(void)
+{
+    return sithControl_bModernGamepadStyle;
+}
+
 bool J3DAPI sithControl_IsModernControlStyle(void)
 {
-    return sithControl_bModernControlStyle;
+    return sithControl_bModernKeyboardStyle || sithControl_bModernGamepadStyle;
+}
+
+void J3DAPI sithControl_SetModernKeyboardStyle(bool bModern)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    sithControl_bModernKeyboardStyle = bModern;
+#else
+    J3D_UNUSED(bModern);
+    sithControl_bModernKeyboardStyle = false;
+#endif
+}
+
+void J3DAPI sithControl_SetModernGamepadStyle(bool bModern)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    sithControl_bModernGamepadStyle = bModern;
+#else
+    J3D_UNUSED(bModern);
+    sithControl_bModernGamepadStyle = false;
+#endif
 }
 
 void J3DAPI sithControl_SetModernControlStyle(bool bModern)
 {
+    sithControl_SetModernKeyboardStyle(bModern);
+    sithControl_SetModernGamepadStyle(bModern);
+    sithControl_SetModernMovementEnabled(bModern);
+}
+
+bool J3DAPI sithControl_IsModernMovementEnabled(void)
+{
+    return sithControl_bModernMovement;
+}
+
+void J3DAPI sithControl_SetModernMovementEnabled(bool bEnabled)
+{
 #ifdef J3D_QOL_IMPROVEMENTS
-    sithControl_bModernControlStyle = bModern;
+    sithControl_bModernMovement = bEnabled;
 #else
-    J3D_UNUSED(bModern);
-    sithControl_bModernControlStyle = false;
+    J3D_UNUSED(bEnabled);
+    sithControl_bModernMovement = false;
 #endif
 }
 
@@ -880,6 +940,7 @@ void sithControl_RegisterControlFunctions(void)
     sithControl_RegisterKeyFunction(SITHCONTROL_CHALK);
     sithControl_RegisterKeyFunction(SITHCONTROL_TARGETLOCK); // Added: Modern target lock (ADR-0029)
     sithControl_RegisterKeyFunction(SITHCONTROL_QUICKSTEP); // Added: Modern quick-step modifier (ADR-0029)
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKWHIP); // Added: Modern quick whip (W10d)
     sithControl_RegisterKeyFunction(SITHCONTROL_DEBUG);
     sithControl_RegisterKeyFunction(SITHCONTROL_GAMMA);
     sithControl_RegisterKeyFunction(SITHCONTROL_SCREENSHOT);
@@ -1024,24 +1085,51 @@ void sithControl_RegisterMouseBindings(void)
         else
         {
             stdControl_EnableMouseSensitivity(1);
-            // Note, to get better mouse support, comment out fwd & bkwd movement, add flag STDCONTROL_AID_LOW_SENSITIVITY to turn axis bidings
-            // and increase sensitivity in stdControl_ReadAxisAsKey to 0.85f or 0.95f.
-            // TODO: if/when player controls are implemented and mouse navigation functionality is changed to INEDITOR, 
-            //       refactor this piece of a code to match the INEDITOR scope with exception for mouse button part
-            sithControl_BindAxis(SITHCONTROL_TURNLEFT, STDCONTROL_AID_MOUSE_X | STDCONTROL_AID_NEGATIVE_AXIS, (SithControlBindFlag)0);
-            sithControl_BindAxis(SITHCONTROL_TURNRIGHT, STDCONTROL_AID_MOUSE_X | STDCONTROL_AID_POSITIVE_AXIS, (SithControlBindFlag)0);
-            sithControl_BindAxis(SITHCONTROL_FORWARD, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_NEGATIVE_AXIS, (SithControlBindFlag)0);
-            sithControl_BindAxis(SITHCONTROL_RUNFWD, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_NEGATIVE_AXIS | STDCONTROL_AID_POSITIVE_AXIS | STDCONTROL_AID_LOW_SENSITIVITY, (SithControlBindFlag)0);
-            sithControl_BindAxis(SITHCONTROL_BACK, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_POSITIVE_AXIS, (SithControlBindFlag)0);
-            sithControl_BindControl(SITHCONTROL_ACT2, STDCONTROL_KID_MOUSE_LBUTTON, (SithControlBindFlag)0);
-            // Added: Modern uses the right mouse button for target lock; Classic keeps jump.
-            if ( sithControl_IsModernControlStyle() )
+            if ( sithControl_IsModernKeyboardStyle() )
             {
+                // Added: Modern keyboard and mouse orbits the free camera instead of turning and
+                // walking Indy. The axes use the editor's sensitivities; the camera module scales
+                // them to degrees (ADR-0029).
+                SithControlBinding* pBinding = sithControl_BindAxis(SITHCONTROL_MOUSETURN,
+                    STDCONTROL_AID_MOUSE_X, SITHCONTROLBIND_AXIS_ENABLED | SITHCONTROLBIND_INVERT_AXIS);
+                if ( pBinding )
+                {
+                    pBinding->sensitivity = 0.05f;
+                }
+
+                pBinding = sithControl_BindAxis(SITHCONTROL_PITCH, STDCONTROL_AID_MOUSE_Y,
+                    SITHCONTROLBIND_AXIS_ENABLED);
+                if ( pBinding )
+                {
+                    pBinding->sensitivity = 0.05f;
+                }
+
+                sithControl_BindControl(SITHCONTROL_ACT2, STDCONTROL_KID_MOUSE_LBUTTON, (SithControlBindFlag)0);
+                // Added: Modern uses the right mouse button for target lock.
                 sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
             }
             else
             {
-                sithControl_BindControl(SITHCONTROL_JUMP, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+                // Note, to get better mouse support, comment out fwd & bkwd movement, add flag STDCONTROL_AID_LOW_SENSITIVITY to turn axis bidings
+                // and increase sensitivity in stdControl_ReadAxisAsKey to 0.85f or 0.95f.
+                // TODO: if/when player controls are implemented and mouse navigation functionality is changed to INEDITOR,
+                //       refactor this piece of a code to match the INEDITOR scope with exception for mouse button part
+                sithControl_BindAxis(SITHCONTROL_TURNLEFT, STDCONTROL_AID_MOUSE_X | STDCONTROL_AID_NEGATIVE_AXIS, (SithControlBindFlag)0);
+                sithControl_BindAxis(SITHCONTROL_TURNRIGHT, STDCONTROL_AID_MOUSE_X | STDCONTROL_AID_POSITIVE_AXIS, (SithControlBindFlag)0);
+                sithControl_BindAxis(SITHCONTROL_FORWARD, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_NEGATIVE_AXIS, (SithControlBindFlag)0);
+                sithControl_BindAxis(SITHCONTROL_RUNFWD, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_NEGATIVE_AXIS | STDCONTROL_AID_POSITIVE_AXIS | STDCONTROL_AID_LOW_SENSITIVITY, (SithControlBindFlag)0);
+                sithControl_BindAxis(SITHCONTROL_BACK, STDCONTROL_AID_MOUSE_Y | STDCONTROL_AID_POSITIVE_AXIS, (SithControlBindFlag)0);
+                sithControl_BindControl(SITHCONTROL_ACT2, STDCONTROL_KID_MOUSE_LBUTTON, (SithControlBindFlag)0);
+                // Added: the Enhanced translator keeps target lock on the right mouse button, as it
+                // did before the styles split; the true tank movement of Retail keeps jump.
+                if ( sithControl_IsModernMovementEnabled() )
+                {
+                    sithControl_BindControl(SITHCONTROL_TARGETLOCK, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+                }
+                else
+                {
+                    sithControl_BindControl(SITHCONTROL_JUMP, STDCONTROL_KID_MOUSE_RBUTTON, (SithControlBindFlag)0);
+                }
             }
         }
 

@@ -21,6 +21,7 @@
 // (the next start for a normal session); Retail disables the rows and writes them off.
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
 
+#include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Play/jonesInventory.h>
@@ -69,9 +70,6 @@ namespace
     constexpr const char* kJonesGameplayRotateMapText      = "Rotate Map";           // TODO: [COMPAT]
     constexpr const char* kJonesGameplayDifficultyText     = "Difficulty";           // TODO: [COMPAT]
     constexpr const char* kJonesGameplayDefaultRunText     = "Default to Run";       // TODO: [COMPAT]
-    constexpr const char* kJonesGameplayControlStyleText   = "Control style";        // TODO: [COMPAT]
-    constexpr const char* kJonesGameplayModernText         = "Modern";               // TODO: [COMPAT]
-    constexpr const char* kJonesGameplayClassicText        = "Classic";              // TODO: [COMPAT]
     constexpr const char* kJonesGameplayReticleText        = "Aim Reticle";          // TODO: [COMPAT]
     constexpr const char* kJonesGameplayBloodText          = "Blood Splatter Effect"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayProfileText        = "Profile";              // TODO: [COMPAT]
@@ -80,6 +78,8 @@ namespace
     constexpr const char* kJonesGameplayProfileNoteText    =
         "Profile is fixed by this build."; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayEnhancementsText   = "Enhancements";         // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayInteractionPromptsText = "Interaction prompts"; // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayQuickWhipText = "Quick whip"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayFireFlashText      =
         "Weapon fire flash"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayExternalMaterialsText =
@@ -131,14 +131,6 @@ namespace
         if ( stdConfig_HasStarted() )
         {
             static_cast<void>(stdConfig_SetInt(pKey, value));
-        }
-    }
-
-    void JonesUiGameplay_SetConfigString(const char* pKey, const char* pValue)
-    {
-        if ( stdConfig_HasStarted() )
-        {
-            static_cast<void>(stdConfig_SetString(pKey, pValue));
         }
     }
 
@@ -198,20 +190,6 @@ namespace
             JonesUiContext_ResolveString(kJonesGameplayDefaultRunText), std::string(), true,
             values.bDefaultRun });
 
-        // Added: the Modern control style is an Enhanced option. Retail keeps the row visible but
-        // disabled at Classic, like the Profile row.
-        layout.controlStyle = screen.widgets.size();
-        screen.widgets.emplace_back(babylon::ui::Choice{
-            JonesUiContext_ResolveString(kJonesGameplayControlStyleText), std::string(),
-            { JonesUiContext_ResolveString(kJonesGameplayModernText),
-                JonesUiContext_ResolveString(kJonesGameplayClassicText) },
-#ifdef J3D_QOL_IMPROVEMENTS
-            true,
-#else
-            false,
-#endif
-            std::min(values.controlStyle, (std::size_t)1) });
-
         layout.reticle = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiContext_ResolveString(kJonesGameplayReticleText), std::string(), true,
@@ -235,6 +213,16 @@ namespace
 
         screen.widgets.emplace_back(babylon::ui::Label{
             JonesUiContext_ResolveString(kJonesGameplayEnhancementsText), std::string() });
+
+        layout.interactionPrompts = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiContext_ResolveString(kJonesGameplayInteractionPromptsText), std::string(),
+            bEnhancedProfile, values.bInteractionPrompts });
+
+        layout.quickWhip = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiContext_ResolveString(kJonesGameplayQuickWhipText), std::string(),
+            bEnhancedProfile, values.bQuickWhip });
 
         layout.fireFlash = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Toggle{
@@ -277,9 +265,10 @@ JonesUiGameplayValues JonesUiGameplay_LoadValues(bool bEnhancedProfile)
     values.difficulty         = (std::size_t)currentDifficulty;
     values.bDefaultRun        = JonesUiGameplay_ReadConfigBool(
         JONESCONFIG_CFG_GAMEPLAY_DEFAULTRUN, false);
-    values.controlStyle       = sithControl_IsModernControlStyle() ? 0u : 1u;
     values.bReticle           = JonesReticle_IsEnabled();
     values.bBlood             = sithWeapon_IsBloodSplatterEnabled();
+    values.bInteractionPrompts = bEnhancedProfile && JonesHud_IsInteractionPromptsEnabled();
+    values.bQuickWhip         = bEnhancedProfile && sithWeapon_IsQuickWhipEnabled();
     values.bFireFlash         = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
         SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true);
     values.bExternalMaterials = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
@@ -308,12 +297,14 @@ void JonesUiGameplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
         values.difficulty));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.defaultRun,
         values.bDefaultRun));
-    static_cast<void>(JonesUiGameplay_ReadChoice(ui, screen, layout.controlStyle,
-        values.controlStyle));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.reticle,
         values.bReticle));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.blood,
         values.bBlood));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.interactionPrompts,
+        values.bInteractionPrompts));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.quickWhip,
+        values.bQuickWhip));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.fireFlash,
         values.bFireFlash));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.externalMaterials,
@@ -355,23 +346,15 @@ int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedPro
         sithControl_g_controlOptions &= ~kJonesGameplayRunOption;
     }
 
-#ifdef J3D_QOL_IMPROVEMENTS
-    // Added: the Modern control style. The row only edits it in Enhanced builds; Retail stays
-    // Classic and writes no key.
-    const bool bModern = values.controlStyle == 0;
-    sithControl_SetModernControlStyle(bModern);
-    JonesUiGameplay_SetConfigString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        bModern ? "modern" : "classic");
-#else
-    sithControl_SetModernControlStyle(false);
-#endif
-
     // Each of these writes its own key when it changes, as the original calls did.
     JonesReticle_Enable(values.bReticle);
     sithWeapon_EnableBloodSplatter(values.bBlood);
 
     // Added: the enhancement keys. Their modules read them when they open, so a change applies
     // then. Retail wrote them off above, so this also turns them off in the file.
+    JonesHud_EnableInteractionPrompts(values.bInteractionPrompts ? 1 : 0);
+    sithWeapon_SetQuickWhipEnabled(values.bQuickWhip ? 1 : 0);
+    JonesUiGameplay_SetConfigBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, values.bQuickWhip);
     JonesUiGameplay_SetConfigBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED,
         values.bFireFlash);
     JonesUiGameplay_SetConfigBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL,

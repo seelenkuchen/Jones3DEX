@@ -34,6 +34,12 @@ int J3DAPI sithAIAwareness_CreateEvent(SithSector* pSector, const rdVector3* pos
 void sithAIAwareness_ResetGlobals(void)
 {
     memset(&sithAIAwareness_g_aSectors, 0, sizeof(sithAIAwareness_g_aSectors));
+
+    // Added: queued awareness events and the per-frame process marker are run state.
+    bOpened = false;
+    numEvents = 0;
+    STD_ZEROMEM(aEvents, sizeof(aEvents));
+    curProcessID = 0;
 }
 
 int sithAIAwareness_Open(void)

@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's main menu and start-mode mapping (ADR-0026).
 // They drive the runner with a Null painter and a scripted platform, so every menu action and the
 // nested Settings screen run without a window, display or game asset. The drawing sample lives in
-// JonesUiPainterTest.cpp.
+// JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <cstdio>
@@ -143,6 +143,23 @@ namespace
         const std::string& LastMessageBoxText() const
         {
             return m_messageBoxTexts.back();
+        }
+
+        std::optional<std::size_t> askChoice(std::string_view, std::string_view,
+            std::span<const std::string_view>) override
+        {
+            return std::nullopt;   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
+        {
+            return {};   // these tests never ask for a dialog
         }
 
         bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override
@@ -320,6 +337,27 @@ TEST_CASE("the Babylon close message makes the next loop check report quit")
     CHECK(JonesMainSys_PostCloseMessage() == 1);
     CHECK(wkernel_PeekProcessEvents() == 1);
     CHECK(wkernel_PeekProcessEvents() == 0);
+}
+
+TEST_CASE("a setup request is recorded until the composition root clears it")
+{
+    StartModeTestContext testContext;
+    while ( stdBabylonEvents_TakeQuitRequest() )
+    {
+    }
+
+    CHECK_FALSE(JonesBabylon_IsSetupRequested());
+    JonesBabylon_RequestSetup();
+    CHECK(JonesBabylon_IsSetupRequested());
+
+    // The request ends the run through the same close a main-menu quit posts.
+    CHECK(wkernel_PeekProcessEvents() == 1);
+
+    JonesBabylon_ClearSetupRequested();
+    CHECK_FALSE(JonesBabylon_IsSetupRequested());
+    while ( stdBabylonEvents_TakeQuitRequest() )
+    {
+    }
 }
 
 TEST_CASE("a main-menu quit during startup exits cleanly")

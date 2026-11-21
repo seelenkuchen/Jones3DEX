@@ -110,6 +110,8 @@ function(babylon_add_module_tests name)
     endforeach()
 
     add_executable(babylon_${name}_tests ${arg_SOURCES})
+    # Added: the UTF-8 code page manifest, so the tests handle non-ASCII paths like the engine.
+    babylon_add_windows_manifest(babylon_${name}_tests)
     target_link_libraries(babylon_${name}_tests PRIVATE babylon_${name} babylon_doctest_main)
     foreach (dep IN LISTS arg_DEPS)
         target_link_libraries(babylon_${name}_tests PRIVATE babylon_${dep})

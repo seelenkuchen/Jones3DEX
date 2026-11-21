@@ -34,6 +34,8 @@ endif()
 include(cmake/BabylonModule.cmake)
 include(cmake/BabylonSdl3.cmake)
 include(cmake/BabylonShaders.cmake)
+# Added: the UTF-8 process code page manifest for Babylon's test programs (Windows only).
+include(cmake/BabylonWindowsManifest.cmake)
 
 if (BABYLON_BUILD_TESTS)
     add_subdirectory(third_party/doctest)
@@ -49,11 +51,20 @@ add_subdirectory(image)
 add_subdirectory(time)
 add_subdirectory(files)
 add_subdirectory(platform)
+add_subdirectory(process)
 add_subdirectory(input)
 add_subdirectory(cvars)
 add_subdirectory(audio)
 add_subdirectory(render)
 add_subdirectory(ui)
+
+# The painter module contains compiled shaders, so it exists only when the
+# shader toolchain does.
+if (BABYLON_BUILD_SHADERS)
+    add_subdirectory(uirender)
+else()
+    message(STATUS "BABYLON_BUILD_SHADERS=OFF: skipping the uirender module")
+endif()
 
 # Machine checks for the Babylon boundary and the module graph (ADR-0006,
 # ADR-0008, ADR-0015). They inspect the source tree, so they carry the label

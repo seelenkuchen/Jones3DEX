@@ -6,13 +6,23 @@ The engine creates it automatically on first launch and keeps it auto-saved whil
 
 ## Location
 
-`Jones.cfg` is opened with a relative path from the game process, so it is created next to the executable in the current working directory.
+The windowed game writes `Jones.cfg` to a per-user directory, so it runs from a read-only AppImage or a
+shared install. The directory is chosen once at startup, in this order:
 
-For the normal release layout, that means:
+1. `--user-dir <dir>` on the command line.
+2. The executable's directory, when its `GameData` folder holds the complete game data. This is the setup
+   wizard's **Next to the game** choice.
+3. The platform user directory: `~/.local/share/Jones3DEX/` (or `$XDG_DATA_HOME/Jones3DEX/`) on Linux,
+   `%APPDATA%\Jones3DEX\` on Windows, and `~/Library/Application Support/Jones3DEX/` on macOS.
 
-- place the release files next to `Indy3D.exe` in the game's `Resource` directory
-- launch `Jones3D.exe`
-- expect `Jones.cfg` to appear in that same directory
+When the user directory has no `Jones.cfg`, the game copies the one in the working directory there.
+When it has no `.nds` savegame, it copies the saves from the old save folder next to the data. The old
+files are left in place. Screenshots, key sets, the log file, the error file and `datacheck.txt` are
+written to the user directory.
+
+Headless runs (`Jones3D-headless`) default to the working directory and accept `--user-dir <dir>` too,
+so tests and traces keep their paths unless asked otherwise. A headless run has no dialogs: to load a
+save, pass `--load <save.nds>` and set `startMode` to 1 (load game).
 
 ## Format and behavior
 
@@ -60,7 +70,8 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
   },
   "gameplay": {
     "defaultRun": false,
-    "bloodSplatter": true
+    "bloodSplatter": true,
+    "quickWhip": true
   }
 }
 ```
@@ -81,7 +92,8 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
 In the windowed Babylon build, a missing `startMode` and the value `2` (the developer dialog, which
 has no screen any more) both open the main menu. `0`, `1`, `3` and `4` keep their meaning, and a
 `--load` path still loads that save directly. The headless runs and the Null column keep the values
-above unchanged.
+above unchanged; a headless run loads the save given with `--load` only when `startMode` is `1`, and
+cancels when `--load` is absent.
 
 ### `log.mode`
 
@@ -150,7 +162,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `version` | string | `1.0.0` | Written automatically when a new config file is created. |
-| `installPath` | string | empty | Installation path. Usually engine-managed. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
+| `installPath` | string | empty | Installation path. One candidate of the startup data search: `--data <dir>`, then this key, then `<user dir>/GameData`, the executable's folder, `<executable folder>/GameData`, then the working directory. The game no longer sets this key; the setup wizard installs into `GameData` instead. On Linux and macOS a Wine `Z:\` path is accepted and resolves from `/`; other drive letters are not. |
 | `sourcePath` | string | empty | Source/CD path used when the game requests original data. |
 | `devMode` | bool | `false` | Enables developer mode features. |
 | `startMode` | int | `2` | Uses the `startMode` enum above. The windowed Babylon build treats a missing value and `2` as `5` (main menu). |
@@ -161,10 +173,12 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 
 | Key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `controls.configFile` | string | empty | Selected input preset name. Usually set by the control dialog. |
-| `controls.mouse` | bool | `false` | Enables mouse control. |
+| `controls.configFile` | string | default scheme | Selected input preset name. A new install is written with the default scheme of the active control styles: `Modern keyboard and gamepad` when either style is Modern, `Keyboard and gamepad` when both are Classic. A remembered value always wins. Usually changed by the Controls tab. |
+| `controls.mouse` | bool | `true` (Enhanced), `false` (Retail) | Mouse camera. A new Enhanced install is written with `true`; the Retail profile and non-QOL builds keep the original `false`. The Controls tab's **Mouse camera** row changes it. |
 | `engine.input.rumble` | bool | `true` | Gamepad rumble. Presentation only, on by default in both profiles; the Controls screen's Rumble row changes it. |
-| `engine.input.controlStyle` | string | `modern` | `modern` or `classic`. QOL builds only: modern is the Enhanced default, an unknown value falls back to modern, and the Gameplay tab's Control style row changes it. Modern gives camera-relative movement, mouse and right-stick free camera, quick-step, quick-select and target lock, and picks the "Modern keyboard and gamepad" default scheme for a new install; classic keeps the original tank controls and the "Keyboard and gamepad" default scheme. A remembered `controls.configFile` is never replaced. Non-QOL builds always use classic and neither read nor write the key. |
+| `engine.input.keyboardControlStyle` | string | `classic` | `modern` or `classic`. QOL builds only: the keyboard and mouse camera extras. Classic keeps the camera following Indy, the pre-option keyboard translator (no A/D lateral movement) and the original mouse turn/walk bindings; Modern adds A/D lateral movement and lets the mouse orbit the free camera. An unknown value falls back to classic. The Controls tab's **Keyboard & mouse style** row changes it. Non-QOL builds always use classic and neither read nor write the key. |
+| `engine.input.gamepadControlStyle` | string | `modern` | `modern` or `classic`. QOL builds only: the gamepad camera. Modern orbits a free camera with the right stick; Classic keeps the original follow camera. The left stick movement translator runs in both. An unknown value falls back to modern. The Controls tab's **Gamepad style** row changes it. Non-QOL builds always use classic and neither read nor write the key. |
+| `engine.input.controlStyle` | string | unset | The old single style, read once for migration and no longer written. `classic` sets both per-device styles to classic; `modern` or a missing value gives the defaults above (keyboard classic, gamepad modern). Unknown values fall back to the defaults. Startup writes the new keys only on a new install or after Options writes them, so an existing file with only this key is left alone until the player changes the style. |
 | `gameplay.defaultRun` | bool | `false` | Makes running the default movement mode. |
 | `gameplay.startLevel` | string | empty | Developer/startup override. |
 | `gameplay.difficulty` | int | `5` | Difficulty slider value used by the game. |
@@ -173,6 +187,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `gameplay.mapRotation` | bool | `false` | Rotates the overlay map with player facing. |
 | `gameplay.lastSaveGame` | string | auto | Last save filename used by the save/load flow. Engine-managed. |
 | `gameplay.bloodSplatter` | bool | `true` | Enables the hit blood-splatter effect. |
+| `gameplay.quickWhip` | bool | `true` | Simulation. Enhanced only: at a whip target, LB (Modern gamepad) or the whip's select key (keyboard) swings or climbs without drawing the whip first, then switches back. On by default in Enhanced; the Retail profile is locked off. The pending state is not saved, so a save made during a quick whip loads with the whip drawn. |
 
 A connected gamepad is always on and works alongside the keyboard and mouse. The old
 `controls.controller` key is ignored when present and removed from the file on the next save.
@@ -188,8 +203,8 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `graphics.mipmapFilter` | int | `2` | Uses the `graphics.mipmapFilter` enum above. |
 | `graphics.display` | string | auto | Selected display adapter name. Usually engine-managed. |
 | `graphics.device` | string | auto | Selected 3D device name. Usually engine-managed. |
-| `graphics.width` | int | `640` | Requested render width. |
-| `graphics.height` | int | `480` | Requested render height. |
+| `graphics.width` | int | desktop width | Requested render width. A new windowed install is written with the current desktop mode's width, so the first run is fullscreen at the display's resolution; headless and Null runs keep `640`. An existing value always wins. |
+| `graphics.height` | int | desktop height | Requested render height. A new windowed install is written with the current desktop mode's height; headless and Null runs keep `480`. An existing value always wins. |
 | `graphics.bpp` | int | `32` | Requested color depth. |
 | `graphics.refreshRate` | int | `60` | Requested refresh rate. If the display doesn't offer that rate, the closest available rate at the configured size and bit depth is used. |
 | `graphics.performanceLevel` | int | `4` | Performance preset used by the display dialog. |
@@ -280,6 +295,7 @@ These are mostly advanced UI tuning keys. The engine writes them out automatical
 | `ui.menu.music.file` | float | `0.55` | Menu music volume. Exact key name is legacy. |
 | `ui.menu.music.fade` | float | `0.75` | Menu music fade duration in seconds. |
 | `engine.ui.hud.systemIcons` | bool | `false` | Presentation only, both profiles. False (the default) hides the HUD menu's Statistics, Save, Load, Settings and Exit items: the pause menu on Escape or gamepad Start replaces them and still offers all of them. True brings the system items back into the HUD menu. |
+| `ui.hud.interactionPrompts` | bool | `true` | Presentation only. Draws the bound key icon and **Use**, **Pick up**, **Push**, **Pull**, **Push \| Pull**, **Climb up** or **Climb** at the bottom centre when a press would interact. The icon follows the action the press reads (Activate, Jump or Forward). On by default in Enhanced; the Retail profile is locked off. A missing key is not written until the option changes in Options. |
 | `ui.hud.itemChanged.showDuration` | int | `2000` | Item-change popup duration in milliseconds. |
 | `ui.hud.itemChanged.slideEaseInRate` | float | `4000.0` | Slide ease-in rate. |
 | `ui.hud.itemChanged.slideSpeedRate` | int | `3` | Slide speed multiplier. |

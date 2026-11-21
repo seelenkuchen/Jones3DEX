@@ -6,6 +6,7 @@
 #include <sith/types.h>
 
 #include <std/General/stdConffile.h>
+#include <std/General/stdUserDir.h>
 #include <std/types.h>
 
 J3D_EXTERN_C_START
@@ -13,7 +14,7 @@ J3D_EXTERN_C_START
 // Required size of string that is passed to functions that assigns savegame nds file path to it 
 // i.e.: jonesConfig_GetSaveGameFilePath,jonesConfig_GetLoadGameFilePath, jonesConfig_ShowGameOverDialog, jonesConfig_ShowExitGameDialog
 // The length of passed string argument should be the same as this macro
-#define  JONESCONFIG_GAMESAVE_FILEPATHSIZE 128
+#define  JONESCONFIG_GAMESAVE_FILEPATHSIZE STDUSERDIR_MAXPATH // Altered: room for user-directory paths (M8.2b)
 
 // Configuration keys
 #define JONESCONFIG_CFG_SOURCEPATH          "sourcePath"

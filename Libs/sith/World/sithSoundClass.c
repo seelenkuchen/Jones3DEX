@@ -173,7 +173,10 @@ void J3DAPI sithSoundClass_CacheAdd(SithSoundClass* pClass);
 void J3DAPI sithSoundClass_CacheRemove(const SithSoundClass* pClass);
 
 void sithSoundClass_ResetGlobals(void)
-{}
+{
+    // Added: 1000 is the file's start value, not zero; play advances it.
+    sithSoundClass_lastVoiceEntryNum = 1000u;
+}
 
 int sithSoundClass_Startup(void)
 {

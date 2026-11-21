@@ -18,7 +18,9 @@ static SithCamera* sithModernCameraTest_pSavedCamera;
 static int sithModernCameraTest_savedCutscene;
 static SithCameraState sithModernCameraTest_savedFlags;
 static int sithModernCameraTest_savedLookMode;
-static bool sithModernCameraTest_savedModern;
+static bool sithModernCameraTest_savedModernKeyboard;
+static bool sithModernCameraTest_savedModernGamepad;
+static bool sithModernCameraTest_savedModernMovement;
 
 static void sithModernCameraTest_MakeActive(void)
 {
@@ -42,7 +44,9 @@ TEST_SETUP(sithModernCamera)
     sithModernCameraTest_savedCutscene = sithPlayerControls_g_bCutsceneMode;
     sithModernCameraTest_savedFlags    = sithCamera_g_stateFlags;
     sithModernCameraTest_savedLookMode = sithCamera_g_bExtCameraLookMode;
-    sithModernCameraTest_savedModern   = sithControl_IsModernControlStyle();
+    sithModernCameraTest_savedModernKeyboard = sithControl_IsModernKeyboardStyle();
+    sithModernCameraTest_savedModernGamepad  = sithControl_IsModernGamepadStyle();
+    sithModernCameraTest_savedModernMovement = sithControl_IsModernMovementEnabled();
 
     STD_ZEROMEM(&sithModernCameraTest_camera, sizeof(sithModernCameraTest_camera));
     STD_ZEROMEM(&sithModernCameraTest_player, sizeof(sithModernCameraTest_player));
@@ -63,7 +67,9 @@ TEST_TEAR_DOWN(sithModernCamera)
     sithPlayerControls_g_bCutsceneMode = sithModernCameraTest_savedCutscene;
     sithCamera_g_stateFlags            = sithModernCameraTest_savedFlags;
     sithCamera_g_bExtCameraLookMode    = sithModernCameraTest_savedLookMode;
-    sithControl_SetModernControlStyle(sithModernCameraTest_savedModern);
+    sithControl_SetModernKeyboardStyle(sithModernCameraTest_savedModernKeyboard);
+    sithControl_SetModernGamepadStyle(sithModernCameraTest_savedModernGamepad);
+    sithControl_SetModernMovementEnabled(sithModernCameraTest_savedModernMovement);
 }
 
 TEST(sithModernCamera, TestRadialDeadzoneRescalesStick)

@@ -8,10 +8,12 @@
 
 J3D_EXTERN_C_START
 
-#define SITHCONTROL_MAXFUNCTIONS   60u
+#define SITHCONTROL_MAXFUNCTIONS   61u // Added: room for SITHCONTROL_QUICKWHIP
 #define STDCONTROL_IDLECAM_TIMEOUT 90000 // 90 sec, time in milliseconds before switching to idle camera due to control inactivity
 
-#define SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE "engine.input.controlStyle" // Added: modern or classic control style, QOL builds only
+#define SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE "engine.input.controlStyle" // Added: the old single control style; read once for migration, no longer written
+#define SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE "engine.input.keyboardControlStyle" // Added: modern or classic keyboard and mouse style, QOL builds only
+#define SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE "engine.input.gamepadControlStyle" // Added: modern or classic gamepad style, QOL builds only
 
 extern int sithControl_g_controlOptions;
 // extern int sithControl_g_controlOptions;
@@ -57,9 +59,21 @@ void J3DAPI sithControl_ClearKeyOverrides(void); // Added
 // act in the game. A no-op in non-QOL builds. Modern key overrides are not affected.
 void sithControl_AwaitKeyRelease(void); // Added
 
-// Added: the control style. QOL builds start Modern and non-QOL builds always stay Classic.
-bool J3DAPI sithControl_IsModernControlStyle(void); // Added
-void J3DAPI sithControl_SetModernControlStyle(bool bModern); // Added
+// Added: the per-device control styles. QOL builds start with the keyboard and mouse Classic and the
+// gamepad Modern; non-QOL builds always stay Classic. IsModernControlStyle is true when either
+// device is Modern (the shared free camera and the Look snap use it).
+bool J3DAPI sithControl_IsModernKeyboardStyle(void); // Added
+bool J3DAPI sithControl_IsModernGamepadStyle(void); // Added
+bool J3DAPI sithControl_IsModernControlStyle(void); // Added: either device is Modern
+void J3DAPI sithControl_SetModernKeyboardStyle(bool bModern); // Added
+void J3DAPI sithControl_SetModernGamepadStyle(bool bModern); // Added
+void J3DAPI sithControl_SetModernControlStyle(bool bModern); // Added: sets both devices and the movement layer
+
+// Added: the Enhanced movement translator. QOL builds always run it, whatever the two styles say;
+// only the Retail profile (a non-QOL build) keeps the true original tank movement. SetModernControlStyle
+// also toggles it for the tests and the non-QOL fallback.
+bool J3DAPI sithControl_IsModernMovementEnabled(void); // Added
+void J3DAPI sithControl_SetModernMovementEnabled(bool bEnabled); // Added
 
 void sithControl_ReadControls(void);
 void sithControl_FinishRead(void);

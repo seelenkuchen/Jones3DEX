@@ -22,9 +22,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-// Added: the Windows MAX_PATH size the engine's path buffers use, and the longest directory entry
-// name a search reports (NAME_MAX plus the terminator).
-#define STD_FILEUTIL_MAXPATH 260
+// Added: the longest engine path buffer (STD_MAX_DATAPATH), and the longest directory entry name a
+// search reports (NAME_MAX plus the terminator).
+#define STD_FILEUTIL_MAXPATH STD_MAX_DATAPATH // Altered: room for long data paths (M8 wizard)
 #define STD_FILEUTIL_MAXNAME 256
 
 // Added: mode bits for stdFileUtil_MkDir; the process umask still applies, as it does on Windows

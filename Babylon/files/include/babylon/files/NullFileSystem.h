@@ -21,9 +21,11 @@ namespace babylon::files
     // under the root '/'; relative paths resolve against '/'. Paths behave
     // as the interface describes, including validation, the byte-order sort
     // of listings and the one warning per failure. basePath() is "/base/"
-    // and userPath(organization, application) is
-    // "/user/<organization>/<application>/"; both exist as directories from
-    // the moment they are asked for. Case is passed through unchanged, so
+    // and userPath(organization, application, createMode) is
+    // "/user/<organization>/<application>/", or "/user/<application>/" for an
+    // empty organization. CreateMode::Create makes the directory from the
+    // moment it is asked for; CreateMode::NoCreate returns the path and leaves
+    // the tree untouched. Case is passed through unchanged, so
     // two spellings are two directories. Directory entries report
     // modifiedSeconds 0: the Null tree keeps no times.
     //
@@ -45,7 +47,8 @@ namespace babylon::files
         std::optional<std::vector<std::string>> listNames(std::string_view path) override;
         std::string basePath() override;
         std::string currentPath() override;
-        std::string userPath(std::string_view organization, std::string_view application) override;
+        std::string userPath(std::string_view organization, std::string_view application,
+            CreateMode create) override;
 
         // Test and headless helper: creates or replaces a file with these
         // bytes, making missing parent directories. Returns false and logs

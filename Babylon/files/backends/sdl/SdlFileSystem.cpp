@@ -53,14 +53,79 @@ namespace
         return path;
     }
 
-    // The two names of userPath(): each must be one usable path segment.
-    // The same rule as in the Null backend, so both give the same answer.
+    // The application name of userPath() must be one usable path segment;
+    // the organization is either empty or one such segment. The same rule as
+    // in the Null backend, so both give the same answer.
     bool isSingleSegmentName(std::string_view name)
     {
         return !name.empty() && name != "." && name != ".."
             && name.find('/') == std::string_view::npos
             && name.find('\\') == std::string_view::npos
             && name.find('\0') == std::string_view::npos;
+    }
+
+    bool isOrganizationName(std::string_view name)
+    {
+        return name.empty() || isSingleSegmentName(name);
+    }
+
+    // The user path SDL_GetPrefPath would report, without making it. SDL has
+    // no such query, so this mirrors the per-platform base folder SDL uses
+    // (ADR-0019): %APPDATA% on Windows, ~/Library/Application Support on
+    // macOS, and XDG_DATA_HOME or ~/.local/share elsewhere. Returns the
+    // interface form with '/', or "" and one warning when no base folder is
+    // known. The path need not exist.
+    std::string prefPathNoCreate(std::string_view organization, std::string_view application)
+    {
+        std::string base;
+#if defined(_WIN32)
+        const char* const pAppData = SDL_getenv("APPDATA");
+        if ( pAppData != nullptr )
+        {
+            base = pAppData;
+        }
+#elif defined(__APPLE__)
+        const char* const pHome = SDL_getenv("HOME");
+        if ( pHome != nullptr )
+        {
+            base = std::string(pHome) + "/Library/Application Support";
+        }
+#else
+        const char* const pDataHome = SDL_getenv("XDG_DATA_HOME");
+        if ( pDataHome != nullptr && pDataHome[0] != '\0' )
+        {
+            base = pDataHome;
+        }
+        else
+        {
+            const char* const pHome = SDL_getenv("HOME");
+            if ( pHome != nullptr )
+            {
+                base = std::string(pHome) + "/.local/share";
+            }
+        }
+#endif
+        if ( base.empty() )
+        {
+            log::warning("files: can not find the base of the user path for '{}' / '{}'",
+                organization, application);
+            return {};
+        }
+
+        std::replace(base.begin(), base.end(), '\\', '/');
+        while ( base.size() > 1 && base.back() == '/' )
+        {
+            base.pop_back();
+        }
+        base.push_back('/');
+        if ( !organization.empty() )
+        {
+            base.append(organization);
+            base.push_back('/');
+        }
+        base.append(application);
+        base.push_back('/');
+        return base;
     }
 
     // One open file on an SDL_IOStream from SDL_IOFromFile. The stream is
@@ -437,13 +502,27 @@ namespace
         }
 
         std::string userPath(std::string_view organization,
-            std::string_view application) override
+            std::string_view application, CreateMode create) override
         {
-            if ( !isSingleSegmentName(organization) || !isSingleSegmentName(application) )
+            if ( !isOrganizationName(organization) || !isSingleSegmentName(application) )
             {
                 log::warning("files: can not make a user path from '{}' and '{}'",
                     organization, application);
                 return {};
+            }
+            if ( create == CreateMode::NoCreate )
+            {
+                const std::string result = prefPathNoCreate(organization, application);
+                if ( result.empty() )
+                {
+                    return {};   // prefPathNoCreate logged the one warning
+                }
+                if ( !isValidPath(result) )
+                {
+                    log::warning("files: the user path '{}' is not usable", result);
+                    return {};
+                }
+                return result;
             }
             const std::string org(organization);
             const std::string app(application);

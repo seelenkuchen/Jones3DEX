@@ -8,9 +8,13 @@
 // behind: the retail mutex, the Win32 signal handler, window creation and the
 // stdWin95 window/instance/Guid registration.
 //
-// Usage: Jones3D-headless [--load <save.nds>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>]
+// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>] [--runs <n>]
+//   --user-dir writes Jones.cfg, logs and savegames in the given directory, created when missing.
+//            The default is "" (the working directory), so headless traces keep today's paths.
 //   --load   answers the load-game dialog once with the given path; needs the
 //            "startMode = 1" (load game) entry in Jones.cfg, like on Windows.
+//   --data   the game data folder to use for this run, ahead of the automatic search.
+//   --hash-data prints the known-file hash rows for the data in the folder, then exits.
 //   --frames frame limit of the engine's own game-state frame counter (default 1000).
 //   --step   milliseconds of virtual time each JonesMain_Process call advances the clock by
 //            (default 33). 0 keeps the real clock and makes the run nondeterministic again.
@@ -21,6 +25,8 @@
 //            and "frame <n>: key <name|number> down|up" lines press keys at engine frame <n>.
 //            A malformed script aborts the run before startup, so the same script keeps a run
 //            deterministic like every other aspect of the run.
+//   --runs   runs the whole game n times in one process (1 to 3, default 1), resetting every
+//            global between runs; --state is written from the last run only. Developer check.
 //   --capture records every renderer forwarder call of the run into an RCAP v1 capture file.
 //            The game opens it during JonesMain_Startup (once the host services exist) and closes
 //            it during JonesMain_Shutdown. The column named in its header is "babylon" for the
@@ -34,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
@@ -45,6 +52,7 @@
 #include <sith/World/sithWorld.h>
 
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/Null/stdControlNull.h>
 #include <std/Null/stdCvarNull.h>
 #include <std/Null/stdPlatformNull.h>
@@ -54,6 +62,8 @@
 #define HEADLESS_DEFAULT_FRAMES    1000
 #define HEADLESS_DEFAULT_STEP      33
 #define HEADLESS_MAX_STEP          1000
+#define HEADLESS_DEFAULT_RUNS      1
+#define HEADLESS_MAX_RUNS          3
 #define HEADLESS_PRINT_INTERVAL    100
 
 // Added: Scripted input (--input) constants: one parsed event per "frame <n>: <event>" line.
@@ -90,8 +100,8 @@ typedef struct HeadlessInputEvent
 
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--load <save.nds>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>]" HEADLESS_RENDER_USAGE "\n",
-        pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP);
+    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
+        pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP, HEADLESS_DEFAULT_RUNS, HEADLESS_MAX_RUNS);
 }
 
 // Added: --input helpers. The script is parsed once, completely, before JonesMain_Startup, so a
@@ -619,17 +629,24 @@ static bool Headless_WriteStateFile(const char* pPath, size_t frameCount)
 
 int JonesHeadless_Run(int argc, char** argv)
 {
-    const char* pLoadPath    = NULL;
-    const char* pStatePath   = NULL;
-    const char* pInputPath   = NULL;
-    const char* pCapturePath = NULL;
-    size_t frameLimit        = HEADLESS_DEFAULT_FRAMES;
-    unsigned long step       = HEADLESS_DEFAULT_STEP;
+    const char* pUserDirPath  = NULL;
+    const char* pLoadPath     = NULL;
+    const char* pDataPath     = NULL;
+    const char* pHashDataPath = NULL;
+    const char* pStatePath    = NULL;
+    const char* pInputPath    = NULL;
+    const char* pCapturePath  = NULL;
+    size_t frameLimit         = HEADLESS_DEFAULT_FRAMES;
+    unsigned long step        = HEADLESS_DEFAULT_STEP;
+    size_t numRuns            = HEADLESS_DEFAULT_RUNS;
 
     for ( int i = 1; i < argc; ++i )
     {
-        if ( !strcmp(argv[i], "--load") || !strcmp(argv[i], "--frames") || !strcmp(argv[i], "--step")
-            || !strcmp(argv[i], "--state") || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--capture") )
+        if ( !strcmp(argv[i], "--user-dir") || !strcmp(argv[i], "--load") || !strcmp(argv[i], "--data")
+            || !strcmp(argv[i], "--hash-data")
+            || !strcmp(argv[i], "--frames") || !strcmp(argv[i], "--step") || !strcmp(argv[i], "--state")
+            || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--capture")
+            || !strcmp(argv[i], "--runs") )
         {
             if ( i + 1 >= argc )
             {
@@ -638,9 +655,21 @@ int JonesHeadless_Run(int argc, char** argv)
                 return 1;
             }
 
-            if ( !strcmp(argv[i], "--load") )
+            if ( !strcmp(argv[i], "--user-dir") )
+            {
+                pUserDirPath = argv[++i];
+            }
+            else if ( !strcmp(argv[i], "--load") )
             {
                 pLoadPath = argv[++i];
+            }
+            else if ( !strcmp(argv[i], "--data") )
+            {
+                pDataPath = argv[++i];
+            }
+            else if ( !strcmp(argv[i], "--hash-data") )
+            {
+                pHashDataPath = argv[++i];
             }
             else if ( !strcmp(argv[i], "--frames") )
             {
@@ -667,6 +696,20 @@ int JonesHeadless_Run(int argc, char** argv)
                 }
 
                 step = value;
+            }
+            else if ( !strcmp(argv[i], "--runs") )
+            {
+                char* pEnd = NULL;
+                unsigned long value = strtoul(argv[++i], &pEnd, 10);
+                if ( !pEnd || *pEnd || value < HEADLESS_DEFAULT_RUNS || value > HEADLESS_MAX_RUNS )
+                {
+                    fprintf(stderr, "ERROR: Jones3D-headless: --runs needs a count from %d to %d!\n",
+                        HEADLESS_DEFAULT_RUNS, HEADLESS_MAX_RUNS);
+                    Headless_PrintUsage(argv[0]);
+                    return 1;
+                }
+
+                numRuns = (size_t)value;
             }
             else if ( !strcmp(argv[i], "--input") )
             {
@@ -697,121 +740,180 @@ int JonesHeadless_Run(int argc, char** argv)
         return 1;
     }
 
-    printf("clock: %s, step %lu ms\n", step ? "virtual" : "real", step);
-
-    // Added: The virtual clock must be latched on before any code reads the time, startup included.
-    if ( step )
+    // Added: --hash-data is a tool: it exits without starting the game, once, whatever --runs says.
+    if ( pHashDataPath )
     {
-        stdPlatformNull_UseVirtualClock(0x00100000);
-    }
-
-    // WinMain/DllMain: the global reset before anything else runs.
-    Jones3D_ResetAllGlobals();
-
-    // Indy3D_WinMain: hand the --load path to the Null load-game dialog, which
-    // JonesMain_Startup asks when Jones.cfg is in the load-game start mode.
-    if ( pLoadPath )
-    {
-        JonesPlatformNull_SetLoadPath(pLoadPath);
-    }
-
-    // Added: --capture: hand the file to the game, which opens it in JonesMain_Startup after the
-    // host services exist and closes it in JonesMain_Shutdown before they are torn down.
-    if ( pCapturePath )
-    {
-#ifdef J3D_PLATFORM_BABYLON
-        const char* pCaptureColumn = "babylon";
-#else
-        const char* pCaptureColumn = "null";
-#endif
-        JonesMain_SetCapture(pCapturePath, pCaptureColumn);
-    }
-
-    // wkernel_Run: the Startup callback (the WinMain.c Startup wrapper's logic).
-    if ( JonesMain_Startup("") )
-    {
-        JonesMain_Shutdown();
-        fprintf(stderr, "ERROR: Jones3D-headless: JonesMain_Startup failed, exiting nonzero!\n");
-        Headless_InputFree();
-        return 1;
-    }
-
-    // wkernel_Run: the main loop until JonesMain_Process() returns -1 (or 1 to finish),
-    // stopped by the frame limit. Frames are counted by the engine's own counter, which
-    // only advances once the game state is reached.
-    int exitCode    = 0;
-    const char* pStopReason = NULL;
-    size_t frameCount       = 0;
-    size_t nextMilestone    = HEADLESS_PRINT_INTERVAL;
-    while ( 1 )
-    {
-        // Added: --input: fire every pending scripted event whose frame is due at the current
-        // engine frame count, in file order, just before the engine processes the frame.
-        Headless_InputFireDue(JonesMain_GetFrameCount());
-
-        int result = JonesMain_Process();
-
-        // Added: fixed time step: the engine clock moves exactly one frame's worth of time per
-        // processed frame, so a run does not depend on the wall clock anymore.
         if ( step )
         {
-            stdPlatformNull_AdvanceClock((uint32_t)step);
+            stdPlatformNull_UseVirtualClock(0x00100000);
         }
 
-        if ( result == -1 )
+        Jones3D_ResetAllGlobals();
+        if ( pUserDirPath && !stdUserDir_Set(pUserDirPath) )
         {
-            exitCode    = 1;
-            pStopReason = "JonesMain_Process() returned -1 (engine quit)";
-            break;
+            fprintf(stderr, "ERROR: Jones3D-headless: the user directory path is too long (at most %d bytes)!\n",
+                STDUSERDIR_MAXPATH - 1);
+            Headless_InputFree();
+            return 1;
         }
 
-        if ( result == 1 )
-        {
-            exitCode    = 1;
-            pStopReason = "JonesMain_Process() returned 1 (finish requested)";
-            break;
-        }
-
-        if ( result )
-        {
-            // Added: Same answer as wkernel_Run for results it does not handle.
-            fprintf(stdout, "WARNING: Jones3D-headless: Unhandled result code: %d, skipping...\n", result);
-        }
-
-        frameCount = JonesMain_GetFrameCount();
-        while ( frameCount >= nextMilestone )
-        {
-            Headless_PrintRunState(nextMilestone);
-            nextMilestone += HEADLESS_PRINT_INTERVAL;
-        }
-
-        if ( frameCount >= frameLimit )
-        {
-            exitCode    = 0;
-            pStopReason = "frame limit reached";
-            break;
-        }
+        int toolResult = JonesDataLocate_HashData(pHashDataPath);
+        Headless_InputFree();
+        return toolResult;
     }
 
-    // Capture the state before shutdown frees the world.
-    Headless_PrintRunState(frameCount);
-    if ( pStatePath && !Headless_WriteStateFile(pStatePath, frameCount) )
+    int runExitCode = 0;
+    for ( size_t run = 0; run < numRuns; ++run )
     {
-        if ( !exitCode )
+        // Added: every run starts from the same virtual time and the same fresh globals, so a
+        // second run can be compared byte for byte with the first.
+        if ( step )
         {
-            exitCode = 2;
+            stdPlatformNull_UseVirtualClock(0x00100000);
+        }
+
+        Jones3D_ResetAllGlobals();
+
+        // Added: the user directory, when asked for. The reset above restored the working directory.
+        if ( pUserDirPath && !stdUserDir_Set(pUserDirPath) )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: the user directory path is too long (at most %d bytes)!\n",
+                STDUSERDIR_MAXPATH - 1);
+            Headless_InputFree();
+            return 1;
+        }
+
+        if ( numRuns > 1 )
+        {
+            printf("run: %zu of %zu\n", run + 1, numRuns);
+        }
+
+        if ( run == 0 )
+        {
+            printf("clock: %s, step %lu ms\n", step ? "virtual" : "real", step);
+        }
+
+        // Added: --data is the first candidate of the automatic game data search.
+        if ( pDataPath )
+        {
+            JonesDataLocate_SetDataPath(pDataPath);
+        }
+
+        // Indy3D_WinMain: hand the --load path to the Null load-game dialog, which
+        // JonesMain_Startup asks when Jones.cfg is in the load-game start mode.
+        if ( pLoadPath )
+        {
+            JonesPlatformNull_SetLoadPath(pLoadPath);
+        }
+
+        // Added: --capture: hand the file to the game, which opens it in JonesMain_Startup after the
+        // host services exist and closes it in JonesMain_Shutdown before they are torn down.
+        if ( pCapturePath )
+        {
+#ifdef J3D_PLATFORM_BABYLON
+            const char* pCaptureColumn = "babylon";
+#else
+            const char* pCaptureColumn = "null";
+#endif
+            JonesMain_SetCapture(pCapturePath, pCaptureColumn);
+        }
+
+        // Added: every run replays the script from its first event.
+        nextInputEvent = 0;
+
+        // wkernel_Run: the Startup callback (the WinMain.c Startup wrapper's logic).
+        if ( JonesMain_Startup("") )
+        {
+            JonesMain_Shutdown();
+            fprintf(stderr, "ERROR: Jones3D-headless: JonesMain_Startup failed, exiting nonzero!\n");
+            Headless_InputFree();
+            return 1;
+        }
+
+        // wkernel_Run: the main loop until JonesMain_Process() returns -1 (or 1 to finish),
+        // stopped by the frame limit. Frames are counted by the engine's own counter, which
+        // only advances once the game state is reached.
+        int exitCode    = 0;
+        const char* pStopReason = NULL;
+        size_t frameCount       = 0;
+        size_t nextMilestone    = HEADLESS_PRINT_INTERVAL;
+        while ( 1 )
+        {
+            // Added: --input: fire every pending scripted event whose frame is due at the current
+            // engine frame count, in file order, just before the engine processes the frame.
+            Headless_InputFireDue(JonesMain_GetFrameCount());
+
+            int result = JonesMain_Process();
+
+            // Added: fixed time step: the engine clock moves exactly one frame's worth of time per
+            // processed frame, so a run does not depend on the wall clock anymore.
+            if ( step )
+            {
+                stdPlatformNull_AdvanceClock((uint32_t)step);
+            }
+
+            if ( result == -1 )
+            {
+                exitCode    = 1;
+                pStopReason = "JonesMain_Process() returned -1 (engine quit)";
+                break;
+            }
+
+            if ( result == 1 )
+            {
+                exitCode    = 1;
+                pStopReason = "JonesMain_Process() returned 1 (finish requested)";
+                break;
+            }
+
+            if ( result )
+            {
+                // Added: Same answer as wkernel_Run for results it does not handle.
+                fprintf(stdout, "WARNING: Jones3D-headless: Unhandled result code: %d, skipping...\n", result);
+            }
+
+            frameCount = JonesMain_GetFrameCount();
+            while ( frameCount >= nextMilestone )
+            {
+                Headless_PrintRunState(nextMilestone);
+                nextMilestone += HEADLESS_PRINT_INTERVAL;
+            }
+
+            if ( frameCount >= frameLimit )
+            {
+                exitCode    = 0;
+                pStopReason = "frame limit reached";
+                break;
+            }
+        }
+
+        // Capture the state before shutdown frees the world. Only the last run writes --state.
+        Headless_PrintRunState(frameCount);
+        if ( pStatePath && run + 1 == numRuns && !Headless_WriteStateFile(pStatePath, frameCount) )
+        {
+            if ( !exitCode )
+            {
+                exitCode = 2;
+            }
+        }
+
+        // Added: --input: report scripted events that outlived the run.
+        if ( nextInputEvent < numInputEvents )
+        {
+            printf("WARNING: Jones3D-headless: %zu input events never fired\n", numInputEvents - nextInputEvent);
+        }
+
+        JonesMain_Shutdown();
+
+        printf("stopped: %s (frames=%zu)\n", pStopReason ? pStopReason : "unknown reason", frameCount);
+
+        if ( exitCode )
+        {
+            runExitCode = exitCode;
+            break;
         }
     }
 
-    // Added: --input: report scripted events that outlived the run, then release the script.
-    if ( nextInputEvent < numInputEvents )
-    {
-        printf("WARNING: Jones3D-headless: %zu input events never fired\n", numInputEvents - nextInputEvent);
-    }
     Headless_InputFree();
-
-    JonesMain_Shutdown();
-
-    printf("stopped: %s (frames=%zu)\n", pStopReason ? pStopReason : "unknown reason", frameCount);
-    return exitCode;
+    return runExitCode;
 }

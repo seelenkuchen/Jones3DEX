@@ -27,8 +27,10 @@ Each module hides one platform decision and is one CMake static-library target
 pluggable sinks) the second. `files` hides the host file system: file access,
 directory listing, base path and per-user writable path (ADR-0019), with an
 SDL3 backend and an in-memory Null backend. `platform` hides the operating
-system layer: windows and one polled queue of OS events (ADR-0009), with the
-same two backends. `input` has no backend of its own: `InputState` folds the
+system layer: windows, native pickers and one polled queue of OS events
+(ADR-0009), with the same two backends. `process` runs an external program
+without a shell, delivers its combined output as lines and stops it on request,
+with an SDL3 backend and a scripted Null backend. `input` has no backend of its own: `InputState` folds the
 polled events into the state a game reads per frame, and `InputScript` replays
 recorded events so headless runs see exactly what a device would (ADR-0018).
 `cvars` holds named, typed settings with defaults, ranges, flags and change
@@ -46,6 +48,13 @@ one polled event queue. It draws through the `Painter` interface, so the
 module never depends on `render`; `NullPainter` records draw calls for tests,
 and the game's render-backed painter lives in `Jones3D/Platform/Babylon/`
 (M7.9).
+
+`uirender` draws a `ui` screen straight onto a `render::Device` (ADR-0033), for
+a caller that has no game renderer, such as a setup wizard. `RenderPainter`
+batches fills, images and baked font glyphs into one textured, vertex-colored
+pipeline per frame, turns the clip stack into scissor rectangles, and can target
+the swapchain or an offscreen color target. Its shaders are compiled at build
+time, so the module is built only when `BABYLON_BUILD_SHADERS` is on.
 
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`

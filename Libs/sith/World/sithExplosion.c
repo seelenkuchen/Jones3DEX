@@ -25,7 +25,10 @@
 static bool sithExplosion_bExpandFadeSet = false;
 
 void sithExplosion_ResetGlobals(void)
-{}
+{
+    // Added: the expand/fade tracker is per-explosion-run state.
+    sithExplosion_bExpandFadeSet = false;
+}
 
 void J3DAPI sithExplosion_Initialize(SithThing* pThing)
 {

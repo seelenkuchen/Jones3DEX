@@ -36,6 +36,16 @@ namespace babylon::files
         End
     };
 
+    // Whether userPath() creates the directory it reports.
+    enum class CreateMode
+    {
+        // Create the directory and its missing parent directories, so the
+        // caller can write there.
+        Create,
+        // Only report the path; create nothing. The directory may not exist.
+        NoCreate
+    };
+
     // One entry of a directory listing. The name has no directory part.
     struct DirectoryEntry
     {
@@ -145,11 +155,17 @@ namespace babylon::files
         virtual std::string currentPath() = 0;
 
         // A per-user writable directory for this organization and
-        // application, created if missing, ending with '/'. Empty string
-        // and a warning on failure, or if either name is empty, contains
-        // '/' or '\\', is "." or "..", or holds a NUL byte: each name must
-        // be one usable path segment, the same way in every backend.
-        virtual std::string userPath(std::string_view organization, std::string_view application) = 0;
+        // application, ending with '/'. CreateMode::Create makes it if
+        // missing; CreateMode::NoCreate returns the same path without
+        // touching the file system, so the directory may not exist yet.
+        // Empty string and a warning on failure, or if the application name
+        // is empty, either name contains '/' or '\\', is "." or "..", or
+        // holds a NUL byte: the application must be one usable path segment,
+        // and the organization is either empty or one such segment. An empty
+        // organization omits its directory level, the same way in every
+        // backend.
+        virtual std::string userPath(std::string_view organization, std::string_view application,
+            CreateMode create) = 0;
     };
 
 }

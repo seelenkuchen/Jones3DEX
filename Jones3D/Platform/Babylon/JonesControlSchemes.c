@@ -24,6 +24,7 @@
 #include <std/General/stdFileUtil.h>
 #include <std/General/stdFnames.h>
 #include <std/General/stdMemory.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 
 #include <ctype.h>
@@ -38,6 +39,8 @@
 static int jonesConfig_bStartup = 0;
 static int jonesConfig_bPendingDefaultScheme = 0;
 static char jonesConfig_aKeySetsDirPath[JONESCONFIG_KEYSDIRPATH_MAX] = { 0 };
+// Added: where the shipped key sets stay readable when the user directory takes the writes.
+static char jonesConfig_aShippedKeySetsDirPath[JONESCONFIG_KEYSDIRPATH_MAX] = { 0 };
 
 static size_t jonesConfig_maxControlStrLen       = 0u;
 static size_t jonesConfig_maxControlWords        = 0u;
@@ -625,13 +628,14 @@ static const JonesConfigControlAction jonesConfig_aDefaultPadControlSet[JONESCON
 // model: WASD and the arrows move, Left Alt is the quick-step modifier for a held direction,
 // Space jumps, Ctrl and the left mouse button activate and fire, R draws, V and the middle mouse
 // button snap the camera. The step-right row carries the quick-step key, which the Modern binder
-// maps to SITHCONTROL_QUICKSTEP; the step-left row is free, so LB is unbound in this scheme. Its
-// gamepad part is the keyboard-and-gamepad scheme's, with LT still stored as Run so the Modern
-// binder maps it to target lock.
+// maps to SITHCONTROL_QUICKSTEP, and the step-left row carries only LB, which it maps to
+// SITHCONTROL_QUICKWHIP (ADR-0038). Its gamepad part is the keyboard-and-gamepad scheme's, with
+// LT still stored as Run so the Modern binder maps it to target lock.
 static const size_t aActionWalkFwdModernKeys[2]       = { STDKEY_W, STDKEY_UP };
 static const size_t aActionWalkBackModernKeys[2]      = { STDKEY_S, STDKEY_DOWN };
 static const size_t aActionTurnLeftModernKeys[2]      = { STDKEY_A, STDKEY_LEFT };
 static const size_t aActionTurnRightModernKeys[2]     = { STDKEY_D, STDKEY_RIGHT };
+static const size_t aActionStepLeftModernKeys[1]      = { STDCONTROL_JOYSTICK_GETBUTTON(0, 4) };
 static const size_t aActionStepRightModernKeys[2]     = { STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) };
 static const size_t aActionCrawlModernKeys[2]         = { STDKEY_C, STDCONTROL_JOYSTICK_GETBUTTON(0, 8) };
 static const size_t aActionRunModernKeys[2]           = { STDKEY_LSHIFT, JONESCONFIG_JOYAXISKID_GROUND };
@@ -654,7 +658,7 @@ static const JonesConfigControlAction jonesConfig_aDefaultModernControlSet[JONES
     { STD_ARRAYLEN(aActionWalkBackModernKeys)    , aActionWalkBackModernKeys     },
     { STD_ARRAYLEN(aActionTurnLeftModernKeys)    , aActionTurnLeftModernKeys     },
     { STD_ARRAYLEN(aActionTurnRightModernKeys)   , aActionTurnRightModernKeys    },
-    { 0                                          , NULL                          },
+    { STD_ARRAYLEN(aActionStepLeftModernKeys)    , aActionStepLeftModernKeys     },
     { STD_ARRAYLEN(aActionStepRightModernKeys)   , aActionStepRightModernKeys    },
     { STD_ARRAYLEN(aActionCrawlModernKeys)       , aActionCrawlModernKeys        },
     { STD_ARRAYLEN(aActionRunModernKeys)         , aActionRunModernKeys          },
@@ -1274,21 +1278,42 @@ int J3DAPI jonesConfig_InitKeySetsPath(void)
     char aInstallPath[256] = { 0 };
     stdConfig_GetString(SITH_CFG_INSTALLPATH, aInstallPath, STD_ARRAYLEN(aInstallPath), "");
 
+    char aShippedDirPath[JONESCONFIG_KEYSDIRPATH_MAX] = { 0 };
     if ( !aInstallPath[0] )
     {
-        STD_FORMAT(jonesConfig_aKeySetsDirPath, "..\\\\%s", aKeysets);
+        STD_FORMAT(aShippedDirPath, "..\\\\%s", aKeysets);
     }
     else
     {
         size_t len = strlen(aInstallPath);
         if ( aInstallPath[len - 1] == '\\' || aInstallPath[len - 1] == '/' )
         {
-            STD_FORMAT(jonesConfig_aKeySetsDirPath, "%s%s", aInstallPath, aKeysets);
+            STD_FORMAT(aShippedDirPath, "%s%s", aInstallPath, aKeysets);
         }
         else
         {
-            STD_FORMAT(jonesConfig_aKeySetsDirPath, "%s\\%s", aInstallPath, aKeysets);
+            STD_FORMAT(aShippedDirPath, "%s\\%s", aInstallPath, aKeysets);
         }
+    }
+
+    // Added: user-made key sets go to <user dir>/KeySets; the shipped directory stays readable.
+    if ( stdUserDir_GetPath()[0] != '\0' )
+    {
+        stdUtil_StringCopy(jonesConfig_aShippedKeySetsDirPath,
+            STD_ARRAYLEN(jonesConfig_aShippedKeySetsDirPath), aShippedDirPath);
+
+        if ( !stdUserDir_MakePath(jonesConfig_aKeySetsDirPath,
+                STD_ARRAYLEN(jonesConfig_aKeySetsDirPath), "KeySets") )
+        {
+            STDLOG_ERROR("Control scheme: the user directory path is too long for KeySets.\n");
+            jonesConfig_aKeySetsDirPath[0] = '\0';
+        }
+    }
+    else
+    {
+        stdUtil_StringCopy(jonesConfig_aKeySetsDirPath,
+            STD_ARRAYLEN(jonesConfig_aKeySetsDirPath), aShippedDirPath);
+        jonesConfig_aShippedKeySetsDirPath[0] = '\0';
     }
 
     return 1;
@@ -1986,9 +2011,15 @@ int J3DAPI JonesControlSchemes_SaveScheme(const JonesControlsScheme* pScheme)
 
 // --- Active scheme and binding ----------------------------------------------------------------
 
+static void JonesControlSchemes_MakeSchemePathInDir(const char* pDir, const char* pName,
+    char* pDst, size_t dstSize)
+{
+    stdUtil_Format(pDst, dstSize, "%s\\%s%s", pDir, pName, JONESCONFIG_KFG_EXT);
+}
+
 static void JonesControlSchemes_MakeSchemePath(const char* pName, char* pDst, size_t dstSize)
 {
-    stdUtil_Format(pDst, dstSize, "%s\\%s%s", jonesConfig_aKeySetsDirPath, pName, JONESCONFIG_KFG_EXT);
+    JonesControlSchemes_MakeSchemePathInDir(jonesConfig_aKeySetsDirPath, pName, pDst, dstSize);
 }
 
 JonesControlsScheme* J3DAPI jonesConfig_LoadActiveControlScheme(void)
@@ -2013,6 +2044,18 @@ JonesControlsScheme* J3DAPI jonesConfig_LoadActiveControlScheme(void)
         if ( jonesConfig_LoadControlScheme(aFilePath, pScheme) )
         {
             return pScheme;
+        }
+
+        // Added: a shipped key set keeps loading from its original directory when the user actually
+        // has not copied or re-saved it into the user directory.
+        if ( jonesConfig_aShippedKeySetsDirPath[0] )
+        {
+            JonesControlSchemes_MakeSchemePathInDir(jonesConfig_aShippedKeySetsDirPath, aFilename,
+                aFilePath, STD_ARRAYLEN(aFilePath));
+            if ( jonesConfig_LoadControlScheme(aFilePath, pScheme) )
+            {
+                return pScheme;
+            }
         }
 
         // A scheme name that matches a built-in default is re-created from the built-in data.
@@ -2208,18 +2251,21 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
         return;
     }
 
-    int bMouse = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: the same Enhanced first-run default as JonesControl_Startup reads. An existing
+    // Jones.cfg value wins, even the original off value.
+    int bMouse = stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_MOUSE)
+        ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
+        : J3D_QOL_VALUE(true, false);
 
-    // Added: in Modern the scheme's step rows become quick-step modifiers, so the old held
-    // sidestep bindings never survive a rebind. The two rows share SITHCONTROL_QUICKSTEP, so it
-    // is unbound once here instead of before each row.
-    bool bModern = sithControl_IsModernControlStyle();
-    if ( bModern )
-    {
-        sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
-        sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
-    }
+    // Added: the styles are per device. A scheme's step rows become quick-step modifiers in the
+    // Enhanced keyboard styles and on a Modern gamepad, and stay held sidesteps on a Classic one, so
+    // both real step functions, the shared modifier and the quick whip are unbound once here; each
+    // control is then bound by its device's style.
+    const bool bGamepadModern = sithControl_IsModernGamepadStyle();
+    sithControl_UnbindFunction(SITHCONTROL_STPLEFT);
+    sithControl_UnbindFunction(SITHCONTROL_STPRIGHT);
     sithControl_UnbindFunction(SITHCONTROL_QUICKSTEP);
+    sithControl_UnbindFunction(SITHCONTROL_QUICKWHIP);
 
     // Altered: enable/disable the mouse before the action loop, not after it. sithControl_RebindMouse
     // removes every mouse-button binding, so the original order dropped a scheme's mouse bindings.
@@ -2379,14 +2425,13 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
 
             if ( functionId != (SithControlFunction)-1 )
             {
-                // Added: Modern turns both scheme step rows into quick-step modifiers. The
-                // physical controls keep their row, but a held direction now combines with the
-                // modifier instead of stepping on a held key. Classic keeps the original rows.
-                bool bQuickStep = bModern
-                    && (functionId == SITHCONTROL_STPLEFT || functionId == SITHCONTROL_STPRIGHT);
-                SithControlFunction bindFunction = bQuickStep ? SITHCONTROL_QUICKSTEP : functionId;
+                // Added: a step row changes meaning per device. A Classic keyboard keeps the held
+                // sidestep; a Modern keyboard turns the row into the quick-step modifier. The same
+                // split applies to the gamepad. Both functions were unbound above.
+                const bool bStepRow = functionId == SITHCONTROL_STPLEFT
+                    || functionId == SITHCONTROL_STPRIGHT;
 
-                if ( !bQuickStep )
+                if ( !bStepRow )
                 {
                     sithControl_UnbindFunction(functionId);
                     if ( functionId == SITHCONTROL_FORWARD )
@@ -2398,25 +2443,36 @@ void J3DAPI jonesConfig_BindControls(JonesControlsScheme* pConfig)
                 for ( size_t i = 1; i <= JONESCONTROL_ACTION_GETNUMBINDS(pConfig->aActions[actionId]); ++i )
                 {
                     size_t controlId = pConfig->aActions[actionId][i];
+                    const bool bKeyboardControl = JonesControlSchemes_IsKeyboardControl(controlId)
+                        || JonesControlSchemes_IsMouseButton(controlId);
 
-                    // Added: in Modern the left trigger locks a target; Run comes from the stick
-                    // magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind time.
-                    // Classic keeps the same scheme data and LT stays Run.
-                    SithControlFunction bindFunctionId = bindFunction;
-                    if ( sithControl_IsModernControlStyle()
+                    SithControlFunction bindFunctionId = functionId;
+                    if ( bStepRow )
+                    {
+                        // Added: the keyboard keeps the pre-option quick-step rows in every
+                        // Enhanced style, so "Classic" is exactly today's keyboard behaviour. The
+                        // gamepad follows its own style: RB (the step-right row) is the quick-step
+                        // modifier, and LB (the step-left row) is the quick whip key. A Classic
+                        // gamepad keeps both rows as held sidesteps.
+                        const bool bQuickStep = bKeyboardControl
+                            ? sithControl_IsModernMovementEnabled() : bGamepadModern;
+                        if ( bQuickStep )
+                        {
+                            // Added: the .kfg format keeps 37 actions, so the unused Modern
+                            // step-left gamepad control carries quick whip (ADR-0038).
+                            bindFunctionId = (functionId == SITHCONTROL_STPLEFT && !bKeyboardControl)
+                                ? SITHCONTROL_QUICKWHIP : SITHCONTROL_QUICKSTEP;
+                        }
+                    }
+
+                    // Added: in Modern the gamepad left trigger locks a target; Run comes from the
+                    // stick magnitude, so the scheme's LT-as-Run binding becomes TARGETLOCK at bind
+                    // time. Classic keeps the same scheme data and LT stays Run.
+                    if ( bGamepadModern
                         && bindFunctionId == SITHCONTROL_ACT1
                         && controlId == JONESCONFIG_JOYAXISKID_GROUND )
                     {
                         bindFunctionId = SITHCONTROL_TARGETLOCK;
-                    }
-
-                    // Added: the owner reserves LB for a weapon wheel, so in Modern a step-left row's
-                    // gamepad controls are not bound; RB (the step-right row) is the quick-step modifier.
-                    if ( bQuickStep && functionId == SITHCONTROL_STPLEFT
-                        && !JonesControlSchemes_IsKeyboardControl(controlId)
-                        && !JonesControlSchemes_IsMouseButton(controlId) )
-                    {
-                        continue;
                     }
 
                     if ( JonesControlSchemes_IsKeyboardControl(controlId) )
@@ -2475,23 +2531,18 @@ int J3DAPI jonesConfig_ControlOptions_SetAllDefaultControlSchemes(JonesControlsC
     return 1;
 }
 
-int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig* pConfig)
+static void JonesControlSchemes_LoadSchemesFromDirectory(JonesControlsConfig* pConfig,
+    const char* pDirectory, int bSkipExisting)
 {
-    if ( !pConfig )
+    if ( !pDirectory[0] )
     {
-        return 0;
+        return;
     }
 
-    JonesControlSchemes_EnsureTables();
-    if ( !jonesConfig_aKeySetsDirPath[0] )
-    {
-        return 1;
-    }
-
-    FindFileData* pFind = stdFileUtil_NewFind(jonesConfig_aKeySetsDirPath, 3, "kfg");
+    FindFileData* pFind = stdFileUtil_NewFind(pDirectory, 3, "kfg");
     if ( !pFind )
     {
-        return 1;
+        return;
     }
 
     tFoundFileInfo fileInfo;
@@ -2504,6 +2555,35 @@ int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig*
 
         size_t nameLen = strlen(fileInfo.aName);
         if ( nameLen < 4 || !strneqi(fileInfo.aName + nameLen - 4, JONESCONFIG_KFG_EXT, 4) )
+        {
+            continue;
+        }
+
+        char aStem[128] = { 0 };
+        const size_t stemLen = nameLen - 4u;
+        if ( stemLen >= sizeof(aStem) )
+        {
+            continue;
+        }
+
+        memcpy(aStem, fileInfo.aName, stemLen);
+        aStem[stemLen] = '\0';
+
+        // Added: a user file wins over the shipped file of the same name.
+        int bExists = 0;
+        if ( bSkipExisting )
+        {
+            for ( size_t i = 0; i < pConfig->numSchemes; ++i )
+            {
+                if ( streqi(pConfig->aSchemes[i].aName, aStem) )
+                {
+                    bExists = 1;
+                    break;
+                }
+            }
+        }
+
+        if ( bExists )
         {
             continue;
         }
@@ -2522,7 +2602,7 @@ int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig*
         }
 
         char aPath[JONESCONFIG_KEYSDIRPATH_MAX + 160] = { 0 };
-        STD_FORMAT(aPath, "%s\\%s", jonesConfig_aKeySetsDirPath, fileInfo.aName);
+        STD_FORMAT(aPath, "%s\\%s", pDirectory, fileInfo.aName);
         if ( jonesConfig_LoadControlScheme(aPath, &pConfig->aSchemes[pConfig->numSchemes]) )
         {
             ++pConfig->numSchemes;
@@ -2534,6 +2614,20 @@ int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig*
     }
 
     stdFileUtil_DisposeFind(pFind);
+}
+
+int J3DAPI jonesConfig_ControlOptions_LoadAllControlSchemes(JonesControlsConfig* pConfig)
+{
+    if ( !pConfig )
+    {
+        return 0;
+    }
+
+    JonesControlSchemes_EnsureTables();
+
+    // Added: user key sets first, then the shipped ones they do not shadow.
+    JonesControlSchemes_LoadSchemesFromDirectory(pConfig, jonesConfig_aKeySetsDirPath, 0);
+    JonesControlSchemes_LoadSchemesFromDirectory(pConfig, jonesConfig_aShippedKeySetsDirPath, 1);
     return 1;
 }
 
@@ -2695,6 +2789,7 @@ void jonesConfig_Shutdown(void)
     }
 
     memset(jonesConfig_aKeySetsDirPath, 0, sizeof(jonesConfig_aKeySetsDirPath));
+    memset(jonesConfig_aShippedKeySetsDirPath, 0, sizeof(jonesConfig_aShippedKeySetsDirPath));
     jonesConfig_bKeyActionsInited = 0;
     jonesConfig_bStartup = 0;
     jonesConfig_bPendingDefaultScheme = 0;

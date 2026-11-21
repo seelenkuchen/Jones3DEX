@@ -29,7 +29,13 @@ int J3DAPI sithSoundMixer_GetThingID(int idx);
 int J3DAPI sithSoundMixer_GetThingIndex(int thingID);
 
 void sithSoundMixer_ResetGlobals(void)
-{}
+{
+    // Added: channel ids and the ambient sector must be the same in a second run.
+    sithSoundMixer_bStartup            = false;
+    sithSoundMixer_channelGUIDSeed     = 0;
+    sithSoundMixer_pCurSector          = NULL;
+    sithSoundMixer_hCurAmbientChannel  = SOUND_INVALIDHANDLE;
+}
 
 int sithSoundMixer_Startup(void)
 {

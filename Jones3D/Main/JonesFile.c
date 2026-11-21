@@ -30,7 +30,7 @@ tHostServices* JonesFile_pSysEnv;
 
 JonesResource JonesFile_aResources[4] = { 0 }; // Changed: Expand array for resource path; Added: Init to 0
 
-char JonesFile_aPathBuf[128]; // Fixed: increased buffer size to 128, was 48
+char JonesFile_aPathBuf[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard), was 128
 JonesFileHandle JonesFile_aFileHandles[JF_MAX_HANDLES];
 
 void JonesFile_InitServices(void);
@@ -147,7 +147,7 @@ void JonesFile_Close(void)
 
 int JonesFile_GetCurrentCDNum(void)
 {
-    char aPath[128];
+    char aPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
     stdFnames_MakePath(aPath, sizeof(aPath), JonesFile_aResources[JF_RES_CD].aPath, "CD1.GOB");
     if ( std_g_pHS->pFileSize(aPath) )
     {
@@ -177,6 +177,14 @@ int J3DAPI JonesFile_FileExists(const char* pFilename)
 
 void J3DAPI JonesFile_SetInstallPath(const char* pPath)
 {
+    // Altered: room for long data paths (M8 wizard). Refuse a path whose Resource folder and the
+    // file names below it would not fit rather than storing a truncated one.
+    if ( strlen(pPath) + sizeof("\\Resource") + 32 > sizeof(JonesFile_aPathBuf) )
+    {
+        STDLOG_ERROR("The game data path is too long.\n");
+        return;
+    }
+
     JonesFile_CloseResource(&JonesFile_aResources[JF_RES_RESOURCE]); // Added
     JonesFile_CloseResource(&JonesFile_aResources[JF_RES_INSTALL]);
     if ( *pPath )
@@ -209,7 +217,14 @@ void J3DAPI JonesFile_SetCDPath(const char* pPath)
     JonesFile_CloseResource(&JonesFile_aResources[JF_RES_CD]);
     if ( *pPath )
     {
-        char aPath[128];
+        char aPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
+        // Altered: room for long data paths (M8 wizard). Refuse a path whose files would not fit.
+        if ( strlen(pPath) + sizeof("resource") + 32 > sizeof(aPath) )
+        {
+            STDLOG_ERROR("The CD path is too long.\n");
+            return;
+        }
+
         STD_FORMAT(aPath, "%sresource", pPath);
         JonesFile_OpenResource(&JonesFile_aResources[JF_RES_CD], aPath);
     }
@@ -263,6 +278,14 @@ void JonesFile_ResetServices(void)
 
 void J3DAPI JonesFile_OpenResource(JonesResource* pRsource, const char* pPath)
 {
+    // Altered: room for long data paths (M8 wizard). Refuse a path that does not fit rather than
+    // storing a truncated one.
+    if ( strlen(pPath) >= sizeof(pRsource->aPath) )
+    {
+        STDLOG_ERROR("Resource path is too long: '%s'.\n", pPath);
+        return;
+    }
+
     STD_STRCPY(pRsource->aPath, pPath);
     JonesFile_ResetServices();
 
@@ -282,11 +305,23 @@ void J3DAPI JonesFile_OpenResource(JonesResource* pRsource, const char* pPath)
                 break;
             }
 
-            stdFnames_MakePath(JonesFile_aPathBuf, sizeof(JonesFile_aPathBuf), pPath, fileInfo.aName);
-            pRsource->aGobFiles[pRsource->numGobFiles] = stdGob_Load(JonesFile_aPathBuf, /*numFileHandles*/16, /*bMapFile*/0); // TODO: After file mapping is fixed in stdGob enable file mapping here
+            // Fixed: a local path keeps the base directory intact; JonesFile_aPathBuf was also the
+            // global JonesFile_SetInstallPath passed through here, so the next GOB was looked up
+            // under the previous GOB's file name.
+            char aGobPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
+            // Altered: room for long data paths (M8 wizard). Refuse a join that does not fit
+            // rather than looking up a truncated path.
+            if ( strlen(pRsource->aPath) + strlen(fileInfo.aName) + 2 > sizeof(aGobPath) )
+            {
+                STDLOG_ERROR("Error opening gob '%s': path too long.\n", fileInfo.aName);
+                break;
+            }
+
+            stdFnames_MakePath(aGobPath, sizeof(aGobPath), pRsource->aPath, fileInfo.aName);
+            pRsource->aGobFiles[pRsource->numGobFiles] = stdGob_Load(aGobPath, /*numFileHandles*/16, /*bMapFile*/0); // TODO: After file mapping is fixed in stdGob enable file mapping here
             if ( !pRsource->aGobFiles[pRsource->numGobFiles] )
             {
-                STDLOG_ERROR("Error opening gob '%s'.\n", JonesFile_aPathBuf);
+                STDLOG_ERROR("Error opening gob '%s'.\n", aGobPath);
                 break;
             }
 
@@ -346,15 +381,24 @@ tFileHandle J3DAPI JonesFile_OpenFile(const char* pFilename, const char* mode)
             {
                 if ( pCurRes != &JonesFile_aResources[JF_RES_CD] )// If not CD resource
                 {
-                    stdFnames_MakePath(JonesFile_aPathBuf, sizeof(JonesFile_aPathBuf), pCurRes->aPath, pFilename);
-                    fh = JonesFile_pHS->pFileOpen(JonesFile_aPathBuf, mode);
-                    if ( fh )
+                    // Altered: room for long data paths (M8 wizard). Refuse a join that does not
+                    // fit rather than opening a truncated path.
+                    if ( strlen(pCurRes->aPath) + strlen(pFilename) + 2 > sizeof(JonesFile_aPathBuf) )
                     {
-                        bFileFound = true;
-                        JonesFile_aFileHandles[handle].bFileHandle = 1;
-                        JonesFile_aFileHandles[handle].hFile       = fh;
-                        JonesFile_aFileHandles[handle].bUsed       = 1;
-                        STD_STRCPY(JonesFile_aFileHandles[handle].aName, JonesFile_aPathBuf);
+                        STDLOG_WARNING("Data path too long for '%s'.\n", pFilename);
+                    }
+                    else
+                    {
+                        stdFnames_MakePath(JonesFile_aPathBuf, sizeof(JonesFile_aPathBuf), pCurRes->aPath, pFilename);
+                        fh = JonesFile_pHS->pFileOpen(JonesFile_aPathBuf, mode);
+                        if ( fh )
+                        {
+                            bFileFound = true;
+                            JonesFile_aFileHandles[handle].bFileHandle = 1;
+                            JonesFile_aFileHandles[handle].hFile       = fh;
+                            JonesFile_aFileHandles[handle].bUsed       = 1;
+                            STD_STRCPY(JonesFile_aFileHandles[handle].aName, JonesFile_aPathBuf);
+                        }
                     }
                 }
 

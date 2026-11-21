@@ -5,6 +5,7 @@
 
 #include <babylon/platform/SdlPlatform.h>
 
+#include "../../src/FileFilter.h"
 #include "SdlEventTranslation.h"
 
 #include <babylon/log/Log.h>
@@ -13,6 +14,7 @@
 #include <babylon/platform/Platform.h>
 #include <babylon/platform/Window.h>
 
+#include <SDL3/SDL_dialog.h>
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_gamepad.h>
@@ -20,16 +22,23 @@
 #include <SDL3/SDL_keyboard.h>
 #include <SDL3/SDL_messagebox.h>
 #include <SDL3/SDL_mouse.h>
+#include <SDL3/SDL_properties.h>
+#include <SDL3/SDL_timer.h>
 #include <SDL3/SDL_video.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace babylon::platform
 {
@@ -102,6 +111,159 @@ namespace
         return true;
     }
 
+    // '/' is the separator of the interface and SDL hands back native paths;
+    // the bytes are already UTF-8 on every platform SDL supports, so only the
+    // separator differs.
+    std::string fromNativePath(std::string_view nativePath)
+    {
+        std::string path(nativePath);
+        std::replace(path.begin(), path.end(), '\\', '/');
+        return path;
+    }
+
+    std::string toNativePath(std::string_view path)
+    {
+        std::string native(path);
+#ifdef _WIN32
+        std::replace(native.begin(), native.end(), '/', '\\');
+#endif
+        return native;
+    }
+
+    // SDL_ShowFileDialogWithProperties calls back from the same or another
+    // thread, so chooseFolder() and chooseFile() wait on this state under a
+    // mutex. They never return before the callback recorded an answer, so the
+    // state outlives the callback.
+    struct PathDialogState
+    {
+        std::mutex mutex;
+        bool done = false;
+        bool error = false;
+        bool cancelled = false;
+        std::string path;
+        std::string errorText;
+    };
+
+    void SDLCALL pathDialogCallback(void* userdata, const char* const* filelist,
+        int /*filter*/)
+    {
+        PathDialogState& state = *static_cast<PathDialogState*>(userdata);
+        const std::lock_guard<std::mutex> lock(state.mutex);
+        state.done = true;
+        if ( filelist == nullptr )
+        {
+            // SDL_GetError() belongs to the calling thread, so the reason is
+            // captured here rather than after the wait.
+            state.error = true;
+            state.errorText = SDL_GetError();
+        }
+        else if ( filelist[0] == nullptr )
+        {
+            state.cancelled = true;   // the user dismissed the picker
+        }
+        else
+        {
+            state.path = filelist[0];
+        }
+    }
+
+    // Shows a native open dialog of the given type and waits for the answer.
+    // kind names the picker in warnings ("folder" or "file"). The filter
+    // names, patterns and SDL filter array live here until the callback has
+    // recorded its answer, because SDL reads them until then.
+    PathChoice showPathDialog(SDL_FileDialogType type, std::string_view kind,
+        std::string_view title, std::string_view defaultLocation,
+        std::span<const FileFilter> filters)
+    {
+        const std::string aTitle(title);
+        const std::string nativeDefault = toNativePath(defaultLocation);
+
+        std::vector<std::string> filterNames;
+        std::vector<std::string> filterPatterns;
+        std::vector<SDL_DialogFileFilter> sdlFilters;
+        filterNames.reserve(filters.size());
+        filterPatterns.reserve(filters.size());
+        sdlFilters.reserve(filters.size());
+        for ( const FileFilter& filter : filters )
+        {
+            if ( !detail::isValidFileFilterPattern(filter.pattern) )
+            {
+                log::warning("platform: could not show the {} picker '{}': "
+                    "the filter '{}' has the invalid pattern '{}'", kind, aTitle,
+                    filter.name, filter.pattern);
+                return {};
+            }
+            filterNames.push_back(filter.name);
+            filterPatterns.push_back(filter.pattern);
+        }
+        for ( std::size_t i = 0; i < filterNames.size(); ++i )
+        {
+            sdlFilters.push_back(
+                SDL_DialogFileFilter{ filterNames[i].c_str(), filterPatterns[i].c_str() });
+        }
+
+        PathDialogState state;
+
+        // The dialog is launched with properties because the folder helper has
+        // no title and both pickers share the filter and location handling.
+        // Like SDL's own wrappers, the properties may be destroyed as soon as
+        // the call returns: the backend reads them before it starts the
+        // asynchronous dialog.
+        const SDL_PropertiesID props = SDL_CreateProperties();
+        if ( props == 0 )
+        {
+            log::warning("platform: could not show the {} picker '{}': {}",
+                kind, aTitle, SDL_GetError());
+            return {};
+        }
+        SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING, aTitle.c_str());
+        if ( !nativeDefault.empty() )
+        {
+            SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_LOCATION_STRING,
+                nativeDefault.c_str());
+        }
+        SDL_SetBooleanProperty(props, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
+        if ( !sdlFilters.empty() )
+        {
+            SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER,
+                sdlFilters.data());
+            SDL_SetNumberProperty(props, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER,
+                static_cast<Sint64>(sdlFilters.size()));
+        }
+        SDL_ShowFileDialogWithProperties(type, pathDialogCallback, &state, props);
+        SDL_DestroyProperties(props);
+
+        // SDL_PumpEvents() leaves the events it collects in SDL's queue, so
+        // none are lost while the modal picker is up; the picker then does not
+        // need a second queue of its own. SDL_WaitEventTimeout() would remove
+        // an event, so the wait is a short sleep instead.
+        for ( ; ; )
+        {
+            {
+                const std::lock_guard<std::mutex> lock(state.mutex);
+                if ( state.done )
+                {
+                    break;
+                }
+            }
+            SDL_PumpEvents();
+            SDL_Delay(10);
+        }
+
+        const std::lock_guard<std::mutex> lock(state.mutex);
+        if ( state.error )
+        {
+            log::warning("platform: could not show the {} picker '{}': {}",
+                kind, aTitle, state.errorText);
+            return {};
+        }
+        if ( state.cancelled )
+        {
+            return PathChoice{ PathChoiceResult::Cancelled, {} };
+        }
+        return PathChoice{ PathChoiceResult::Chosen, fromNativePath(state.path) };
+    }
+
     // One window SDL created. SDL_Window* is owned here and destroyed with
     // this object, which must happen before the SdlPlatform quits the video
     // subsystem.
@@ -151,6 +313,21 @@ namespace
                 log::warning("platform: reading the window size failed: {}", SDL_GetError());
             }
             return Size{width, height};
+        }
+
+        // Since no fullscreen mode is set on the window, this is the display's
+        // current desktop mode, the size setFullscreen(true) covers. A driver
+        // with no display reports {0, 0}, like the Null backend.
+        Size desktopSize() const override
+        {
+            const SDL_DisplayID display = SDL_GetDisplayForWindow(m_window);
+            const SDL_DisplayMode* pMode = display != 0
+                ? SDL_GetDesktopDisplayMode(display) : nullptr;
+            if ( pMode == nullptr || pMode->w <= 0 || pMode->h <= 0 )
+            {
+                return Size{0, 0};
+            }
+            return Size{pMode->w, pMode->h};
         }
 
         // With no fullscreen mode set, SDL_SetWindowFullscreen's bool overload
@@ -352,6 +529,83 @@ namespace
                 return false;
             }
             return true;
+        }
+
+        std::optional<std::size_t> askChoice(std::string_view title,
+            std::string_view text, std::span<const std::string_view> buttons) override
+        {
+            // The view's own strings are copied: SDL wants NUL-terminated
+            // text and reads the button array until the box closes.
+            const std::string aTitle(title);
+            const std::string aText(text);
+            if ( buttons.empty() || buttons.size() > kMaxChoiceButtons )
+            {
+                log::warning("platform: could not show the choice box '{}': {}; "
+                    "there are {} buttons, but 1 to {} are allowed",
+                    aTitle, aText, buttons.size(), kMaxChoiceButtons);
+                return std::nullopt;
+            }
+
+            std::vector<std::string> labels;
+            labels.reserve(buttons.size());
+            for ( const std::string_view button : buttons )
+            {
+                labels.emplace_back(button);
+            }
+            std::vector<SDL_MessageBoxButtonData> data;
+            data.reserve(labels.size());
+            for ( std::size_t i = 0; i < labels.size(); ++i )
+            {
+                SDL_MessageBoxButtonFlags flags = 0;
+                if ( i == 0 )
+                {
+                    flags |= SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT;
+                }
+                if ( i + 1 == labels.size() )
+                {
+                    // Escape and closing the box choose the last button, as
+                    // the interface promises; that makes it the cancel choice.
+                    flags |= SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT;
+                }
+                data.push_back(SDL_MessageBoxButtonData{
+                    flags, static_cast<int>(i), labels[i].c_str() });
+            }
+
+            const SDL_MessageBoxData box{ SDL_MESSAGEBOX_INFORMATION, nullptr,
+                aTitle.c_str(), aText.c_str(), static_cast<int>(data.size()),
+                data.data(), nullptr };
+            int buttonId = -1;
+            if ( !SDL_ShowMessageBox(&box, &buttonId) )
+            {
+                log::warning("platform: could not show the choice box '{}': {}: {}",
+                    aTitle, aText, SDL_GetError());
+                return std::nullopt;
+            }
+            // A box that was closed without a button (a window manager may
+            // report no id at all) is the cancel choice, the last button.
+            if ( buttonId < 0 || static_cast<std::size_t>(buttonId) >= data.size() )
+            {
+                return data.size() - 1;
+            }
+            return static_cast<std::size_t>(buttonId);
+        }
+
+        PathChoice chooseFolder(std::string_view title,
+            std::string_view defaultLocation) override
+        {
+            // Native dialogs need no window; createSdlPlatform() already
+            // initialized SDL_INIT_VIDEO, which their backends and SDL's event
+            // queue use, so this works before createWindow().
+            return showPathDialog(SDL_FILEDIALOG_OPENFOLDER, "folder", title,
+                defaultLocation, std::span<const FileFilter>{});
+        }
+
+        PathChoice chooseFile(std::string_view title,
+            std::string_view defaultLocation,
+            std::span<const FileFilter> filters) override
+        {
+            return showPathDialog(SDL_FILEDIALOG_OPENFILE, "file", title,
+                defaultLocation, filters);
         }
 
         bool rumbleGamepad(GamepadId gamepad, float lowFrequency,

@@ -6,6 +6,8 @@
 
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
+#include <Jones3D/Main/JonesData.h>
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesFile.h>
 #include <Jones3D/Main/JonesLevel.h>
 #include <Jones3D/Main/jonesString.h>
@@ -52,6 +54,7 @@
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdPlatformSys.h>
 #include <std/General/stdUtil.h>
 #include <std/General/std3D.h>
@@ -91,6 +94,7 @@ static size_t JonesMain_curLevelNum;
 
 static tHostServices JonesMain_hs = { 0 }; // Added: Init to 0
 static JonesState JonesMain_state = { 0 }; // Added: Init to 0
+static const char* JonesMain_pDataRelease = NULL; // Added: release named by the startup data check
 
 static bool JonesMain_bRefreshDisplayDevice = false; // Added: Init to false
 static bool JonesMain_bVideoModeError       = false; // Added: Init to false
@@ -173,6 +177,52 @@ void JonesMain_ResetGlobals(void)
     char JonesMain_g_aErrorBuffer_tmp[1024] = "Unknown error";
     memcpy(&JonesMain_g_aErrorBuffer, &JonesMain_g_aErrorBuffer_tmp, sizeof(JonesMain_g_aErrorBuffer));
     memset(&JonesMain_g_mainMutex, 0, sizeof(JonesMain_g_mainMutex));
+    JonesMain_pDataRelease = NULL;
+
+    // Added: the run's own state must start over in a second in-process run. The capture request
+    // stays set on purpose; JonesBabylon_Run and the headless runner apply it per run.
+    JonesMain_bStartup          = false;
+    JonesMain_pfCurProcess      = NULL;
+    JonesMain_pfProcess         = NULL;
+    JonesMain_curLevelNum       = 0;
+    JonesMain_bRefreshDisplayDevice = false;
+    JonesMain_bVideoModeError   = false;
+    JonesMain_pDisplayEnv       = NULL;
+    JonesMain_pStartupDisplayEnv = NULL;
+    JonesMain_pLogFile          = NULL;
+    JonesMain_bGamePaused       = false;
+    JonesMain_bAssertTriggered  = false;
+    JonesMain_bAppActivated     = false;
+    JonesMain_bSystemSuspended  = false;
+    JonesMain_bPrintFramerate   = false;
+    JonesMain_frameRate         = 0.0f;
+    JonesMain_frameCount        = 0;
+    JonesMain_prevFrameCount    = 0;
+    JonesMain_frameTime         = 0;
+    JonesMain_prevFrameTime     = 0;
+    JonesMain_bPrintQuickSave   = false;
+    JonesMain_curGamesaveState  = 0;
+    JonesMain_bMenuToggled      = false;
+    JonesMain_bPauseMenuToggled = false;
+    JonesMain_bEndCredits       = false;
+    JonesMain_hSndCredits       = 0;
+    JonesMain_hCreditsMusic     = 0;
+    JonesMain_bSkipIntro        = false;
+    JonesMain_introVideoMode    = 0;
+    JonesMain_bNoProcessWndEvents = false;
+
+    STD_ZEROMEM(&JonesMain_hs, sizeof(JonesMain_hs));
+    STD_ZEROMEM(&JonesMain_state, sizeof(JonesMain_state));
+    STD_ZEROMEM(&JonesMain_curVideoMode, sizeof(JonesMain_curVideoMode));
+    STD_ZEROMEM(&JonesMain_circBuf, sizeof(JonesMain_circBuf));
+    STD_ZEROMEM(JonesMain_aNdsFilename, sizeof(JonesMain_aNdsFilename));
+    STD_ZEROMEM(JonesMain_aToggleMenuKeyIds, sizeof(JonesMain_aToggleMenuKeyIds));
+}
+
+// Added: where Jones.cfg lives (ADR-0019). "" user directory keeps the original relative path.
+bool J3DAPI JonesMain_GetConfigFilePath(char* pOut, size_t outSize)
+{
+    return stdUserDir_MakePath(pOut, outSize, "Jones.cfg");
 }
 
 // Added: only remembers the strings; the capture opens in JonesMain_Startup once the host services
@@ -233,7 +283,24 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // Added: Register the registry-based fallback reader so stdConfig no longer depends on w32util directly.
     const StdConfigFallback fallback = { wuRegistry_HasStarted, wuRegistry_GetInt, wuRegistry_GetFloat, wuRegistry_GetStr };
     stdConfig_SetFallback(&fallback);
-    if ( !stdConfig_Startup("Jones.cfg") )
+
+    // Added: Jones.cfg lives in the user directory; the old one in the working directory is copied
+    // there once, before the config opens, so settings survive the move (ADR-0019).
+    char aConfigPath[STDUSERDIR_MAXPATH] = { 0 };
+    if ( !JonesMain_GetConfigFilePath(aConfigPath, sizeof(aConfigPath)) )
+    {
+        JonesMain_LogErrorToFile("The user directory path is too long for Jones.cfg.");
+        JonesMain_CloseWindow();
+        return 1;
+    }
+
+    if ( stdUserDir_GetPath()[0] != '\0'
+        && stdUserDir_CopyFileIfMissing("Jones.cfg", "Jones.cfg") )
+    {
+        STDLOG_STATUS("user dir: copied the legacy Jones.cfg to '%s'\n", aConfigPath);
+    }
+
+    if ( !stdConfig_Startup(aConfigPath) )
     {
         JonesMain_LogErrorToFile("Couldn't open the config file.");
         JonesMain_CloseWindow();
@@ -244,6 +311,41 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     stdConfig_GetString(JONESCONFIG_CFG_SOURCEPATH, JonesMain_state.aCDPath, STD_ARRAYLEN(JonesMain_state.aCDPath), "");
 
     std3D_SetFindAllDevices(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_ALLDEVICES, false));
+
+    // Added: find the player's game data before JonesFile opens the archives (ADR-0021, M8.4).
+    // installPath from Jones.cfg is one of the candidates; the found folder becomes this run's
+    // install path. Only a folder chosen in the folder picker is written back to Jones.cfg.
+    JonesDataLocateResult locateResult;
+    if ( !JonesDataLocate_Startup(JonesMain_state.aInstallPath, &locateResult) )
+    {
+        JonesMain_CloseWindow();
+        return 1;
+    }
+
+    // Altered: room for long data paths (M8 wizard). The installed data lives in a Resource
+    // subfolder, so the install path must leave room for that join and the file name below it.
+    if ( strlen(locateResult.aInstallPath) + sizeof("\\Resource") + 32 > sizeof(JonesMain_state.aInstallPath) )
+    {
+        JonesMain_LogErrorToFile("The game data path is too long.");
+        JonesMain_CloseWindow();
+        return 1;
+    }
+
+    STD_STRCPY(JonesMain_state.aInstallPath, locateResult.aInstallPath);
+
+    // Added: check the data now that it is known (ADR-0021). An unknown release is a warning and
+    // the game continues; a known release is logged by name.
+    char aDataCheckPath[STDUSERDIR_MAXPATH + 32] = { 0 };
+    if ( !stdUserDir_MakePath(aDataCheckPath, sizeof(aDataCheckPath), "datacheck.txt") )
+    {
+        aDataCheckPath[0] = '\0';
+    }
+
+    STDLOG_STATUS("Checking the game data...\n");
+    JonesDataReport dataReport;
+    JonesData_CheckDir(locateResult.aResourceDir, aDataCheckPath[0] ? aDataCheckPath : NULL, &dataReport);
+    JonesData_LogReport(&dataReport);
+    JonesMain_pDataRelease = dataReport.pRelease;
 
     JonesFile_Open(&JonesMain_hs, JonesMain_state.aInstallPath, JonesMain_state.aCDPath);
 
@@ -423,7 +525,17 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
         case JONES_OUTPUTMODE_LOGFILE:
         {
-            fopen_s(&JonesMain_pLogFile, "JonesLog.txt", "w+"); // TODO: Add check for case when fopen fails
+            // Added: the log is user output and lives in the user directory like Jones.cfg.
+            char aLogPath[STDUSERDIR_MAXPATH] = { 0 };
+            if ( stdUserDir_MakePath(aLogPath, sizeof(aLogPath), "JonesLog.txt") )
+            {
+                fopen_s(&JonesMain_pLogFile, aLogPath, "w+"); // TODO: Add check for case when fopen fails
+            }
+            else
+            {
+                fprintf(stderr, "WARNING: Jones3D: the user directory path is too long for JonesLog.txt!\n");
+            }
+
             switch ( JonesMain_state.logLevel )
             {
                 case JONES_LOGLEVEL_ERROR:
@@ -472,7 +584,8 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
 
     // Startup modules and load level
 
-    STDLOG_DEBUG("Starting up Indiana Jones and the Infernal Machine.\n");
+    // Added: name the build's version in the first startup log line.
+    STDLOG_DEBUG("Starting up Indiana Jones and the Infernal Machine (" J3D_VERSION_FULL ").\n");
 
     stdEffect_Startup();
     rdStartup();
@@ -756,12 +869,24 @@ void JonesMain_OnQuickSaveKey(tSysWindow hWnd)
         return;
     }
 
-    char aFilename[128];
+    char aFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pQSPrefix = sithGetQuickSaveFilePrefix();
     STD_FORMAT(aFilename, "%s.%s", pQSPrefix, "nds");
 
-    char aPath[128];
+    char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pSaveGamesDir = sithGetSaveGamesDir();
+    if ( pSaveGamesDir[0] == '\0' )
+    {
+        STDLOG_ERROR("JonesMain: the save directory is unavailable.\n");
+        return;
+    }
+
+    if ( strlen(pSaveGamesDir) + strlen(aFilename) + 2u > sizeof(aPath) )
+    {
+        STDLOG_ERROR("JonesMain: the quick save path is too long for '%s'.\n", aFilename);
+        return;
+    }
+
     STD_MAKEPATH(aPath, pSaveGamesDir, aFilename);
 
     JonesHud_RestoreTreasuresStatistics();
@@ -791,16 +916,30 @@ void JonesMain_OnQuickLoadKey(void)
 
     jonesCog_g_bEnableGamesave = 0;
 
-    char aFilename[128];
+    char aFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pQSPrefix = sithGetQuickSaveFilePrefix();
     STD_FORMAT(aFilename, "%s.%s", pQSPrefix, "nds");
 
-    char aPath[128];
+    char aPath[JONESCONFIG_GAMESAVE_FILEPATHSIZE]; // Altered: room for user-directory paths (M8.2b)
     const char* pSaveGamesDir = sithGetSaveGamesDir();
+    if ( pSaveGamesDir[0] == '\0' )
+    {
+        STDLOG_ERROR("JonesMain: the save directory is unavailable.\n");
+        jonesCog_g_bEnableGamesave = 1;
+        return;
+    }
+
+    if ( strlen(pSaveGamesDir) + strlen(aFilename) + 2u > sizeof(aPath) )
+    {
+        STDLOG_ERROR("JonesMain: the quick save path is too long for '%s'.\n", aFilename);
+        jonesCog_g_bEnableGamesave = 1;
+        return;
+    }
+
     STD_MAKEPATH(aPath, pSaveGamesDir, aFilename);
 
-    FILE* pFile = fopen(aPath, "r");
-    if ( pFile )
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, aPath, "r") == 0 && pFile )
     {
         fclose(pFile); // Looks like the file exists, so we can close it here
 
@@ -1125,6 +1264,11 @@ int JonesMain_ProcessGame(void)
             std3D_EndScene();
         }
 
+        // Added: the interaction prompt is presentation state for the present overlay, so it is
+        // refreshed after the HUD and before the present in every column, even when no HUD frame
+        // was drawn. The query is side-effect free.
+        JonesHud_UpdateInteractionPrompt();
+
         JonesMain_PrintFramerate();
         stdDisplay_Update();
     }
@@ -1266,7 +1410,7 @@ void JonesMain_ProcessMenu(void)
 
     // Added: in the Modern style the gamepad's B button closes an open inventory, as its prompts
     // show. It never opens it: B is a game control (roll) while the inventory is closed.
-    if ( jonesCog_g_bMenuVisible && sithControl_IsModernControlStyle() )
+    if ( jonesCog_g_bMenuVisible && sithControl_IsModernGamepadStyle() )
     {
         bMenuKeyPressed |= JonesMain_ReadGamepadButton(1); // B
     }
@@ -1475,7 +1619,7 @@ int J3DAPI JonesMain_EnsureLevelFileEx(const char* pFilename, bool bFindAll, cha
     // TODO: there is an issue when loading level from different CD*.gob file than current
     //       the insert CD dialog can be shown even if file exists on disk
 
-    char aPath[128];
+    char aPath[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
     STD_MAKEPATH(aPath, "ndy", pFilename);
     if ( JonesFile_FileExists(aPath) )
     {
@@ -1557,7 +1701,7 @@ int J3DAPI JonesMain_Restore(const char* pNdsFilePath)
 
     const char* pSaveName    = sithGetCurrentWorldSaveName();
     const char* pFilePrefix  = sithGetAutoSaveFilePrefix();
-    char aQSaveFilename[128] = { 0 };
+    char aQSaveFilename[JONESCONFIG_GAMESAVE_FILEPATHSIZE] = { 0 }; // Altered: room for user-directory paths (M8.2b)
     STD_FORMAT(aQSaveFilename, "%s%s", pFilePrefix, pSaveName);
 
     // Fixed: Use bounded extension replacement for the fixed-size path buffer.
@@ -1850,6 +1994,16 @@ JonesDisplaySettings* JonesMain_GetDisplaySettings(void)
     return &JonesMain_state.displaySettings;
 }
 
+const char* JonesMain_GetDataRelease(void)
+{
+    return JonesMain_pDataRelease;
+}
+
+const char* JonesMain_GetInstallPath(void)
+{
+    return JonesMain_state.aInstallPath;
+}
+
 // Added: the level whose load-screen map the main menu shows behind its panel (ADR-0026).
 const JonesLevelInfo* J3DAPI JonesMain_GetMainMenuBackgroundLevel(void)
 {
@@ -2041,7 +2195,7 @@ int JonesMain_PlayIntroMovie(void)
         }
     }
 
-    char aPath[128] = { 0 };
+    char aPath[JONES_MAX_DATAPATH] = { 0 }; // Altered: room for long data paths (M8 wizard)
     if ( stdFileUtil_FileExists(aFilename) )
     {
         STD_STRCPY(aPath, aFilename);
@@ -2053,7 +2207,7 @@ int JonesMain_PlayIntroMovie(void)
         if ( !stdFileUtil_FileExists(aPath) )
         {
             // Fallback to CD
-            char aResDir[128];
+            char aResDir[JONES_MAX_DATAPATH]; // Altered: room for long data paths (M8 wizard)
             stdConfig_GetString(JONESCONFIG_CFG_SOURCEPATH, aPath, STD_ARRAYLEN(aPath), "");
             STD_FORMAT(aResDir, "%sresource", aPath);
             STD_MAKEPATH(aPath, aResDir, aFilename);
@@ -2507,9 +2661,23 @@ void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText)
         pErrorText = pErrorStr;
     }
 
-    char aFilePath[128] = { 0 };
+    char aFilePath[STDUSERDIR_MAXPATH] = { 0 };
     const char* pFilename = jonesString_GetString("JONES_STR_ERRORFILE");
-    if ( pFilename )
+    if ( !pFilename )
+    {
+        pFilename = "JonesError.txt";
+    }
+
+    if ( stdUserDir_GetPath()[0] != '\0' )
+    {
+        // Added: the error file is user output and lives in the user directory (ADR-0019).
+        if ( !stdUserDir_MakePath(aFilePath, sizeof(aFilePath), pFilename) )
+        {
+            aFilePath[0] = '\0';
+        }
+    }
+
+    if ( aFilePath[0] == '\0' && pFilename )
     {
         // Changed: Use cwd path instead of install path from registry.
         //          This subsequently fixes also fatal error where there was registry startup error 
@@ -2532,15 +2700,11 @@ void J3DAPI JonesMain_LogErrorToFile(const char* pErrorText)
             STD_FORMAT(aFilePath, ".\\\\%s", pFilename);
         }
     }
-    else
-    {
-        STD_FORMAT(aFilePath, ".\\\\%s", "JonesError.txt");
-    }
 
     if ( pErrorText && strlen(pErrorText) )
     {
-        FILE* fp = fopen(aFilePath, "wt+");
-        if ( fp )
+        FILE* fp = NULL;
+        if ( fopen_s(&fp, aFilePath, "wt+") == 0 && fp )
         {
             fprintf(fp, "%s", pErrorText); // Fixed: the text isn't a format string
             fprintf(fp, "\n");
@@ -2654,9 +2818,33 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
         }
     }
 
+    // Added: a first start has no resolution keys. The desktop mode fills only the missing ones,
+    // so an existing Jones.cfg always wins; the headless/Null column keeps 640x480.
+    const int bHasWidth  = stdConfig_Contains(JONESDISPLAY_CFG_GRAPHICS_WIDTH);
+    const int bHasHeight = stdConfig_Contains(JONESDISPLAY_CFG_GRAPHICS_HEIGHT);
+    const int configWidth  = bHasWidth ? stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_WIDTH, 640) : 0;
+    const int configHeight = bHasHeight ? stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_HEIGHT, 480) : 0;
+
+    StdVideoMode desktopMode;
+    StdVideoMode* pDesktopMode = stdDisplay_GetDesktopMode(&desktopMode) == 0 ? &desktopMode : NULL;
+
+    int firstRunWidth  = 640;
+    int firstRunHeight = 480;
+    JonesDisplay_ResolveFirstRunMode(pDesktopMode, bHasWidth, configWidth, bHasHeight,
+        configHeight, &firstRunWidth, &firstRunHeight);
+
+    if ( !bHasWidth )
+    {
+        stdConfig_SetInt(JONESDISPLAY_CFG_GRAPHICS_WIDTH, firstRunWidth);
+    }
+    if ( !bHasHeight )
+    {
+        stdConfig_SetInt(JONESDISPLAY_CFG_GRAPHICS_HEIGHT, firstRunHeight);
+    }
+
     JonesMain_curVideoMode.aspectRatio                    = 1.0f;
-    JonesMain_curVideoMode.rasterInfo.width               = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_WIDTH, 640);
-    JonesMain_curVideoMode.rasterInfo.height              = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_HEIGHT, 480);
+    JonesMain_curVideoMode.rasterInfo.width               = (uint32_t)firstRunWidth;
+    JonesMain_curVideoMode.rasterInfo.height              = (uint32_t)firstRunHeight;
     JonesMain_curVideoMode.rasterInfo.colorInfo.bpp       = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_BPP, 32);          // Altered: Changed 16 bpp to 32
     JonesMain_curVideoMode.refreshRate                    = stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_REFRESHRATE, 60); // Added
     JonesMain_curVideoMode.rasterInfo.colorInfo.colorMode = STDCOLOR_RGB;

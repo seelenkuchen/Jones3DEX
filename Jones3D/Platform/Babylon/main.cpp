@@ -2,7 +2,12 @@
 // cvar registry and render device, installs them as the adapter's context, runs the shared headless
 // loop, then uninstalls before the objects die.
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
+#include <string>
+
+#include <j3dcore/j3d.h>
 
 #include <babylon/audio/NullDevice.h>
 #include <babylon/cvars/Registry.h>
@@ -20,10 +25,38 @@
 #include <std/Babylon/stdBabylonCvars.h>
 #include <std/Babylon/stdRenderBabylon.h>
 
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Platform/Null/JonesHeadless.h>
+
+#ifdef _WIN32
+// Added: windows.h stays out of this composition root (the platform boundary), so name the one
+// kernel32 entry point the UTF-8 startup check needs. Windows builds are 64-bit, where every
+// function uses one calling convention.
+extern "C" __declspec(dllimport) unsigned int __stdcall GetACP(void);
+#endif
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    // Added: the executable's manifest turns on the UTF-8 code page; warn once when it did not
+    // take (Windows before 10 1903), because the game passes non-ASCII char* paths to the CRT.
+    if ( GetACP() != 65001 )
+    {
+        fprintf(stderr,
+            "WARNING: UTF-8 code page not active; paths with non-ASCII characters may fail\n");
+    }
+#endif
+
+    // Added: --version prints the build's version and exits before any engine code runs.
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp(argv[i], "--version") == 0 )
+        {
+            printf("%s\n", J3D_VERSION_FULL);
+            return 0;
+        }
+    }
+
     // Added: --render null|gpu picks the render device std3D draws with (the usage text is in
     // JonesHeadless.c). It is taken out of the arguments here, so the shared runner never sees it.
     StdRenderBabylonDeviceType renderType = StdRenderBabylonDeviceType::Null;
@@ -54,6 +87,9 @@ int main(int argc, char** argv)
     }
 
     std::unique_ptr<babylon::files::FileSystem> pFileSystem = babylon::files::createSdlFileSystem();
+    // Added: the game data search takes the host paths from here, so the game layer no longer reads
+    // platform paths itself.
+    JonesDataLocate_SetHostDirs(pFileSystem->basePath().c_str(), pFileSystem->currentPath().c_str());
     std::unique_ptr<babylon::time::Clock> pClock = babylon::time::createSdlClock();
     babylon::time::NullClock virtualClock;
     // Added: the headless run has no OS input, so the platform is a NullPlatform whose queue the

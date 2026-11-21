@@ -3,6 +3,8 @@
 // (SoundDriver, JonesDialog, jonesConfig, stdComm, stdConsole, stdControl, stdWin95,
 // wkernel, wuRegistry) so WinMain.c can keep the original Windows call order while the
 // native Null platform resets every global it actually has. See JonesGlobals.h.
+#include <stdlib.h>
+
 #include <Jones3D/types.h> // Should be included first due to Windows.h / CommCtrl.h conflict
 
 #include <j3dcore/j3d.h>
@@ -10,6 +12,7 @@
 #include <Jones3D/Display/JonesConsole.h>
 #include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesFile.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
@@ -128,6 +131,7 @@
 #include <std/General/stdMemory.h>
 #include <std/General/stdPlatform.h>
 #include <std/General/stdStrTable.h>
+#include <std/General/stdUserDir.h>
 #include <std/General/stdUtil.h>
 #include <std/General/std3D.h>
 #include <std/General/stdDisplay.h>
@@ -146,6 +150,7 @@ void Jones3D_ResetGlobalsBeforeJonesDialog(void)
 
 void Jones3D_ResetGlobalsBeforeJonesConfig(void)
 {
+    JonesDataLocate_Reset(); // Added
     JonesDisplay_ResetGlobals();
     JonesFile_ResetGlobals();
     JonesHud_ResetGlobals();
@@ -272,12 +277,17 @@ void Jones3D_ResetGlobalsBeforeStdWin95(void)
     stdMemory_ResetGlobals();
     stdPlatform_ResetGlobals();
     stdStrTable_ResetGlobals();
+    stdUserDir_Reset();
     stdUtil_ResetGlobals();
 }
 
 void Jones3D_ResetGlobalsBeforeWkernel(void)
 {
     std_ResetGlobals();
+
+    // Added: the process's rand state must start at its program-start seed in a second in-process
+    // run. The engine never calls srand during play; on the native columns this is j3dcrt_srand.
+    srand(1);
 }
 
 void Jones3D_ResetAllGlobals(void)

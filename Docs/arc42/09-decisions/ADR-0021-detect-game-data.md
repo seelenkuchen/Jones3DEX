@@ -1,6 +1,7 @@
 # ADR-0021: Detect the installed game data at startup
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0034](ADR-0034-setup-wizard.md)
 - **Date:** 2026-11-03
 
 ## Context
@@ -18,6 +19,14 @@ partial or modified data shows up later as load errors or crashes.
 - Unknown or incomplete data: a clear warning naming the files, then the game continues. Loose-file overrides
   and mods stay possible.
 - The table records provenance: which release each checksum comes from.
+
+Implemented in M8 (2026-11-14, amended 2026-11-15): the game searches for the data at startup and checks
+it against the table. When the windowed build cannot find it, the setup wizard installs it into
+`GameData` before the game window opens ([ADR-0034](ADR-0034-setup-wizard.md)); startup itself no longer
+searches stores or asks for a folder. The table holds the GOG English release today. `--data` names a
+folder for one run, `--hash-data` prints the rows to add a release to the table, and `--user-dir` chooses
+the directory for settings and saves. A headless run has no wizard, so it reports the missing files and
+exits nonzero; use `--data`.
 
 ## Consequences
 

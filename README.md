@@ -33,6 +33,14 @@ default, and each can be switched back to retail behavior. Presentation is free 
 This repository does **not** include any game assets. You need a legal copy of the game, for example from
 [Steam](https://store.steampowered.com/app/904540) or [GOG](https://www.gog.com/en/game/indiana_jones_and_the_infernal_machine).
 
+## Playing
+
+Jones3D EX is not a standalone game: you need your own copy of *Indiana Jones and the Infernal Machine*.
+Release packages are available for Linux (AppImage) and Windows (zip, 64-bit). On first start a setup
+wizard copies the game files from an installed Steam or GOG copy, a GOG installer file, the CDs, or a
+folder you choose. The [install guide](Docs/Install.md) covers downloading, the setup wizard, where saves
+go, and troubleshooting.
+
 ## Status
 
 Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
@@ -44,7 +52,9 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
 - **Playable:** the windowed Babylon build plays with sound (through miniaudio), saving with thumbnails and
   the in-game menus. The Win32 and DirectX 9 build inherited from OpenJones3D is gone
   ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)).
-- **Next:** an owner play-test on a real display, speakers and gamepad, then the M8 release.
+- **Next:** an owner play-test on a real display, speakers and gamepad, then the M8 release. The first
+  start's setup wizard is in place; it installs the game data into `GameData` from Steam, GOG, a GOG
+  installer file, the CDs or a chosen folder.
 
 ## Screenshots
 

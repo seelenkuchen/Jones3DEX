@@ -11,7 +11,6 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
-#include <Jones3D/Platform/Babylon/JonesUiPainter.h>
 #include <Jones3D/Platform/Babylon/JonesUiSaveLoad.h>
 #include <Jones3D/Platform/Babylon/JonesUiSkin.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
@@ -31,6 +30,7 @@
 #include <std/General/stdDisplay.h>
 
 #include <babylon/ui/Screen.h>
+#include <babylon/uirender/RenderPainter.h>
 #include <babylon/ui/UiEvent.h>
 #include <babylon/ui/Widget.h>
 
@@ -237,14 +237,8 @@ JonesUiMainMenuAction JonesUiMainMenu_Run(babylon::ui::Ui& ui, babylon::ui::Pain
         return false; // Quit uses the loop's default pop with its action id
     };
 
-    JonesUiModalResizeHandler resizeHandler;
-    if ( hooks.resized )
-    {
-        resizeHandler = hooks.resized;
-    }
-
     const int result = JonesUiModal_RunHandled(ui, pPainter, menu, MapMainMenuResult,
-        menuHandler, background, resizeHandler);
+        menuHandler, background);
 
     if ( pMenuSkin )
     {
@@ -345,36 +339,12 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
     JonesHud_InitializeMenuSounds();
 
     const JonesLevelInfo& level = *JonesMain_GetMainMenuBackgroundLevel();
-    JonesUiPainter& painter     = pUiContext->painter;
+    babylon::uirender::RenderPainter& painter = pUiContext->painter;
     babylon::ui::Ui* pUi        = pUiContext->pUi.get();
 
-    // The main menu uses Cinzel at 22 canvas units. registerTtfFontFile() bakes it at the
-    // window's current pixel scale; the resize hook re-registers it when that scale changes.
-    constexpr const char* kMainMenuFontFile = "fonts/Cinzel[wght].ttf";
-    constexpr float kMainMenuFontSize       = 22.0f;
-
-    babylon::ui::FontId cinzel = painter.registerTtfFontFile(*pContext->pFileSystem,
-        kMainMenuFontFile, kMainMenuFontSize);
-    if ( cinzel == 0 )
-    {
-        // Missing or unusable Cinzel: keep the shared rdFont look and say so once.
-        STDLOG_WARNING("Main menu: '%s' unavailable, using the rdFont skin.\n",
-            kMainMenuFontFile);
-    }
-
-    babylon::ui::FontId menuFont = cinzel != 0 ? cinzel : pUiContext->font;
-    babylon::ui::Skin menuSkin   = JonesUiSkin_CreateMainMenu(menuFont, &painter, pUiContext->promptFont);
-
-    float menuFontScale = 1.0f;
-    {
-        uint32_t width  = 0;
-        uint32_t height = 0;
-        stdDisplay_GetBackBufferSize(&width, &height);
-        if ( height )
-        {
-            menuFontScale = (float)height / 480.0f;
-        }
-    }
+    // The main menu uses the context's Cinzel title font at 22 canvas units.
+    babylon::ui::Skin menuSkin = JonesUiSkin_CreateMainMenu(pUiContext->titleFont, &painter,
+        pUiContext->promptFont);
 
     // Load the level's load-screen wallpaper the way JonesDisplay_OpenLoadScreen does, and draw
     // all six tiles behind the panel every frame. The wallpaper stays alive until the menu closes.
@@ -385,14 +355,17 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         // Draw the same finished image the load screen leaves up before it closes.
         JonesUiMainMenu_SetFinishedWallpaper(pWallpaper);
 
-        background.draw = [pWallpaper, &painter, pUi]()
+        background.draw = [pWallpaper]()
         {
             rdWallpaper_Draw(pWallpaper);
             rdCache_Flush();
             rdCache_FlushAlpha();
+        };
 
-            // With no panel box, a soft quadratic shade in the lower-left corner keeps the text
-            // readable.
+        // With no panel box, a soft quadratic shade in the lower-left corner keeps the text
+        // readable. It is drawn by the native-resolution present overlay.
+        background.overlay = [&painter, pUi]()
+        {
             JonesUiSkin_DrawBottomLeftShade(painter, pUi->canvasSize());
         };
     }
@@ -430,30 +403,6 @@ extern "C" int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pCon
         std::snprintf(pPath, JONESCONFIG_GAMESAVE_FILEPATHSIZE, "%s",
             entries.front().path.c_str());
         return true;
-    };
-    hooks.resized = [&](int width, int height)
-    {
-        (void)width;
-        (void)height;
-        float scale = 1.0f;
-        if ( height > 0 )
-        {
-            scale = (float)height / 480.0f;
-        }
-        if ( scale == menuFontScale )
-        {
-            return;
-        }
-        menuFontScale = scale;
-
-        const babylon::ui::FontId newFont = painter.registerTtfFontFile(
-            *pContext->pFileSystem, kMainMenuFontFile, kMainMenuFontSize);
-        if ( newFont != 0 )
-        {
-            menuFont = newFont;
-            menuSkin = JonesUiSkin_CreateMainMenu(menuFont, &painter, pUiContext->promptFont);
-            static_cast<void>(pUi->setSkin(menuSkin));
-        }
     };
     const JonesUiMainMenuAction action = JonesUiMainMenu_Run(*pUiContext->pUi, &painter,
         background, bCanLoad, hooks, pOutLoadPath, &menuSkin);

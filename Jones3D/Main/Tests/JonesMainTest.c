@@ -4,12 +4,14 @@
 #include <string.h>
 
 #include <Jones3D/Display/JonesConsole.h>
+#include <Jones3D/Display/JonesDisplay.h>
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Play/jonesCog.h>
 #include <Jones3D/Play/jonesInventory.h>
+#include <sith/Cog/sithCogParse.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/Gameplay/sithTime.h>
@@ -56,6 +58,47 @@ static void JonesMainTest_BuildDisplayInfo(StdDisplayInfo* pDisplay, StdVideoMod
     STD_ZEROMEM(pDisplay, sizeof(StdDisplayInfo));
     pDisplay->numModes = numModes;
     pDisplay->aModes   = aModes;
+}
+
+TEST(JonesMain, TestFirstRunModeUsesTheDesktopForMissingKeys)
+{
+    StdVideoMode desktop;
+    JonesMainTest_BuildMode(&desktop, 1920, 1080, 32, 60);
+
+    int width  = 0;
+    int height = 0;
+    JonesDisplay_ResolveFirstRunMode(&desktop, 0, 0, 0, 0, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(1920, width);
+    TEST_ASSERT_EQUAL_INT(1080, height);
+}
+
+TEST(JonesMain, TestFirstRunModeKeepsAnExistingJonesCfgSize)
+{
+    StdVideoMode desktop;
+    JonesMainTest_BuildMode(&desktop, 1920, 1080, 32, 60);
+
+    int width  = 0;
+    int height = 0;
+    JonesDisplay_ResolveFirstRunMode(&desktop, 1, 1280, 1, 720, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(1280, width);
+    TEST_ASSERT_EQUAL_INT(720, height);
+
+    // Each key is independent: only a missing one takes the desktop's value.
+    JonesDisplay_ResolveFirstRunMode(&desktop, 1, 1280, 0, 0, &width, &height);
+    TEST_ASSERT_EQUAL_INT(1280, width);
+    TEST_ASSERT_EQUAL_INT(1080, height);
+}
+
+TEST(JonesMain, TestFirstRunModeWithoutADesktopKeeps640x480)
+{
+    int width  = 0;
+    int height = 0;
+    JonesDisplay_ResolveFirstRunMode(NULL, 0, 0, 0, 0, &width, &height);
+
+    TEST_ASSERT_EQUAL_INT(640, width);
+    TEST_ASSERT_EQUAL_INT(480, height);
 }
 
 TEST(JonesMain, TestExactMatchAtRequestedRateAfterOtherRate)
@@ -419,6 +462,19 @@ TEST(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255)
     TEST_ASSERT_EQUAL_UINT(0, stats.elapsedTime & 0xFF);
 }
 
+TEST(JonesMain, TestCogParserLabelsStartOverAfterReset)
+{
+    // The label and syntax-tree counters are file statics, so a second in-process run needs the
+    // reset to bring them back to their start values.
+    sithCogParse_ResetGlobals();
+    TEST_ASSERT_EQUAL_UINT32(1u, sithCogParse_GetNextLabel());
+    TEST_ASSERT_EQUAL_UINT32(2u, sithCogParse_GetNextLabel());
+    TEST_ASSERT_EQUAL_UINT32(3u, sithCogParse_GetNextLabel());
+
+    sithCogParse_ResetGlobals();
+    TEST_ASSERT_EQUAL_UINT32(1u, sithCogParse_GetNextLabel());
+}
+
 TEST(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime)
 {
     sithTime_g_msecGameTime = 12000;
@@ -438,6 +494,9 @@ TEST(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime)
 
 TEST_GROUP_RUNNER(JonesMain)
 {
+    RUN_TEST_CASE(JonesMain, TestFirstRunModeUsesTheDesktopForMissingKeys);
+    RUN_TEST_CASE(JonesMain, TestFirstRunModeKeepsAnExistingJonesCfgSize);
+    RUN_TEST_CASE(JonesMain, TestFirstRunModeWithoutADesktopKeeps640x480);
     RUN_TEST_CASE(JonesMain, TestExactMatchAtRequestedRateAfterOtherRate);
     RUN_TEST_CASE(JonesMain, TestZeroRefreshRateCountsAsExact);
     RUN_TEST_CASE(JonesMain, TestReportedMissingRefreshRateBug);
@@ -459,5 +518,6 @@ TEST_GROUP_RUNNER(JonesMain)
     RUN_TEST_CASE(JonesMain, TestNullPauseMenuAnswersAtOnce);
     RUN_TEST_CASE(JonesMain, TestPauseMenuStaysClosedForDeadOrDyingPlayer);
     RUN_TEST_CASE(JonesMain, TestLevelStatisticTimeKeepsStoredHoursAbove255);
+    RUN_TEST_CASE(JonesMain, TestCogParserLabelsStartOverAfterReset);
     RUN_TEST_CASE(JonesMain, TestQuickSaveTextTimerExpiresAfterOneSecondGameTime);
 }

@@ -8,6 +8,7 @@
 #include <sith/Gameplay/sithPlayerControls.h>
 #include <sith/World/sithWeapon.h>
 
+#include <std/General/std.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdControl.h>
 #include <std/General/stdUtil.h>
@@ -17,12 +18,25 @@ static unsigned int JonesControl_joystickChangeCount = 0; // Added: last hot-plu
 
 void JonesControl_ResetGlobals(void)
 {
+    JonesControl_bStartup = false; // Added: a second run must register its callbacks again
     JonesControl_joystickChangeCount = 0; // Added
 }
 
 int JonesControl_Startup(void)
 {
-    int bMouseControl = stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false);
+    // Added: the mouse camera is on by default in the Enhanced profile; the Retail profile keeps
+    // the original off default. An existing Jones.cfg value always wins, and a missing key is
+    // written with its default so the file carries it.
+    const bool bHasMouse = stdConfig_Contains(JONESCONTROL_CFG_CONTROLS_MOUSE);
+    int bMouseControl = bHasMouse
+        ? stdConfig_GetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, false)
+        : J3D_QOL_VALUE(true, false);
+#ifdef J3D_QOL_IMPROVEMENTS
+    if ( !bHasMouse )
+    {
+        (void)stdConfig_SetBool(JONESCONTROL_CFG_CONTROLS_MOUSE, bMouseControl);
+    }
+#endif
     // Added: rumble is on unless the player turned it off; a missing key is written with its
     // default so the next save carries it (presentation only, ADR-0028).
     bool bRumble = stdConfig_GetBool(JONESCONTROL_CFG_ENGINE_INPUT_RUMBLE, true);
@@ -33,30 +47,95 @@ int JonesControl_Startup(void)
     stdControl_EnableRumble(bRumble);
 
 #ifdef J3D_QOL_IMPROVEMENTS
-    // Added: the Modern control style is the Enhanced default. A missing key is written with its
-    // default, and an unknown value falls back to Modern.
-    char aControlStyle[16] = { 0 };
-    stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aControlStyle,
-        sizeof(aControlStyle), "modern");
+    // Added: the styles are per device: the keyboard and mouse default to Classic and the gamepad
+    // to Modern. The old single key is only read, for migration: "classic" sets both Classic,
+    // "modern" or a missing key gives the defaults. The new keys win when they are present. A new
+    // install writes both; an existing config that only has the old key is not rewritten until the
+    // player changes a style in Options (which writes that key).
+    bool bKeyboardModern = false;
+    bool bGamepadModern  = true;
+    const bool bHasOldStyle = stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE);
 
-    bool bModern = true;
-    if ( streq(aControlStyle, "classic") )
+    if ( bHasOldStyle )
     {
-        bModern = false;
-    }
-    else if ( !streq(aControlStyle, "modern") )
-    {
-        SITHLOG_STATUS("Unknown control style \"%s\"; using modern.\n", aControlStyle);
+        char aOldStyle[16] = { 0 };
+        stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE, aOldStyle,
+            sizeof(aOldStyle), "modern");
+        if ( streq(aOldStyle, "classic") )
+        {
+            bKeyboardModern = false;
+            bGamepadModern  = false;
+        }
+        else if ( !streq(aOldStyle, "modern") )
+        {
+            SITHLOG_STATUS("Unknown control style \"%s\"; using the per-device defaults.\n",
+                aOldStyle);
+        }
     }
 
-    sithControl_SetModernControlStyle(bModern);
-    if ( !stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE) )
+    const bool bHasKeyboardStyle = stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE);
+    if ( bHasKeyboardStyle )
     {
-        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-            bModern ? "modern" : "classic");
+        char aStyle[16] = { 0 };
+        stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, aStyle,
+            sizeof(aStyle), "classic");
+        if ( streq(aStyle, "modern") )
+        {
+            bKeyboardModern = true;
+        }
+        else
+        {
+            bKeyboardModern = false;
+            if ( !streq(aStyle, "classic") )
+            {
+                SITHLOG_STATUS("Unknown keyboard control style \"%s\"; using classic.\n",
+                    aStyle);
+            }
+        }
+    }
+
+    const bool bHasGamepadStyle = stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE);
+    if ( bHasGamepadStyle )
+    {
+        char aStyle[16] = { 0 };
+        stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, aStyle,
+            sizeof(aStyle), "modern");
+        if ( streq(aStyle, "classic") )
+        {
+            bGamepadModern = false;
+        }
+        else
+        {
+            bGamepadModern = true;
+            if ( !streq(aStyle, "modern") )
+            {
+                SITHLOG_STATUS("Unknown gamepad control style \"%s\"; using modern.\n",
+                    aStyle);
+            }
+        }
+    }
+
+    sithControl_SetModernKeyboardStyle(bKeyboardModern);
+    sithControl_SetModernGamepadStyle(bGamepadModern);
+    sithControl_SetModernMovementEnabled(true);
+
+    // Added: write a missing new key only on a new install or after Options already wrote one.
+    const bool bWriteNewKeys = !bHasOldStyle || bHasKeyboardStyle || bHasGamepadStyle;
+    if ( !bHasKeyboardStyle && bWriteNewKeys )
+    {
+        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE,
+            bKeyboardModern ? "modern" : "classic");
+    }
+
+    if ( !bHasGamepadStyle && bWriteNewKeys )
+    {
+        (void)stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE,
+            bGamepadModern ? "modern" : "classic");
     }
 #else
-    // Retail always keeps the original tank controls and neither reads nor writes the key.
+    // Retail always keeps the original tank controls and neither reads nor writes the keys.
     sithControl_SetModernControlStyle(false);
 #endif
 
@@ -109,9 +188,14 @@ int JonesControl_Startup(void)
         sithControl_UnbindMouseAxes();
     }
 
+    // Fixed: load the control schemes before binding them, so a first run binds the default scheme
+    if ( !jonesConfig_Startup() )
+    {
+        STDLOG_WARNING("Unable to load the control schemes; keeping the built-in bindings.\n");
+    }
+
     // Added: apply the remembered active control scheme after the default bindings are
-    // registered, so the scheme replaces them. jonesConfig_Startup loaded and remembered it at
-    // HUD startup; this is a no-op in the Null column.
+    // registered, so the scheme replaces them. This is a no-op in the Null column.
     jonesConfig_BindActiveControlScheme();
 
     // Added: ignore joystick count changes the startup already accounted for.

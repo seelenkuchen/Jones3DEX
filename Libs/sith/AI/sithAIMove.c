@@ -94,7 +94,11 @@ static float sithAIMove_mardukTailYawSpeed = 720.0f; // In degrees per sec
 void J3DAPI sithAIMove_AIFinalizeSpecialMove(SithAIControlBlock* pLocal, SithActorSpecialMoveFlags type);
 
 void sithAIMove_ResetGlobals(void)
-{}
+{
+    // Added: the debug move markers point at things from the previous world.
+    sithAIMove_pMoveToDebugMarkThing    = NULL;
+    sithAIMove_pMoveToPosGroundMarkThing = NULL;
+}
 
 void J3DAPI sithAIMove_Update(SithThing* pThing, float secDeltatTime)
 {

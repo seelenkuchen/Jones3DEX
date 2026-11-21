@@ -1,4 +1,68 @@
 ## Jones3D EX (unreleased)
+### M8: Release
+  - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
+    `Jones3D --version` print it.
+  - The setup wizard and every in-game menu (main menu, Options and its tabs, pause, save/load, store,
+    statistics, level completed, game over and message boxes) now draw at the window's native resolution, so
+    menu text stays sharp on large displays and at any game render resolution. The layout, skins, fonts,
+    prompts and sounds are unchanged.
+  - Release packages: a Linux AppImage and a Windows zip, both without game data. The AppImage runs from
+    one file and installs nothing; the zip is extracted into a folder and needs no Visual C++
+    redistributable. Players point either at their own copy of the game.
+  - On a first start without game data the windowed game opens the **Jones3D EX Setup** wizard before its
+    own window. It finds installed Steam and GOG copies, GOG offline installer files in the download
+    folders, the two CDs and any folder you choose, shows the source's licence, and copies the files into
+    `GameData` with progress, cancel and a disc 2 step. The source is only read.
+  - The wizard installs into `<user dir>/GameData` by default, or `<executable folder>/GameData` for **Next
+    to the game**, which needs a writable program folder. A complete `GameData` beside the executable also
+    makes that folder the user directory. The old saved games can be copied during setup.
+  - **Options > Game data** shows the release and folder in use and runs the setup again without deleting
+    folders by hand. A rerun copies into `GameData.new` and keeps the old data on Cancel or an error; the
+    entry is disabled while a level is loaded, so it is a main-menu action.
+  - Leaving Options with Back, Esc or the gamepad's B now keeps the changes, like the **Apply** row. The
+    separate Cancel row is gone, and the nested control-scheme editor's Back also keeps its edits.
+  - The Controls tab shows a **Mouse camera** row. It is on by default for a new Enhanced install; the
+    Retail profile keeps the original off default.
+  - A fresh install now uses the default control scheme for the keyboard and gamepad. Before, it fell
+    back to the original built-in bindings (gamepad A jumped) until the Controls tab saved a scheme.
+  - A small hint appears at the bottom centre of the screen when Indy can interact: **Use**, **Pick up**,
+    **Push**, **Pull**, **Push | Pull**, **Climb up** or **Climb**, plus **Swing** and the whip's **Climb**
+    while the whip is drawn. It appears only when a COG linked to the target handles the activation message,
+    so a decorative COG-linked thing does not offer a dead prompt. Each hint uses the Xelu icon of the key or
+    pad button its press really reads (Activate, Jump or Forward), for the last used device, and follows
+    rebinding. Options > Gameplay has an **Interaction prompts** row (`ui.hud.interactionPrompts`), on by
+    default in Enhanced and locked off in Retail. It draws at the window's native resolution and never changes
+    the simulation. The developer log records each prompt change with the target and the handler COG names.
+  - **Quick whip** swings or climbs the whip at a target without drawing it first, then switches back to the
+    previous weapon or empty hands. LB does it in the Modern gamepad style (the step-left row, now named
+    **Quick whip** in Button Layout) and the whip select key, 1 by default, does it on the keyboard; the prompt
+    shows **Swing** or **Climb** with that device's binding. Options > Gameplay has a **Quick whip** row
+    (`gameplay.quickWhip`), on by default in Enhanced and locked off in Retail (ADR-0038).
+  - Options > Controls opens separate **Controller** and **Keyboard & Mouse** Button Layout screens: one
+    framed row per action with its input icon, a scrolling list and a pad diagram with action callouts.
+    Bind replaces that device's binding, Reset Binds restores its defaults after a question, and Back keeps
+    and applies the changes. This replaces the old one-list rebind editor (ADR-0036).
+  - A new install starts fullscreen at the display's current desktop resolution instead of 640x480. Headless
+    runs keep 640x480, and an existing `Jones.cfg` size always wins.
+  - In an AppImage, **Next to the game** installs beside the `.AppImage` file instead of into the temporary
+    read-only mount, and the startup data search looks there too.
+  - The windowed game writes settings and saves to a per-user directory (`~/.local/share/Jones3DEX/` on
+    Linux, `%APPDATA%\Jones3DEX\` on Windows), so it runs from a read-only or shared install. An existing
+    `Jones.cfg` and existing savegames are copied there when they are missing, and the old files are kept.
+    Pass `--user-dir <dir>` to choose another folder; headless runs stay in the working directory unless
+    given `--user-dir`.
+  - With the setup wizard's **Next to the game**, settings and saves stay next to the game too; the per-user
+    folder is created only when it is the folder the game uses.
+  - The startup data search is now `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/GameData`,
+    next to the executable, `<executable folder>/GameData`, then the working directory. Finding and
+    installing the data is the setup wizard's job. `--data`, `--hash-data <dir>` and `--user-dir <dir>` remain
+    developer options; `--hash-data` prints the hash rows for a release and runs without a display.
+  - At startup the game checks the game files against a table of known releases by size and SHA-256. A known
+    release is logged by name and an unknown one gets a warning naming the files; the game still starts. The
+    setup wizard writes the cache in the user directory, so the first start after installing is quick.
+  - Clicking **New Game** with the mouse no longer skips the intro movie; a click during the intro still
+    skips it.
+
 ### Hard fork of OpenJones3D
   - The project continues as **Jones3D EX**, an enhanced source port on the new Babylon Engine. See the
     [roadmap](Docs/Roadmap.md) and the [architecture docs](Docs/arc42/README.md).
@@ -55,15 +119,21 @@
   - Gamepads rumble on damage, on the local player's weapon fire and near explosions. Rumble is on by
     default in both profiles, is presentation only, and the Controls screen has a Rumble row
     (`engine.input.rumble`) to turn it off.
-  - The Gameplay tab has a Control style option (`engine.input.controlStyle`, Modern by default).
-    Modern adds camera-relative movement on the left stick, a mouse and right-stick free camera,
-    quick-step by holding RB or Left Alt with a direction, quick-select on the D-pad, and target
-    lock on LT, `F` and the right mouse button with sidesteps and a timed back step. New installs get a "Modern
-    keyboard and gamepad" default scheme (WASD and arrows, mouse look, Space jump, Ctrl and the
-    left mouse button to activate and fire, R draw, V or the middle mouse button to snap the
-     camera); Classic keeps the original tank controls and the "Keyboard and gamepad" scheme. A
-     remembered scheme is never replaced. Starting, stopping and reversing move at once without the
-     original transition animations. Quick-step left and right keep the original sidestep force moves; forward
+  - Control styles are per device: `engine.input.keyboardControlStyle` (Classic by default) and
+    `engine.input.gamepadControlStyle` (Modern by default) on the Controls tab. The camera-relative
+    movement translator and its quick-step, quick-select and target lock run in both styles; Modern
+    adds the mouse or right-stick free camera and, on the keyboard, A/D lateral movement. Quick-step
+    is a held modifier (RB or Left Alt) plus a direction, target lock is LT, `F` and the right mouse
+    button with sidesteps and a timed back step. New installs get a "Modern keyboard and gamepad"
+    default scheme (WASD and arrows, mouse look, Space jump, Ctrl and the left mouse button to
+    activate and fire, R draw, V or the middle mouse button to snap the camera); Classic keeps the
+    camera following Indy and the classic mouse bindings. A remembered scheme is never replaced.
+    The keyboard and mouse default to Classic, which is the keyboard behaviour before this option;
+    choosing Modern adds A/D movement and lets the mouse orbit the free camera. The true original
+    tank movement remains only in the Retail profile. The old `engine.input.controlStyle` is read
+    once for migration, and an existing config with only that key is not rewritten until the style
+    is changed in Options. Starting, stopping and reversing move at
+     once without the original transition animations. Quick-step left and right keep the original sidestep force moves; forward
      and back step visibly over the sidestep distance and time instead of hopping or teleporting. Locked
      sidesteps play twice as fast at the same distance, a held backward stick backpedals continuously at
      that locked speed, and the lock only needs the camera, not Indy, to see the target. Underwater, the left stick steers

@@ -28,15 +28,17 @@ target_link_libraries(Jones3DGame PUBLIC Libs)
 # Platform/Null main(). Link groups/repeated libs resolve the static-library cycles.
 file(GLOB JONES3D_NULL_SOURCES CONFIGURE_DEPENDS Platform/Null/*.c)
 
-# Added: the game's babylon::ui painter and first skin (ADR-0026 amendment). They are part of the
-# Babylon column only, compiled into its executables and its painter test.
+# Added: the menu skin, assets, context and screens (ADR-0026, ADR-0035). They are part of the
+# Babylon column only, compiled into its executables and its UI tests.
 set(JONES3D_BABYLON_UI_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPainter.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiAssets.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiAssets.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiSkin.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPrompts.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiPrompts.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesHudPromptOverlay.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesHudPromptOverlay.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiModal.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesWindowMode.cpp"
@@ -62,8 +64,12 @@ set(JONES3D_BABYLON_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiStore.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiControls.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiButtonLayout.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiButtonLayout.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUiOptions.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesGogInstaller.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesGogInstaller.h"
 )
 
 # Added: the Babylon column's control scheme files (M7.17a), shared by the headless and windowed
@@ -206,7 +212,7 @@ endif()
 
 if (J3D_PLATFORM_BABYLON)
     # Added: the painter's TrueType and PNG support (ADR-0031).
-    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::font babylon::image)
+    target_link_libraries(Jones3D-headless PRIVATE babylon::ui babylon::uirender babylon::font babylon::image babylon::process)
 endif()
 
 # Added: the windowed Jones3D of the Babylon column: the Platform/Babylon composition root
@@ -216,6 +222,14 @@ if (J3D_PLATFORM_BABYLON)
     set(JONES3D_WINDOWED_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/mainWindowed.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesBabylon.c"
+        # Added: the setup wizard and its host values (M8 wizard); the GOG installer adapter is in the UI sources.
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWizard.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWizard.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWindow.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupWindow.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupHost.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesSetupHost.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/JonesUtf8Path.h"
         ${JONES3D_BABYLON_UI_SOURCES}
         ${JONES3D_CONTROL_SCHEME_SOURCES}
         ${JONES3D_BABYLON_MAINSYS_SOURCE}
@@ -261,7 +275,8 @@ if (J3D_PLATFORM_BABYLON)
         target_link_libraries(Jones3D PRIVATE m)
     endif()
 
-    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image)
+    target_link_libraries(Jones3D PRIVATE babylon::ui babylon::font babylon::image
+        babylon::uirender babylon::process)
 endif()
 
 if (JONES3D_BUILD_TESTS)
@@ -269,6 +284,40 @@ if (JONES3D_BUILD_TESTS)
     add_subdirectory(Display/Tests)
     if (J3D_PLATFORM_BABYLON)
         add_subdirectory(Platform/Babylon/Tests)
+    endif()
+
+    # Added: --version answers before any engine code runs, so these tests need no game data.
+    # The expected text is built from the root project's version so a version bump updates the tests.
+    string(REPLACE "." "\\." JONES3D_VERSION_REGEX "${JONES3D_VERSION_TEXT}")
+    set(JONES3D_VERSION_REGEX "^${JONES3D_PRODUCT_NAME} v${JONES3D_VERSION_REGEX}")
+    add_test(NAME Jones3D.Version COMMAND Jones3D-headless --version)
+    set_tests_properties(Jones3D.Version PROPERTIES
+        LABELS "unit;Jones3D"
+        PASS_REGULAR_EXPRESSION "${JONES3D_VERSION_REGEX}"
+    )
+    if (TARGET Jones3D)
+        add_test(NAME Jones3D.WindowedVersion COMMAND Jones3D --version)
+        set_tests_properties(Jones3D.WindowedVersion PROPERTIES
+            LABELS "unit;Jones3D"
+            PASS_REGULAR_EXPRESSION "${JONES3D_VERSION_REGEX}"
+        )
+
+        # Added: the windowed data tools must not need SDL video. This runs --hash-data over an
+        # empty folder with no DISPLAY/WAYLAND_DISPLAY and expects the tool's exit 1 and message,
+        # never the SDL platform error.
+        add_test(NAME Jones3D.HashDataWithoutDisplay
+            COMMAND ${CMAKE_COMMAND}
+                "-DTOOL=$<TARGET_FILE:Jones3D>"
+                "-DHASH_DIR=${CMAKE_CURRENT_BINARY_DIR}/hash-data-empty"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Babylon/Tests/RunHashDataTool.cmake"
+        )
+        set_tests_properties(Jones3D.HashDataWithoutDisplay PROPERTIES
+            LABELS "unit;Jones3D"
+            ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY="
+            PASS_REGULAR_EXPRESSION "no game data found"
+            FAIL_REGULAR_EXPRESSION "could not create the SDL platform"
+            TIMEOUT 60
+        )
     endif()
 endif()
 
@@ -278,15 +327,62 @@ endif()
 # run needs no configuration path.
 if (J3D_PLATFORM_BABYLON)
     set(JONES3D_UI_DATA_DIR "${CMAKE_SOURCE_DIR}/Data")
+    # Added: both executables share one output directory, so one custom command copies Data/
+    # once; two POST_BUILD copies raced when ninja linked them in parallel. The stamp reruns the
+    # copy when a file in Data/ changes. Visual Studio puts the executables in a per-configuration
+    # subdirectory; single-config generators do not.
+    get_property(JONES3D_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if (JONES3D_MULTI_CONFIG)
+        set(JONES3D_BABYLON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+    else()
+        set(JONES3D_BABYLON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    set(JONES3D_UI_DATA_STAMP "${JONES3D_BABYLON_OUTPUT_DIR}/Data.stamp")
+    file(GLOB_RECURSE JONES3D_UI_DATA_FILES CONFIGURE_DEPENDS LIST_DIRECTORIES false
+        "${JONES3D_UI_DATA_DIR}/*")
+    add_custom_command(
+        OUTPUT "${JONES3D_UI_DATA_STAMP}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${JONES3D_UI_DATA_DIR}" "${JONES3D_BABYLON_OUTPUT_DIR}/Data"
+        COMMAND ${CMAKE_COMMAND} -E touch "${JONES3D_UI_DATA_STAMP}"
+        DEPENDS ${JONES3D_UI_DATA_FILES}
+        COMMENT "Copying Data/ next to the game executables"
+        VERBATIM)
+    add_custom_target(Jones3DData DEPENDS "${JONES3D_UI_DATA_STAMP}")
     foreach (JONES3D_BABYLON_EXECUTABLE Jones3D-headless Jones3D)
         if (TARGET ${JONES3D_BABYLON_EXECUTABLE})
-            add_custom_command(TARGET ${JONES3D_BABYLON_EXECUTABLE} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${JONES3D_UI_DATA_DIR}" "$<TARGET_FILE_DIR:${JONES3D_BABYLON_EXECUTABLE}>/Data"
-                COMMENT "Copying Data/ next to ${JONES3D_BABYLON_EXECUTABLE}")
+            add_dependencies(${JONES3D_BABYLON_EXECUTABLE} Jones3DData)
         endif()
     endforeach()
 
-    install(TARGETS Jones3D-headless Jones3D RUNTIME DESTINATION ".")
-    install(DIRECTORY "${JONES3D_UI_DATA_DIR}" DESTINATION ".")
+    # Added: the player package layout (M8.5). The game component carries the
+    # windowed program and the UI data next to it; the headless runner is a
+    # tool and is not part of a package. `cmake --install --component game`
+    # produces the tree both the AppImage script and CPack start from.
+    install(TARGETS Jones3D RUNTIME DESTINATION "." COMPONENT game)
+    install(DIRECTORY "${JONES3D_UI_DATA_DIR}" DESTINATION "." COMPONENT game)
+    install(TARGETS Jones3D-headless RUNTIME DESTINATION "." COMPONENT tools)
+    install(FILES "${CMAKE_SOURCE_DIR}/README.md" "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
+        DESTINATION "." COMPONENT game)
+
+    # Added: the licenses of everything compiled into the windowed program:
+    # the game, Babylon, SDL3, miniaudio, stb and jansson. Data/ already carries
+    # the font and prompt licenses of the UI assets.
+    install(FILES "${CMAKE_SOURCE_DIR}/LICENSE"
+        DESTINATION "licenses" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Babylon/LICENSE"
+        DESTINATION "licenses/Babylon" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Babylon/third_party/miniaudio/LICENSE"
+        DESTINATION "licenses/miniaudio" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Babylon/third_party/stb/LICENSE"
+        DESTINATION "licenses/stb" COMPONENT game)
+    install(FILES "${CMAKE_SOURCE_DIR}/Libs/external/jansson/LICENSE"
+        DESTINATION "licenses/jansson" COMPONENT game)
+    get_property(JONES3D_SDL3_SOURCE_DIR GLOBAL PROPERTY BABYLON_SDL3_SOURCE_DIR)
+    if (JONES3D_SDL3_SOURCE_DIR AND EXISTS "${JONES3D_SDL3_SOURCE_DIR}/LICENSE.txt")
+        install(FILES "${JONES3D_SDL3_SOURCE_DIR}/LICENSE.txt"
+            DESTINATION "licenses/SDL3" COMPONENT game)
+    else()
+        message(WARNING "SDL3's license file was not found; packages will lack licenses/SDL3")
+    endif()
 endif()

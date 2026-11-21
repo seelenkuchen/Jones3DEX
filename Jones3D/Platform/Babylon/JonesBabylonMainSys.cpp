@@ -7,16 +7,41 @@
 
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
+#include <Jones3D/Platform/Babylon/JonesBabylon.h>
 
 #include <babylon/platform/Platform.h>
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
 
+namespace
+{
+    bool g_bSetupRequested = false;
+}
+
 extern "C" int JonesMainSys_PostCloseMessage(void)
 {
     stdBabylonEvents_RequestQuit();
     return 1;
+}
+
+extern "C" void JonesBabylon_RequestSetup(void)
+{
+    g_bSetupRequested = true;
+
+    // Added: the same close the main menu's Quit posts. Every modal loop returns and the run ends
+    // as a user quit, which mainWindowed.cpp turns into the setup rerun.
+    static_cast<void>(JonesMainSys_PostCloseMessage());
+}
+
+extern "C" bool JonesBabylon_IsSetupRequested(void)
+{
+    return g_bSetupRequested;
+}
+
+extern "C" void JonesBabylon_ClearSetupRequested(void)
+{
+    g_bSetupRequested = false;
 }
 
 extern "C" int JonesMainSys_ShowFatalMessage(const char* pText, const char* pTitle, bool bIconStop)

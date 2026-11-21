@@ -394,6 +394,14 @@ SithThing* sithWhip_GetWhipClimbThing(void)
     return sithWhip_pWhipClimbThing;
 }
 
+#ifdef J3D_TEST
+void sithWhip_SetTargetsForTest(SithThing* pSwing, SithThing* pClimb)
+{
+    sithWhip_pWhipSwingThing = pSwing;
+    sithWhip_pWhipClimbThing = pClimb;
+}
+#endif
+
 void sithWhip_Reset(void)
 {
     sithWhip_pWhipSwingThing = NULL;
@@ -435,14 +443,16 @@ int J3DAPI sithWhip_Restore(const SithMessage* pMsg)
     return 1;
 }
 
-int J3DAPI sithWhip_SearchWhipSwingThing(SithThing* pThing)
+// Added: the read-only half of the whip searches. These return the thing the search finds without
+// touching the sithWhip globals, so a prompt query can run them inside sithCollision's read-only
+// scope. The Search functions keep writing the globals exactly as before.
+static SithThing* sithWhip_FindWhipSwingThing(SithThing* pThing)
 {
     //moveNorm.x = 0.0f; // What's the point of this init?
     //moveNorm.y = 1.0f;
     //moveNorm.z = 1.0f;
 
     SITH_ASSERTREL((pThing != NULL) && (pThing->type == SITH_THING_PLAYER));
-    sithWhip_pWhipSwingThing = NULL;
 
     // Search for whip swing thing in the forward,up direction at max distance 0.65 (6.5m)
     rdVector3 moveNorm = pThing->orient.lvec;
@@ -451,7 +461,7 @@ int J3DAPI sithWhip_SearchWhipSwingThing(SithThing* pThing)
 
     if ( sithCollision_SearchForCollisions(pThing->pInSector, pThing, &pThing->pos, &moveNorm, 0.65f, 0.075f, 0x122) > 0.65f )
     {
-        return sithWhip_pWhipSwingThing != NULL;
+        return NULL;
     }
 
     while ( 1 )
@@ -465,22 +475,24 @@ int J3DAPI sithWhip_SearchWhipSwingThing(SithThing* pThing)
         // TODO: Refactor and add else scope to null found swing thing and break out of scope in case any other collision is found in the path
         if ( (pCollision->type & SITHCOLLISION_THING) != 0 && pCollision->pThingCollided != pThing && (pCollision->pThingCollided->flags & SITH_TF_WHIPSWING) != 0 )
         {
-            sithWhip_pWhipSwingThing = pCollision->pThingCollided;
-            break;
+            SithThing* pFound = pCollision->pThingCollided;
+            sithCollision_DecreaseStackLevel();
+            return pFound;
         }
     }
 
     // TODO: Add collision search in forward direction from current position for 8m, to detect if there is anything blocking whip swing trajectory.
 
     sithCollision_DecreaseStackLevel();
-    return sithWhip_pWhipSwingThing != NULL;
+    return NULL;
 }
 
-int J3DAPI sithWhip_SearchWhipClimbThing(SithThing* pThing)
+// Added: see sithWhip_FindWhipSwingThing.
+static SithThing* sithWhip_FindWhipClimbThing(SithThing* pThing)
 {
     SITH_ASSERTREL((pThing != NULL) && (pThing->type == SITH_THING_PLAYER));
 
-    sithWhip_pWhipClimbThing = NULL; // No need to free as it's reference to world thing
+    SithThing* pFound = NULL; // No need to free as it's reference to world thing
 
     // Search for whip climb thing in the up direction at max distance 0.6 (6m)
     rdVector3 moveNorm = rdroid_g_zVector3;
@@ -496,30 +508,119 @@ int J3DAPI sithWhip_SearchWhipClimbThing(SithThing* pThing)
 
             if ( (pCollision->type & SITHCOLLISION_THING) != 0 && pCollision->pThingCollided != pThing && (pCollision->pThingCollided->flags & SITH_TF_WHIPCLIMB) != 0 )
             {
-                sithWhip_pWhipClimbThing = pCollision->pThingCollided;
-                if ( sithWhip_pWhipClimbThing->pos.z - pThing->pos.z >= 0.30000001f )
+                pFound = pCollision->pThingCollided;
+                if ( pFound->pos.z - pThing->pos.z >= 0.30000001f )
                 {
                     break;
                 }
 
-                sithWhip_pWhipClimbThing = NULL;
+                pFound = NULL;
             }
         }
 
         sithCollision_DecreaseStackLevel();
     }
 
-    // Note, the unused var sithWhip_bFoundWhipClimbThing
-    if ( sithWhip_pWhipClimbThing )
+    return pFound;
+}
+
+// Added: the swing-before-climb choice and the target flag rule the activation press applies. The
+// press and the quick whip query share it, so a prompt and a press cannot disagree. A target that
+// refuses the action is still returned because the press sends its damage message before it stops.
+int J3DAPI sithWhip_ChooseWhipPressTarget(SithThing* pSwingThing, SithThing* pClimbThing, SithThing** ppTarget, int* pbSwing)
+{
+    if ( pSwingThing )
     {
-        sithWhip_bFoundWhipClimbThing = true;
-        return 1;
+        if ( ppTarget )
+        {
+            *ppTarget = pSwingThing;
+        }
+
+        if ( pbSwing )
+        {
+            *pbSwing = 1;
+        }
+
+        return (pSwingThing->flags & SITH_TF_WHIPCLIMB) == 0;
     }
-    else
+
+    if ( ppTarget )
     {
-        sithWhip_bFoundWhipClimbThing = false;
+        *ppTarget = pClimbThing;
+    }
+
+    if ( pbSwing )
+    {
+        *pbSwing = 0;
+    }
+
+    if ( pClimbThing )
+    {
+        return (pClimbThing->flags & SITH_TF_WHIPSWING) == 0;
+    }
+
+    return 0;
+}
+
+// Added: the target a quick whip press would use right now, or 0. It runs the same finders as the
+// draw press inside sithCollision's read-only scope and changes no state.
+int J3DAPI sithWhip_QueryQuickWhipTarget(SithThing* pThing, SithThing** ppTarget, int* pbSwing)
+{
+    if ( ppTarget )
+    {
+        *ppTarget = NULL;
+    }
+
+    if ( pbSwing )
+    {
+        *pbSwing = 0;
+    }
+
+    if ( !pThing || pThing->type != SITH_THING_PLAYER )
+    {
         return 0;
     }
+
+    if ( !sithCollision_BeginReadOnlySearch() )
+    {
+        return 0;
+    }
+
+    SithThing* pSwingThing = sithWhip_FindWhipSwingThing(pThing);
+    SithThing* pClimbThing = pSwingThing ? NULL : sithWhip_FindWhipClimbThing(pThing);
+
+    SithThing* pTarget = NULL;
+    int bSwing = 0;
+    int bValid = sithWhip_ChooseWhipPressTarget(pSwingThing, pClimbThing, &pTarget, &bSwing);
+
+    sithCollision_EndReadOnlySearch();
+
+    if ( ppTarget )
+    {
+        *ppTarget = pTarget;
+    }
+
+    if ( pbSwing )
+    {
+        *pbSwing = bSwing;
+    }
+
+    return bValid;
+}
+
+int J3DAPI sithWhip_SearchWhipSwingThing(SithThing* pThing)
+{
+    // Altered: the search body is shared with sithWhip_QueryQuickWhipTarget through the finder.
+    sithWhip_pWhipSwingThing = sithWhip_FindWhipSwingThing(pThing);
+    return sithWhip_pWhipSwingThing != NULL;
+}
+
+int J3DAPI sithWhip_SearchWhipClimbThing(SithThing* pThing)
+{
+    // Altered: the search body is shared with sithWhip_QueryQuickWhipTarget through the finder.
+    sithWhip_pWhipClimbThing = sithWhip_FindWhipClimbThing(pThing);
+    sithWhip_bFoundWhipClimbThing = sithWhip_pWhipClimbThing != NULL;
+    return sithWhip_pWhipClimbThing != NULL;
 }
 
 void J3DAPI sithWhip_CreatePlayerWhip(SithThing* pThing)

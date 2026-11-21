@@ -7,6 +7,8 @@
 
 #include <j3dcore/j3d.h>
 
+#include <stdbool.h>
+
 J3D_EXTERN_C_START
 
 // Runs the windowed engine loop until the engine quits, the window closes or a quit is requested.
@@ -14,14 +16,25 @@ J3D_EXTERN_C_START
 // Null load-game dialog (needs the load-game start mode in Jones.cfg, like the headless runner);
 // every other argument joins with single spaces into the command line of JonesMain_Startup. A
 // "--load" without a value, or a joined command line longer than the engine's command line
-// buffer, prints one error and returns 1 before the engine starts. Returns the process exit
-// code. Call once.
-int JonesBabylon_Run(int argc, char** argv);
+// buffer, prints one error and returns 1 before the engine starts. pUserDir is the writable
+// directory chosen by the composition root ("--user-dir", the executable directory when its
+// GameData folder holds the data, or the platform user path; "" is the working directory). It is
+// applied after the global reset, so it is created then; a
+// path too long for stdUserDir prints one error and returns 1. Returns the process exit code.
+// Call once.
+int JonesBabylon_Run(int argc, char** argv, const char* pUserDir);
 
 // Added: maps a JonesMain_Startup result to the process exit code. A user quit from the main menu
 // reports JONESMAIN_STARTUP_USERQUIT and is a normal exit; every other nonzero result is a startup
 // failure. Implemented in Jones3D/Platform/Babylon/JonesBabylonMainSys.cpp.
 int JonesBabylon_StartupExitCode(int startupResult);
+
+// Added: "Run setup again..." from Options asks the composition root to run the setup wizard and
+// then start the game again. RequestSetup records the request and ends the run the same way
+// "Exit game" from the main menu does, so the windowed loop notices it like that quit.
+void JonesBabylon_RequestSetup(void);
+bool JonesBabylon_IsSetupRequested(void);
+void JonesBabylon_ClearSetupRequested(void);
 
 J3D_EXTERN_C_END
 #endif // JONES3D_PLATFORM_BABYLON_JONESBABYLON_H

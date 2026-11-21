@@ -2062,3 +2062,81 @@ TEST_CASE("a long screen scrolls whole rows above the prompt bar and marks what 
     ui.handleEvent(platform::Event(mouseButtonEvent(platform::MouseButton::Left, false)));
     CHECK(ui.focusedWidget() == 10u);
 }
+
+TEST_CASE("a screen draw callback replaces widget drawing and its event tap runs first")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    int draws = 0;
+    std::vector<platform::Event> seen;
+
+    Screen screen;
+    screen.title = "Custom";
+    screen.widgets = { Button{ "Ignored", 7, true } };
+    screen.draw = [&](Ui&, Painter& target, const Size& canvas)
+    {
+        ++draws;
+        CHECK(canvas.height == 480.0f);
+        CHECK(canvas.width == 640.0f);
+        target.fillRect(Rect{ 1.0f, 2.0f, 3.0f, 4.0f }, Color{ 1.0f, 0.0f, 0.0f, 1.0f });
+    };
+    screen.event = [&](Ui&, const platform::Event& event, const Point& pointer,
+        bool pointerValid) -> bool
+    {
+        seen.push_back(event);
+        CHECK(pointerValid);
+        if ( std::holds_alternative<platform::MouseMoved>(event) )
+        {
+            CHECK(pointer.x == 10.0f);
+            CHECK(pointer.y == 20.0f);
+        }
+        return true;
+    };
+
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    ui.handleEvent(platform::Event(mouseEvent(10.0f, 20.0f)));
+    REQUIRE(seen.size() == 1u);
+    CHECK(std::holds_alternative<platform::MouseMoved>(seen.front()));
+
+    painter.clearRecorded();
+    ui.draw();
+    CHECK(draws == 1);
+    const std::vector<RecordedCall>& calls = painter.recorded();
+    REQUIRE(calls.size() == 3u);
+    CHECK(std::holds_alternative<RecordedPushClip>(calls[0]));
+    REQUIRE(std::holds_alternative<RecordedFillRect>(calls[1]));
+    CHECK(std::get<RecordedFillRect>(calls[1]).rect == Rect{ 1.0f, 2.0f, 3.0f, 4.0f });
+    CHECK(std::holds_alternative<RecordedPopClip>(calls[2]));
+
+    // The tap consumed the event, so the button did not take focus or accept.
+    CHECK(ui.pollEvent().has_value() == false);
+    ui.handleEvent(platform::Event(keyEvent(platform::Key::Enter, true)));
+    ui.handleEvent(platform::Event(keyEvent(platform::Key::Enter, false)));
+    CHECK(ui.isOpen(ui.topScreen()));
+}
+
+TEST_CASE("a consumed key-up does not leave the key down for the next screen")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+
+    Screen custom;
+    custom.title = "Custom";
+    custom.event = [](Ui&, const platform::Event&, const Point&, bool) { return true; };
+    REQUIRE(ui.push(custom) != kInvalidScreen);
+
+    tap(ui, platform::Key::Enter);
+    ui.pop();
+
+    REQUIRE(ui.push(twoButtons(0)) != kInvalidScreen);
+    tap(ui, platform::Key::Enter);
+    const std::vector<UiEvent> events = drain(ui);
+    const ActionPressed* pAction = findEvent<ActionPressed>(events);
+    REQUIRE(pAction != nullptr);
+    CHECK(pAction->action == 1);
+}

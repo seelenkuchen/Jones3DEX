@@ -27,8 +27,8 @@ babylon::ui::Skin JonesUiPauseMenu_CreateSkin(babylon::ui::FontId menuFont,
 
 // Runs the pause menu until Resume or Back closes it. Save, Load, Options, Statistics and Exit
 // call the shared JonesHud functions on the way, exactly as the HUD menu's system items do.
-// background supplies the dimmed game frame and the lower-left shade; with the default empty
-// value the modal loop's frozen frame and dim are used. pMenuSkin, when set, is applied to the
+// background supplies the lower-left shade; with the default empty value the overlay dims the live
+// game frame. pMenuSkin, when set, is applied to the
 // pause menu only; the nested Settings screen keeps the caller's skin. The caller's skin is
 // restored before this returns.
 int JonesUiPauseMenu_RunPauseMenu(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter,

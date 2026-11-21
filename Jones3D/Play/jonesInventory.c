@@ -20,7 +20,11 @@ static SithGameStatistics* jonesInventory_pGameStatistics;
 static uint32_t jonesInventory_msecStatisticsGameTime;
 
 void jonesInventory_ResetGlobals(void)
-{}
+{
+    // Added: the statistics pointer and its game time belong to one run.
+    jonesInventory_pGameStatistics       = NULL;
+    jonesInventory_msecStatisticsGameTime = 0;
+}
 
 int jonesInventory_Open(void)
 {

@@ -452,6 +452,13 @@ int J3DAPI stdDisplay_GetCurrentVideoMode(StdVideoMode* pDisplayMode)
     return 0;
 }
 
+int J3DAPI stdDisplay_GetDesktopMode(StdVideoMode* pDestMode)
+{
+    // The Null column has no display; the caller keeps its 640x480 default.
+    (void)pDestMode;
+    return 1;
+}
+
 size_t stdDisplay_GetNumVideoModes(void)
 {
     return stdDisplay_numVideoModes;

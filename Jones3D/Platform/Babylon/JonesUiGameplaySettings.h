@@ -25,9 +25,10 @@ struct JonesUiGameplayValues
     bool bRotateMap = false;
     std::size_t difficulty = 0;
     bool bDefaultRun = false;
-    std::size_t controlStyle = 0; // 0 Modern, 1 Classic
     bool bReticle = false;
     bool bBlood = false;
+    bool bInteractionPrompts = false;
+    bool bQuickWhip = false;
     bool bFireFlash = false;
     bool bExternalMaterials = false;
     bool bExternalKeyframes = false;
@@ -40,10 +41,11 @@ struct JonesUiGameplayLayout
     std::size_t rotateMap = 0;
     std::size_t difficulty = 0;
     std::size_t defaultRun = 0;
-    std::size_t controlStyle = 0;
     std::size_t reticle = 0;
     std::size_t blood = 0;
     std::size_t profile = 0;
+    std::size_t interactionPrompts = 0;
+    std::size_t quickWhip = 0;
     std::size_t fireFlash = 0;
     std::size_t externalMaterials = 0;
     std::size_t externalKeyframes = 0;

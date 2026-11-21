@@ -35,13 +35,16 @@
 #include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Main/sithMain.h>
+#include <sith/Main/sithString.h>
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/General/std.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdControl.h>
+#include <std/General/stdFnames.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdPlatform.h>
+#include <std/General/stdUserDir.h>
 #include <std/Null/stdControlNull.h>
 
 TEST_GROUP(JonesControlSchemes);
@@ -523,7 +526,8 @@ TEST(JonesControlSchemes, TestDefaultSchemes)
         STDKEY_A, STDKEY_LEFT });
     ExpectBindings(scheme, JONESCONTROL_ACTION_TURNRIGHT, {
         STDKEY_D, STDKEY_RIGHT });
-    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPLEFT, {});
+    ExpectBindings(scheme, JONESCONTROL_ACTION_STEPLEFT, {
+        STDCONTROL_JOYSTICK_GETBUTTON(0, 4) });
     ExpectBindings(scheme, JONESCONTROL_ACTION_STEPRIGHT, {
         STDKEY_LMENU, STDCONTROL_JOYSTICK_GETBUTTON(0, 5) });
     ExpectBindings(scheme, JONESCONTROL_ACTION_CRAWL, {
@@ -670,6 +674,26 @@ TEST(JonesControlSchemes, TestWindowedFirstRunPicksClassicDefaultAfterControlSta
     TEST_ASSERT_EQUAL_STRING(aConfigured, JonesControlSchemes_GetDefaultSchemeName(3));
 }
 
+TEST(JonesControlSchemes, TestWindowedFirstRunControlStartupBindsTheDefaultScheme)
+{
+    g_bTestWindowed = true;
+
+    // A first run has no controls.configFile. JonesControl_Startup starts sithControl and loads
+    // and binds the schemes itself; the later jonesConfig_Startup in JonesHud_Open finds them
+    // started.
+    TEST_ASSERT_FALSE(stdConfig_Contains(JONESCONFIG_CFG_CONTROLS_CONFIGFILE));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_NOT_NULL(JonesControlSchemes_GetActiveScheme());
+
+    char aConfigured[128] = { 0 };
+    TEST_ASSERT_TRUE(stdConfig_GetString(JONESCONFIG_CFG_CONTROLS_CONFIGFILE, aConfigured,
+        sizeof(aConfigured), ""));
+    TEST_ASSERT_EQUAL_STRING(
+        JonesControlSchemes_GetDefaultSchemeName(JonesControlSchemes_GetDefaultSchemeIndex()),
+        aConfigured);
+}
+
 #ifdef J3D_QOL_IMPROVEMENTS
 TEST(JonesControlSchemes, TestRememberedClassicSchemeIsKeptInModernStyle)
 {
@@ -806,10 +830,11 @@ TEST(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep)
         babylon::platform::GamepadButton::RightShoulder, false });
     stdControl_ReadControls();
 
-    // LB is free in the Modern scheme.
+    // The Modern scheme's step-left row now carries LB, which becomes quick whip.
     g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
         babylon::platform::GamepadButton::LeftShoulder, true });
     stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKWHIP));
     TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
     TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
 
@@ -819,7 +844,7 @@ TEST(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep)
     stdControl_GetNumJoysticks();
 }
 
-TEST(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme)
+TEST(JonesControlSchemes, TestModernBinderMapsLeftShoulderToQuickWhip)
 {
     g_platform.pushEvent(babylon::platform::GamepadConnected{ 1 });
     TEST_ASSERT_EQUAL_size_t(1, stdControl_GetNumJoysticks());
@@ -827,7 +852,8 @@ TEST(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme)
     StartControls();
     sithControl_SetModernControlStyle(true);
 
-    // "Keyboard and gamepad" binds LB to step left; in Modern LB stays free for the weapon wheel.
+    // "Keyboard and gamepad" binds LB to step left; in Modern it becomes quick whip, and the
+    // row's keyboard step-left key keeps its Modern quick-step meaning.
     JonesControlsScheme scheme;
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetDefaultScheme(&scheme, 3));
     TEST_ASSERT_EQUAL_INT(1, JonesControlSchemes_SetActiveScheme(&scheme));
@@ -835,11 +861,20 @@ TEST(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme)
     g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
         babylon::platform::GamepadButton::LeftShoulder, true });
     stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKWHIP));
     TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKSTEP));
     TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_STPLEFT));
 
     g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
         babylon::platform::GamepadButton::LeftShoulder, false });
+    stdControl_ReadControls();
+
+    // The row's keyboard step-left key keeps its Modern quick-step meaning.
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_A, 1));
+    stdControl_ReadControls();
+    TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_QUICKSTEP));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKWHIP));
+    TEST_ASSERT_TRUE(stdControl_QueueKeyEvent(STDKEY_A, 0));
     stdControl_ReadControls();
 
     g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
@@ -877,6 +912,7 @@ TEST(JonesControlSchemes, TestClassicBinderKeepsStepRows)
         babylon::platform::GamepadButton::LeftShoulder, true });
     stdControl_ReadControls();
     TEST_ASSERT_EQUAL_INT(1, ReadKeyState(SITHCONTROL_STPLEFT));
+    TEST_ASSERT_EQUAL_INT(0, ReadKeyState(SITHCONTROL_QUICKWHIP));
 
     g_platform.pushEvent(babylon::platform::GamepadButtonChanged{ 1,
         babylon::platform::GamepadButton::RightShoulder, false });
@@ -913,67 +949,128 @@ TEST(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys)
 }
 #endif
 
-TEST(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle)
+TEST(JonesControlSchemes, TestStartupWritesPerDeviceStyleDefaults)
 {
     TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
 
 #ifdef J3D_QOL_IMPROVEMENTS
-    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    // Added: a missing key gives the owner's defaults: keyboard and mouse Classic, gamepad Modern.
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
+
     char aStyle[16] = { 0 };
-    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE,
+        aStyle, sizeof(aStyle), ""));
+    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE,
         aStyle, sizeof(aStyle), ""));
     TEST_ASSERT_EQUAL_STRING("modern", aStyle);
-#else
-    // Retail never reads or writes the key, so it stays absent and the style stays Classic.
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    // The old single key is no longer written.
     TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+#else
+    // Retail never reads or writes the keys, so they stay absent and both styles stay Classic.
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+    TEST_ASSERT_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
 #endif
 }
 
-TEST(JonesControlSchemes, TestStartupReadsClassicControlStyle)
+TEST(JonesControlSchemes, TestStartupMigratesOldClassicStyleToBoth)
+{
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+    // Added: an existing old-style config is not rewritten by startup.
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
+#else
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupMigratesOldModernStyleToDefaults)
 {
 #ifdef J3D_QOL_IMPROVEMENTS
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        "classic"));
+        "modern"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
-
-    char aStyle[16] = { 0 };
-    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        aStyle, sizeof(aStyle), ""));
-    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
+    // Added: an existing old-style config is not rewritten by startup.
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE));
+    TEST_ASSERT_FALSE(stdConfig_Contains(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE));
 #else
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        "classic"));
+        "modern"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
-
-    // Retail leaves the key as it found it.
-    char aStyle[16] = { 0 };
-    TEST_ASSERT_TRUE(stdConfig_GetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
-        aStyle, sizeof(aStyle), ""));
-    TEST_ASSERT_EQUAL_STRING("classic", aStyle);
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
 #endif
 }
 
-TEST(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern)
+TEST(JonesControlSchemes, TestStartupMapsUnknownControlStyleToDefaults)
 {
 #ifdef J3D_QOL_IMPROVEMENTS
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
         "turbo"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_TRUE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_TRUE(sithControl_IsModernGamepadStyle());
 #else
     TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
         "turbo"));
 
     TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
-    TEST_ASSERT_FALSE(sithControl_IsModernControlStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+#endif
+}
+
+TEST(JonesControlSchemes, TestStartupNewKeysWinOverOldKey)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(stdConfig_SetString(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE,
+        "classic"));
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, "modern"));
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, "classic"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_TRUE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
+#else
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_KEYBOARDCONTROLSTYLE, "modern"));
+    TEST_ASSERT_TRUE(stdConfig_SetString(
+        SITHCONTROL_CFG_ENGINE_INPUT_GAMEPADCONTROLSTYLE, "modern"));
+
+    TEST_ASSERT_EQUAL_INT(0, JonesControl_Startup());
+    TEST_ASSERT_FALSE(sithControl_IsModernKeyboardStyle());
+    TEST_ASSERT_FALSE(sithControl_IsModernGamepadStyle());
 #endif
 }
 
@@ -1164,6 +1261,123 @@ TEST(JonesControlSchemes, TestCreateDeleteAndLoadAll)
     TEST_ASSERT_FALSE(std::filesystem::exists(KeySetsPath("fresh")));
 }
 
+TEST(JonesControlSchemes, TestUserDirectoryPathsAndSaveMigration)
+{
+    namespace stdfs = std::filesystem;
+
+    // The string table is loaded from misc/ relative to the working directory, so this case moves
+    // into its temporary directory for the short time sithString is started and restores it after.
+    const stdfs::path userDir = g_tempDir / "user";
+    const std::string userDirString = userDir.string();
+
+    struct ScopedWorkingDirectory
+    {
+        explicit ScopedWorkingDirectory(const stdfs::path& pDirectory) : old(stdfs::current_path())
+        {
+            stdfs::current_path(pDirectory);
+        }
+
+        ~ScopedWorkingDirectory()
+        {
+            stdfs::current_path(old);
+        }
+
+        stdfs::path old;
+    } scopedWorkingDirectory(g_tempDir);
+
+    WriteFile((g_tempDir / "misc" / "voiceStrings.uni").string(), "MSGS 0\nEND\n");
+    WriteFile((g_tempDir / "misc" / "sithStrings.uni").string(),
+        "MSGS 5\n"
+        "\"SITHSTRING_SAVEGAMES\" 0 \"SaveGames\"\n"
+        "\"SITHSTRING_SHOTS\" 0 \"ScreenShots\"\n"
+        "\"SITHSTRING_QUICK\" 0 \"QUICKSAVE\"\n"
+        "\"SITHSTRING_AUTO\" 0 \"start_\"\n"
+        "\"SITHSTRING_JONES_SHOTS\" 0 \"jones%02d\"\n"
+        "END\n");
+
+    sithString_Shutdown();
+    TEST_ASSERT_TRUE(sithString_Startup() == 0);
+
+    // The config path follows the user directory, and stays relative with none.
+    stdUserDir_Reset();
+    sithMain_ResetGlobals();
+    char aPath[STDUSERDIR_MAXPATH] = { 0 };
+    TEST_ASSERT_TRUE(JonesMain_GetConfigFilePath(aPath, sizeof(aPath)));
+    TEST_ASSERT_TRUE(std::string(aPath) == "Jones.cfg");
+
+    TEST_ASSERT_TRUE(stdUserDir_Set(userDirString.c_str()));
+    sithMain_ResetGlobals();
+    TEST_ASSERT_TRUE(JonesMain_GetConfigFilePath(aPath, sizeof(aPath)));
+    TEST_ASSERT_TRUE(std::string(aPath) == userDirString + "\\Jones.cfg");
+
+    // Without a user directory, sithGetPath keeps the original install-relative answer.
+    stdUserDir_Reset();
+    sithMain_ResetGlobals();
+    TEST_ASSERT_TRUE(std::string(sithGetSaveGamesDir()) == g_installPath + "\\SaveGames");
+    TEST_ASSERT_TRUE(std::string(sithGetQuickSaveFilePrefix()) == "QUICKSAVE");
+
+    // With one, the write directories move there; the quick-save name stays a name that callers
+    // join with the save directory.
+    TEST_ASSERT_TRUE(stdUserDir_Set(userDirString.c_str()));
+    sithMain_ResetGlobals();
+    TEST_ASSERT_TRUE(std::string(sithGetSaveGamesDir()) == userDirString + "\\SaveGames");
+    TEST_ASSERT_TRUE(std::string(sithGetScreenShotsDir()) == userDirString + "\\ScreenShots");
+    TEST_ASSERT_TRUE(std::string(sithGetQuickSaveFilePrefix()) == "QUICKSAVE");
+
+    // User-made key sets are written in the user directory as well.
+    jonesConfig_Shutdown();
+    TEST_ASSERT_EQUAL_INT(1, jonesConfig_InitKeySetsPath());
+    TEST_ASSERT_TRUE(std::string(JonesControlSchemes_GetDirectory()) == userDirString + "\\KeySets");
+
+    sithMakeDirs();
+    TEST_ASSERT_TRUE(stdfs::exists(userDir / "SaveGames"));
+    TEST_ASSERT_TRUE(stdfs::exists(userDir / "ScreenShots"));
+
+    // The old config is copied once; a config already in the user directory is kept.
+    WriteFile((g_tempDir / "Jones.cfg").string(), "legacy config");
+    TEST_ASSERT_TRUE(stdUserDir_CopyFileIfMissing("Jones.cfg", "Jones.cfg"));
+    TEST_ASSERT_TRUE(ReadFile((userDir / "Jones.cfg").string()) == "legacy config");
+    WriteFile((userDir / "Jones.cfg").string(), "user config");
+    TEST_ASSERT_FALSE(stdUserDir_CopyFileIfMissing("Jones.cfg", "Jones.cfg"));
+    TEST_ASSERT_TRUE(ReadFile((userDir / "Jones.cfg").string()) == "user config");
+
+    // A legacy .nds is copied into the empty user save directory, never moved.
+    const stdfs::path legacySave = stdfs::path(g_installPath) / "SaveGames" / "legacy.nds";
+    WriteFile(legacySave.string(), "legacy save");
+    sithMakeDirs();
+    TEST_ASSERT_TRUE(stdfs::exists(userDir / "SaveGames" / "legacy.nds"));
+    TEST_ASSERT_TRUE(stdfs::exists(legacySave));
+
+    // Added: a user directory of about 300 characters still yields complete save, quick save and
+    // screenshot paths (M8.2b).
+    stdfs::path longUserDir = g_tempDir;
+    while ( longUserDir.string().size() < 300 )
+    {
+        longUserDir /= std::string(64, 'p');
+    }
+    const std::string longUserDirString = longUserDir.string();
+    TEST_ASSERT_TRUE(longUserDirString.size() >= 300);
+
+    TEST_ASSERT_TRUE(stdUserDir_Set(longUserDirString.c_str()));
+    sithMain_ResetGlobals();
+    sithSetServices(&g_hostServices);
+
+    const std::string longSaveDir = sithGetSaveGamesDir();
+    TEST_ASSERT_TRUE(longSaveDir == longUserDirString + "\\SaveGames");
+    const std::string longShotsDir = sithGetScreenShotsDir();
+    TEST_ASSERT_TRUE(longShotsDir == longUserDirString + "\\ScreenShots");
+
+    char aQuickName[STDUSERDIR_MAXPATH] = { 0 };
+    std::snprintf(aQuickName, sizeof(aQuickName), "%s.%s", sithGetQuickSaveFilePrefix(), "nds");
+    char aQuickPath[STDUSERDIR_MAXPATH] = { 0 };
+    stdFnames_MakePath(aQuickPath, (int)sizeof(aQuickPath), sithGetSaveGamesDir(), aQuickName);
+    TEST_ASSERT_TRUE(std::string(aQuickPath) == longSaveDir + "\\QUICKSAVE.nds");
+
+    sithString_Shutdown();
+    stdUserDir_Reset();
+    sithMain_ResetGlobals();
+}
+
 static void JonesControlSchemes_RunAllTests(void)
 {
     RUN_TEST_CASE(JonesControlSchemes, TestLoadSchemeWithKeysMouseJoystick);
@@ -1177,6 +1391,7 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksModernDefaultAfterControlStartup);
 #endif
     RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunPicksClassicDefaultAfterControlStartup);
+    RUN_TEST_CASE(JonesControlSchemes, TestWindowedFirstRunControlStartupBindsTheDefaultScheme);
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedActiveSchemeIsKept);
 #ifdef J3D_QOL_IMPROVEMENTS
     RUN_TEST_CASE(JonesControlSchemes, TestRememberedClassicSchemeIsKeptInModernStyle);
@@ -1187,12 +1402,14 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsRightShoulderToQuickStep);
     RUN_TEST_CASE(JonesControlSchemes, TestModernDefaultSchemeBindsTargetLockKeys);
 #endif
-    RUN_TEST_CASE(JonesControlSchemes, TestModernKeepsLeftShoulderFreeInThePadScheme);
+    RUN_TEST_CASE(JonesControlSchemes, TestModernBinderMapsLeftShoulderToQuickWhip);
     RUN_TEST_CASE(JonesControlSchemes, TestClassicBinderKeepsStepRows);
     RUN_TEST_CASE(JonesControlSchemes, TestStartupDropsControllerKey);
-    RUN_TEST_CASE(JonesControlSchemes, TestStartupDefaultsAndWritesModernControlStyle);
-    RUN_TEST_CASE(JonesControlSchemes, TestStartupReadsClassicControlStyle);
-    RUN_TEST_CASE(JonesControlSchemes, TestStartupMapsUnknownControlStyleToModern);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupWritesPerDeviceStyleDefaults);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMigratesOldClassicStyleToBoth);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMigratesOldModernStyleToDefaults);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupMapsUnknownControlStyleToDefaults);
+    RUN_TEST_CASE(JonesControlSchemes, TestStartupNewKeysWinOverOldKey);
     RUN_TEST_CASE(JonesControlSchemes, TestHotPlugRebindsPadAndKeepsKeyboard);
     RUN_TEST_CASE(JonesControlSchemes, TestHeadlessStartupDoesNothing);
     RUN_TEST_CASE(JonesControlSchemes, TestHudMenuFallbackWhenSchemeBindsNothing);
@@ -1201,6 +1418,7 @@ static void JonesControlSchemes_RunAllTests(void)
     RUN_TEST_CASE(JonesControlSchemes, TestHudSystemIconsTrueShowsThem);
     RUN_TEST_CASE(JonesControlSchemes, TestChangeBindingUpdatesCounts);
     RUN_TEST_CASE(JonesControlSchemes, TestCreateDeleteAndLoadAll);
+    RUN_TEST_CASE(JonesControlSchemes, TestUserDirectoryPathsAndSaveMigration);
 }
 
 extern "C" void TEST_JonesControlSchemes_GROUP_RUNNER(void)

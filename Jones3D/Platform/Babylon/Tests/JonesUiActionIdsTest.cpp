@@ -61,7 +61,7 @@ TEST_CASE("every screen's button and list uses a non-zero action id")
     screens.push_back(JonesUiPauseMenu_BuildScreen());
 
     const JonesUiOptionsData optionsData{};
-    for ( std::size_t tab = 0; tab < 4; ++tab )
+    for ( std::size_t tab = 0; tab < 5; ++tab )
     {
         screens.push_back(JonesUiOptions_BuildTabScreenForTest(tab, optionsData));
     }

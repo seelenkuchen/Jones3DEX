@@ -2,7 +2,20 @@ cmake_minimum_required(VERSION 3.15)
 
 cmake_policy(SET CMP0091 NEW)
 
-project(OpenJones3D VERSION 0.4.0)
+project(OpenJones3D VERSION 0.5.0)
+
+# The pre-release suffix is kept out of project(VERSION), which stays numeric. It is appended
+# to the version text used by --version, the configure summary and the package file names.
+set(JONES3D_VERSION_PRERELEASE "alpha" CACHE STRING "Pre-release suffix appended to the version (empty for a final release)")
+if (JONES3D_VERSION_PRERELEASE)
+    set(JONES3D_VERSION_TEXT "${PROJECT_VERSION}-${JONES3D_VERSION_PRERELEASE}")
+    set(JONES3D_VERSION_PRERELEASE_SUFFIX "-${JONES3D_VERSION_PRERELEASE}")
+else()
+    set(JONES3D_VERSION_TEXT "${PROJECT_VERSION}")
+    set(JONES3D_VERSION_PRERELEASE_SUFFIX "")
+endif()
+
+set(JONES3D_PRODUCT_NAME "Jones3D EX")
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -98,6 +111,11 @@ if (JONES3D_PLATFORM_BABYLON)
     set(J3D_PLATFORM_BABYLON ON)
 endif()
 
+# Use the static CRT for optimized configurations and the debug DLL CRT for Debug.
+set(CMAKE_MSVC_RUNTIME_LIBRARY
+    "$<$<CONFIG:Debug>:MultiThreadedDebugDLL>$<$<CONFIG:Release>:MultiThreaded>$<$<CONFIG:RelWithDebInfo>:MultiThreaded>$<$<CONFIG:MinSizeRel>:MultiThreaded>"
+)
+
 if (JONES3D_BUILD_BABYLON)
     set(BABYLON_BUILD_TESTS ${JONES3D_BUILD_TESTS} CACHE BOOL "" FORCE)
     set(BABYLON_SANITIZE ${JONES3D_SANITIZE} CACHE BOOL "" FORCE)
@@ -118,10 +136,9 @@ configure_file(
 )
 include_directories(BEFORE "${JONES3D_GENERATED_INCLUDE_DIR}")
 
-# Use the static CRT for optimized configurations and the debug DLL CRT for Debug.
-set(CMAKE_MSVC_RUNTIME_LIBRARY
-    "$<$<CONFIG:Debug>:MultiThreadedDebugDLL>$<$<CONFIG:Release>:MultiThreaded>$<$<CONFIG:RelWithDebInfo>:MultiThreaded>$<$<CONFIG:MinSizeRel>:MultiThreaded>"
-)
+# The release workflow reads this when it builds without a tag, so a local build names its
+# package exactly as --version prints it.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/VERSION" "${JONES3D_VERSION_TEXT}\n")
 
 if (MSVC)
     # Clion IDE can't read the preprocessor macro below and needs special treatment
@@ -217,7 +234,44 @@ if (JONES3D_SANITIZE)
     endif()
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
+
+    # Added: the GPU unit suites create a real Vulkan device, and the loader dlcloses the driver
+    # when that device is destroyed. LeakSanitizer then sees the driver's still-owned allocations
+    # as leaks, with stacks under libc's thread start rather than in our code. Keeping the driver
+    # loaded for the test process (LD_PRELOAD) avoids the false report without suppressing leaks.
+    set(JONES3D_SANITIZE_GPU_DRIVER_PRELOAD "" CACHE STRING
+        "Semicolon-separated Vulkan driver libraries to LD_PRELOAD in the GPU unit suites under sanitizers")
+    if (NOT JONES3D_SANITIZE_GPU_DRIVER_PRELOAD)
+        find_library(JONES3D_VULKAN_LVP_LIBRARY NAMES vulkan_lvp)
+        if (JONES3D_VULKAN_LVP_LIBRARY)
+            set(JONES3D_SANITIZE_GPU_DRIVER_PRELOAD "${JONES3D_VULKAN_LVP_LIBRARY}" CACHE STRING
+                "Semicolon-separated Vulkan driver libraries to LD_PRELOAD in the GPU unit suites under sanitizers" FORCE)
+        else()
+            message(STATUS "JONES3D_SANITIZE: Mesa lavapipe (vulkan_lvp) was not found; "
+                "GPU unit suites may report driver allocations as leaks")
+        endif()
+    endif()
 endif()
+
+# Added: appends LD_PRELOAD to a test's ENVIRONMENT, keeping whatever the test already sets.
+# The GPU suites call this even when sanitizers are off, so the function itself checks the option.
+function(jones3d_sanitize_preload_gpu_driver test_name)
+    if (NOT JONES3D_SANITIZE OR NOT JONES3D_SANITIZE_GPU_DRIVER_PRELOAD)
+        return()
+    endif()
+
+    string(REPLACE ";" ":" jones3d_preload_paths "${JONES3D_SANITIZE_GPU_DRIVER_PRELOAD}")
+    get_test_property("${test_name}" ENVIRONMENT jones3d_test_environment)
+    if (jones3d_test_environment STREQUAL "NOTFOUND")
+        set(jones3d_test_environment "")
+    endif()
+    list(APPEND jones3d_test_environment "LD_PRELOAD=${jones3d_preload_paths}")
+    set_tests_properties("${test_name}" PROPERTIES ENVIRONMENT "${jones3d_test_environment}")
+endfunction()
+
+# Added: the UTF-8 application manifest helper. Windows executables carry the manifest so the
+# UCRT's char* file APIs use the UTF-8 code page, matching the UTF-8 paths the game passes around.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/WindowsManifest.cmake")
 
 # Add Libs subdirectory
 add_subdirectory(Libs)
@@ -227,6 +281,37 @@ add_subdirectory(Jones3D)
 
 if (JONES3D_BUILD_PROGRAMS)
     add_subdirectory(Programs)
+endif()
+
+# Added: give every executable of the game and the Libs tests the UTF-8 manifest. Babylon's own
+# test programs take Babylon's copy through babylon_add_module_tests(), so skip targets whose
+# sources live under Babylon/: Babylon must not depend on files outside its own tree.
+if (WIN32)
+    function(jones3d_add_windows_manifests directory)
+        get_property(jones3d_dir_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(jones3d_target IN LISTS jones3d_dir_targets)
+            get_target_property(jones3d_target_type "${jones3d_target}" TYPE)
+            if (NOT jones3d_target_type STREQUAL "EXECUTABLE")
+                continue()
+            endif()
+
+            get_target_property(jones3d_target_source_dir "${jones3d_target}" SOURCE_DIR)
+            string(FIND "${jones3d_target_source_dir}" "${PROJECT_SOURCE_DIR}/Babylon"
+                jones3d_babylon_pos)
+            if (jones3d_babylon_pos EQUAL 0)
+                continue()
+            endif()
+
+            j3d_add_windows_manifest("${jones3d_target}")
+        endforeach()
+
+        get_property(jones3d_dir_subdirs DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+        foreach(jones3d_subdir IN LISTS jones3d_dir_subdirs)
+            jones3d_add_windows_manifests("${jones3d_subdir}")
+        endforeach()
+    endfunction()
+
+    jones3d_add_windows_manifests("${PROJECT_SOURCE_DIR}")
 endif()
 
 if (CMAKE_CONFIGURATION_TYPES)
@@ -241,7 +326,7 @@ endif()
 
 message(STATUS "")
 message(STATUS "OpenJones3D configuration summary")
-jones3d_print_config_entry("Version" "v${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}${JONES3D_BUILD_SUFFIX}")
+jones3d_print_config_entry("Version" "v${JONES3D_VERSION_TEXT}${JONES3D_BUILD_SUFFIX}")
 jones3d_print_config_entry("Generator" "${CMAKE_GENERATOR}")
 if (CMAKE_GENERATOR_PLATFORM)
     jones3d_print_config_entry("Platform" "${CMAKE_GENERATOR_PLATFORM}")
@@ -257,3 +342,27 @@ jones3d_print_config_option("Runtime guards" JONES3D_RUNTIME_GUARDS)
 jones3d_print_config_option("Speedrun build" JONES3D_SPEEDRUN_BUILD)
 jones3d_print_config_option("Build programs" JONES3D_BUILD_PROGRAMS)
 jones3d_print_config_option("Build tests" JONES3D_BUILD_TESTS)
+
+# Added: CPack packages the game component only (M8.5). Windows gets the player
+# zip; the same configuration makes a tar.gz for local checks on Linux, whose
+# release artifact comes from packaging/linux/make-appimage.sh instead. The
+# headless runner's tools component is deliberately not packaged.
+if (JONES3D_PLATFORM_BABYLON)
+    set(CPACK_PACKAGE_NAME "Jones3D_EX")
+    set(CPACK_PACKAGE_VERSION "${JONES3D_VERSION_TEXT}")
+    set(CPACK_COMPONENTS_ALL game)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+    # Files at the archive root, like the Windows zip layout: Jones3D.exe and
+    # Data/ next to each other, then licenses/, README.md and CHANGELOG.md.
+    set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY OFF)
+    if (WIN32)
+        set(CPACK_GENERATOR "ZIP")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-windows-x64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-windows-x64")
+    else()
+        set(CPACK_GENERATOR "TGZ")
+        set(CPACK_PACKAGE_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-linux-x86_64")
+        set(CPACK_ARCHIVE_GAME_FILE_NAME "Jones3D_EX-${JONES3D_VERSION_TEXT}-linux-x86_64")
+    endif()
+    include(CPack)
+endif()

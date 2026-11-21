@@ -10,12 +10,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <Jones3D/Main/JonesDataLocate.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/JonesMainSys.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesHudPromptOverlay.h>
 #include <Jones3D/Platform/Babylon/JonesWindowMode.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
+
+#include <std/General/stdUserDir.h>
 
 #include <wkernel/wkernel.h>
 
@@ -31,26 +35,42 @@ static void J3DAPI JonesBabylon_OnActivate(int bActive)
     JonesMain_OnAppActivate(NULL, bActive);
 }
 
-int JonesBabylon_Run(int argc, char** argv)
+int JonesBabylon_Run(int argc, char** argv, const char* pUserDir)
 {
     // Added: --load <save.nds> answers the Null load-game dialog, like the headless runner's
     // option; everything else joins into the startup command line. Both are parsed completely
     // before anything runs, so a bad command line exits before any engine code, the way
     // JonesHeadless_Run parses its --input script up front.
-    const char* pLoadPath = NULL;
+    const char* pLoadPath     = NULL;
+    const char* pDataPath     = NULL;
+    const char* pHashDataPath = NULL;
     char        aCmdLine[JONESBABYLON_MAX_CMDLINE] = { 0 };
     size_t      curLen  = 0;
     for ( int i = 1; i < argc; ++i )
     {
-        if ( strcmp(argv[i], "--load") == 0 )
+        if ( strcmp(argv[i], "--load") == 0
+          || strcmp(argv[i], "--data") == 0
+          || strcmp(argv[i], "--hash-data") == 0 )
         {
             if ( i + 1 >= argc )
             {
-                fprintf(stderr, "ERROR: Jones3D: --load needs a value!\n");
+                fprintf(stderr, "ERROR: Jones3D: %s needs a value!\n", argv[i]);
                 return 1;
             }
 
-            pLoadPath = argv[++i];
+            if ( strcmp(argv[i], "--load") == 0 )
+            {
+                pLoadPath = argv[++i];
+            }
+            else if ( strcmp(argv[i], "--data") == 0 )
+            {
+                pDataPath = argv[++i];
+            }
+            else
+            {
+                pHashDataPath = argv[++i];
+            }
+
             continue;
         }
 
@@ -75,6 +95,27 @@ int JonesBabylon_Run(int argc, char** argv)
     // WinMain/DllMain: the global reset before anything else runs.
     Jones3D_ResetAllGlobals();
 
+    // Added: the reset restores the working directory; the composition root's decision is applied
+    // after it, so the user directory survives the reset and is created before any config is read.
+    if ( !stdUserDir_Set(pUserDir) )
+    {
+        fprintf(stderr, "ERROR: Jones3D: the user directory path is too long (at most %d bytes)!\n",
+            STDUSERDIR_MAXPATH - 1);
+        return 1;
+    }
+
+    // Added: --hash-data is a tool: it exits without starting the game.
+    if ( pHashDataPath )
+    {
+        return JonesDataLocate_HashData(pHashDataPath);
+    }
+
+    // Added: --data is the first candidate of the automatic game data search.
+    if ( pDataPath )
+    {
+        JonesDataLocate_SetDataPath(pDataPath);
+    }
+
     // Indy3D_WinMain: hand the --load path to the Null load-game dialog, which JonesMain_Startup
     // asks when Jones.cfg is in the load-game start mode.
     if ( pLoadPath )
@@ -92,6 +133,7 @@ int JonesBabylon_Run(int argc, char** argv)
         // Altered: a quit from the main menu is a normal exit, only a real startup failure is an
         // error. The mapping tells the main menu's own result from the recovered failure result.
         const int startupExitCode = JonesBabylon_StartupExitCode(startupResult);
+        JonesHudPromptOverlay_Shutdown();
         JonesMain_Shutdown();
         if ( startupExitCode )
         {
@@ -99,6 +141,10 @@ int JonesBabylon_Run(int argc, char** argv)
         }
         return startupExitCode;
     }
+
+    // Added: the interaction prompt draws in the present overlay at native resolution. The display
+    // is open now; a later display restart clears the render state, so the loop reinstalls it.
+    JonesHudPromptOverlay_EnsureInstalled();
 
     // wkernel_Run: the main loop until JonesMain_Process() answers, with its result handling and
     // its return codes: -1 (engine quit) ends the run nonzero, 1 (finish: a quit request or a
@@ -108,6 +154,7 @@ int JonesBabylon_Run(int argc, char** argv)
     while ( 1 )
     {
         int result = JonesMain_Process();
+        JonesHudPromptOverlay_EnsureInstalled();
 
         // Added: Alt+Enter toggles windowed/fullscreen while the game runs. The game loop has
         // pumped and read the frame's input, so the held key state is current here.
@@ -134,6 +181,7 @@ int JonesBabylon_Run(int argc, char** argv)
         }
     }
 
+    JonesHudPromptOverlay_Shutdown();
     JonesMain_Shutdown();
 
     printf("stopped: %s\n", pStopReason ? pStopReason : "unknown reason");

@@ -1272,7 +1272,8 @@ typedef enum eSithControlFunction
     SITHCONTROL_HEALTH        = 56,
     SITHCONTROL_CHALK         = 57,
     SITHCONTROL_TARGETLOCK    = 58,
-    SITHCONTROL_QUICKSTEP     = 59 // Added: Modern quick-step modifier (ADR-0029).
+    SITHCONTROL_QUICKSTEP     = 59, // Added: Modern quick-step modifier (ADR-0029).
+    SITHCONTROL_QUICKWHIP     = 60  // Added: Modern quick whip (W10d).
 } SithControlFunction;
 
 typedef enum eSithCameraState

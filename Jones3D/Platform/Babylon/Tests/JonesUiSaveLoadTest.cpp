@@ -1,7 +1,7 @@
 // Added: the logic tests of the Babylon column's Save, Load and Exit screens (ADR-0026). They use
 // a temporary save directory with hand-built .nds files and a platform that delivers one scripted
 // event per frame, so the screens run exactly as they do in the game loop without a window or a
-// GPU. The drawing sample lives in JonesUiPainterTest.cpp.
+// GPU. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
 #include <chrono>
@@ -186,6 +186,23 @@ namespace
         bool showMessageBox(std::string_view, std::string_view) override
         {
             return false;
+        }
+
+        std::optional<std::size_t> askChoice(std::string_view, std::string_view,
+            std::span<const std::string_view>) override
+        {
+            return std::nullopt;   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFolder(std::string_view, std::string_view) override
+        {
+            return {};   // these tests never ask for a dialog
+        }
+
+        platform::PathChoice chooseFile(std::string_view, std::string_view,
+            std::span<const platform::FileFilter>) override
+        {
+            return {};   // these tests never ask for a dialog
         }
 
         bool rumbleGamepad(platform::GamepadId, float, float, std::uint32_t) override

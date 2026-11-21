@@ -5,18 +5,23 @@
 
 #include <babylon/platform/NullPlatform.h>
 
+#include "FileFilter.h"
+
 #include <babylon/log/Log.h>
 #include <babylon/platform/Event.h>
 #include <babylon/platform/Platform.h>
 #include <babylon/platform/Window.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace babylon::platform
 {
@@ -45,6 +50,13 @@ namespace
         Size size() const override
         {
             return m_size;
+        }
+
+        // There is no display behind a Null window, so there is no desktop
+        // mode; {0, 0} is the interface's no-display answer.
+        Size desktopSize() const override
+        {
+            return Size{0, 0};
         }
 
         // There is no display behind a Null window, so nothing can refuse:
@@ -130,6 +142,104 @@ namespace
     {
         log::warning("{}: {}", title, text);
         return false;
+    }
+
+    std::optional<std::size_t> NullPlatform::askChoice(std::string_view title,
+        std::string_view text, std::span<const std::string_view> buttons)
+    {
+        ChoiceRequest request{ std::string(title), std::string(text), {} };
+        request.buttons.reserve(buttons.size());
+        for ( const std::string_view button : buttons )
+        {
+            request.buttons.emplace_back(button);
+        }
+        m_lastChoice = std::move(request);
+
+        // The same limit as the interface, checked before the scripted answer
+        // so a refused list is never reported as shown.
+        if ( buttons.empty() || buttons.size() > kMaxChoiceButtons )
+        {
+            log::warning("{}: {}", title, text);
+            return std::nullopt;
+        }
+        if ( !m_choiceAnswer.has_value() )
+        {
+            log::warning("{}: {}", title, text);
+            return std::nullopt;
+        }
+        return m_choiceAnswer;
+    }
+
+    void NullPlatform::setChoiceAnswer(std::optional<std::size_t> answer)
+    {
+        m_choiceAnswer = answer;
+    }
+
+    std::optional<NullPlatform::ChoiceRequest> NullPlatform::lastChoice() const
+    {
+        return m_lastChoice;
+    }
+
+    PathChoice NullPlatform::chooseFolder(std::string_view title,
+        std::string_view defaultLocation)
+    {
+        m_lastFolder = FolderRequest{ std::string(title), std::string(defaultLocation) };
+        if ( !m_folderAnswer.has_value() )
+        {
+            log::warning("{}: {}", title, defaultLocation);
+            return {};
+        }
+        return *m_folderAnswer;
+    }
+
+    void NullPlatform::setFolderAnswer(PathChoice answer)
+    {
+        m_folderAnswer = std::move(answer);
+    }
+
+    std::optional<NullPlatform::FolderRequest> NullPlatform::lastFolder() const
+    {
+        return m_lastFolder;
+    }
+
+    PathChoice NullPlatform::chooseFile(std::string_view title,
+        std::string_view defaultLocation, std::span<const FileFilter> filters)
+    {
+        FileRequest request{ std::string(title), std::string(defaultLocation), {} };
+        request.filters.reserve(filters.size());
+        for ( const FileFilter& filter : filters )
+        {
+            request.filters.push_back(filter);
+        }
+        m_lastFile = std::move(request);
+
+        // The shared check runs before the scripted answer, so an invalid
+        // filter is never reported as shown, as for the choice-box limits.
+        for ( const FileFilter& filter : filters )
+        {
+            if ( !detail::isValidFileFilterPattern(filter.pattern) )
+            {
+                log::warning("{}: the filter '{}' has the invalid pattern '{}'",
+                    title, filter.name, filter.pattern);
+                return {};
+            }
+        }
+        if ( !m_fileAnswer.has_value() )
+        {
+            log::warning("{}: {}", title, defaultLocation);
+            return {};
+        }
+        return *m_fileAnswer;
+    }
+
+    void NullPlatform::setFileAnswer(PathChoice answer)
+    {
+        m_fileAnswer = std::move(answer);
+    }
+
+    std::optional<NullPlatform::FileRequest> NullPlatform::lastFile() const
+    {
+        return m_lastFile;
     }
 
     bool NullPlatform::rumbleGamepad(GamepadId gamepad, float lowFrequency,
