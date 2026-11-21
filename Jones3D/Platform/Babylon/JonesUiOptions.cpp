@@ -360,6 +360,9 @@ namespace
         screen.help[layout.exposure] =
             "Scale brightness before tone mapping; higher values brighten, lower ones darken. "
             "Applies when the display reopens.";
+        screen.help[layout.colorGrading] =
+            "Choose a subtle colour look for the 3D scene after tone mapping; Neutral leaves the "
+            "picture unchanged. Applies when the display reopens.";
         screen.help[layout.anisotropic] =
             "Sharpen world and model textures seen at a slant. Higher levels cost more and apply "
             "when the display reopens.";

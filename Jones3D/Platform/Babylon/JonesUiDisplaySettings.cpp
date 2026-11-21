@@ -89,6 +89,7 @@ namespace
     constexpr const char* kJonesDisplaySharpeningText = "Sharpening"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayToneMappingText = "Tone mapping"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayExposureText = "Exposure"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayColorGradingText = "Colour grading"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayBrightnessText = "Brightness..."; // TODO: [COMPAT]
@@ -124,6 +125,12 @@ namespace
     constexpr double kJonesDisplayExposureMin = 0.5;
     constexpr double kJonesDisplayExposureMax = 2.0;
     constexpr double kJonesDisplayExposureStep = 0.1;
+
+    // Added: M9.13 color-grading presets; Neutral (index 0) is the default in every build.
+    constexpr int kJonesDisplayColorGradingValues[] = { 0, 1, 2, 3, 4, 5 };
+    constexpr const char* kJonesDisplayColorGradingLabels[] = {
+        "Neutral", "Warm", "Cool", "Adventure", "Vivid", "Muted" };
+    constexpr std::size_t kJonesDisplayColorGradingDefault = 0;
 
     // Added: M9.7 anisotropic filtering choices; 8x (index 3) is the Enhanced default.
     constexpr int kJonesDisplayAnisotropicValues[] = { 1, 2, 4, 8, 16 };
@@ -315,6 +322,20 @@ namespace
         }
 
         return kJonesDisplayToneMappingDefault;
+    }
+
+    // The color-grading choice of a stored preset; Neutral when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_ColorGradingIndex(int preset)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayColorGradingValues); ++cur )
+        {
+            if ( kJonesDisplayColorGradingValues[cur] == preset )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayColorGradingDefault;
     }
 
     // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
@@ -545,6 +566,20 @@ namespace
             kJonesDisplayExposureMin, kJonesDisplayExposureMax, kJonesDisplayExposureStep, true,
             std::clamp(values.exposure, kJonesDisplayExposureMin, kJonesDisplayExposureMax) });
 
+        // Added: M9.13. A subtle color-grading preset on the 3D scene after the tone-map operator;
+        // Neutral leaves the image exactly as it was.
+        std::vector<std::string> colorGradingOptions;
+        for ( const char* pLabel : kJonesDisplayColorGradingLabels )
+        {
+            colorGradingOptions.emplace_back(pLabel);
+        }
+        layout.colorGrading = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayColorGradingText), std::string(),
+            std::move(colorGradingOptions), true,
+            values.colorGrading < STD_ARRAYLEN(kJonesDisplayColorGradingValues)
+                ? values.colorGrading : kJonesDisplayColorGradingDefault });
+
         // Added: M9.7. Anisotropic filtering sharpens world and model textures seen at a slant;
         // off keeps the plain linear filter. Crisp pixels drops min/mag filtering to nearest for
         // the original look, while the mip filter follows the Mipmap filter row.
@@ -717,6 +752,9 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.exposure = (float)std::clamp((double)JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, 1.0f), kJonesDisplayExposureMin,
         kJonesDisplayExposureMax);
+    model.colorGrading = std::clamp(JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING, 0), 0,
+        (int)STD_ARRAYLEN(kJonesDisplayColorGradingValues) - 1);
     model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
     model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
 
@@ -738,6 +776,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.sharpening = JonesUiDisplay_SharpeningIndex(model.sharpening);
     values.toneMapping = JonesUiDisplay_ToneMappingIndex(model.toneMapping);
     values.exposure = (double)model.exposure;
+    values.colorGrading = JonesUiDisplay_ColorGradingIndex(model.colorGrading);
     values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
     values.bCrispPixels = model.bCrispPixels;
     return model;
@@ -793,6 +832,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.toneMapping));
     static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.exposure,
         values.exposure));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.colorGrading,
+        values.colorGrading));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
         values.anisotropic));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.crispPixels,
@@ -1011,6 +1052,12 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
     JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE,
         (float)std::clamp(values.exposure, kJonesDisplayExposureMin,
             kJonesDisplayExposureMax));
+
+    // Added: M9.13. Read when the frame owner opens, like the tone map.
+    const std::size_t colorGrading = std::min(values.colorGrading,
+        STD_ARRAYLEN(kJonesDisplayColorGradingValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING,
+        kJonesDisplayColorGradingValues[colorGrading]);
 
     // Added: M9.7. Both are read by std3D_Open, so they take effect with the same display restart
     // the other presentation rows ask for.

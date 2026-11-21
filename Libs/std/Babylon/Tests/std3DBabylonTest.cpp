@@ -2308,17 +2308,17 @@ TEST(std3DBabylon, APresentToTextureIncludesTheOverlay)
     TEST_ASSERT_EQUAL_UINT32(32u, call.target.width);
     TEST_ASSERT_EQUAL_UINT32(16u, call.target.height);
 
-    // The final tone-map pass into the capture target (pipeline, input, parameters, triangle), then
-    // the overlay's pass on it, then one submit.
+    // The final tone-map pass into the capture target (pipeline, input, lookup, parameters,
+    // triangle), then the overlay's pass on it, then one submit.
     const render::BeginPass& present = RecordedAt<render::BeginPass>(0);
     TEST_ASSERT_TRUE(present.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(present.desc.colorTargets[0].load == render::LoadOp::DontCare);
-    RecordedAt<render::EndPass>(5);
-    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(6);
+    RecordedAt<render::EndPass>(6);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(7);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
-    RecordedAt<render::EndPass>(7);
-    AssertSubmitted(8);
+    RecordedAt<render::EndPass>(8);
+    AssertSubmitted(9);
     TEST_ASSERT_EQUAL_size_t(32u * 16u * 4u, Null().readTexture(target, 0).size());
 
     stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
@@ -2343,12 +2343,12 @@ TEST(std3DBabylon, APresentToTextureIncludesTheHudOverlay)
     TEST_ASSERT_EQUAL_INT(1, hud.calls);
     TEST_ASSERT_TRUE(hud.target.texture == target);
     // The final tone-map pass, then the HUD overlay's pass on the capture target, then one submit.
-    RecordedAt<render::EndPass>(5);
-    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(6);
+    RecordedAt<render::EndPass>(6);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(7);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
-    RecordedAt<render::EndPass>(7);
-    AssertSubmitted(8);
+    RecordedAt<render::EndPass>(8);
+    AssertSubmitted(9);
 
     stdRenderBabylon_SetHudOverlay(nullptr, nullptr);
     Null().destroyTexture(target);
@@ -2361,6 +2361,7 @@ TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
     TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.exposure);
     TEST_ASSERT_EQUAL_UINT32(0u, defaults.oper);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.brightness);
+    TEST_ASSERT_EQUAL_UINT32(0u, defaults.colorGrading);
 
     stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.5f, 0u });
     TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetToneMap().exposure);
@@ -2384,12 +2385,19 @@ TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
     stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 0.0f });
     TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().brightness);
 
+    // Color grading is preset 0..5; anything above 5 changes nothing.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f, 3u });
+    TEST_ASSERT_EQUAL_UINT32(3u, stdRenderBabylon_GetToneMap().colorGrading);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f, 6u });
+    TEST_ASSERT_EQUAL_UINT32(3u, stdRenderBabylon_GetToneMap().colorGrading);
+
     // The defaults return when the frame owner is closed and opened again.
     CloseStd3D();
     OpenStd3D();
     TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().exposure);
     TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().brightness);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().colorGrading);
 }
 
 TEST(std3DBabylon, CloseClearsThePresentOverlay)
@@ -3595,6 +3603,176 @@ TEST(std3DBabylonGpu, ToneMapBrightnessIsIdentityAtOneAndGammaAfterTheOperator)
     const int expected = (int)std::lround(255.0 * std::pow(64.0 / 255.0, 1.0 / 1.5));
     TEST_ASSERT_INT_WITHIN(1, expected, brightened);
     TEST_ASSERT_TRUE(brightened > identity);
+}
+
+TEST(std3DBabylonGpu, ColorGradingNeutralIsTheIdentity)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    auto capture = [](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return CapturePresented(64u, 64u);
+    };
+    auto channel = [](const std::vector<std::byte>& pixels, size_t index)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + index];
+    };
+
+    // Preset 0 skips the lookup: mid grey stays exactly mid grey.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 0u });
+    const std::vector<std::byte> neutralGrey = capture(0xFF808080u);
+    TEST_ASSERT_INT_WITHIN(1, 128, channel(neutralGrey, 2u));
+    TEST_ASSERT_INT_WITHIN(1, 128, channel(neutralGrey, 1u));
+    TEST_ASSERT_INT_WITHIN(1, 128, channel(neutralGrey, 0u));
+
+    // A colored draw is unchanged by Neutral and changed by Vivid.
+    const std::vector<std::byte> neutralColor = capture(0xFFFF4020u);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 4u });
+    const std::vector<std::byte> vividColor = capture(0xFFFF4020u);
+    int maxDifference = 0;
+    for ( size_t i = 0; i < neutralColor.size() && i < vividColor.size(); ++i )
+    {
+        maxDifference = std::max(maxDifference,
+            std::abs((int)neutralColor[i] - (int)vividColor[i]));
+    }
+    TEST_ASSERT_TRUE(maxDifference >= 2);
+
+    // Back at Neutral the presented image is byte-identical to the first Neutral capture.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 0u });
+    const std::vector<std::byte> neutralAgain = capture(0xFFFF4020u);
+    TEST_ASSERT_EQUAL_size_t(neutralColor.size(), neutralAgain.size());
+    for ( size_t i = 0; i < neutralColor.size(); ++i )
+    {
+        TEST_ASSERT_EQUAL_INT((int)neutralColor[i], (int)neutralAgain[i]);
+    }
+
+    // Six known colors across the frame come back unchanged: Neutral is the identity, not just a
+    // grey-preserving curve.
+    const uint32_t aColors[6] = { 0xFF000000u, 0xFF204060u, 0xFF804020u, 0xFF808080u,
+        0xFFC0A080u, 0xFFFFFFFFu };
+    RenderScene([&aColors]
+    {
+        for ( size_t cur = 0; cur < 6u; ++cur )
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, (float)cur * 10.0f, 0.0f,
+                (float)(cur + 1u) * 10.0f, 64.0f, 0.5f, aColors[cur]);
+        }
+    });
+    const std::vector<std::byte> stripes = CapturePresented(64u, 64u);
+    for ( size_t cur = 0; cur < 6u; ++cur )
+    {
+        const size_t at = ((size_t)32u * 64u + cur * 10u + 5u) * 4u;
+        const int expected[3] = { (int)((aColors[cur] >> 16u) & 0xFFu),
+            (int)((aColors[cur] >> 8u) & 0xFFu), (int)(aColors[cur] & 0xFFu) };
+        const int actual[3] = { (int)stripes[at + 2u], (int)stripes[at + 1u],
+            (int)stripes[at] };
+        for ( size_t channelIndex = 0; channelIndex < 3u; ++channelIndex )
+        {
+            TEST_ASSERT_INT_WITHIN(1, expected[channelIndex], actual[channelIndex]);
+        }
+    }
+}
+
+TEST(std3DBabylonGpu, ColorGradingPresetsMapGreyAndKeepBlackAndWhite)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    auto capture = [](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return CapturePresented(64u, 64u);
+    };
+    auto channel = [](const std::vector<std::byte>& pixels, size_t index)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + index];
+    };
+
+    int aMidGrey[6][3] = {};
+    for ( uint32_t preset = 0; preset <= 5u; ++preset )
+    {
+        stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, preset });
+        const std::vector<std::byte> grey = capture(0xFF808080u);
+        aMidGrey[preset][0] = channel(grey, 2u);
+        aMidGrey[preset][1] = channel(grey, 1u);
+        aMidGrey[preset][2] = channel(grey, 0u);
+
+        // Black stays black and white stays near white under every preset.
+        const std::vector<std::byte> black = capture(0xFF000000u);
+        for ( size_t cur = 0; cur < 3u; ++cur )
+        {
+            TEST_ASSERT_INT_WITHIN(2, 0, channel(black, cur));
+        }
+
+        const std::vector<std::byte> white = capture(0xFFFFFFFFu);
+        for ( size_t cur = 0; cur < 3u; ++cur )
+        {
+            TEST_ASSERT_INT_WITHIN(15, 255, channel(white, cur));
+        }
+
+        for ( size_t cur = 0; cur < 3u; ++cur )
+        {
+            TEST_ASSERT_INT_WITHIN(20, 128, aMidGrey[preset][cur]);
+        }
+    }
+
+    // The mid-grey direction of each preset.
+    TEST_ASSERT_INT_WITHIN(1, 128, aMidGrey[0][0]);
+    TEST_ASSERT_INT_WITHIN(1, 128, aMidGrey[0][1]);
+    TEST_ASSERT_INT_WITHIN(1, 128, aMidGrey[0][2]);
+    TEST_ASSERT_TRUE(aMidGrey[1][0] > aMidGrey[1][1]);
+    TEST_ASSERT_TRUE(aMidGrey[1][1] > aMidGrey[1][2]);
+    TEST_ASSERT_TRUE(aMidGrey[2][2] > aMidGrey[2][0]);
+    TEST_ASSERT_TRUE(aMidGrey[3][1] > aMidGrey[3][0]);
+    TEST_ASSERT_TRUE(aMidGrey[3][1] > aMidGrey[3][2]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[4][0]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[4][1]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[4][2]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[5][0]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[5][1]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[5][2]);
+}
+
+TEST(std3DBabylonGpu, ColorGradingLutInterpolatesBetweenSlices)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // Vivid's blue output rises quickly with blue, so a color between two slices must read between
+    // the colors at those slices rather than at either one.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 4u });
+    auto blue = [](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        const std::vector<std::byte> pixels = CapturePresented(64u, 64u);
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u];
+    };
+
+    // Blue 165 and 173 sit just inside slices 20 and 21; blue 169 lies between them.
+    const int slice20 = blue(0xFF8080A5u);
+    const int between = blue(0xFF8080A9u);
+    const int slice21 = blue(0xFF8080ADu);
+    TEST_ASSERT_TRUE(slice20 < between);
+    TEST_ASSERT_TRUE(between < slice21);
+    TEST_ASSERT_TRUE(between - slice20 >= 3);
+    TEST_ASSERT_TRUE(slice21 - between >= 3);
 }
 
 TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)

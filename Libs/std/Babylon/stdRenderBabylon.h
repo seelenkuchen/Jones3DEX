@@ -278,26 +278,31 @@ bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle targ
 // sampler otherwise, so the scaled scene resolves to the presented size. exposure is multiplied
 // into the sampled color before the operator. Operator 0 adds no curve and clamps each color
 // channel to 0..1; 1 is Khronos PBR Neutral (highlight compression with desaturation, midtones
-// unchanged); 2 is the Narkowicz 2015 ACES fit. brightness is the gamma applied after the operator
-// as pow(saturate(x), 1 / brightness); 1.0 is the identity and skips the pow. There is no transfer
+// unchanged); 2 is the Narkowicz 2015 ACES fit. colorGrading is the preset applied after the
+// operator and before brightness: 0 Neutral is the identity and skips the lookup, so the output is
+// byte-identical; 1 Warm, 2 Cool, 3 Adventure, 4 Vivid and 5 Muted sample a 32^3 lookup table
+// generated in code. brightness is the gamma applied after grading as
+// pow(saturate(x), 1 / brightness); 1.0 is the identity and skips the pow. There is no transfer
 // function in the pass, exactly as the plain present pass had none: the scene writes
 // display-referred color today, so the output gamma of the defaults is today's. With exposure 1.0,
-// operator 0 and brightness 1.0 it is a clamp, so the presented image matches the pre-M9.3 present
-// for scene colors in 0..1.
+// operator 0, color grading 0 and brightness 1.0 it is a clamp, so the presented image matches the
+// pre-M9.3 present for scene colors in 0..1.
 struct StdRenderBabylonToneMap
 {
     float exposure = 1.0f;
     std::uint32_t oper = 0;
     float brightness = 1.0f;
+    std::uint32_t colorGrading = 0; // 0 Neutral, 1 Warm, 2 Cool, 3 Adventure, 4 Vivid, 5 Muted
 };
 
 // Sets the tone-map parameters. Refused, logging why and changing nothing, for a negative or
-// non-finite exposure, a non-finite brightness at or below 0, or an operator other than 0, 1 or 2.
-// The defaults are exposure 1.0, operator 0 and brightness 1.0. Opening also reads
-// engine.renderer.toneMapping (defaults: 1 in Enhanced builds, 0 in Retail/QOL-off ones),
-// engine.renderer.exposure (0.5..2.0, default 1.0) and engine.renderer.brightness (0.6..1.8,
-// default 1.0) from the config. Closing and reopening the frame owner restores those config
-// values.
+// non-finite exposure, a non-finite brightness at or below 0, an operator other than 0, 1 or 2, or
+// a color-grading preset above 5. The defaults are exposure 1.0, operator 0, brightness 1.0 and
+// color grading 0 Neutral. Opening also reads engine.renderer.toneMapping (defaults: 1 in Enhanced
+// builds, 0 in Retail/QOL-off ones), engine.renderer.exposure (0.5..2.0, default 1.0),
+// engine.renderer.brightness (0.6..1.8, default 1.0) and engine.renderer.colorGrading (0..5,
+// default 0 in every build) from the config. Closing and reopening the frame owner restores those
+// config values.
 void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params);
 StdRenderBabylonToneMap stdRenderBabylon_GetToneMap();
 

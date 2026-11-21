@@ -71,6 +71,38 @@ namespace
     constexpr float stdRenderBabylon_kMinBrightness = 0.6f;
     constexpr float stdRenderBabylon_kMaxBrightness = 1.8f;
 
+    // Added: color grading is a preset (0 Neutral .. 5 Muted) applied in the tone-map pass after the
+    // operator and before brightness, read when the frame owner opens. The lookup table is 32^3,
+    // stored as a 1024 x 32 Rgba8 strip of 32 slices side by side. The parameters live in one table:
+    // temperature shifts red up and blue down (positive is warm), saturation multiplies the distance
+    // from luma, contrast blends toward a smoothstep S-curve, and the split-tone tints are added
+    // weighted toward shadows and highlights. The tints fade to zero at black and white, so both stay
+    // where they were. Preset 0 is the identity and the shader skips the lookup.
+    constexpr const char* stdRenderBabylon_kColorGradingKey = "engine.renderer.colorGrading";
+    constexpr uint32_t stdRenderBabylon_kColorGradingSize = 32;
+    constexpr uint32_t stdRenderBabylon_kColorGradingStripWidth =
+        stdRenderBabylon_kColorGradingSize * stdRenderBabylon_kColorGradingSize;
+    struct StdRenderBabylonGradingPreset
+    {
+        const char* pName;
+        float temperature;
+        float saturation;
+        float contrast;
+        float aShadowTint[3];
+        float aHighlightTint[3];
+    };
+    constexpr StdRenderBabylonGradingPreset stdRenderBabylon_aGradingPresets[] = {
+        { "Neutral",   0.00f, 1.00f, 0.00f, {  0.000f,  0.000f,  0.000f }, {  0.000f,  0.000f,  0.000f } },
+        { "Warm",      0.04f, 1.03f, 0.00f, {  0.000f,  0.000f,  0.000f }, {  0.000f,  0.000f,  0.000f } },
+        { "Cool",     -0.04f, 1.00f, 0.00f, {  0.000f,  0.000f,  0.000f }, {  0.000f,  0.000f,  0.000f } },
+        { "Adventure", 0.00f, 1.00f, 0.10f, { -0.015f,  0.010f,  0.020f }, {  0.020f,  0.010f, -0.020f } },
+        { "Vivid",     0.00f, 1.12f, 0.05f, {  0.000f,  0.000f,  0.000f }, {  0.000f,  0.000f,  0.000f } },
+        { "Muted",     0.00f, 0.80f, 0.00f, {  0.000f,  0.000f,  0.000f }, {  0.000f,  0.000f,  0.000f } },
+    };
+    constexpr uint32_t stdRenderBabylon_kMaxColorGrading =
+        (uint32_t)(sizeof(stdRenderBabylon_aGradingPresets)
+            / sizeof(stdRenderBabylon_aGradingPresets[0])) - 1;
+
     // Added: the built-in bloom stage. engine.renderer.bloom is 0 off, 1 low, 2 medium, 3 high; the
     // strengths live here in one place. The scene is display referred, so the soft-knee prefilter
     // starts just below white and lets bright values below 1.0 glow as well.
@@ -163,6 +195,12 @@ namespace
         // forced the pre-M9.3 path). Opening reads the operator and exposure from the config.
         StdRenderBabylonToneMap toneMap;
         bool bToneMap = true;
+
+        // Added: the 1024 x 32 Rgba8 color-grading strip the tone-map pass samples at texture slot 1,
+        // and the preset it was generated for. Re-uploaded when the preset changes.
+        render::TextureHandle colorGradingLut;
+        uint32_t colorGradingLutPreset = ~0u;
+        bool bColorGradingLutFailed = false;
 
         // Changes whenever the back buffer's contents may change (stdRenderBabylon_GetBackBufferVersion).
         uint64_t backBufferVersion = 0;
@@ -1332,6 +1370,120 @@ namespace
         return list.endPass();
     }
 
+    // Added: one color of a preset, transformed in place. Temperature is a red/blue gain, saturation
+    // scales the distance from luma, contrast blends toward a smoothstep S-curve, and the split-tone
+    // tints are weighted toward shadows and highlights with weights that vanish at black and white.
+    void stdRenderBabylon_TransformGradingColor(const StdRenderBabylonGradingPreset& preset,
+        float* pColor)
+    {
+        pColor[0] *= 1.0f + preset.temperature;
+        pColor[2] *= 1.0f - preset.temperature;
+
+        const float luma = 0.2126f * pColor[0] + 0.7152f * pColor[1] + 0.0722f * pColor[2];
+        for ( int channel = 0; channel < 3; ++channel )
+        {
+            pColor[channel] = luma + (pColor[channel] - luma) * preset.saturation;
+        }
+
+        for ( int channel = 0; channel < 3; ++channel )
+        {
+            const float value   = std::clamp(pColor[channel], 0.0f, 1.0f);
+            const float smooth  = value * value * (3.0f - 2.0f * value);
+            pColor[channel] = value + (smooth - value) * preset.contrast;
+        }
+
+        const float tone = std::clamp(luma, 0.0f, 1.0f);
+        const float shadowWeight    = 4.0f * tone * (1.0f - tone) * (1.0f - tone);
+        const float highlightWeight = 4.0f * tone * tone * (1.0f - tone);
+        for ( int channel = 0; channel < 3; ++channel )
+        {
+            pColor[channel] += preset.aShadowTint[channel] * shadowWeight
+                + preset.aHighlightTint[channel] * highlightWeight;
+        }
+    }
+
+    // Added: fills the 1024 x 32 Rgba8 strip: slice b at x = b * 32, red on x, green on y.
+    void stdRenderBabylon_BuildColorGradingLut(uint32_t preset, std::vector<uint8_t>& rData)
+    {
+        const StdRenderBabylonGradingPreset& grading =
+            stdRenderBabylon_aGradingPresets[std::min(preset, stdRenderBabylon_kMaxColorGrading)];
+        const float maxIndex = (float)(stdRenderBabylon_kColorGradingSize - 1);
+        rData.resize((size_t)stdRenderBabylon_kColorGradingStripWidth
+            * stdRenderBabylon_kColorGradingSize * 4u);
+
+        for ( uint32_t blue = 0; blue < stdRenderBabylon_kColorGradingSize; ++blue )
+        {
+            for ( uint32_t green = 0; green < stdRenderBabylon_kColorGradingSize; ++green )
+            {
+                for ( uint32_t red = 0; red < stdRenderBabylon_kColorGradingSize; ++red )
+                {
+                    float color[3] = { (float)red / maxIndex, (float)green / maxIndex,
+                        (float)blue / maxIndex };
+                    stdRenderBabylon_TransformGradingColor(grading, color);
+
+                    const size_t x  = (size_t)blue * stdRenderBabylon_kColorGradingSize + red;
+                    const size_t at = ((size_t)green * stdRenderBabylon_kColorGradingStripWidth + x) * 4u;
+                    rData[at + 0] = stdRenderBabylon_ToUnorm8(color[0]);
+                    rData[at + 1] = stdRenderBabylon_ToUnorm8(color[1]);
+                    rData[at + 2] = stdRenderBabylon_ToUnorm8(color[2]);
+                    rData[at + 3] = 255u;
+                }
+            }
+        }
+    }
+
+    // Added: makes the grading strip and uploads the current preset when it changed. False, logging
+    // why, when the texture or upload is refused. The neutral preset is generated too, so the tone
+    // map shader always has its second texture slot bound even though it skips the lookup.
+    bool stdRenderBabylon_EnsureColorGradingLut()
+    {
+        if ( stdRenderBabylon_state.bColorGradingLutFailed )
+        {
+            return false;
+        }
+
+        const uint32_t preset = std::min(stdRenderBabylon_state.toneMap.colorGrading,
+            stdRenderBabylon_kMaxColorGrading);
+        if ( !stdRenderBabylon_state.colorGradingLut.isNull()
+            && stdRenderBabylon_state.colorGradingLutPreset == preset )
+        {
+            return true;
+        }
+
+        if ( stdRenderBabylon_state.colorGradingLut.isNull() )
+        {
+            render::TextureDesc desc;
+            desc.width     = stdRenderBabylon_kColorGradingStripWidth;
+            desc.height    = stdRenderBabylon_kColorGradingSize;
+            desc.mipLevels = 1;
+            desc.format    = render::TextureFormat::Rgba8;
+            desc.usage     = render::TextureUsage::Sampled;
+            stdRenderBabylon_state.colorGradingLut =
+                stdRenderBabylon_state.pDevice->createTexture(desc);
+            if ( stdRenderBabylon_state.colorGradingLut.isNull() )
+            {
+                STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u color-grading lookup.\n",
+                    desc.width, desc.height);
+                stdRenderBabylon_state.bColorGradingLutFailed = true;
+                return false;
+            }
+        }
+
+        std::vector<uint8_t> aData;
+        stdRenderBabylon_BuildColorGradingLut(preset, aData);
+        if ( !stdRenderBabylon_state.pDevice->uploadTexture(stdRenderBabylon_state.colorGradingLut,
+                0, std::as_bytes(std::span<const uint8_t>(aData))) )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not upload the color-grading lookup for preset %u.\n",
+                preset);
+            stdRenderBabylon_state.bColorGradingLutFailed = true;
+            return false;
+        }
+
+        stdRenderBabylon_state.colorGradingLutPreset = preset;
+        return true;
+    }
+
     // The final pass: the presented source drawn over the whole target (the null handle, for the
     // swapchain), with the tone map when it runs. The vertex shader makes the triangle itself, so
     // nothing is bound but the result and the input. Returns false, having logged nothing, when the
@@ -1340,6 +1492,10 @@ namespace
         render::TextureHandle target)
     {
         if ( pipeline.isNull() || stdRenderBabylon_state.colorTarget.isNull() )
+        {
+            return false;
+        }
+        if ( stdRenderBabylon_state.bToneMap && !stdRenderBabylon_EnsureColorGradingLut() )
         {
             return false;
         }
@@ -1363,9 +1519,13 @@ namespace
         {
             const float aParams[4] = { stdRenderBabylon_state.toneMap.exposure,
                 (float)stdRenderBabylon_state.toneMap.oper,
-                stdRenderBabylon_state.toneMap.brightness, 0.0f };
+                stdRenderBabylon_state.toneMap.brightness,
+                (float)stdRenderBabylon_state.toneMap.colorGrading };
             list.pushUniforms(render::ShaderStage::Fragment, 0,
                 std::as_bytes(std::span<const float>(aParams)));
+            // The grading lookup is a linear-sampled strip; preset 0 skips it in the shader.
+            list.bindTexture(render::ShaderStage::Fragment, 1,
+                stdRenderBabylon_state.colorGradingLut, stdRenderBabylon_state.finalSampler);
         }
         list.draw(3);
         return list.endPass();
@@ -1628,6 +1788,14 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
                 stdRenderBabylon_kMinBrightness, stdRenderBabylon_kMaxBrightness);
         }
 
+        // Added: color grading is presentation only and Neutral (0) in every build, so the default
+        // image is unchanged. An unknown preset keeps Neutral rather than failing the display.
+        const int colorGrading = stdConfig_GetInt(stdRenderBabylon_kColorGradingKey, 0);
+        if ( colorGrading >= 0 && (uint32_t)colorGrading <= stdRenderBabylon_kMaxColorGrading )
+        {
+            stdRenderBabylon_state.toneMap.colorGrading = (uint32_t)colorGrading;
+        }
+
         // Added: bloom is Low (1) by default in Enhanced builds and off in Retail/QOL-off ones. An
         // unknown level is clamped to the highest one.
         const int bloom = std::clamp(stdConfig_GetInt(stdRenderBabylon_kBloomKey,
@@ -1722,6 +1890,7 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomCompositePipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
+    stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.colorGradingLut);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.finalSampler);
     stdRenderBabylon_state = StdRenderBabylonState{};
@@ -2740,6 +2909,12 @@ void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params)
     {
         STDLOG_ERROR("stdRenderBabylon_SetToneMap: brightness %g is not a finite value above 0.\n",
             (double)params.brightness);
+        return;
+    }
+    if ( params.colorGrading > stdRenderBabylon_kMaxColorGrading )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetToneMap: color-grading preset %u is not supported.\n",
+            params.colorGrading);
         return;
     }
     stdRenderBabylon_state.toneMap = params;

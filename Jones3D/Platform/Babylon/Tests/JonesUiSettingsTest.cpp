@@ -458,8 +458,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 sharpening, 14 tone mapping, 15 exposure, 16 anisotropic filtering, 17 crisp pixels,
-    // 18 Brightness..., 19 OK, 20 back.
+    // 13 sharpening, 14 tone mapping, 15 exposure, 16 colour grading, 17 anisotropic filtering,
+    // 18 crisp pixels, 19 Brightness..., 20 OK, 21 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -491,6 +491,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Right); // Neutral -> Filmic
     testContext.platform.PushKey(platform::Key::Down);  // exposure
     testContext.platform.PushKey(platform::Key::Left);  // 1.0 -> 0.9
+    testContext.platform.PushKey(platform::Key::Down);  // colour grading
+    testContext.platform.PushKey(platform::Key::Right); // Neutral -> Warm
     testContext.platform.PushKey(platform::Key::Down);  // anisotropic filtering
     testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
     testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
@@ -534,6 +536,7 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING, -1) == 2);
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, -1.0f)
         == doctest::Approx(0.9f));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING, -1) == 1);
 #ifdef J3D_QOL_IMPROVEMENTS
     CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 4);
 #else
@@ -1623,10 +1626,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 17).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 18).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 17; ++row )
+    for ( int row = 0; row < 18; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

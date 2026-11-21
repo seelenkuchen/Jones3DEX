@@ -81,6 +81,9 @@ struct JonesUiDisplayValues
     std::size_t toneMapping = 1;
     // Added: exposure multiplier applied before the tone-map curve, 0.5..2.0.
     double exposure = 1.0;
+    // Added: index into the color-grading choices (Neutral, Warm, Cool, Adventure, Vivid, Muted =
+    // preset 0..5; Neutral at index 0 in every build).
+    std::size_t colorGrading = 0;
     bool bCrispPixels = false;
 };
 
@@ -103,6 +106,7 @@ struct JonesUiDisplayLayout
     std::size_t anisotropic = 0; // Added
     std::size_t toneMapping = 0; // Added
     std::size_t exposure = 0; // Added
+    std::size_t colorGrading = 0; // Added
     std::size_t crispPixels = 0; // Added
     std::size_t brightness = 0; // Added: opens the brightness calibration screen
     std::size_t ok = 0;
@@ -133,6 +137,7 @@ struct JonesUiDisplayModel
     int anisotropic = 8;        // Added: graphics.anisotropicFilter, normalized
     int toneMapping = 1;        // Added: engine.renderer.toneMapping, 0 clamp / 1 Neutral / 2 ACES
     float exposure = 1.0f;      // Added: engine.renderer.exposure, 0.5..2.0
+    int colorGrading = 0;       // Added: engine.renderer.colorGrading, 0 Neutral .. 5 Muted
     bool bCrispPixels = false;  // Added: engine.renderer.texturePixelated
 };
 
