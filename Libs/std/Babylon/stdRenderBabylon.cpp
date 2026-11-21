@@ -68,6 +68,17 @@ namespace
     constexpr float stdRenderBabylon_kMinExposure = 0.5f;
     constexpr float stdRenderBabylon_kMaxExposure = 2.0f;
 
+    // Added: the built-in bloom stage. engine.renderer.bloom is 0 off, 1 low, 2 medium, 3 high; the
+    // strengths live here in one place. The scene is display referred, so the soft-knee prefilter
+    // starts just below white and lets bright values below 1.0 glow as well.
+    constexpr const char* stdRenderBabylon_kBloomKey = "engine.renderer.bloom";
+    constexpr float stdRenderBabylon_aBloomStrength[] = { 0.0f, 0.15f, 0.3f, 0.5f };
+    constexpr int stdRenderBabylon_kBloomMaxLevel =
+        (int)(sizeof(stdRenderBabylon_aBloomStrength) / sizeof(stdRenderBabylon_aBloomStrength[0])) - 1;
+    constexpr int stdRenderBabylon_kBloomLevels = 5; // half, quarter, eighth, sixteenth, 1/32
+    constexpr float stdRenderBabylon_kBloomThreshold = 0.6f;
+    constexpr float stdRenderBabylon_kBloomKnee      = 0.3f;
+
     struct StdRenderBabylonState
     {
         render::Device* pDevice = nullptr;
@@ -127,6 +138,24 @@ namespace
         render::PipelineHandle casPipeline;           // to the swapchain
         render::PipelineHandle casCapturePipeline;    // to a Bgra8 capture target
 
+        // Added: the built-in bloom stage before the tone map. The prefilter target is half the
+        // scene size; downsamples go to 1/4, 1/8, 1/16 and 1/32, then additive tent upsamples run
+        // back to 1/2, and a scene-sized composite adds the result to the scene source. All targets
+        // are in the scene format and are recreated when the scene size or render scale changes.
+        // bBloomRan tells PresentSource to read the composite after a presenting submit.
+        float bloom = 0.0f;
+        bool bBloomSetupFailed = false;
+        bool bBloomRan = false;
+        bool bBloomLogged = false; // one status line per open (or strength change) proves the stage runs
+        render::TextureHandle bloomCompositeTarget;
+        render::TextureHandle aBloomTargets[stdRenderBabylon_kBloomLevels];
+        uint32_t bloomWidth  = 0; // the scene size the targets were made for
+        uint32_t bloomHeight = 0;
+        render::PipelineHandle bloomPrefilterPipeline;
+        render::PipelineHandle bloomDownsamplePipeline;
+        render::PipelineHandle bloomUpsamplePipeline;
+        render::PipelineHandle bloomCompositePipeline;
+
         // The final pass's tone map, and whether it runs the tone-map shader (false only when a test
         // forced the pre-M9.3 path). Opening reads the operator and exposure from the config.
         StdRenderBabylonToneMap toneMap;
@@ -167,6 +196,10 @@ namespace
     };
 
     StdRenderBabylonState stdRenderBabylon_state;
+
+    // The post chain's output texture, defined with the chain below; the bloom stage and the final
+    // pass both read it.
+    render::TextureHandle stdRenderBabylon_ChainSource();
 
 #ifdef J3D_TEST
     bool stdRenderBabylon_bLegacyPresentationForTest = false;
@@ -625,6 +658,272 @@ namespace
         return !pPipeline->isNull();
     }
 
+    // Added: a bloom target dimension at level 1 (half) to 5 (1/32), rounded to nearest and at least
+    // one texel so a tiny scene still has every level.
+    uint32_t stdRenderBabylon_BloomDimension(uint32_t size, int level)
+    {
+        return std::max(1u, (size + (1u << (level - 1))) >> level);
+    }
+
+    // Added: frees the bloom stage's targets. Recreated by the next present with bloom on after a
+    // scene size or render scale change.
+    void stdRenderBabylon_FreeBloomTargets()
+    {
+        for ( render::TextureHandle& target : stdRenderBabylon_state.aBloomTargets )
+        {
+            stdRenderBabylon_DestroyTexture(target);
+            target = {};
+        }
+
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.bloomCompositeTarget);
+        stdRenderBabylon_state.bloomCompositeTarget = {};
+        stdRenderBabylon_state.bloomWidth           = 0;
+        stdRenderBabylon_state.bloomHeight          = 0;
+        stdRenderBabylon_state.bBloomRan            = false;
+    }
+
+    // Added: the bloom stage's half, quarter, eighth, sixteenth, 1/32 and scene-size composite
+    // targets, made when their size changes. False, logging why, when one can't be created.
+    bool stdRenderBabylon_EnsureBloomTargets(uint32_t width, uint32_t height)
+    {
+        if ( width == 0 || height == 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.aBloomTargets[0].isNull()
+            && stdRenderBabylon_state.bloomWidth == width
+            && stdRenderBabylon_state.bloomHeight == height )
+        {
+            return true;
+        }
+
+        stdRenderBabylon_FreeBloomTargets();
+
+        render::TextureDesc desc;
+        desc.mipLevels = 1;
+        desc.format    = stdRenderBabylon_state.colorFormat;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+
+        for ( int level = 1; level <= stdRenderBabylon_kBloomLevels; ++level )
+        {
+            desc.width  = stdRenderBabylon_BloomDimension(width, level);
+            desc.height = stdRenderBabylon_BloomDimension(height, level);
+            const render::TextureHandle target = stdRenderBabylon_state.pDevice->createTexture(desc);
+            if ( target.isNull() )
+            {
+                STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u bloom target.\n",
+                    desc.width, desc.height);
+                stdRenderBabylon_FreeBloomTargets();
+                return false;
+            }
+            stdRenderBabylon_state.aBloomTargets[level - 1] = target;
+        }
+
+        desc.width  = width;
+        desc.height = height;
+        const render::TextureHandle composite = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( composite.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u bloom composite.\n", width, height);
+            stdRenderBabylon_FreeBloomTargets();
+            return false;
+        }
+
+        stdRenderBabylon_state.bloomCompositeTarget = composite;
+        stdRenderBabylon_state.bloomWidth           = width;
+        stdRenderBabylon_state.bloomHeight          = height;
+        return true;
+    }
+
+    // Added: the bloom stage's pipelines, made on first use. The upsample pipeline blends additively
+    // into the next larger target, which still holds its downsampled image.
+    bool stdRenderBabylon_EnsureBloomResources()
+    {
+        if ( stdRenderBabylon_state.bBloomSetupFailed )
+        {
+            return false;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader = stdBabylon::shaders::presentVert();
+        desc.primitive    = render::PrimitiveType::TriangleList;
+        desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_state.colorFormat, {} } };
+
+        if ( stdRenderBabylon_state.bloomPrefilterPipeline.isNull() )
+        {
+            desc.fragmentShader = stdBabylon::shaders::bloomPrefilterFrag();
+            stdRenderBabylon_state.bloomPrefilterPipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+        }
+        if ( stdRenderBabylon_state.bloomDownsamplePipeline.isNull() )
+        {
+            desc.fragmentShader = stdBabylon::shaders::bloomDownsampleFrag();
+            stdRenderBabylon_state.bloomDownsamplePipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+        }
+        if ( stdRenderBabylon_state.bloomUpsamplePipeline.isNull() )
+        {
+            render::BlendState blend;
+            blend.enabled  = true;
+            blend.srcColor = render::BlendFactor::One;
+            blend.dstColor = render::BlendFactor::One;
+            blend.colorOp  = render::BlendOp::Add;
+            blend.srcAlpha = render::BlendFactor::One;
+            blend.dstAlpha = render::BlendFactor::One;
+            blend.alphaOp  = render::BlendOp::Add;
+            desc.fragmentShader = stdBabylon::shaders::bloomUpsampleFrag();
+            desc.colorTargets   = { render::ColorTargetDesc{ stdRenderBabylon_state.colorFormat, blend } };
+            stdRenderBabylon_state.bloomUpsamplePipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+            desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_state.colorFormat, {} } };
+        }
+        if ( stdRenderBabylon_state.bloomCompositePipeline.isNull() )
+        {
+            desc.fragmentShader = stdBabylon::shaders::bloomCompositeFrag();
+            stdRenderBabylon_state.bloomCompositePipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+        }
+
+        if ( stdRenderBabylon_state.bloomPrefilterPipeline.isNull()
+            || stdRenderBabylon_state.bloomDownsamplePipeline.isNull()
+            || stdRenderBabylon_state.bloomUpsamplePipeline.isNull()
+            || stdRenderBabylon_state.bloomCompositePipeline.isNull()
+            || !stdRenderBabylon_EnsurePresentSampler()
+            || !stdRenderBabylon_EnsureFinalSampler() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the bloom passes.\n");
+            stdRenderBabylon_state.bBloomSetupFailed = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    // Added: records one bloom pass that samples input in fragment slot 0 and writes output. False,
+    // having logged nothing, when the pass can't be started or ended; the caller abandons bloom.
+    bool stdRenderBabylon_RecordBloomPass(render::CommandList& list, render::PipelineHandle pipeline,
+        render::TextureHandle input, render::SamplerHandle sampler, render::TextureHandle output,
+        render::LoadOp load, const float* pParams)
+    {
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ output, 0, load,
+            render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(pipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, input, sampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(pParams, 4u)));
+        list.draw(3);
+        return list.endPass();
+    }
+
+    // Added: the bloom stage over the scene source (the post chain's output, or the back buffer).
+    // It prefilters at half size, downsamples to 1/32, upsamples additively back to 1/2 and adds the
+    // result times the strength to the scene in bloomCompositeTarget. bBloomRan is set afterwards so
+    // the tone map reads the composite. False, having logged nothing, when a resource or pass fails.
+    bool stdRenderBabylon_RecordBloom(render::CommandList& list)
+    {
+        if ( stdRenderBabylon_state.bloom <= 0.0f || stdRenderBabylon_state.colorTarget.isNull() )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_EnsureBloomResources()
+            || !stdRenderBabylon_EnsureBloomTargets(stdRenderBabylon_state.width,
+                stdRenderBabylon_state.height) )
+        {
+            return false;
+        }
+
+        // Added: one line per open (or strength change) so a windowed run's log shows that the
+        // stage runs and at what sizes, not only that the option was read.
+        if ( !stdRenderBabylon_state.bBloomLogged )
+        {
+            const uint32_t width  = stdRenderBabylon_state.width;
+            const uint32_t height = stdRenderBabylon_state.height;
+            STDLOG_STATUS("stdRenderBabylon: bloom on, strength %g; targets %ux%u, %ux%u, %ux%u, %ux%u, %ux%u, composite %ux%u.\n",
+                (double)stdRenderBabylon_state.bloom,
+                stdRenderBabylon_BloomDimension(width, 1), stdRenderBabylon_BloomDimension(height, 1),
+                stdRenderBabylon_BloomDimension(width, 2), stdRenderBabylon_BloomDimension(height, 2),
+                stdRenderBabylon_BloomDimension(width, 3), stdRenderBabylon_BloomDimension(height, 3),
+                stdRenderBabylon_BloomDimension(width, 4), stdRenderBabylon_BloomDimension(height, 4),
+                stdRenderBabylon_BloomDimension(width, 5), stdRenderBabylon_BloomDimension(height, 5),
+                width, height);
+            stdRenderBabylon_state.bBloomLogged = true;
+        }
+
+        const render::TextureHandle scene = stdRenderBabylon_ChainSource();
+        const float aPrefilter[4] = { stdRenderBabylon_kBloomThreshold,
+            stdRenderBabylon_kBloomKnee, 1.0f / (float)stdRenderBabylon_state.width,
+            1.0f / (float)stdRenderBabylon_state.height };
+        if ( !stdRenderBabylon_RecordBloomPass(list, stdRenderBabylon_state.bloomPrefilterPipeline,
+            scene, stdRenderBabylon_state.finalSampler, stdRenderBabylon_state.aBloomTargets[0],
+            render::LoadOp::DontCare, aPrefilter) )
+        {
+            return false;
+        }
+
+        for ( int level = 2; level <= stdRenderBabylon_kBloomLevels; ++level )
+        {
+            const uint32_t sourceWidth = stdRenderBabylon_BloomDimension(
+                stdRenderBabylon_state.width, level - 1);
+            const uint32_t sourceHeight = stdRenderBabylon_BloomDimension(
+                stdRenderBabylon_state.height, level - 1);
+            const float aParams[4] = { 1.0f / (float)sourceWidth, 1.0f / (float)sourceHeight, 0.0f, 0.0f };
+            if ( !stdRenderBabylon_RecordBloomPass(list, stdRenderBabylon_state.bloomDownsamplePipeline,
+                stdRenderBabylon_state.aBloomTargets[level - 2], stdRenderBabylon_state.finalSampler,
+                stdRenderBabylon_state.aBloomTargets[level - 1], render::LoadOp::DontCare, aParams) )
+            {
+                return false;
+            }
+        }
+
+        for ( int level = stdRenderBabylon_kBloomLevels - 1; level >= 1; --level )
+        {
+            const uint32_t sourceWidth = stdRenderBabylon_BloomDimension(
+                stdRenderBabylon_state.width, level + 1);
+            const uint32_t sourceHeight = stdRenderBabylon_BloomDimension(
+                stdRenderBabylon_state.height, level + 1);
+            const float aParams[4] = { 1.0f / (float)sourceWidth, 1.0f / (float)sourceHeight, 0.0f, 0.0f };
+            if ( !stdRenderBabylon_RecordBloomPass(list, stdRenderBabylon_state.bloomUpsamplePipeline,
+                stdRenderBabylon_state.aBloomTargets[level], stdRenderBabylon_state.finalSampler,
+                stdRenderBabylon_state.aBloomTargets[level - 1], render::LoadOp::Load, aParams) )
+            {
+                return false;
+            }
+        }
+
+        const float aComposite[4] = { stdRenderBabylon_state.bloom, 0.0f, 0.0f, 0.0f };
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{
+            stdRenderBabylon_state.bloomCompositeTarget, 0, render::LoadOp::DontCare,
+            render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+        list.setPipeline(stdRenderBabylon_state.bloomCompositePipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, scene,
+            stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 1, stdRenderBabylon_state.aBloomTargets[0],
+            stdRenderBabylon_state.finalSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(aComposite)));
+        list.draw(3);
+        if ( !list.endPass() )
+        {
+            return false;
+        }
+
+        stdRenderBabylon_state.bBloomRan = true;
+        return true;
+    }
+
     // Added: the pipeline that composites the HUD layer over the presented frame. It draws the
     // present pass's triangle sampling the HUD color target and blends it with ONE / ONE_MINUS_SRC_ALPHA,
     // because the HUD pass accumulates premultiplied color and coverage alpha. The target format is
@@ -849,8 +1148,9 @@ namespace
         return true;
     }
 
-    // The texture the present pass samples: the last post pass's output, or the back buffer color.
-    render::TextureHandle stdRenderBabylon_PresentSource()
+    // The texture the post chain leaves for the next stage: the last post pass's output, or the back
+    // buffer color.
+    render::TextureHandle stdRenderBabylon_ChainSource()
     {
         const size_t numPasses = stdRenderBabylon_state.aPostPasses.size();
         if ( numPasses == 0 || stdRenderBabylon_state.aPostTargets[0].isNull() )
@@ -859,6 +1159,19 @@ namespace
         }
 
         return stdRenderBabylon_state.aPostTargets[(numPasses - 1) % 2];
+    }
+
+    // The texture the final tone map samples: the bloom composite after a presenting submit ran the
+    // bloom stage, else the post chain's output or the back buffer.
+    render::TextureHandle stdRenderBabylon_PresentSource()
+    {
+        if ( stdRenderBabylon_state.bBloomRan
+            && !stdRenderBabylon_state.bloomCompositeTarget.isNull() )
+        {
+            return stdRenderBabylon_state.bloomCompositeTarget;
+        }
+
+        return stdRenderBabylon_ChainSource();
     }
 
     // The post-processing chain into the frame: pass i reads the output of pass i - 1 (the back buffer
@@ -1301,6 +1614,12 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
             stdRenderBabylon_state.toneMap.exposure = std::clamp(exposure,
                 stdRenderBabylon_kMinExposure, stdRenderBabylon_kMaxExposure);
         }
+
+        // Added: bloom is Low (1) by default in Enhanced builds and off in Retail/QOL-off ones. An
+        // unknown level is clamped to the highest one.
+        const int bloom = std::clamp(stdConfig_GetInt(stdRenderBabylon_kBloomKey,
+            J3D_QOL_VALUE(1, 0)), 0, stdRenderBabylon_kBloomMaxLevel);
+        stdRenderBabylon_state.bloom = stdRenderBabylon_aBloomStrength[bloom];
     }
 #ifdef J3D_TEST
     stdRenderBabylon_state.bToneMap = !stdRenderBabylon_bLegacyPresentationForTest;
@@ -1384,6 +1703,10 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.casToneMapPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.casPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.casCapturePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomPrefilterPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomDownsamplePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomUpsamplePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.bloomCompositePipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
@@ -1412,6 +1735,7 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_FreePostTargets();
     stdRenderBabylon_FreeSmaaTargets();
     stdRenderBabylon_FreeCasTarget();
+    stdRenderBabylon_FreeBloomTargets();
     stdRenderBabylon_state.colorTarget     = {};
     stdRenderBabylon_state.depthTarget     = {};
     stdRenderBabylon_state.normalTarget    = {};
@@ -1791,6 +2115,40 @@ float stdRenderBabylon_GetSharpening()
     return stdRenderBabylon_state.sharpening;
 }
 
+bool stdRenderBabylon_SetBloom(float strength)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetBloom: not open.\n");
+        return false;
+    }
+
+    if ( !std::isfinite(strength) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetBloom: bloom %g is not finite.\n", (double)strength);
+        return false;
+    }
+
+    const float maxStrength = stdRenderBabylon_aBloomStrength[stdRenderBabylon_kBloomMaxLevel];
+    const float clamped     = std::clamp(strength, 0.0f, maxStrength);
+    if ( clamped != strength )
+    {
+        STDLOG_STATUS("stdRenderBabylon: bloom %g is outside 0..%g; using %g.\n",
+            (double)strength, (double)maxStrength, (double)clamped);
+    }
+
+    stdRenderBabylon_state.bloom             = clamped;
+    stdRenderBabylon_state.bBloomSetupFailed = false;
+    stdRenderBabylon_state.bBloomRan         = false;
+    stdRenderBabylon_state.bBloomLogged      = false;
+    return true;
+}
+
+float stdRenderBabylon_GetBloom()
+{
+    return stdRenderBabylon_state.bloom;
+}
+
 render::CommandList& stdRenderBabylon_GetFrame()
 {
     STD_ASSERTREL(stdRenderBabylon_state.pDevice);
@@ -1832,6 +2190,19 @@ namespace
             if ( bPresent )
             {
                 stdRenderBabylon_RecordPostChain(list);
+
+                // Added: the built-in bloom stage before the tone map. When its resources or passes
+                // can't be made it is skipped for this and later presents, so the scene is shown
+                // without it. Clearing the flag here also keeps a frame without bloom from reading
+                // an earlier composite.
+                stdRenderBabylon_state.bBloomRan = false;
+                if ( stdRenderBabylon_state.bloom > 0.0f
+                    && !stdRenderBabylon_state.bBloomSetupFailed
+                    && !stdRenderBabylon_RecordBloom(list) )
+                {
+                    STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the bloom stage; presenting without it.\n");
+                    stdRenderBabylon_state.bBloomSetupFailed = true;
+                }
 
                 if ( stdRenderBabylon_state.pDevice->info().hasSwapchain )
                 {

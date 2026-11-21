@@ -10,6 +10,13 @@
     in Enhanced and off in Retail). SMAA 1x runs on the tone-mapped 3D scene at the presented
     resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are never anti-aliased.
     Off presents exactly the previous image. Applies when the display reopens.
+  - **Options > Display** has a **Bloom** row (`engine.renderer.bloom`: Off, Low, Medium or High =
+    0, 1, 2, 3, with strengths 0, 0.15, 0.3, 0.5; Low by default in Enhanced and off in Retail).
+    A built-in stage before the tone map keeps bright parts of the 3D scene (with a soft-knee
+    threshold so display-referred values below 1.0 glow too) and blurs them through a half-size
+    prefilter and a downsample/upsample chain. The HUD, 2D layer, menus and prompts are never
+    bloomed. Off skips the stage and presents exactly the previous image. Applies when the display
+    reopens.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring
