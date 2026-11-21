@@ -48,29 +48,86 @@ namespace
         return static_cast<std::uint32_t>(std::lround(clamped * maxValue));
     }
 
+    // A float as an IEEE 754 half's bits, rounding to nearest even, with
+    // overflow to infinity and subnormals as the format defines them.
+    std::uint16_t toHalf(float value)
+    {
+        std::uint32_t bits = 0;
+        std::memcpy(&bits, &value, sizeof(bits));
+        const std::uint16_t sign = static_cast<std::uint16_t>((bits >> 16) & 0x8000u);
+        const std::uint32_t exponent = (bits >> 23) & 0xFFu;
+        const std::uint32_t mantissa = bits & 0x7FFFFFu;
+
+        if ( exponent == 0xFFu )
+        {
+            return static_cast<std::uint16_t>(sign | 0x7C00u | (mantissa != 0 ? 0x0200u : 0u));
+        }
+
+        const int halfExponent = static_cast<int>(exponent) - 127 + 15;
+        if ( halfExponent >= 0x1F )
+        {
+            return static_cast<std::uint16_t>(sign | 0x7C00u);
+        }
+        if ( halfExponent <= 0 )
+        {
+            if ( halfExponent < -10 )
+            {
+                return sign;
+            }
+            const std::uint32_t shift = static_cast<std::uint32_t>(14 - halfExponent);
+            const std::uint32_t shifted = (mantissa | 0x800000u) >> shift;
+            const std::uint32_t remainder = (mantissa | 0x800000u) & ((1u << shift) - 1u);
+            const std::uint32_t halfway = 1u << (shift - 1u);
+            std::uint32_t result = shifted;
+            if ( remainder > halfway || (remainder == halfway && (result & 1u) != 0) )
+            {
+                ++result;
+            }
+            return static_cast<std::uint16_t>(sign | result);
+        }
+
+        std::uint32_t result = (static_cast<std::uint32_t>(halfExponent) << 10) | (mantissa >> 13);
+        const std::uint32_t remainder = mantissa & 0x1FFFu;
+        if ( remainder > 0x1000u || (remainder == 0x1000u && (result & 1u) != 0) )
+        {
+            ++result;
+        }
+        return static_cast<std::uint16_t>(sign | result);
+    }
+
     // One texel of color in format, as readTexture() returns it. Only color
-    // formats come here.
-    std::array<std::byte, 4> encodeTexel(TextureFormat format, const ClearColor& color)
+    // formats come here; the result is padded to 8 bytes, enough for the
+    // widest format (Rgba16F).
+    std::array<std::byte, 8> encodeTexel(TextureFormat format, const ClearColor& color)
     {
         const auto byte = [](std::uint32_t v) { return static_cast<std::byte>(v & 0xFFu); };
+        const auto half = [](float f) { return static_cast<std::uint16_t>(toHalf(f)); };
         const auto word = [&byte](std::uint32_t v)
         {
-            return std::array<std::byte, 4>{ byte(v), byte(v >> 8), std::byte{ 0 },
-                std::byte{ 0 } };
+            return std::array<std::byte, 8>{ byte(v), byte(v >> 8), std::byte{ 0 },
+                std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 } };
         };
         const auto dword = [&byte](std::uint32_t v)
         {
-            return std::array<std::byte, 4>{ byte(v), byte(v >> 8), byte(v >> 16),
-                byte(v >> 24) };
+            return std::array<std::byte, 8>{ byte(v), byte(v >> 8), byte(v >> 16),
+                byte(v >> 24), std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 } };
+        };
+        const auto halfWord = [&byte, &half](float f)
+        {
+            const std::uint16_t v = half(f);
+            return std::array<std::byte, 8>{ byte(v), byte(v >> 8), std::byte{ 0 },
+                std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 } };
         };
         switch ( format )
         {
             case TextureFormat::Rgba8:
                 return { byte(toUnorm(color.r, 8)), byte(toUnorm(color.g, 8)),
-                    byte(toUnorm(color.b, 8)), byte(toUnorm(color.a, 8)) };
+                    byte(toUnorm(color.b, 8)), byte(toUnorm(color.a, 8)), std::byte{ 0 },
+                    std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 } };
             case TextureFormat::Bgra8:
                 return { byte(toUnorm(color.b, 8)), byte(toUnorm(color.g, 8)),
-                    byte(toUnorm(color.r, 8)), byte(toUnorm(color.a, 8)) };
+                    byte(toUnorm(color.r, 8)), byte(toUnorm(color.a, 8)), std::byte{ 0 },
+                    std::byte{ 0 }, std::byte{ 0 }, std::byte{ 0 } };
             case TextureFormat::B5G6R5:
                 return word(toUnorm(color.b, 5) | (toUnorm(color.g, 6) << 5)
                     | (toUnorm(color.r, 5) << 11));
@@ -83,6 +140,20 @@ namespace
             case TextureFormat::R10G10B10A2:
                 return dword(toUnorm(color.r, 10) | (toUnorm(color.g, 10) << 10)
                     | (toUnorm(color.b, 10) << 20) | (toUnorm(color.a, 2) << 30));
+            case TextureFormat::Rgba16F:
+            {
+                std::array<std::byte, 8> texel = halfWord(color.r);
+                const std::uint16_t g = half(color.g);
+                const std::uint16_t b = half(color.b);
+                const std::uint16_t a = half(color.a);
+                texel[2] = byte(g);
+                texel[3] = byte(g >> 8);
+                texel[4] = byte(b);
+                texel[5] = byte(b >> 8);
+                texel[6] = byte(a);
+                texel[7] = byte(a >> 8);
+                return texel;
+            }
             default:
                 return {};
         }
@@ -314,7 +385,7 @@ namespace
                         continue;
                     }
                     NullTexture& target = *m_state->textures.find(attachment.target);
-                    const std::array<std::byte, 4> texel =
+                    const std::array<std::byte, 8> texel =
                         encodeTexel(target.desc.format, attachment.clear);
                     const std::size_t size = bytesPerTexel(target.desc.format);
                     std::vector<std::byte>& bytes = target.mips[attachment.mip];

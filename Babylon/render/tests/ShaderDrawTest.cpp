@@ -236,21 +236,28 @@ namespace
         return drawn;
     }
 
-    // A full-target quad textured with a 2x2 texture (red, green / blue,
-    // white), nearest filtering, tinted (1, 0.5, 1, 1); indexed, uploaded
-    // with uploadBuffer.
-    Drawn drawTexturedQuad(Device& device)
+    // The same full-target textured quad, with its 2x2 source texture in
+    // sourceFormat. Rgba16F texels are red, green / blue, white as half
+    // floats (1.0 is 0x3C00, 0.0 is 0x0000).
+    Drawn drawTexturedQuadFormat(Device& device, TextureFormat sourceFormat)
     {
         Drawn drawn;
         drawn.target = colorTarget(device);
         const TextureHandle texture = device.createTexture(TextureDesc{ 2, 2, 1,
-            TextureFormat::Rgba8, TextureUsage::Sampled });
+            sourceFormat, TextureUsage::Sampled });
         REQUIRE_FALSE(texture.isNull());
-        const std::vector<std::uint8_t> texels = {
+        const std::vector<std::uint8_t> rgba8Texels = {
             255, 0, 0, 255,   0, 255, 0, 255,
             0, 0, 255, 255,   255, 255, 255, 255,
         };
-        REQUIRE(device.uploadTexture(texture, 0, bytesOf(texels)));
+        const std::vector<std::uint8_t> halfTexels = {
+            0x00, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3C, // red
+            0x00, 0x00, 0x00, 0x3C, 0x00, 0x00, 0x00, 0x3C, // green
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x3C, 0x00, 0x3C, // blue
+            0x00, 0x3C, 0x00, 0x3C, 0x00, 0x3C, 0x00, 0x3C, // white
+        };
+        REQUIRE(device.uploadTexture(texture, 0,
+            bytesOf(sourceFormat == TextureFormat::Rgba16F ? halfTexels : rgba8Texels)));
         const SamplerHandle sampler = device.createSampler(SamplerDesc{ Filter::Nearest,
             Filter::Nearest, Filter::Nearest, AddressMode::ClampToEdge,
             AddressMode::ClampToEdge });
@@ -285,6 +292,18 @@ namespace
         REQUIRE(list.endPass());
         submit(device, list, drawn, 1);
         return drawn;
+    }
+
+    Drawn drawTexturedQuad(Device& device)
+    {
+        return drawTexturedQuadFormat(device, TextureFormat::Rgba8);
+    }
+
+    // drawTexturedQuadFormat() from a half-float source: the same colors a
+    // sampler returns from Rgba16F.
+    Drawn drawTexturedQuadHalf(Device& device)
+    {
+        return drawTexturedQuadFormat(device, TextureFormat::Rgba16F);
     }
 
     // drawTexturedQuad() with storage.frag.hlsl: the tint is element 1 of a
@@ -622,6 +641,7 @@ TEST_CASE("The Null device accepts the shader pipelines and records their frames
 {
     SUBCASE("triangle") { runOnNull(drawTriangle); }
     SUBCASE("textured quad") { runOnNull(drawTexturedQuad); }
+    SUBCASE("textured quad from Rgba16F") { runOnNull(drawTexturedQuadHalf); }
     SUBCASE("quad tinted from a storage buffer") { runOnNull(drawStorageQuad); }
     SUBCASE("depth-tested quads") { runOnNull(drawDepthQuads); }
     SUBCASE("two color targets")
@@ -670,6 +690,27 @@ TEST_CASE("SDL GPU draws a textured, tinted quad")
     }
     // Each texel covers one 32x32 quadrant; green is halved by the tint,
     // 127.5 rounding either way.
+    checkImage(*image, [](std::uint32_t x, std::uint32_t y)
+    {
+        const bool right = x >= 32;
+        const bool bottom = y >= 32;
+        if ( !bottom )
+        {
+            return right ? Rgba{ 0, 128, 0, 255 } : kRed;
+        }
+        return right ? Rgba{ 255, 128, 255, 255 } : kBlue;
+    }, 1);
+}
+
+TEST_CASE("SDL GPU samples an Rgba16F texture")
+{
+    const std::optional<Image> image = runOnSdl(drawTexturedQuadHalf);
+    if ( !image.has_value() )
+    {
+        return;
+    }
+    // drawTexturedQuad()'s image from half-float texels: the sampler reads
+    // them as the same red, green, blue and white.
     checkImage(*image, [](std::uint32_t x, std::uint32_t y)
     {
         const bool right = x >= 32;

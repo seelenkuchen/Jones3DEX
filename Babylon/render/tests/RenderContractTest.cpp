@@ -404,6 +404,9 @@ TEST_CASE("A cleared color target reads back as the clear color in its format")
         { TextureFormat::B4G4R4A4, bytesOf({ 0x00, 0xFF }), bytesOf({ 0xFF, 0x00 }) },
         { TextureFormat::R10G10B10A2, bytesOf({ 0xFF, 0x03, 0x00, 0xC0 }),
             bytesOf({ 0x00, 0xFC, 0xFF, 0x3F }) },
+        // Half floats: 1.0 is 0x3C00, 0.0 is 0x0000, red first.
+        { TextureFormat::Rgba16F, bytesOf({ 0x00, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3C }),
+            bytesOf({ 0x00, 0x00, 0x00, 0x3C, 0x00, 0x3C, 0x00, 0x00 }) },
     };
 
     forEachDevice([&expectations](Device& device)
