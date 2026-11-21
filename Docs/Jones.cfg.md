@@ -139,6 +139,12 @@ cancels when `--load` is absent.
 | `2` | Diffuse |
 | `3` | Gouraud |
 
+### `engine.renderer.fov`
+
+The player's Field of view, in horizontal degrees at 4:3, the same unit as the camera's FOV. It applies to the normal first-person and third-person gameplay cameras; cutscene cameras and any FOV a COG or the `fov` console command sets keep their authored value. The range is `60` to `110`. `0` or a missing key means the original default, `90`.
+
+This is presentation only. The renderer keeps drawing at the chosen FOV, but the simulation's visibility marks (`SITH_TF_SEEN`, `SITH_SECTOR_SEEN` and `renderFrame`, which feed `SIGHTED` COG messages, AI wake and visibility queries) come from a separate pass at the default FOV, so changing the option does not change the game.
+
 ### `engine.renderer.culling.culledSectorTraversal.mode`
 
 Controls how the renderer walks neighboring sectors outside the current camera-frustum-visible sector set, in order to collect additional things and lights that can still affect what is on screen.
@@ -221,6 +227,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.hipoly` | bool | `false` | Loads the high-poly models from `hi3do` (Options > Display, "Hi-poly models"; restart to apply). Off by default: the high-poly Indy model opens gaps at the elbows during the backward step. |
 | `engine.renderer.geometry` | int | `4` | Uses the `engine.renderer.geometry` enum above. |
 | `engine.renderer.lighting` | int | `3` | Uses the `engine.renderer.lighting` enum above. |
+| `engine.renderer.fov` | float | `90` | Player Field of view, horizontal degrees at 4:3, `60` to `110` (Options > Display, "Field of view"). `0` or missing keeps the default. Presentation only; the simulation keeps the default visibility frustum. |
 | `engine.renderer.fog.enabled` | bool | `true` | Global fog toggle. |
 | `engine.renderer.fog.density` | float | `1.0` | Global fog density multiplier. |
 | `engine.renderer.culling.pvs.enabled` | bool | `true` | Enables PVS sector culling. |

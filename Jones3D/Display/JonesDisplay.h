@@ -22,6 +22,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL "graphics.performanceLevel"
 
 #define JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY                    "engine.renderer.hipoly"
+#define JONESDISPLAY_CFG_ENGINE_RENDER_FOV                       "engine.renderer.fov" // Added: Options > Display, Field of view
 #define JONESDISPLAY_CFG_ENGINE_RENDER_GEOMETRYMODE              "engine.renderer.geometry"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTINGMODE              "engine.renderer.lighting"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_FOGENABLED                "engine.renderer.fog.enabled"

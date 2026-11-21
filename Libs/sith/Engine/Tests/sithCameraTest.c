@@ -122,8 +122,50 @@ TEST(sithCamera, TestCinematicWithBothFocusesUpdatesPosition)
     TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_TEST_PRIMARY_Z, sithCameraTest_camera.pos.z);
 }
 
+// Added: the Field of view option drives the two normal gameplay cameras and leaves the
+// cutscene camera, an authored FOV and the global range alone.
+TEST(sithCamera, TestGameplayFOVAppliesToGameplayCamerasOnly)
+{
+    sithCamera_g_aCameras[SITHCAMERA_INTCAMERANUM].type    = SITHCAMERA_INTERNAL;
+    sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].type    = SITHCAMERA_EXTERNAL;
+    sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM].type = SITHCAMERA_CINEMATIC;
+    sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM].fov  = SITHCAMERA_FOVDEFAULT;
+
+    // ResetAllCameras applies the option to the gameplay cameras and flags them.
+    sithCamera_ResetAllCameras();
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_FOVDEFAULT,
+        sithCamera_g_aCameras[SITHCAMERA_INTCAMERANUM].fov);
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_FOVDEFAULT,
+        sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].fov);
+
+    sithCamera_SetGameplayFOV(110.0f);
+    TEST_ASSERT_EQUAL_FLOAT(110.0f, sithCamera_g_aCameras[SITHCAMERA_INTCAMERANUM].fov);
+    TEST_ASSERT_EQUAL_FLOAT(110.0f, sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].fov);
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_FOVDEFAULT,
+        sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM].fov);
+    TEST_ASSERT_TRUE(sithCamera_IsGameplayFOV(&sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM]));
+    TEST_ASSERT_FALSE(sithCamera_IsGameplayFOV(&sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM]));
+
+    // A COG-set (authored) FOV keeps priority on the camera it changes.
+    sithCamera_SetCameraFOV(&sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM], 70.0f);
+    sithCamera_SetGameplayFOV(60.0f);
+    TEST_ASSERT_EQUAL_FLOAT(70.0f, sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM].fov);
+    TEST_ASSERT_EQUAL_FLOAT(60.0f, sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].fov);
+
+    // 0 means the default, and the option stays inside its own range.
+    sithCamera_SetGameplayFOV(200.0f);
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_GAMEPLAYFOVMAX, sithCamera_GetGameplayFOV());
+    sithCamera_SetGameplayFOV(10.0f);
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_GAMEPLAYFOVMIN, sithCamera_GetGameplayFOV());
+    sithCamera_SetGameplayFOV(0.0f);
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_FOVDEFAULT, sithCamera_GetGameplayFOV());
+    TEST_ASSERT_EQUAL_FLOAT(SITHCAMERA_FOVDEFAULT,
+        sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].fov);
+}
+
 TEST_GROUP_RUNNER(sithCamera)
 {
     RUN_TEST_CASE(sithCamera, TestCinematicWithoutSecondaryFocusKeepsPosition);
     RUN_TEST_CASE(sithCamera, TestCinematicWithBothFocusesUpdatesPosition);
+    RUN_TEST_CASE(sithCamera, TestGameplayFOVAppliesToGameplayCamerasOnly);
 }

@@ -6,6 +6,11 @@
     presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
     thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
     display reopens, like the other Display options.
+  - **Options > Display** has a **Field of view** row (`engine.renderer.fov`), 60 to 110 horizontal degrees
+    at 4:3 and 90 by default. It applies to the normal first-person and third-person cameras; cutscene
+    cameras and a FOV set by a COG keep their authored value. The picture widens but the simulation does
+    not: visibility marks, `SIGHTED` messages, AI wake and visibility queries still use the default FOV.
+    The `fov` console command still sets the current camera directly.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and

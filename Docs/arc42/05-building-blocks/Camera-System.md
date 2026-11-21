@@ -55,6 +55,14 @@ The shared FOV constants are defined in [`sithCamera.h`](../../../Libs/sith/Engi
 
 [`sithCamera_SetCameraFOV()`](../../../Libs/sith/Engine/sithCamera.c#L397) only applies values inside that range.
 
+The player's Field of view option ([`sithCamera_SetGameplayFOV()`](../../../Libs/sith/Engine/sithCamera.c),
+`engine.renderer.fov` in [Jones.cfg](../../Jones.cfg.md)) has its own `60` to `110` range and starts at
+the default `90`. It drives only the internal and external cameras while they still use it; a COG, a
+scripted lerp or the `fov` console command clears that camera's option flag, and the cutscene, idle and
+orbital cameras never take it. The renderer keeps the simulation's visibility frustum at the default
+FOV while drawing at the chosen value (see
+[Rendering and Visibility](Rendering-And-Visibility.md#simulation-visibility-and-the-field-of-view-option)).
+
 The default third-person rig offsets come from the internal static defaults in [`sithCamera.c`](../../../Libs/sith/Engine/sithCamera.c#L28):
 
 - external camera offset: `{ 0.0, -0.2, 0.065 }`
@@ -196,7 +204,7 @@ The reset path is important because it re-establishes gameplay-facing defaults:
 - clears the cutscene state flag
 - points most built-in cameras at the world's `pCameraFocusThing`
 - restores the default external offset and external look offset
-- restores the external camera default FOV
+- restores the gameplay cameras' FOV from the Field of view option (the default when the option is unset)
 - in editor mode, selects the internal camera
 - in normal gameplay, selects the external camera focused on the local player if no current camera was set yet
 

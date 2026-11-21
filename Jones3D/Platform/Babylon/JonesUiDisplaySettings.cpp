@@ -32,6 +32,7 @@
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 
+#include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/World/sithModel.h>
 #include <sith/World/sithWorld.h>
@@ -79,6 +80,7 @@ namespace
     constexpr const char* kJonesDisplayHiPolyText      = "Hi-poly models"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLitFacesText    =
         "Lit faces (applies when the display reopens)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayFOVText = "Field of view"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
 
     // Added: M9.4 render scale choices. The value is a multiple of the game's 3D resolution; the
@@ -345,6 +347,14 @@ namespace
             JonesUiDisplay_ResolveLabel(kJonesDisplayLitFacesText), std::string(), true,
             values.bLitFaces });
 
+        // Added: the player's Field of view, horizontal degrees at 4:3. It only changes what the
+        // player sees; the simulation keeps its default visibility frustum.
+        layout.gameplayFOV = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Slider{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayFOVText), std::string(),
+            (double)SITHCAMERA_GAMEPLAYFOVMIN, (double)SITHCAMERA_GAMEPLAYFOVMAX, 1.0, true,
+            values.gameplayFOV });
+
         // Added: M9.4. The internal 3D resolution heads up into supersampling. Screen coordinates,
         // menus and the read-back image keep the display size; the in-world HUD is drawn with the
         // scene.
@@ -491,6 +501,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.bHiPoly = sithModel_IsHiPolyEnabled();
     model.bLitFaces = JonesUiDisplay_ReadConfigBool(
         JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+    model.gameplayFOV = sithCamera_GetGameplayFOV();
     model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
 
@@ -505,6 +516,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.performance = (std::size_t)performance;
     values.bHiPoly     = model.bHiPoly;
     values.bLitFaces   = model.bLitFaces;
+    values.gameplayFOV = (double)model.gameplayFOV;
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
     return model;
 }
@@ -545,6 +557,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.bHiPoly));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.litFaces,
         values.bLitFaces));
+    static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.gameplayFOV,
+        values.gameplayFOV));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.renderScale,
         values.renderScale));
 }
@@ -722,6 +736,11 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
 
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED,
         values.bLitFaces);
+
+    const float gameplayFOV = (float)std::clamp(values.gameplayFOV,
+        (double)SITHCAMERA_GAMEPLAYFOVMIN, (double)SITHCAMERA_GAMEPLAYFOVMAX);
+    sithCamera_SetGameplayFOV(gameplayFOV);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, gameplayFOV);
 
     // Added: M9.4. The scale is read when the display opens; the Options OK already asks for a
     // display restart, the same way the other presentation keys take effect.
