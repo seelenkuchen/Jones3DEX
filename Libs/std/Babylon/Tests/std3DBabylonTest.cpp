@@ -697,7 +697,8 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     OpenStd3D(320u, 200u);
     TEST_ASSERT_EQUAL_UINT32(320u, stdRenderBabylon_GetBackBufferWidth());
     TEST_ASSERT_EQUAL_UINT32(200u, stdRenderBabylon_GetBackBufferHeight());
-    TEST_ASSERT_EQUAL_size_t(320u * 200u * 4u, Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(320u * 200u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
     TEST_ASSERT_TRUE(stdRenderBabylon_GetDepthFormat() == render::TextureFormat::D24S8);
 
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
@@ -716,9 +717,21 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_GetBackBufferWidth());
     TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_GetBackBufferHeight());
     AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
-    TEST_ASSERT_EQUAL_size_t(64u * 48u * 4u, Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(64u * 48u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
 
     TEST_ASSERT_TRUE(ReadTexture(oldColor, 0).empty());
+}
+
+TEST(std3DBabylon, TheSceneTargetIsBgra8WithoutRgba16F)
+{
+    UseNullDevice(render::NullDeviceDesc{ { render::TextureFormat::Rgba16F } });
+    OpenStd3D();
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetColorFormat() == render::TextureFormat::Bgra8);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+    AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
 }
 
 TEST(std3DBabylon, DepthIsD32FWithoutD24S8)
@@ -840,7 +853,7 @@ namespace
         keep.dstColor = render::BlendFactor::One;
         keep.srcAlpha = render::BlendFactor::Zero;
         keep.dstAlpha = render::BlendFactor::One;
-        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend },
+        desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), blend },
             render::ColorTargetDesc{ render::TextureFormat::R10G10B10A2, bZWrite ? render::BlendState{} : keep } };
         desc.depthFormat  = render::TextureFormat::D24S8;
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
@@ -1588,7 +1601,7 @@ TEST(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer)
     TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), nullptr, nullptr));
     TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
     AssertSubmitted(2);
-    AssertBytes(Null().readTexture(stdRenderBabylon_GetColorTarget(), 0), aPixels);
+    // Through the translation to Bgra8 the scene target is the cleared black.
     AssertBytes(std::vector<std::byte>(16u * 8u * 4u, std::byte{ 0 }), aPixels);
 
     // A present without anything recorded runs the chain too, on the same target.
@@ -1777,16 +1790,17 @@ TEST(std3DBabylon, APresentToTextureIncludesTheOverlay)
     TEST_ASSERT_EQUAL_UINT32(32u, call.target.width);
     TEST_ASSERT_EQUAL_UINT32(16u, call.target.height);
 
-    // The present pass into the capture target, then the overlay's pass on it, then one submit.
+    // The final tone-map pass into the capture target (pipeline, input, parameters, triangle), then
+    // the overlay's pass on it, then one submit.
     const render::BeginPass& present = RecordedAt<render::BeginPass>(0);
     TEST_ASSERT_TRUE(present.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(present.desc.colorTargets[0].load == render::LoadOp::DontCare);
-    RecordedAt<render::EndPass>(4);
-    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(5);
+    RecordedAt<render::EndPass>(5);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(6);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
-    RecordedAt<render::EndPass>(6);
-    AssertSubmitted(7);
+    RecordedAt<render::EndPass>(7);
+    AssertSubmitted(8);
     TEST_ASSERT_EQUAL_size_t(32u * 16u * 4u, Null().readTexture(target, 0).size());
 
     stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
@@ -1810,16 +1824,33 @@ TEST(std3DBabylon, APresentToTextureIncludesTheHudOverlay)
 
     TEST_ASSERT_EQUAL_INT(1, hud.calls);
     TEST_ASSERT_TRUE(hud.target.texture == target);
-    // The present pass, then the HUD overlay's pass on the capture target, then one submit.
-    RecordedAt<render::EndPass>(4);
-    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(5);
+    // The final tone-map pass, then the HUD overlay's pass on the capture target, then one submit.
+    RecordedAt<render::EndPass>(5);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(6);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
-    RecordedAt<render::EndPass>(6);
-    AssertSubmitted(7);
+    RecordedAt<render::EndPass>(7);
+    AssertSubmitted(8);
 
     stdRenderBabylon_SetHudOverlay(nullptr, nullptr);
     Null().destroyTexture(target);
+}
+
+TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
+{
+    OpenStd3D();
+    const StdRenderBabylonToneMap defaults = stdRenderBabylon_GetToneMap();
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.exposure);
+    TEST_ASSERT_EQUAL_UINT32(0u, defaults.oper);
+
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.5f, 0u });
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
+
+    // The defaults return when the frame owner is closed and opened again.
+    CloseStd3D();
+    OpenStd3D();
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().exposure);
 }
 
 TEST(std3DBabylon, CloseClearsThePresentOverlay)
@@ -1854,6 +1885,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, ScenesRecordAPassWithTheDX9Clears);
     RUN_TEST_CASE(std3DBabylon, SceneCallsOutOfOrderFailLikeDX9);
     RUN_TEST_CASE(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylon, TheSceneTargetIsBgra8WithoutRgba16F);
     RUN_TEST_CASE(std3DBabylon, DepthIsD32FWithoutD24S8);
     RUN_TEST_CASE(std3DBabylon, BadAndEmptyDrawsRecordNothing);
     RUN_TEST_CASE(std3DBabylon, TwoDrawsRecordTheirStreamExactly);
@@ -1876,6 +1908,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, TheHudOverlayRecordsBeforeThePresentOverlay);
     RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheOverlay);
     RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheHudOverlay);
+    RUN_TEST_CASE(std3DBabylon, ToneMapParametersValidateAndDefault);
     RUN_TEST_CASE(std3DBabylon, CloseClearsThePresentOverlay);
 }
 
@@ -2151,7 +2184,8 @@ TEST(std3DBabylonGpu, TexturesReadBackByteExactPerFormat)
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     EndFrame();
     const std::vector<std::byte> pixels = ReadTexture(stdRenderBabylon_GetColorTarget(), 0);
-    TEST_ASSERT_EQUAL_size_t(640u * 480u * 4u, pixels.size());
+    TEST_ASSERT_EQUAL_size_t(640u * 480u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        pixels.size());
     TEST_ASSERT_EQUAL_INT(0, (int)pixels[0]);
     TEST_ASSERT_EQUAL_INT(0, (int)pixels[pixels.size() - 1]);
 }
@@ -2240,6 +2274,7 @@ namespace
     {
         std::vector<std::string> aWarnings;
         int startResult = 1;
+        bool bRead = false;
         {
             babylon::log::CaptureSink sink;
             startResult = std3D_StartScene();
@@ -2249,7 +2284,11 @@ namespace
                 std3D_EndScene();
                 (void)stdDisplay_Update(); // no assert while the sink is attached
             }
-            std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetColorTarget(), 0);
+            // The game-visible back buffer: the scene color target translated to Bgra8.
+            std::vector<std::byte> aPixels((size_t)stdRenderBabylon_GetBackBufferWidth()
+                * stdRenderBabylon_GetBackBufferHeight() * 4u);
+            bRead = stdRenderBabylon_ReadBackBuffer(aPixels.data(), nullptr, nullptr);
+            std3DBabylonGpuTest_pixels = std::move(aPixels);
             for ( const babylon::log::CapturedRecord& record : sink.records() )
             {
                 aWarnings.push_back(record.message);
@@ -2257,6 +2296,7 @@ namespace
         }
 
         TEST_ASSERT_EQUAL_INT(0, startResult);
+        TEST_ASSERT_TRUE(bRead);
         for ( const std::string& warning : aWarnings )
         {
             TEST_FAIL_MESSAGE(warning.c_str());
@@ -2285,6 +2325,20 @@ namespace
     void AssertClear(uint32_t x, uint32_t y)
     {
         AssertPixel(x, y, 0, 0, 0, 0, 0);
+    }
+
+    // Runs the final pass (with its tone map at the current parameters) over the last presented
+    // source into an offscreen Bgra8 target and returns its pixels, rows top first.
+    std::vector<std::byte> CapturePresented(uint32_t width, uint32_t height)
+    {
+        const render::TextureHandle target = std3DBabylonTest_pDevice->createTexture(
+            render::TextureDesc{ width, height, 1, render::TextureFormat::Bgra8,
+                render::TextureUsage::ColorTarget });
+        TEST_ASSERT_FALSE(target.isNull());
+        TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, width, height));
+        std::vector<std::byte> bytes = std3DBabylonTest_pDevice->readTexture(target, 0);
+        std3DBabylonTest_pDevice->destroyTexture(target);
+        return bytes;
     }
 
     // A quad from (x0, y0) to (x1, y1) in screen pixels, texture coordinates 0 to 1, rhwLeft on the
@@ -2940,6 +2994,70 @@ TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)
     }
 }
 
+TEST(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath)
+{
+    // A scene with interpolated, opaque and blended color, drawn the same way in both paths.
+    auto drawScene = []
+    {
+        StdVertexTL aVerts[3] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFF0000u),
+            Vertex(64.0f, 0.0f, 0.5f, 1.0f, 0xFF00FF00u),
+            Vertex(0.0f, 64.0f, 0.5f, 1.0f, 0xFF0000FFu) };
+        uint16_t aIndices[3] = { 0u, 1u, 2u };
+        std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aIndices, 3u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 32.0f, 64.0f, 0.5f, 0xFFFF4020u);
+        // One blended quad over the opaque one: blue at 128 / 255.
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 32.0f, 32.0f, 64.0f, 0.25f, 0x800000FFu);
+    };
+
+    // Renders the scene once through a fresh device and returns the presented image; pbHdr tells
+    // whether the frame used Rgba16F.
+    auto renderPath = [&drawScene](bool bLegacy, bool* pbHdr)
+    {
+        stdRenderBabylon_ForceLegacyPresentationForTest(bLegacy);
+        if ( !OpenGpuStd3D(64u, 64u) )
+        {
+            return std::vector<std::byte>{};
+        }
+        *pbHdr = stdRenderBabylon_GetColorFormat() == render::TextureFormat::Rgba16F;
+        RenderScene(drawScene);
+        std::vector<std::byte> presented = CapturePresented(64u, 64u);
+        CloseStd3D();
+        stdRenderBabylon_Close();
+        DropDevice();
+        return presented;
+    };
+
+    bool bHdrHdr = false;
+    bool bLegacyHdr = false;
+    const std::vector<std::byte> hdr = renderPath(false, &bHdrHdr);
+    if ( hdr.empty() )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    const std::vector<std::byte> legacy = renderPath(true, &bLegacyHdr);
+
+    TEST_ASSERT_FALSE(legacy.empty());
+    // The default path uses Rgba16F where the device can (the fallback still has to match), and the
+    // forced path never does.
+    TEST_ASSERT_FALSE(bLegacyHdr);
+
+    TEST_ASSERT_EQUAL_size_t(hdr.size(), legacy.size());
+    int maxDiff = 0;
+    size_t numAboveOne = 0;
+    for ( size_t i = 0; i < hdr.size(); ++i )
+    {
+        const int diff = std::abs((int)hdr[i] - (int)legacy[i]);
+        maxDiff = std::max(maxDiff, diff);
+        if ( diff > 1 )
+        {
+            ++numAboveOne;
+        }
+    }
+    std::printf("M9.3 image identity (%s vs forced Bgra8): %zu bytes, max per-channel difference %d/255, %zu bytes differ by more than 1/255\n",
+        bHdrHdr ? "Rgba16F" : "Bgra8 fallback", hdr.size(), maxDiff, numAboveOne);
+    TEST_ASSERT_TRUE(maxDiff <= 1);
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -2958,6 +3076,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
+    RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

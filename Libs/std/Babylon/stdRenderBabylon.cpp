@@ -9,8 +9,15 @@
 // A presenting submit runs the post-processing chain first: each pass draws the same full-screen
 // triangle with its own fragment shader into one of two Bgra8 targets the chain owns, reading the
 // output of the pass before (the back buffer color for the first) and, as its shader declares, the
-// normal and depth targets. The present pass then samples the last output instead of the back
-// buffer. The back buffer itself is never written by the chain.
+// normal and depth targets. The final tone-map pass then samples the last output instead of the
+// back buffer and writes the frame (the swapchain, or the target of RenderPresentToTexture). Its
+// shader and present.vert are the plain present pass plus exposure and the operator; at the defaults
+// (exposure 1, operator 0) it clamps to 0..1 and presents the same image as the pre-M9.3 present.
+// The back buffer itself is never written by the chain or the final pass.
+//
+// The scene color target is Rgba16F on a device that can render and sample it, else Bgra8, so
+// shaders may write values outside 0..1 for a later tone map. ReadBackBuffer and WriteBackBuffer
+// translate between that target and the Bgra8 bytes the game and stdDisplay use.
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>
@@ -20,6 +27,8 @@
 #include <babylon/shaders/stdBabylonShaders.h>
 #include <babylon/platform/Window.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -44,11 +53,17 @@ namespace
         render::TextureHandle colorTarget;
         render::TextureHandle depthTarget;
         render::TextureHandle normalTarget;
+        render::TextureFormat colorFormat  = render::TextureFormat::Bgra8;
         render::TextureFormat depthFormat  = render::TextureFormat::D24S8;
         render::TextureFormat normalFormat = render::TextureFormat::R10G10B10A2;
         bool bDepthSampled = false; // the depth target is also Sampled, so post passes can read it
         uint32_t width  = 0;
         uint32_t height = 0;
+
+        // The final pass's tone map, and whether it runs the tone-map shader (false only when a test
+        // forced the pre-M9.3 path). At the defaults it is an identity clamp.
+        StdRenderBabylonToneMap toneMap;
+        bool bToneMap = true;
 
         // Changes whenever the back buffer's contents may change (stdRenderBabylon_GetBackBufferVersion).
         uint64_t backBufferVersion = 0;
@@ -82,6 +97,126 @@ namespace
     };
 
     StdRenderBabylonState stdRenderBabylon_state;
+
+#ifdef J3D_TEST
+    bool stdRenderBabylon_bLegacyPresentationForTest = false;
+#endif
+
+    // An IEEE 754 half's bits as a float.
+    float stdRenderBabylon_HalfToFloat(uint16_t half)
+    {
+        const uint32_t sign = (uint32_t)(half & 0x8000u) << 16;
+        uint32_t exponent  = (half >> 10) & 0x1Fu;
+        uint32_t mantissa  = half & 0x3FFu;
+        uint32_t bits;
+        if ( exponent == 0 )
+        {
+            if ( mantissa == 0 )
+            {
+                bits = sign;
+            }
+            else
+            {
+                // Subnormal: shift the mantissa up into the float's normal range.
+                exponent = 127 - 15 + 1;
+                while ( (mantissa & 0x400u) == 0 )
+                {
+                    mantissa <<= 1;
+                    --exponent;
+                }
+                bits = sign | (exponent << 23) | ((mantissa & 0x3FFu) << 13);
+            }
+        }
+        else if ( exponent == 0x1Fu )
+        {
+            bits = sign | 0x7F800000u | (mantissa << 13);
+        }
+        else
+        {
+            bits = sign | ((exponent + (127 - 15)) << 23) | (mantissa << 13);
+        }
+
+        float result;
+        std::memcpy(&result, &bits, sizeof(result));
+        return result;
+    }
+
+    // A float as an IEEE 754 half's bits, rounding to nearest even.
+    uint16_t stdRenderBabylon_FloatToHalf(float value)
+    {
+        uint32_t bits;
+        std::memcpy(&bits, &value, sizeof(bits));
+        const uint16_t sign      = (uint16_t)((bits >> 16) & 0x8000u);
+        const uint32_t exponent  = (bits >> 23) & 0xFFu;
+        const uint32_t mantissa  = bits & 0x7FFFFFu;
+
+        if ( exponent == 0xFFu )
+        {
+            return (uint16_t)(sign | 0x7C00u | (mantissa != 0 ? 0x0200u : 0u));
+        }
+
+        const int halfExponent = (int)exponent - 127 + 15;
+        if ( halfExponent >= 0x1F )
+        {
+            return (uint16_t)(sign | 0x7C00u);
+        }
+        if ( halfExponent <= 0 )
+        {
+            if ( halfExponent < -10 )
+            {
+                return sign;
+            }
+            const uint32_t shift     = (uint32_t)(14 - halfExponent);
+            const uint32_t shifted   = (mantissa | 0x800000u) >> shift;
+            const uint32_t remainder = (mantissa | 0x800000u) & ((1u << shift) - 1u);
+            const uint32_t halfway   = 1u << (shift - 1u);
+            uint32_t result          = shifted;
+            if ( remainder > halfway || (remainder == halfway && (result & 1u) != 0) )
+            {
+                ++result;
+            }
+            return (uint16_t)(sign | result);
+        }
+
+        uint32_t result          = ((uint32_t)halfExponent << 10) | (mantissa >> 13);
+        const uint32_t remainder = mantissa & 0x1FFFu;
+        if ( remainder > 0x1000u || (remainder == 0x1000u && (result & 1u) != 0) )
+        {
+            ++result;
+        }
+        return (uint16_t)(sign | result);
+    }
+
+    // A float clamped to 0..1 as an 8-bit unorm, rounded to nearest.
+    uint8_t stdRenderBabylon_ToUnorm8(float value)
+    {
+        const float clamped = std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
+        return (uint8_t)std::lround(clamped * 255.0f);
+    }
+
+    // The scene color target format for this device: Rgba16F where it is a sampled color target,
+    // else today's Bgra8.
+    render::TextureFormat stdRenderBabylon_ChooseColorFormat(render::Device* pDevice, bool bLegacy)
+    {
+        const render::TextureUsage usage = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+        if ( !bLegacy && pDevice->supportsFormat(render::TextureFormat::Rgba16F, usage) )
+        {
+            return render::TextureFormat::Rgba16F;
+        }
+        if ( !bLegacy )
+        {
+            STDLOG_STATUS("stdRenderBabylon: the device can't render and sample Rgba16F; the scene color target stays Bgra8.\n");
+        }
+        return render::TextureFormat::Bgra8;
+    }
+
+    // The final pass's fragment shader: the tone map, or the plain present when a test forces the
+    // pre-M9.3 path.
+    const render::ShaderDesc& stdRenderBabylon_FinalFrag()
+    {
+        return stdRenderBabylon_state.bToneMap ? stdBabylon::shaders::tonemapFrag()
+                                               : stdBabylon::shaders::presentFrag();
+    }
 
     void stdRenderBabylon_DestroyDeferred()
     {
@@ -238,28 +373,38 @@ namespace
         return false;
     }
 
-    // The present pass: the back buffer drawn over the whole swapchain image. The vertex shader
-    // makes the triangle itself, so nothing is bound but the color target.
-    void stdRenderBabylon_RecordPresent(render::CommandList& list)
+    // The final pass: the presented source drawn over the whole target (the null handle, for the
+    // swapchain), with the tone map when it runs. The vertex shader makes the triangle itself, so
+    // nothing is bound but the result and the input. Returns false, having logged nothing, when the
+    // pass can't be started or ended; the caller decides what that means.
+    bool stdRenderBabylon_RecordFinalPass(render::CommandList& list, render::PipelineHandle pipeline,
+        render::TextureHandle target)
     {
-        if ( stdRenderBabylon_state.presentPipeline.isNull() || stdRenderBabylon_state.colorTarget.isNull() )
+        if ( pipeline.isNull() || stdRenderBabylon_state.colorTarget.isNull() )
         {
-            return;
+            return false;
         }
 
         render::PassDesc pass;
-        pass.colorTargets.push_back(render::ColorAttachment{ render::TextureHandle{}, 0,
+        pass.colorTargets.push_back(render::ColorAttachment{ target, 0,
             render::LoadOp::DontCare, render::StoreOp::Store, {} });
         if ( !list.beginPass(pass) )
         {
-            return;
+            return false;
         }
 
-        list.setPipeline(stdRenderBabylon_state.presentPipeline);
+        list.setPipeline(pipeline);
         list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_PresentSource(),
             stdRenderBabylon_state.presentSampler);
+        if ( stdRenderBabylon_state.bToneMap )
+        {
+            const float aParams[4] = { stdRenderBabylon_state.toneMap.exposure,
+                (float)stdRenderBabylon_state.toneMap.oper, 0.0f, 0.0f };
+            list.pushUniforms(render::ShaderStage::Fragment, 0,
+                std::as_bytes(std::span<const float>(aParams)));
+        }
         list.draw(3);
-        (void)list.endPass();
+        return list.endPass();
     }
 }
 
@@ -333,6 +478,12 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
 
     stdRenderBabylon_state             = StdRenderBabylonState{};
     stdRenderBabylon_state.pDevice     = pDevice;
+#ifdef J3D_TEST
+    stdRenderBabylon_state.bToneMap = !stdRenderBabylon_bLegacyPresentationForTest;
+    stdRenderBabylon_bLegacyPresentationForTest = false;
+#endif
+    stdRenderBabylon_state.colorFormat = stdRenderBabylon_ChooseColorFormat(pDevice,
+        !stdRenderBabylon_state.bToneMap);
     stdRenderBabylon_state.depthFormat = pDevice->supportsFormat(render::TextureFormat::D24S8, render::TextureUsage::DepthTarget)
         ? render::TextureFormat::D24S8
         : render::TextureFormat::D32F;
@@ -353,14 +504,14 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
     {
         render::PipelineDesc desc;
         desc.vertexShader   = stdBabylon::shaders::presentVert();
-        desc.fragmentShader = stdBabylon::shaders::presentFrag();
+        desc.fragmentShader = stdRenderBabylon_FinalFrag();
         desc.primitive      = render::PrimitiveType::TriangleList;
         desc.colorTargets   = { render::ColorTargetDesc{ info.swapchainFormat, {} } };
 
         stdRenderBabylon_state.presentPipeline = pDevice->createPipeline(desc);
         if ( stdRenderBabylon_state.presentPipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler() )
         {
-            STDLOG_ERROR("stdRenderBabylon_Open: could not create the present pipeline.\n");
+            STDLOG_ERROR("stdRenderBabylon_Open: could not create the final pass pipeline.\n");
             pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
             pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
             stdRenderBabylon_state = StdRenderBabylonState{};
@@ -448,7 +599,7 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     colorDesc.width     = width;
     colorDesc.height    = height;
     colorDesc.mipLevels = 1;
-    colorDesc.format    = render::TextureFormat::Bgra8;
+    colorDesc.format    = stdRenderBabylon_state.colorFormat;
     colorDesc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
 
     render::TextureDesc depthDesc;
@@ -513,8 +664,11 @@ bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHe
 
     const uint32_t width  = stdRenderBabylon_state.width;
     const uint32_t height = stdRenderBabylon_state.height;
-    const uint64_t size   = (uint64_t)width * (uint64_t)height * 4u;
-    if ( size > (uint64_t)SIZE_MAX )
+    const uint64_t numPixels = (uint64_t)width * (uint64_t)height;
+    const uint64_t size      = numPixels * 4u;
+    const render::TextureFormat format = stdRenderBabylon_state.colorFormat;
+    const uint64_t readSize   = numPixels * render::bytesPerTexel(format);
+    if ( size > (uint64_t)SIZE_MAX || readSize > (uint64_t)SIZE_MAX )
     {
         STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the %ux%u back buffer is too large.\n", width, height);
         return false;
@@ -526,16 +680,42 @@ bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHe
     }
 
     const std::vector<std::byte> pixels = stdRenderBabylon_state.pDevice->readTexture(stdRenderBabylon_state.colorTarget, 0);
-    if ( pixels.size() != (size_t)size )
+    if ( pixels.size() != (size_t)readSize )
     {
-        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the device returned %zu bytes for a %ux%u Bgra8 buffer.\n",
+        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the device returned %zu bytes for a %ux%u buffer in its scene format.\n",
             pixels.size(), width, height);
         return false;
     }
 
     if ( size > 0u )
     {
-        std::memcpy(pOut, pixels.data(), (size_t)size);
+        uint8_t* pDest = static_cast<uint8_t*>(pOut);
+        if ( format == render::TextureFormat::Bgra8 )
+        {
+            std::memcpy(pDest, pixels.data(), (size_t)size);
+        }
+        else
+        {
+            // Rgba16F: half floats R, G, B, A to Bgra8, clamping to the displayable range.
+            for ( uint64_t i = 0; i < numPixels; ++i )
+            {
+                const std::byte* pTexel = pixels.data() + i * 8u;
+                uint16_t aHalf[4];
+                for ( size_t channel = 0; channel < 4u; ++channel )
+                {
+                    aHalf[channel] = (uint16_t)((uint8_t)pTexel[channel * 2u]
+                        | ((uint16_t)(uint8_t)pTexel[channel * 2u + 1u] << 8));
+                }
+                const float aChannel[4] = { stdRenderBabylon_HalfToFloat(aHalf[0]),
+                    stdRenderBabylon_HalfToFloat(aHalf[1]),
+                    stdRenderBabylon_HalfToFloat(aHalf[2]),
+                    stdRenderBabylon_HalfToFloat(aHalf[3]) };
+                pDest[i * 4u + 0u] = stdRenderBabylon_ToUnorm8(aChannel[2]);
+                pDest[i * 4u + 1u] = stdRenderBabylon_ToUnorm8(aChannel[1]);
+                pDest[i * 4u + 2u] = stdRenderBabylon_ToUnorm8(aChannel[0]);
+                pDest[i * 4u + 3u] = stdRenderBabylon_ToUnorm8(aChannel[3]);
+            }
+        }
     }
 
     if ( pWidth )
@@ -564,6 +744,11 @@ render::TextureHandle stdRenderBabylon_GetDepthTarget()
 render::TextureFormat stdRenderBabylon_GetDepthFormat()
 {
     return stdRenderBabylon_state.depthFormat;
+}
+
+render::TextureFormat stdRenderBabylon_GetColorFormat()
+{
+    return stdRenderBabylon_state.colorFormat;
 }
 
 render::TextureHandle stdRenderBabylon_GetNormalTarget()
@@ -626,7 +811,11 @@ namespace
 
                 if ( stdRenderBabylon_state.pDevice->info().hasSwapchain )
                 {
-                    stdRenderBabylon_RecordPresent(list);
+                    if ( !stdRenderBabylon_RecordFinalPass(list,
+                        stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
+                    {
+                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                    }
                 }
 
                 if ( stdRenderBabylon_state.hudOverlay || stdRenderBabylon_state.presentOverlay )
@@ -748,7 +937,7 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
     {
         render::PipelineDesc desc;
         desc.vertexShader   = stdBabylon::shaders::presentVert();
-        desc.fragmentShader = stdBabylon::shaders::presentFrag();
+        desc.fragmentShader = stdRenderBabylon_FinalFrag();
         desc.primitive      = render::PrimitiveType::TriangleList;
         desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
         stdRenderBabylon_state.capturePipeline =
@@ -757,28 +946,15 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
     if ( stdRenderBabylon_state.capturePipeline.isNull()
         || !stdRenderBabylon_EnsurePresentSampler() )
     {
-        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: no present pipeline.\n");
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: no final pass pipeline.\n");
         return false;
     }
 
     render::CommandList list = stdRenderBabylon_state.pDevice->beginFrame();
 
-    render::PassDesc pass;
-    pass.colorTargets.push_back(render::ColorAttachment{ target, 0,
-        render::LoadOp::DontCare, render::StoreOp::Store, {} });
-    if ( !list.beginPass(pass) )
+    if ( !stdRenderBabylon_RecordFinalPass(list, stdRenderBabylon_state.capturePipeline, target) )
     {
-        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the pass.\n");
-        return false;
-    }
-
-    list.setPipeline(stdRenderBabylon_state.capturePipeline);
-    list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_PresentSource(),
-        stdRenderBabylon_state.presentSampler);
-    list.draw(3);
-    if ( !list.endPass() )
-    {
-        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the pass did not end.\n");
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
         return false;
     }
 
@@ -830,8 +1006,31 @@ bool stdRenderBabylon_WriteBackBuffer(const void* pData)
         return false;
     }
 
-    const size_t size = (size_t)stdRenderBabylon_state.width * stdRenderBabylon_state.height * 4u;
-    const std::span<const std::byte> data(static_cast<const std::byte*>(pData), size);
+    const size_t numPixels = (size_t)stdRenderBabylon_state.width * stdRenderBabylon_state.height;
+    const render::TextureFormat format = stdRenderBabylon_state.colorFormat;
+    std::vector<std::byte> converted;
+    std::span<const std::byte> data(static_cast<const std::byte*>(pData), numPixels * 4u);
+    if ( format == render::TextureFormat::Rgba16F )
+    {
+        // Bgra8 to Rgba16F: half floats R, G, B, A in the 0..1 the bytes hold.
+        converted.resize(numPixels * 8u);
+        const uint8_t* pSource = static_cast<const uint8_t*>(pData);
+        for ( size_t i = 0; i < numPixels; ++i )
+        {
+            const float aChannel[4] = { pSource[i * 4u + 2u] / 255.0f,
+                pSource[i * 4u + 1u] / 255.0f, pSource[i * 4u + 0u] / 255.0f,
+                pSource[i * 4u + 3u] / 255.0f };
+            std::byte* pTexel = converted.data() + i * 8u;
+            for ( size_t channel = 0; channel < 4u; ++channel )
+            {
+                const uint16_t half = stdRenderBabylon_FloatToHalf(aChannel[channel]);
+                pTexel[channel * 2u + 0u] = (std::byte)(half & 0xFFu);
+                pTexel[channel * 2u + 1u] = (std::byte)(half >> 8);
+            }
+        }
+        data = converted;
+    }
+
     if ( !stdRenderBabylon_state.pDevice->uploadTexture(stdRenderBabylon_state.colorTarget, 0, data) )
     {
         STDLOG_ERROR("stdRenderBabylon_WriteBackBuffer: the device refused the %ux%u upload.\n",
@@ -956,6 +1155,40 @@ size_t stdRenderBabylon_GetNumPostPasses()
 {
     return stdRenderBabylon_state.aPostPasses.size();
 }
+
+void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetToneMap: not open.\n");
+        return;
+    }
+    if ( !std::isfinite(params.exposure) || params.exposure < 0.0f )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetToneMap: exposure %g is not a finite value at or above 0.\n",
+            (double)params.exposure);
+        return;
+    }
+    if ( params.oper != 0 )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetToneMap: tone-map operator %u is not supported.\n",
+            params.oper);
+        return;
+    }
+    stdRenderBabylon_state.toneMap = params;
+}
+
+StdRenderBabylonToneMap stdRenderBabylon_GetToneMap()
+{
+    return stdRenderBabylon_state.toneMap;
+}
+
+#ifdef J3D_TEST
+void stdRenderBabylon_ForceLegacyPresentationForTest(bool bLegacy)
+{
+    stdRenderBabylon_bLegacyPresentationForTest = bLegacy;
+}
+#endif
 
 render::TextureHandle stdRenderBabylon_GetPresentSource()
 {

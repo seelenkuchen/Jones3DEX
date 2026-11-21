@@ -68,6 +68,7 @@ namespace
             case TextureFormat::D24S8: return SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT;
             case TextureFormat::D32F: return SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
             case TextureFormat::R10G10B10A2: return SDL_GPU_TEXTUREFORMAT_R10G10B10A2_UNORM;
+            case TextureFormat::Rgba16F: return SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
         }
         return SDL_GPU_TEXTUREFORMAT_INVALID;
     }

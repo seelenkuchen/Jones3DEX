@@ -764,7 +764,7 @@ namespace
         keepNormal.dstColor = render::BlendFactor::One;
         keepNormal.srcAlpha = render::BlendFactor::Zero;
         keepNormal.dstAlpha = render::BlendFactor::One;
-        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend },
+        desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), blend },
             render::ColorTargetDesc{ stdRenderBabylon_GetNormalFormat(), bZWrite ? render::BlendState{} : keepNormal } };
         desc.depthFormat  = stdRenderBabylon_GetDepthFormat();
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };

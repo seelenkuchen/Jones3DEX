@@ -11,13 +11,16 @@ namespace babylon::render
 {
 
     // Texel formats. Byte layouts are what uploadTexture() takes and
-    // readTexture() returns, the same on every backend. The 16-bit formats
-    // are one little-endian word per texel with the first-named component in
-    // the lowest bits: B5G6R5 has blue in bits 0-4, green in 5-10 and red in
-    // 11-15. R10G10B10A2 is one little-endian 32-bit word per texel in the
-    // same way. Not every device can sample or render every format; ask
-    // Device::supportsFormat(). Depth formats are only depth targets (and
-    // sampled where supported); they are never uploaded, read back or copied.
+    // readTexture() returns, the same on every backend. The 16-bit integer
+    // formats are one little-endian word per texel with the first-named
+    // component in the lowest bits: B5G6R5 has blue in bits 0-4, green in
+    // 5-10 and red in 11-15. R10G10B10A2 is one little-endian 32-bit word per
+    // texel in the same way. Rgba16F is four little-endian IEEE 754 half
+    // floats per texel, red first, and holds values outside 0..1: the format
+    // of an HDR color target. Not every device can sample or render every
+    // format; ask Device::supportsFormat(). Depth formats are only depth
+    // targets (and sampled where supported); they are never uploaded, read
+    // back or copied.
     enum class TextureFormat : std::uint8_t
     {
         Rgba8,      // bytes R, G, B, A
@@ -28,13 +31,14 @@ namespace babylon::render
         D24S8,      // 24-bit depth, 8-bit stencil
         D32F,       // 32-bit float depth
         R10G10B10A2, // red 0-9, green 10-19, blue 20-29, alpha 30-31
+        Rgba16F,    // four half floats R, G, B, A; red first, outside 0..1 allowed
     };
 
     // Every format, in declaration order, for code that walks them all.
     inline constexpr TextureFormat kAllTextureFormats[] = {
         TextureFormat::Rgba8, TextureFormat::Bgra8, TextureFormat::B5G6R5,
         TextureFormat::B5G5R5A1, TextureFormat::B4G4R4A4, TextureFormat::D24S8,
-        TextureFormat::D32F, TextureFormat::R10G10B10A2,
+        TextureFormat::D32F, TextureFormat::R10G10B10A2, TextureFormat::Rgba16F,
     };
 
     // True for D24S8 and D32F.
@@ -43,8 +47,9 @@ namespace babylon::render
         return format == TextureFormat::D24S8 || format == TextureFormat::D32F;
     }
 
-    // Bytes per texel in uploadTexture() and readTexture() data: 4 for the
-    // 8-bit, 10-bit and depth formats, 2 for the 16-bit ones.
+    // Bytes per texel in uploadTexture() and readTexture() data: 8 for
+    // Rgba16F, 4 for the 8-bit, 10-bit and depth formats, 2 for the 16-bit
+    // integer ones.
     constexpr std::uint32_t bytesPerTexel(TextureFormat format)
     {
         switch ( format )
@@ -53,6 +58,8 @@ namespace babylon::render
             case TextureFormat::B5G5R5A1:
             case TextureFormat::B4G4R4A4:
                 return 2;
+            case TextureFormat::Rgba16F:
+                return 8;
             default:
                 return 4;
         }

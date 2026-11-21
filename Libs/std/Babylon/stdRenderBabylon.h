@@ -1,17 +1,20 @@
 // Added: the Babylon column's render frame owner, shared by the std3D adapter (std3DBabylon.cpp) and
 // the stdDisplay adapter (stdDisplayBabylon.cpp). It holds the render device of the adapter context
 // while open, the command list of the frame being recorded, and the back buffer at the display size:
-// a Bgra8 color target (also sampled), a depth target (D24S8, or D32F where the device lacks D24S8;
-// also sampled where the device can) and a normal target (R10G10B10A2, or Rgba8 where the device
-// can't render to it; also sampled) that std3D's scene passes write beside the color. stdDisplay opens
-// it (stdDisplay_Open), sizes the back buffer (stdDisplay_SetMode) and ends each frame at
-// stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
-// chain, an ordered list of full-screen passes that is empty by default, and then, on a device with a
-// swapchain, draws the chain's output (the back buffer color when the chain is empty) to the
-// swapchain with a full-screen pass, which presents it. std3D records its scenes into the same frame.
+// an Rgba16F color target (also sampled; Bgra8 where the device can't render to Rgba16F), a depth
+// target (D24S8, or D32F where the device lacks D24S8; also sampled where the device can) and a
+// normal target (R10G10B10A2, or Rgba8 where the device can't render to it; also sampled) that
+// std3D's scene passes write beside the color. stdDisplay opens it (stdDisplay_Open), sizes the back
+// buffer (stdDisplay_SetMode) and ends each frame at stdDisplay_Update with
+// stdRenderBabylon_PresentFrame. That submit first runs the post-processing chain, an ordered list of
+// full-screen passes that is empty by default, and then, on a device with a swapchain, runs the
+// built-in final tone-map pass over the chain's output (the back buffer color when the chain is
+// empty) and writes it to the swapchain, which presents it. std3D records its scenes into the same
+// frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer translate between the scene color
+// target and the Bgra8 bytes the game and stdDisplay work with.
 //
-// The chain never writes the back buffer: stdRenderBabylon_ReadBackBuffer, and with it stdDisplay's
-// lock and the replay's frame output, always read what the game drew.
+// The chain and the final pass never write the back buffer: stdRenderBabylon_ReadBackBuffer, and
+// with it stdDisplay's lock and the replay's frame output, always read what the game drew.
 //
 // Adapter code, C++ only: callers are the adapter files and the composition roots. Not thread-safe:
 // call from the game thread.
@@ -70,17 +73,19 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
 void stdRenderBabylon_FreeBackBuffer();
 
 // Copies the back buffer's mip 0 into pOut, which must have room for width * height * 4 bytes of
-// Bgra8, rows top first, and sets *pWidth and *pHeight (both may be nullptr). The frame being
-// recorded is submitted first, without the present pass (stdRenderBabylon_FlushFrame), so the copy
-// holds everything drawn so far; it waits for the GPU. Returns false, logging why, when not open,
-// without a back buffer, when the flush fails or when the device returns another size.
+// Bgra8, rows top first, and sets *pWidth and *pHeight (both may be nullptr). On an Rgba16F scene
+// color target the half floats are clamped to 0..1 and rounded to 8-bit unorm; a Bgra8 target is
+// copied as it is. The frame being recorded is submitted first, without the present pass
+// (stdRenderBabylon_FlushFrame), so the copy holds everything drawn so far; it waits for the GPU.
+// Returns false, logging why, when not open, without a back buffer, when the flush fails or when the
+// device returns another size.
 bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHeight);
 
 // Replaces the back buffer's mip 0 with pData: width * height * 4 bytes of Bgra8, rows top first.
-// The frame being recorded is submitted first, without the present pass, so what it drew comes
-// before the new contents and what is recorded afterwards comes after them. Returns false, logging
-// why, for a null pData, when not open, without a back buffer, when the flush fails or when the
-// device refuses the upload.
+// On an Rgba16F scene color target the bytes become half floats in 0..1. The frame being recorded is
+// submitted first, without the present pass, so what it drew comes before the new contents and
+// what is recorded afterwards comes after them. Returns false, logging why, for a null pData, when
+// not open, without a back buffer, when the flush fails or when the device refuses the upload.
 bool stdRenderBabylon_WriteBackBuffer(const void* pData);
 
 // A number that changes whenever the back buffer's contents may change: when it is created or
@@ -100,6 +105,11 @@ bool stdRenderBabylon_ClearBackBuffer(const babylon::render::ClearColor& color);
 babylon::render::TextureHandle stdRenderBabylon_GetColorTarget();
 babylon::render::TextureHandle stdRenderBabylon_GetDepthTarget();
 babylon::render::TextureFormat stdRenderBabylon_GetDepthFormat();
+
+// The scene color target's format: Rgba16F on a device that can render and sample it, else Bgra8.
+// Pipelines that draw the scene name it as their first color target. Chosen when the frame owner
+// opens and constant while it is open.
+babylon::render::TextureFormat stdRenderBabylon_GetColorFormat();
 
 // The normal target: per pixel the view-space normal of the geometry drawn there, its components
 // stored as n * 0.5 + 0.5 in red, green and blue, alpha 1; cleared to 0 (alpha 0: nothing drawn)
@@ -173,6 +183,26 @@ bool stdRenderBabylon_HasHudOverlay();
 bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle target,
     std::uint32_t width, std::uint32_t height);
 
+// The built-in final tone-map pass's parameters. It runs after the post-processing chain (reading
+// the back buffer when the chain is empty) and writes the presented frame: the swapchain, or the
+// target of stdRenderBabylon_RenderPresentToTexture. exposure is multiplied into the sampled
+// linear-or-as-today color; operator 0 (the only one in this slice) adds no curve and clamps each
+// color channel to 0..1. There is no transfer function in the pass, exactly as the plain present
+// pass had none: the scene writes display-referred color today, so the output gamma of the defaults
+// is today's. With exposure 1.0 and operator 0 it is a clamp, so the presented image matches the
+// pre-M9.3 present for scene colors in 0..1.
+struct StdRenderBabylonToneMap
+{
+    float exposure = 1.0f;
+    std::uint32_t oper = 0;
+};
+
+// Sets the tone-map parameters. Refused, logging why and changing nothing, for a negative or
+// non-finite exposure or an operator other than 0. The defaults are exposure 1.0 and operator 0.
+// Closing and reopening the frame owner restores them.
+void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params);
+StdRenderBabylonToneMap stdRenderBabylon_GetToneMap();
+
 // Appends a pass to the post-processing chain. The pass draws one full-screen triangle (the vertex
 // shader of the present pass, Shaders/present.vert.hlsl, gives the fragment shader the texture
 // coordinate in TEXCOORD0, (0, 0) at the top left) into a Bgra8 target of the back buffer's size,
@@ -192,10 +222,18 @@ void stdRenderBabylon_ClearPostPasses();
 
 size_t stdRenderBabylon_GetNumPostPasses();
 
-// What the present pass draws to the swapchain: the output of the chain's last pass after a
-// presenting submit ran it, else the back buffer color target (null without a back buffer). Its
-// contents are those of the last presenting submit; tests read it back.
+// What the final tone-map pass samples: the output of the chain's last pass after a presenting
+// submit ran it, else the back buffer color target (null without a back buffer). Its contents are
+// those of the last presenting submit; tests read it back. With the default tone map it is the
+// presented image up to the 0..1 clamp.
 babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
+
+#ifdef J3D_TEST
+// Test-only: makes the next stdRenderBabylon_Open use the pre-M9.3 presentation so a test can
+// compare both paths in one run: a Bgra8 scene color target and the plain present pass, without the
+// tone map. It resets after that Open, and production builds don't compile the declaration.
+void stdRenderBabylon_ForceLegacyPresentationForTest(bool bLegacy);
+#endif
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame
 // may still name it. The null handle is ignored.
