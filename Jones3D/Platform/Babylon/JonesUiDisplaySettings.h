@@ -59,6 +59,8 @@ struct JonesUiDisplayValues
     std::size_t performance = 0;
     bool bHiPoly = false;
     bool bLitFaces = false;
+    // Added: index into the render scale choices (50..200%, 100% at index 3).
+    std::size_t renderScale = 3;
 };
 
 struct JonesUiDisplayLayout
@@ -72,6 +74,7 @@ struct JonesUiDisplayLayout
     std::size_t performance = 0;
     std::size_t hiPoly = 0;
     std::size_t litFaces = 0;
+    std::size_t renderScale = 0;
     std::size_t ok = 0;
     std::size_t back = 0;
 };
@@ -92,6 +95,7 @@ struct JonesUiDisplayModel
     int perfLevel = 4;
     bool bHiPoly = false;
     bool bLitFaces = false;
+    float renderScale = 1.0f;
 };
 
 // Reads the environment and settings into a model and the initial values.

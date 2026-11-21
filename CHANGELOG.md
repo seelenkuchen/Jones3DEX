@@ -1,5 +1,11 @@
 ## Jones3D EX (unreleased)
 ### M9: Presentation
+  - Options > Display has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
+    50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample
+    the world and values below it trade detail for speed. The final pass resolves the scene to the
+    presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
+    thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
+    display reopens, like the other Display options.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and

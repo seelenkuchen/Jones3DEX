@@ -1,17 +1,25 @@
 // Added: the Babylon column's render frame owner, shared by the std3D adapter (std3DBabylon.cpp) and
 // the stdDisplay adapter (stdDisplayBabylon.cpp). It holds the render device of the adapter context
-// while open, the command list of the frame being recorded, and the back buffer at the display size:
-// an Rgba16F color target (also sampled; Bgra8 where the device can't render to Rgba16F), a depth
-// target (D24S8, or D32F where the device lacks D24S8; also sampled where the device can) and a
-// normal target (R10G10B10A2, or Rgba8 where the device can't render to it; also sampled) that
-// std3D's scene passes write beside the color. stdDisplay opens it (stdDisplay_Open), sizes the back
-// buffer (stdDisplay_SetMode) and ends each frame at stdDisplay_Update with
-// stdRenderBabylon_PresentFrame. That submit first runs the post-processing chain, an ordered list of
-// full-screen passes that is empty by default, and then, on a device with a swapchain, runs the
-// built-in final tone-map pass over the chain's output (the back buffer color when the chain is
-// empty) and writes it to the swapchain, which presents it. std3D records its scenes into the same
-// frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer translate between the scene color
-// target and the Bgra8 bytes the game and stdDisplay work with.
+// while open, the command list of the frame being recorded, and the scene targets at the display
+// size times the render scale: an Rgba16F color target (also sampled; Bgra8 where the device can't
+// render to Rgba16F), a depth target (D24S8, or D32F where the device lacks D24S8; also sampled
+// where the device can) and a normal target (R10G10B10A2, or Rgba8 where the device can't render to
+// it; also sampled) that std3D's scene passes write beside the color. stdDisplay opens it
+// (stdDisplay_Open), sizes the back buffer (stdDisplay_SetMode) and ends each frame at
+// stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
+// chain, an ordered list of full-screen passes that is empty by default, and then, on a device with
+// a swapchain, runs the built-in final tone-map pass over the chain's output (the back buffer color
+// when the chain is empty) and writes it to the swapchain at the presented size, sampling with
+// linear filtering when the render scale is not 1 so supersampled scenes resolve cleanly. std3D
+// records its scenes into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
+// translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
+// resampling between the scaled target and the display-sized image there.
+//
+// The game keeps its video mode: the canvas and every screen coordinate are in display pixels, and
+// GetBackBufferWidth/Height answer those. Only the GPU scene targets are larger or smaller than the
+// display when the render scale is not 1; the scene still fills them because its screen vertices are
+// mapped over the same display-sized viewport. ReadBackBuffer, and with it stdDisplay's lock and the
+// replay's frame output, always return the display-sized image.
 //
 // The chain and the final pass never write the back buffer: stdRenderBabylon_ReadBackBuffer, and
 // with it stdDisplay's lock and the replay's frame output, always read what the game drew.
@@ -61,31 +69,38 @@ bool stdRenderBabylon_IsOpen();
 // The open device, or nullptr.
 babylon::render::Device* stdRenderBabylon_GetDevice();
 
-// Makes the back buffer width x height. A back buffer of another size is destroyed first (deferred
-// while a frame is being recorded, like stdRenderBabylon_DestroyTexture). *pbRecreated (may be
-// nullptr) is set to true when new targets were created: their contents are undefined until a pass
-// clears them. Returns false, logging why, when not open, for a size of 0 or above the device's
-// limits, and when a target can't be created; there is then no back buffer.
+// Makes the back buffer width x height in display pixels. The scene targets are made at
+// width * render scale by height * render scale (rounded, at least 1 * 1), clamped to the device's
+// max texture size with one logged line when the clamp applies. A back buffer of another size or
+// scale is destroyed first (deferred while a frame is being recorded, like
+// stdRenderBabylon_DestroyTexture). *pbRecreated (may be nullptr) is set to true when new targets
+// were created: their contents are undefined until a pass clears them. Returns false, logging why,
+// when not open, for a size of 0 or above the device's limits, and when a target can't be created;
+// there is then no back buffer.
 bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* pbRecreated);
 
 // Destroys the back buffer (deferred while a frame is being recorded); there is none afterwards. A
 // no-op without one.
 void stdRenderBabylon_FreeBackBuffer();
 
-// Copies the back buffer's mip 0 into pOut, which must have room for width * height * 4 bytes of
-// Bgra8, rows top first, and sets *pWidth and *pHeight (both may be nullptr). On an Rgba16F scene
-// color target the half floats are clamped to 0..1 and rounded to 8-bit unorm; a Bgra8 target is
-// copied as it is. The frame being recorded is submitted first, without the present pass
-// (stdRenderBabylon_FlushFrame), so the copy holds everything drawn so far; it waits for the GPU.
-// Returns false, logging why, when not open, without a back buffer, when the flush fails or when the
-// device returns another size.
+// Copies the back buffer into pOut, which must have room for the display-sized width * height * 4
+// bytes of Bgra8, rows top first, and sets *pWidth and *pHeight to that display size (both may be
+// nullptr). At render scale 1 this is the scene color target's mip 0: on an Rgba16F target the half
+// floats are clamped to 0..1 and rounded to 8-bit unorm, a Bgra8 target is copied as it is. At
+// another scale the scaled target is read on the CPU and box-filtered down (above 1) or bilinearly
+// sampled up (below 1) into the display size. The frame being recorded is submitted first, without
+// the present pass (stdRenderBabylon_FlushFrame), so the copy holds everything drawn so far; it
+// waits for the GPU. Returns false, logging why, when not open, without a back buffer, when the
+// flush fails or when the device returns another size.
 bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHeight);
 
-// Replaces the back buffer's mip 0 with pData: width * height * 4 bytes of Bgra8, rows top first.
-// On an Rgba16F scene color target the bytes become half floats in 0..1. The frame being recorded is
-// submitted first, without the present pass, so what it drew comes before the new contents and
-// what is recorded afterwards comes after them. Returns false, logging why, for a null pData, when
-// not open, without a back buffer, when the flush fails or when the device refuses the upload.
+// Replaces the back buffer with pData: display-sized width * height * 4 bytes of Bgra8, rows top
+// first. At render scale 1 the bytes go straight into the scene color target (half floats in 0..1
+// on an Rgba16F target). At another scale they are resampled on the CPU to the scaled target first
+// (box down, bilinear up). The frame being recorded is submitted first, without the present pass,
+// so what it drew comes before the new contents and what is recorded afterwards comes after them.
+// Returns false, logging why, for a null pData, when not open, without a back buffer, when the
+// flush fails or when the device refuses the upload.
 bool stdRenderBabylon_WriteBackBuffer(const void* pData);
 
 // A number that changes whenever the back buffer's contents may change: when it is created or
@@ -117,8 +132,26 @@ babylon::render::TextureFormat stdRenderBabylon_GetColorFormat();
 // matches the depth target. A null handle without a back buffer.
 babylon::render::TextureHandle stdRenderBabylon_GetNormalTarget();
 babylon::render::TextureFormat stdRenderBabylon_GetNormalFormat();
+
+// The back buffer's size in display pixels: the game's video mode, the canvas and every screen
+// coordinate. The scene targets are this size times the render scale (GetRenderWidth/Height).
 uint32_t stdRenderBabylon_GetBackBufferWidth();
 uint32_t stdRenderBabylon_GetBackBufferHeight();
+
+// The scene targets' size in pixels: the display size times the render scale, rounded and clamped.
+// std3D's screen vertices stay in display pixels and map over this target unchanged, so a larger
+// target supersamples the scene. Zero without a back buffer.
+uint32_t stdRenderBabylon_GetRenderWidth();
+uint32_t stdRenderBabylon_GetRenderHeight();
+
+// The internal 3D resolution as a multiple of the display size: 1.0 by default. Accepted values
+// are clamped to 0.5..2.0; a non-finite value is refused, logging why and changing nothing. Returns
+// false only for such a value. The scene targets are made at the new size now when a back buffer
+// exists and no frame is being recorded; otherwise the next SetBackBufferSize applies it. Closing
+// the frame owner resets it, and opening reads the config key again. Changes are presentation only:
+// the display size, coordinates and read-back image stay as they are.
+bool stdRenderBabylon_SetRenderScale(float scale);
+float stdRenderBabylon_GetRenderScale();
 
 // The command list of the frame being recorded; begins a frame when none is. Must be open. The
 // reference is valid until stdRenderBabylon_SubmitFrame or stdRenderBabylon_Close.
@@ -185,9 +218,11 @@ bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle targ
 
 // The built-in final tone-map pass's parameters. It runs after the post-processing chain (reading
 // the back buffer when the chain is empty) and writes the presented frame: the swapchain, or the
-// target of stdRenderBabylon_RenderPresentToTexture. exposure is multiplied into the sampled
-// linear-or-as-today color; operator 0 (the only one in this slice) adds no curve and clamps each
-// color channel to 0..1. There is no transfer function in the pass, exactly as the plain present
+// target of stdRenderBabylon_RenderPresentToTexture. It samples the source with a 1:1
+// nearest-neighbour sampler at render scale 1 (exactly the pre-M9.4 present) and with a linear
+// sampler otherwise, so the scaled scene resolves to the presented size. exposure is multiplied
+// into the sampled linear-or-as-today color; operator 0 (the only one in this slice) adds no curve
+// and clamps each color channel to 0..1. There is no transfer function in the pass, exactly as the plain present
 // pass had none: the scene writes display-referred color today, so the output gamma of the defaults
 // is today's. With exposure 1.0 and operator 0 it is a clamp, so the presented image matches the
 // pre-M9.3 present for scene colors in 0..1.
@@ -223,9 +258,10 @@ void stdRenderBabylon_ClearPostPasses();
 size_t stdRenderBabylon_GetNumPostPasses();
 
 // What the final tone-map pass samples: the output of the chain's last pass after a presenting
-// submit ran it, else the back buffer color target (null without a back buffer). Its contents are
-// those of the last presenting submit; tests read it back. With the default tone map it is the
-// presented image up to the 0..1 clamp.
+// submit ran it, else the back buffer color target (null without a back buffer). Its size is the
+// scaled scene size (GetRenderWidth/Height). Its contents are those of the last presenting submit;
+// tests read it back. With the default tone map it is the presented image up to the 0..1 clamp and
+// the final pass's resample to the presented size.
 babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 
 #ifdef J3D_TEST

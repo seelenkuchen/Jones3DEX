@@ -37,6 +37,7 @@
 #include <vector>
 
 #include <std/General/std.h>
+#include <std/General/stdConfig.h>
 
 #include "stdBabylon.h"
 #include "stdRenderBabylon.h"
@@ -44,6 +45,11 @@
 namespace
 {
     namespace render = babylon::render;
+
+    // The render scale's config key (Docs/Jones.cfg.md); read when the frame owner opens.
+    constexpr const char* stdRenderBabylon_kRenderScaleKey = "engine.renderer.renderScale";
+    constexpr float stdRenderBabylon_kMinRenderScale = 0.5f;
+    constexpr float stdRenderBabylon_kMaxRenderScale = 2.0f;
 
     struct StdRenderBabylonState
     {
@@ -57,8 +63,12 @@ namespace
         render::TextureFormat depthFormat  = render::TextureFormat::D24S8;
         render::TextureFormat normalFormat = render::TextureFormat::R10G10B10A2;
         bool bDepthSampled = false; // the depth target is also Sampled, so post passes can read it
-        uint32_t width  = 0;
-        uint32_t height = 0;
+        uint32_t modeWidth  = 0;    // the display/video-mode size the game sees
+        uint32_t modeHeight = 0;
+        uint32_t width      = 0;    // the scene targets' size: mode size * render scale
+        uint32_t height     = 0;
+        float renderScale   = 1.0f;
+        bool bScaleClampLogged = false; // one line per requested scale when the device limit clamps it
 
         // The final pass's tone map, and whether it runs the tone-map shader (false only when a test
         // forced the pre-M9.3 path). At the defaults it is an identity clamp.
@@ -70,7 +80,8 @@ namespace
 
         render::PipelineHandle presentPipeline;
         render::PipelineHandle capturePipeline; // Bgra8, for RenderPresentToTexture
-        render::SamplerHandle presentSampler; // also the post passes' sampler
+        render::SamplerHandle presentSampler; // also the post passes' sampler; nearest, clamping
+        render::SamplerHandle finalSampler;   // linear, clamping: the final pass at a render scale != 1
 
         // The pass a caller records on top of the presented frame, and the
         // offscreen target of stdRenderBabylon_RenderPresentToTexture.
@@ -252,6 +263,184 @@ namespace
         return !stdRenderBabylon_state.presentSampler.isNull();
     }
 
+    // The linear, clamping sampler of the final pass at a render scale other than 1, made on first use.
+    bool stdRenderBabylon_EnsureFinalSampler()
+    {
+        if ( !stdRenderBabylon_state.finalSampler.isNull() )
+        {
+            return true;
+        }
+
+        render::SamplerDesc samplerDesc;
+        samplerDesc.minFilter = render::Filter::Linear;
+        samplerDesc.magFilter = render::Filter::Linear;
+        samplerDesc.addressU  = render::AddressMode::ClampToEdge;
+        samplerDesc.addressV  = render::AddressMode::ClampToEdge;
+        stdRenderBabylon_state.finalSampler = stdRenderBabylon_state.pDevice->createSampler(samplerDesc);
+        return !stdRenderBabylon_state.finalSampler.isNull();
+    }
+
+    // The render scale limited so neither scene dimension exceeds the device's max texture size; the
+    // scale the targets are actually made at. Logs once per requested scale when it limits it.
+    float stdRenderBabylon_LimitRenderScale(float scale, uint32_t modeWidth, uint32_t modeHeight)
+    {
+        if ( modeWidth == 0 || modeHeight == 0 )
+        {
+            return scale;
+        }
+
+        const uint32_t maxSize = stdRenderBabylon_state.pDevice->info().limits.maxTextureDimension;
+        const float widthScale  = (float)maxSize / (float)modeWidth;
+        const float heightScale = (float)maxSize / (float)modeHeight;
+        const float limited = std::min(scale, std::min(widthScale, heightScale));
+        if ( limited < scale && !stdRenderBabylon_state.bScaleClampLogged )
+        {
+            STDLOG_WARNING("stdRenderBabylon: render scale %g on a %ux%u display exceeds the device's %u texture limit; using %g.\n",
+                (double)scale, modeWidth, modeHeight, maxSize, (double)limited);
+            stdRenderBabylon_state.bScaleClampLogged = true;
+        }
+
+        return limited;
+    }
+
+    // A channel of a Bgra8 texel, 0..255, as a float.
+    float stdRenderBabylon_Channel(const uint8_t* pTexel, size_t channel)
+    {
+        return (float)pTexel[channel];
+    }
+
+    // Resamples a Bgra8 image horizontally from width srcWidth to dstWidth. Downscaling box-filters
+    // each destination pixel's source span; upscaling samples bilinearly between texel centers.
+    void stdRenderBabylon_ResampleHoriz(const uint8_t* pSrc, uint32_t srcWidth, uint32_t height,
+        uint32_t dstWidth, uint8_t* pDst)
+    {
+        for ( uint32_t y = 0; y < height; ++y )
+        {
+            const uint8_t* pSrcRow = pSrc + (size_t)y * srcWidth * 4u;
+            uint8_t* pDstRow       = pDst + (size_t)y * dstWidth * 4u;
+            for ( uint32_t x = 0; x < dstWidth; ++x )
+            {
+                if ( srcWidth >= dstWidth )
+                {
+                    uint32_t x0 = (uint32_t)((uint64_t)x * srcWidth / dstWidth);
+                    uint32_t x1 = (uint32_t)(((uint64_t)x + 1u) * srcWidth / dstWidth);
+                    if ( x1 <= x0 )
+                    {
+                        x1 = x0 + 1u;
+                    }
+                    x1 = std::min(x1, srcWidth);
+
+                    uint32_t sum[4] = { 0u, 0u, 0u, 0u };
+                    for ( uint32_t sx = x0; sx < x1; ++sx )
+                    {
+                        const uint8_t* pTexel = pSrcRow + (size_t)sx * 4u;
+                        for ( size_t channel = 0; channel < 4u; ++channel )
+                        {
+                            sum[channel] += (uint32_t)stdRenderBabylon_Channel(pTexel, channel);
+                        }
+                    }
+
+                    const uint32_t count = x1 - x0;
+                    for ( size_t channel = 0; channel < 4u; ++channel )
+                    {
+                        pDstRow[(size_t)x * 4u + channel] = (uint8_t)((sum[channel] + count / 2u) / count);
+                    }
+                }
+                else
+                {
+                    float fx = ((float)x + 0.5f) * (float)srcWidth / (float)dstWidth - 0.5f;
+                    fx = std::clamp(fx, 0.0f, (float)(srcWidth - 1u));
+                    const uint32_t x0 = (uint32_t)fx;
+                    const uint32_t x1 = std::min(x0 + 1u, srcWidth - 1u);
+                    const float frac  = fx - (float)x0;
+                    const uint8_t* pLeft  = pSrcRow + (size_t)x0 * 4u;
+                    const uint8_t* pRight = pSrcRow + (size_t)x1 * 4u;
+                    for ( size_t channel = 0; channel < 4u; ++channel )
+                    {
+                        const float value = stdRenderBabylon_Channel(pLeft, channel) * (1.0f - frac)
+                            + stdRenderBabylon_Channel(pRight, channel) * frac;
+                        pDstRow[(size_t)x * 4u + channel] = (uint8_t)std::lround(value);
+                    }
+                }
+            }
+        }
+    }
+
+    // Resamples a Bgra8 image vertically from height srcHeight to dstHeight, the same filters as
+    // the horizontal pass.
+    void stdRenderBabylon_ResampleVert(const uint8_t* pSrc, uint32_t width, uint32_t srcHeight,
+        uint32_t dstHeight, uint8_t* pDst)
+    {
+        for ( uint32_t y = 0; y < dstHeight; ++y )
+        {
+            uint8_t* pDstRow = pDst + (size_t)y * width * 4u;
+            if ( srcHeight >= dstHeight )
+            {
+                uint32_t y0 = (uint32_t)((uint64_t)y * srcHeight / dstHeight);
+                uint32_t y1 = (uint32_t)(((uint64_t)y + 1u) * srcHeight / dstHeight);
+                if ( y1 <= y0 )
+                {
+                    y1 = y0 + 1u;
+                }
+                y1 = std::min(y1, srcHeight);
+
+                for ( uint32_t x = 0; x < width; ++x )
+                {
+                    uint32_t sum[4] = { 0u, 0u, 0u, 0u };
+                    for ( uint32_t sy = y0; sy < y1; ++sy )
+                    {
+                        const uint8_t* pTexel = pSrc + ((size_t)sy * width + x) * 4u;
+                        for ( size_t channel = 0; channel < 4u; ++channel )
+                        {
+                            sum[channel] += (uint32_t)stdRenderBabylon_Channel(pTexel, channel);
+                        }
+                    }
+
+                    const uint32_t count = y1 - y0;
+                    for ( size_t channel = 0; channel < 4u; ++channel )
+                    {
+                        pDstRow[(size_t)x * 4u + channel] = (uint8_t)((sum[channel] + count / 2u) / count);
+                    }
+                }
+            }
+            else
+            {
+                float fy = ((float)y + 0.5f) * (float)srcHeight / (float)dstHeight - 0.5f;
+                fy = std::clamp(fy, 0.0f, (float)(srcHeight - 1u));
+                const uint32_t y0 = (uint32_t)fy;
+                const uint32_t y1 = std::min(y0 + 1u, srcHeight - 1u);
+                const float frac  = fy - (float)y0;
+                const uint8_t* pTop    = pSrc + (size_t)y0 * width * 4u;
+                const uint8_t* pBottom = pSrc + (size_t)y1 * width * 4u;
+                for ( uint32_t x = 0; x < width; ++x )
+                {
+                    for ( size_t channel = 0; channel < 4u; ++channel )
+                    {
+                        const float value = stdRenderBabylon_Channel(pTop + (size_t)x * 4u, channel) * (1.0f - frac)
+                            + stdRenderBabylon_Channel(pBottom + (size_t)x * 4u, channel) * frac;
+                        pDstRow[(size_t)x * 4u + channel] = (uint8_t)std::lround(value);
+                    }
+                }
+            }
+        }
+    }
+
+    // Resamples a Bgra8 image on the CPU: box filtering where an axis shrinks, bilinear where it
+    // grows. pDst holds dstWidth * dstHeight * 4 bytes.
+    void stdRenderBabylon_ResampleBgra(const uint8_t* pSrc, uint32_t srcWidth, uint32_t srcHeight,
+        uint8_t* pDst, uint32_t dstWidth, uint32_t dstHeight)
+    {
+        if ( srcWidth == dstWidth && srcHeight == dstHeight )
+        {
+            std::memcpy(pDst, pSrc, (size_t)srcWidth * srcHeight * 4u);
+            return;
+        }
+
+        std::vector<uint8_t> aTemp((size_t)dstWidth * srcHeight * 4u);
+        stdRenderBabylon_ResampleHoriz(pSrc, srcWidth, srcHeight, dstWidth, aTemp.data());
+        stdRenderBabylon_ResampleVert(aTemp.data(), dstWidth, srcHeight, dstHeight, pDst);
+    }
+
     void stdRenderBabylon_FreePostTargets()
     {
         for ( render::TextureHandle& target : stdRenderBabylon_state.aPostTargets )
@@ -393,9 +582,13 @@ namespace
             return false;
         }
 
+        // At render scale 1 the present is the pre-M9.4 1:1 nearest sample; at any other scale the
+        // final pass resolves the scaled scene into the presented size with linear filtering.
+        const render::SamplerHandle sampler = stdRenderBabylon_state.renderScale == 1.0f
+            ? stdRenderBabylon_state.presentSampler
+            : stdRenderBabylon_state.finalSampler;
         list.setPipeline(pipeline);
-        list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_PresentSource(),
-            stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_PresentSource(), sampler);
         if ( stdRenderBabylon_state.bToneMap )
         {
             const float aParams[4] = { stdRenderBabylon_state.toneMap.exposure,
@@ -478,6 +671,17 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
 
     stdRenderBabylon_state             = StdRenderBabylonState{};
     stdRenderBabylon_state.pDevice     = pDevice;
+    // Added: the render scale is presentation state read when the display opens; a display restart
+    // (the pattern for the other Display options) reopens the frame owner and re-reads it.
+    if ( stdConfig_HasStarted() )
+    {
+        const float scale = stdConfig_GetFloat(stdRenderBabylon_kRenderScaleKey, 1.0f);
+        if ( std::isfinite(scale) )
+        {
+            stdRenderBabylon_state.renderScale = std::clamp(scale,
+                stdRenderBabylon_kMinRenderScale, stdRenderBabylon_kMaxRenderScale);
+        }
+    }
 #ifdef J3D_TEST
     stdRenderBabylon_state.bToneMap = !stdRenderBabylon_bLegacyPresentationForTest;
     stdRenderBabylon_bLegacyPresentationForTest = false;
@@ -509,11 +713,13 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         desc.colorTargets   = { render::ColorTargetDesc{ info.swapchainFormat, {} } };
 
         stdRenderBabylon_state.presentPipeline = pDevice->createPipeline(desc);
-        if ( stdRenderBabylon_state.presentPipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler() )
+        if ( stdRenderBabylon_state.presentPipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler()
+            || !stdRenderBabylon_EnsureFinalSampler() )
         {
             STDLOG_ERROR("stdRenderBabylon_Open: could not create the final pass pipeline.\n");
             pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
             pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
+            pDevice->destroySampler(stdRenderBabylon_state.finalSampler);
             stdRenderBabylon_state = StdRenderBabylonState{};
             return false;
         }
@@ -537,6 +743,7 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.capturePipeline);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
+    stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.finalSampler);
     stdRenderBabylon_state = StdRenderBabylonState{};
 }
 
@@ -559,8 +766,10 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_state.colorTarget  = {};
     stdRenderBabylon_state.depthTarget  = {};
     stdRenderBabylon_state.normalTarget = {};
-    stdRenderBabylon_state.width       = 0;
-    stdRenderBabylon_state.height      = 0;
+    stdRenderBabylon_state.modeWidth    = 0;
+    stdRenderBabylon_state.modeHeight   = 0;
+    stdRenderBabylon_state.width        = 0;
+    stdRenderBabylon_state.height       = 0;
     ++stdRenderBabylon_state.backBufferVersion;
 }
 
@@ -578,33 +787,41 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
         return false;
     }
 
+    const uint32_t maxSize = pDevice->info().limits.maxTextureDimension;
+    if ( width == 0 || height == 0 || width > maxSize || height > maxSize )
+    {
+        stdRenderBabylon_FreeBackBuffer();
+        STDLOG_ERROR("stdRenderBabylon_SetBackBufferSize: invalid back buffer size %ux%u (limit %u).\n",
+            width, height, maxSize);
+        return false;
+    }
+
+    const float renderScale = stdRenderBabylon_LimitRenderScale(stdRenderBabylon_state.renderScale,
+        width, height);
+    const uint32_t renderWidth  = std::max(1u, (uint32_t)std::lround((float)width * renderScale));
+    const uint32_t renderHeight = std::max(1u, (uint32_t)std::lround((float)height * renderScale));
+
     if ( !stdRenderBabylon_state.colorTarget.isNull()
-        && stdRenderBabylon_state.width == width
-        && stdRenderBabylon_state.height == height )
+        && stdRenderBabylon_state.modeWidth == width
+        && stdRenderBabylon_state.modeHeight == height
+        && stdRenderBabylon_state.width == renderWidth
+        && stdRenderBabylon_state.height == renderHeight )
     {
         return true;
     }
 
     stdRenderBabylon_FreeBackBuffer();
 
-    const uint32_t maxSize = pDevice->info().limits.maxTextureDimension;
-    if ( width == 0 || height == 0 || width > maxSize || height > maxSize )
-    {
-        STDLOG_ERROR("stdRenderBabylon_SetBackBufferSize: invalid back buffer size %ux%u (limit %u).\n",
-            width, height, maxSize);
-        return false;
-    }
-
     render::TextureDesc colorDesc;
-    colorDesc.width     = width;
-    colorDesc.height    = height;
+    colorDesc.width     = renderWidth;
+    colorDesc.height    = renderHeight;
     colorDesc.mipLevels = 1;
     colorDesc.format    = stdRenderBabylon_state.colorFormat;
     colorDesc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
 
     render::TextureDesc depthDesc;
-    depthDesc.width     = width;
-    depthDesc.height    = height;
+    depthDesc.width     = renderWidth;
+    depthDesc.height    = renderHeight;
     depthDesc.mipLevels = 1;
     depthDesc.format    = stdRenderBabylon_state.depthFormat;
     depthDesc.usage     = stdRenderBabylon_state.bDepthSampled ? render::TextureUsage::DepthTarget | render::TextureUsage::Sampled : render::TextureUsage::DepthTarget;
@@ -617,7 +834,8 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     const render::TextureHandle normalTarget = pDevice->createTexture(normalDesc);
     if ( colorTarget.isNull() || depthTarget.isNull() || normalTarget.isNull() )
     {
-        STDLOG_ERROR("stdRenderBabylon_SetBackBufferSize: could not create the %ux%u back buffer.\n", width, height);
+        STDLOG_ERROR("stdRenderBabylon_SetBackBufferSize: could not create the %ux%u back buffer (render scale %g).\n",
+            width, height, (double)renderScale);
         pDevice->destroyTexture(colorTarget);
         pDevice->destroyTexture(depthTarget);
         pDevice->destroyTexture(normalTarget);
@@ -627,8 +845,10 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     stdRenderBabylon_state.colorTarget  = colorTarget;
     stdRenderBabylon_state.depthTarget  = depthTarget;
     stdRenderBabylon_state.normalTarget = normalTarget;
-    stdRenderBabylon_state.width       = width;
-    stdRenderBabylon_state.height      = height;
+    stdRenderBabylon_state.modeWidth     = width;
+    stdRenderBabylon_state.modeHeight    = height;
+    stdRenderBabylon_state.width         = renderWidth;
+    stdRenderBabylon_state.height        = renderHeight;
     ++stdRenderBabylon_state.backBufferVersion; // undefined until something clears or uploads it
     if ( pbRecreated )
     {
@@ -662,15 +882,16 @@ bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHe
         return false;
     }
 
-    const uint32_t width  = stdRenderBabylon_state.width;
-    const uint32_t height = stdRenderBabylon_state.height;
-    const uint64_t numPixels = (uint64_t)width * (uint64_t)height;
-    const uint64_t size      = numPixels * 4u;
-    const render::TextureFormat format = stdRenderBabylon_state.colorFormat;
-    const uint64_t readSize   = numPixels * render::bytesPerTexel(format);
+    const uint32_t renderWidth  = stdRenderBabylon_state.width;
+    const uint32_t renderHeight = stdRenderBabylon_state.height;
+    const uint32_t modeWidth    = stdRenderBabylon_state.modeWidth;
+    const uint32_t modeHeight   = stdRenderBabylon_state.modeHeight;
+    const uint64_t numRenderPixels = (uint64_t)renderWidth * (uint64_t)renderHeight;
+    const uint64_t readSize        = numRenderPixels * render::bytesPerTexel(stdRenderBabylon_state.colorFormat);
+    const uint64_t size            = (uint64_t)modeWidth * (uint64_t)modeHeight * 4u;
     if ( size > (uint64_t)SIZE_MAX || readSize > (uint64_t)SIZE_MAX )
     {
-        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the %ux%u back buffer is too large.\n", width, height);
+        STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the %ux%u back buffer is too large.\n", modeWidth, modeHeight);
         return false;
     }
 
@@ -683,49 +904,53 @@ bool stdRenderBabylon_ReadBackBuffer(void* pOut, uint32_t* pWidth, uint32_t* pHe
     if ( pixels.size() != (size_t)readSize )
     {
         STDLOG_ERROR("stdRenderBabylon_ReadBackBuffer: the device returned %zu bytes for a %ux%u buffer in its scene format.\n",
-            pixels.size(), width, height);
+            pixels.size(), renderWidth, renderHeight);
         return false;
     }
 
-    if ( size > 0u )
+    // The scene target as Bgra8 at its own size.
+    std::vector<uint8_t> aScaled;
+    const uint8_t* pScaled = nullptr;
+    if ( stdRenderBabylon_state.colorFormat == render::TextureFormat::Bgra8 )
     {
-        uint8_t* pDest = static_cast<uint8_t*>(pOut);
-        if ( format == render::TextureFormat::Bgra8 )
-        {
-            std::memcpy(pDest, pixels.data(), (size_t)size);
-        }
-        else
-        {
-            // Rgba16F: half floats R, G, B, A to Bgra8, clamping to the displayable range.
-            for ( uint64_t i = 0; i < numPixels; ++i )
-            {
-                const std::byte* pTexel = pixels.data() + i * 8u;
-                uint16_t aHalf[4];
-                for ( size_t channel = 0; channel < 4u; ++channel )
-                {
-                    aHalf[channel] = (uint16_t)((uint8_t)pTexel[channel * 2u]
-                        | ((uint16_t)(uint8_t)pTexel[channel * 2u + 1u] << 8));
-                }
-                const float aChannel[4] = { stdRenderBabylon_HalfToFloat(aHalf[0]),
-                    stdRenderBabylon_HalfToFloat(aHalf[1]),
-                    stdRenderBabylon_HalfToFloat(aHalf[2]),
-                    stdRenderBabylon_HalfToFloat(aHalf[3]) };
-                pDest[i * 4u + 0u] = stdRenderBabylon_ToUnorm8(aChannel[2]);
-                pDest[i * 4u + 1u] = stdRenderBabylon_ToUnorm8(aChannel[1]);
-                pDest[i * 4u + 2u] = stdRenderBabylon_ToUnorm8(aChannel[0]);
-                pDest[i * 4u + 3u] = stdRenderBabylon_ToUnorm8(aChannel[3]);
-            }
-        }
+        pScaled = reinterpret_cast<const uint8_t*>(pixels.data());
     }
+    else
+    {
+        // Rgba16F: half floats R, G, B, A to Bgra8, clamping to the displayable range.
+        aScaled.resize((size_t)numRenderPixels * 4u);
+        for ( uint64_t i = 0; i < numRenderPixels; ++i )
+        {
+            const std::byte* pTexel = pixels.data() + i * 8u;
+            uint16_t aHalf[4];
+            for ( size_t channel = 0; channel < 4u; ++channel )
+            {
+                aHalf[channel] = (uint16_t)((uint8_t)pTexel[channel * 2u]
+                    | ((uint16_t)(uint8_t)pTexel[channel * 2u + 1u] << 8));
+            }
+            const float aChannel[4] = { stdRenderBabylon_HalfToFloat(aHalf[0]),
+                stdRenderBabylon_HalfToFloat(aHalf[1]),
+                stdRenderBabylon_HalfToFloat(aHalf[2]),
+                stdRenderBabylon_HalfToFloat(aHalf[3]) };
+            aScaled[i * 4u + 0u] = stdRenderBabylon_ToUnorm8(aChannel[2]);
+            aScaled[i * 4u + 1u] = stdRenderBabylon_ToUnorm8(aChannel[1]);
+            aScaled[i * 4u + 2u] = stdRenderBabylon_ToUnorm8(aChannel[0]);
+            aScaled[i * 4u + 3u] = stdRenderBabylon_ToUnorm8(aChannel[3]);
+        }
+        pScaled = aScaled.data();
+    }
+
+    uint8_t* const pDest = static_cast<uint8_t*>(pOut);
+    stdRenderBabylon_ResampleBgra(pScaled, renderWidth, renderHeight, pDest, modeWidth, modeHeight);
 
     if ( pWidth )
     {
-        *pWidth = width;
+        *pWidth = modeWidth;
     }
 
     if ( pHeight )
     {
-        *pHeight = height;
+        *pHeight = modeHeight;
     }
 
     return true;
@@ -763,12 +988,63 @@ render::TextureFormat stdRenderBabylon_GetNormalFormat()
 
 uint32_t stdRenderBabylon_GetBackBufferWidth()
 {
-    return stdRenderBabylon_state.width;
+    return stdRenderBabylon_state.modeWidth;
 }
 
 uint32_t stdRenderBabylon_GetBackBufferHeight()
 {
+    return stdRenderBabylon_state.modeHeight;
+}
+
+uint32_t stdRenderBabylon_GetRenderWidth()
+{
+    return stdRenderBabylon_state.width;
+}
+
+uint32_t stdRenderBabylon_GetRenderHeight()
+{
     return stdRenderBabylon_state.height;
+}
+
+bool stdRenderBabylon_SetRenderScale(float scale)
+{
+    if ( !std::isfinite(scale) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetRenderScale: render scale %g is not finite.\n", (double)scale);
+        return false;
+    }
+
+    const float clamped = std::clamp(scale, stdRenderBabylon_kMinRenderScale,
+        stdRenderBabylon_kMaxRenderScale);
+    if ( clamped != scale )
+    {
+        STDLOG_STATUS("stdRenderBabylon: render scale %g is outside %g..%g; using %g.\n",
+            (double)scale, (double)stdRenderBabylon_kMinRenderScale,
+            (double)stdRenderBabylon_kMaxRenderScale, (double)clamped);
+    }
+
+    if ( stdRenderBabylon_state.renderScale == clamped )
+    {
+        return true;
+    }
+
+    stdRenderBabylon_state.renderScale        = clamped;
+    stdRenderBabylon_state.bScaleClampLogged  = false;
+    if ( stdRenderBabylon_state.pDevice && !stdRenderBabylon_state.colorTarget.isNull()
+        && !stdRenderBabylon_state.frame )
+    {
+        // Recreate at the new scale now; while a frame is being recorded the next SetBackBufferSize
+        // applies it, so the frame's recorded targets stay valid until it is submitted.
+        stdRenderBabylon_SetBackBufferSize(stdRenderBabylon_state.modeWidth,
+            stdRenderBabylon_state.modeHeight, nullptr);
+    }
+
+    return true;
+}
+
+float stdRenderBabylon_GetRenderScale()
+{
+    return stdRenderBabylon_state.renderScale;
 }
 
 render::CommandList& stdRenderBabylon_GetFrame()
@@ -825,8 +1101,10 @@ namespace
                     target.format  = stdRenderBabylon_state.pDevice->info().hasSwapchain
                         ? stdRenderBabylon_state.pDevice->info().swapchainFormat
                         : render::TextureFormat::Bgra8;
-                    target.width  = stdRenderBabylon_state.width;
-                    target.height = stdRenderBabylon_state.height;
+                    // Without a window the overlay's native size is the game's display size, not
+                    // the scaled scene target.
+                    target.width  = stdRenderBabylon_state.modeWidth;
+                    target.height = stdRenderBabylon_state.modeHeight;
 
                     StdBabylonContext* pContext = stdBabylon_GetContext();
                     if ( pContext && pContext->pWindow )
@@ -944,7 +1222,7 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
             stdRenderBabylon_state.pDevice->createPipeline(desc);
     }
     if ( stdRenderBabylon_state.capturePipeline.isNull()
-        || !stdRenderBabylon_EnsurePresentSampler() )
+        || !stdRenderBabylon_EnsurePresentSampler() || !stdRenderBabylon_EnsureFinalSampler() )
     {
         STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: no final pass pipeline.\n");
         return false;
@@ -1006,15 +1284,30 @@ bool stdRenderBabylon_WriteBackBuffer(const void* pData)
         return false;
     }
 
-    const size_t numPixels = (size_t)stdRenderBabylon_state.width * stdRenderBabylon_state.height;
+    const uint32_t modeWidth    = stdRenderBabylon_state.modeWidth;
+    const uint32_t modeHeight   = stdRenderBabylon_state.modeHeight;
+    const uint32_t renderWidth  = stdRenderBabylon_state.width;
+    const uint32_t renderHeight = stdRenderBabylon_state.height;
+    const size_t numPixels      = (size_t)renderWidth * renderHeight;
     const render::TextureFormat format = stdRenderBabylon_state.colorFormat;
+
+    // The resampled scene-sized Bgra8 source; at render scale 1 it is the caller's own bytes.
+    const uint8_t* pSource = static_cast<const uint8_t*>(pData);
+    std::vector<uint8_t> aResampled;
+    if ( renderWidth != modeWidth || renderHeight != modeHeight )
+    {
+        aResampled.resize(numPixels * 4u);
+        stdRenderBabylon_ResampleBgra(pSource, modeWidth, modeHeight, aResampled.data(),
+            renderWidth, renderHeight);
+        pSource = aResampled.data();
+    }
+
     std::vector<std::byte> converted;
-    std::span<const std::byte> data(static_cast<const std::byte*>(pData), numPixels * 4u);
+    std::span<const std::byte> data(reinterpret_cast<const std::byte*>(pSource), numPixels * 4u);
     if ( format == render::TextureFormat::Rgba16F )
     {
         // Bgra8 to Rgba16F: half floats R, G, B, A in the 0..1 the bytes hold.
         converted.resize(numPixels * 8u);
-        const uint8_t* pSource = static_cast<const uint8_t*>(pData);
         for ( size_t i = 0; i < numPixels; ++i )
         {
             const float aChannel[4] = { pSource[i * 4u + 2u] / 255.0f,
@@ -1034,7 +1327,7 @@ bool stdRenderBabylon_WriteBackBuffer(const void* pData)
     if ( !stdRenderBabylon_state.pDevice->uploadTexture(stdRenderBabylon_state.colorTarget, 0, data) )
     {
         STDLOG_ERROR("stdRenderBabylon_WriteBackBuffer: the device refused the %ux%u upload.\n",
-            stdRenderBabylon_state.width, stdRenderBabylon_state.height);
+            renderWidth, renderHeight);
         return false;
     }
 

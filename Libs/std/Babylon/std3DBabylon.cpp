@@ -648,7 +648,10 @@ namespace
         bool bRecorded = frame.beginPass(pass);
         if ( bRecorded && !std3D_aSceneDraws.empty() )
         {
-            // std3DX9.c's g_viewport, set at each BeginScene: the viewport rectangle, the whole back buffer.
+            // std3DX9.c's g_viewport, set at each BeginScene: the rectangle the screen vertices are in.
+            // It stays the display/video-mode size at every render scale (GetBackBufferWidth/Height),
+            // so the same screen position maps to the whole scaled target and a larger target
+            // supersamples the scene; the GPU's viewport is the target itself.
             const float aViewport[4] = { 0.0f, 0.0f, (float)stdRenderBabylon_GetBackBufferWidth(), (float)stdRenderBabylon_GetBackBufferHeight() };
             frame.pushUniforms(render::ShaderStage::Vertex, 0, std::as_bytes(std::span<const float>(aViewport)));
 

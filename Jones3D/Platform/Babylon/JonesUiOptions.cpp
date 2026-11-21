@@ -339,6 +339,9 @@ namespace
             "Use the high-polygon models; the game must restart to apply the change.";
         screen.help[layout.litFaces] =
             "Light world faces when the display reopens.";
+        screen.help[layout.renderScale] =
+            "Render the 3D world above (sharper) or below its resolution; menus stay native "
+            "and the display size is unchanged. Applies when the display reopens.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }

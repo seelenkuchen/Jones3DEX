@@ -49,6 +49,7 @@
 #include <babylon/ui/Widget.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -78,6 +79,14 @@ namespace
     constexpr const char* kJonesDisplayHiPolyText      = "Hi-poly models"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLitFacesText    =
         "Lit faces (applies when the display reopens)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
+
+    // Added: M9.4 render scale choices. The value is a multiple of the game's 3D resolution; the
+    // label is what the Options row shows. 100% (index 3) is the default.
+    constexpr float kJonesDisplayRenderScaleValues[] = { 0.5f, 0.67f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
+    constexpr const char* kJonesDisplayRenderScaleLabels[] = {
+        "50%", "67%", "75%", "100%", "125%", "150%", "200%" };
+    constexpr std::size_t kJonesDisplayRenderScaleDefault = 3;
 
     std::string JonesUiDisplay_BitDepthLabel(int bpp)
     {
@@ -179,6 +188,34 @@ namespace
     bool JonesUiDisplay_ReadConfigBool(const char* pKey, bool defaultValue)
     {
         return stdConfig_HasStarted() ? stdConfig_GetBool(pKey, defaultValue) : defaultValue;
+    }
+
+    float JonesUiDisplay_ReadConfigFloat(const char* pKey, float defaultValue)
+    {
+        return stdConfig_HasStarted() ? stdConfig_GetFloat(pKey, defaultValue) : defaultValue;
+    }
+
+    // The render scale choice nearest to scale; 100% when the value is not finite.
+    std::size_t JonesUiDisplay_RenderScaleIndex(float scale)
+    {
+        if ( !std::isfinite(scale) )
+        {
+            return kJonesDisplayRenderScaleDefault;
+        }
+
+        std::size_t best = 0;
+        float bestDistance = std::fabs(scale - kJonesDisplayRenderScaleValues[0]);
+        for ( std::size_t cur = 1; cur < STD_ARRAYLEN(kJonesDisplayRenderScaleValues); ++cur )
+        {
+            const float distance = std::fabs(scale - kJonesDisplayRenderScaleValues[cur]);
+            if ( distance < bestDistance )
+            {
+                best         = cur;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
     }
 
     void JonesUiDisplay_SetConfigInt(const char* pKey, int value)
@@ -307,6 +344,21 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiDisplay_ResolveLabel(kJonesDisplayLitFacesText), std::string(), true,
             values.bLitFaces });
+
+        // Added: M9.4. The internal 3D resolution heads up into supersampling. Screen coordinates,
+        // menus and the read-back image keep the display size; the in-world HUD is drawn with the
+        // scene.
+        std::vector<std::string> renderScaleOptions;
+        for ( const char* pLabel : kJonesDisplayRenderScaleLabels )
+        {
+            renderScaleOptions.emplace_back(pLabel);
+        }
+        layout.renderScale = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayRenderScaleText), std::string(),
+            std::move(renderScaleOptions), true,
+            values.renderScale < STD_ARRAYLEN(kJonesDisplayRenderScaleValues)
+                ? values.renderScale : kJonesDisplayRenderScaleDefault });
 
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
@@ -439,6 +491,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.bHiPoly = sithModel_IsHiPolyEnabled();
     model.bLitFaces = JonesUiDisplay_ReadConfigBool(
         JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+    model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
+        JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
 
     values.bBitDepth   = model.bitDepths.size() > 1;
     values.bitDepth    = model.curBitDepth;
@@ -451,6 +505,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.performance = (std::size_t)performance;
     values.bHiPoly     = model.bHiPoly;
     values.bLitFaces   = model.bLitFaces;
+    values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
     return model;
 }
 
@@ -490,6 +545,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.bHiPoly));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.litFaces,
         values.bLitFaces));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.renderScale,
+        values.renderScale));
 }
 
 bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int displayDeviceNum,
@@ -665,6 +722,13 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
 
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED,
         values.bLitFaces);
+
+    // Added: M9.4. The scale is read when the display opens; the Options OK already asks for a
+    // display restart, the same way the other presentation keys take effect.
+    const std::size_t renderScale = std::min(values.renderScale,
+        STD_ARRAYLEN(kJonesDisplayRenderScaleValues) - 1);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE,
+        kJonesDisplayRenderScaleValues[renderScale]);
 
     return kJonesDialogOk;
 }
