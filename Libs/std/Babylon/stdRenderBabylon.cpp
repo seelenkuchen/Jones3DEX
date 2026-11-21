@@ -59,6 +59,14 @@ namespace
         render::TextureHandle colorTarget;
         render::TextureHandle depthTarget;
         render::TextureHandle normalTarget;
+
+        // Added: the display-sized HUD layer std3D draws between BeginHudLayer and EndHudLayer. It is
+        // composited over the tone-mapped scene before the menu and prompt overlays.
+        render::TextureHandle hudColorTarget;
+        render::TextureHandle hudNormalTarget;
+        render::TextureHandle hudDepthTarget;
+        bool bHudLayerDrawn = false; // the last submitted frame recorded a HUD pass
+
         render::TextureFormat colorFormat  = render::TextureFormat::Bgra8;
         render::TextureFormat depthFormat  = render::TextureFormat::D24S8;
         render::TextureFormat normalFormat = render::TextureFormat::R10G10B10A2;
@@ -80,6 +88,8 @@ namespace
 
         render::PipelineHandle presentPipeline;
         render::PipelineHandle capturePipeline; // Bgra8, for RenderPresentToTexture
+        render::PipelineHandle hudPipeline;     // Added: HUD composite to the swapchain
+        render::PipelineHandle hudCapturePipeline; // Added: HUD composite to a Bgra8 capture target
         render::SamplerHandle presentSampler; // also the post passes' sampler; nearest, clamping
         render::SamplerHandle finalSampler;   // linear, clamping: the final pass at a render scale != 1
 
@@ -278,6 +288,30 @@ namespace
         samplerDesc.addressV  = render::AddressMode::ClampToEdge;
         stdRenderBabylon_state.finalSampler = stdRenderBabylon_state.pDevice->createSampler(samplerDesc);
         return !stdRenderBabylon_state.finalSampler.isNull();
+    }
+
+    // Added: the pipeline that composites the HUD layer over the presented frame. It draws the
+    // present pass's triangle sampling the HUD color target and blends it with ONE / ONE_MINUS_SRC_ALPHA,
+    // because the HUD pass accumulates premultiplied color and coverage alpha. The target format is
+    // the swapchain's or Bgra8 for a capture.
+    render::PipelineHandle stdRenderBabylon_CreateHudPipeline(render::TextureFormat format)
+    {
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdBabylon::shaders::presentFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+
+        render::BlendState blend;
+        blend.enabled  = true;
+        blend.srcColor = render::BlendFactor::One;
+        blend.dstColor = render::BlendFactor::OneMinusSrcAlpha;
+        blend.colorOp  = render::BlendOp::Add;
+        blend.srcAlpha = render::BlendFactor::One;
+        blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
+        blend.alphaOp  = render::BlendOp::Add;
+        desc.colorTargets = { render::ColorTargetDesc{ format, blend } };
+
+        return stdRenderBabylon_state.pDevice->createPipeline(desc);
     }
 
     // The render scale limited so neither scene dimension exceeds the device's max texture size; the
@@ -562,6 +596,90 @@ namespace
         return false;
     }
 
+    // Added: true when list has a pass that drew into the HUD layer's color target.
+    bool stdRenderBabylon_DrawsHudLayer(const render::CommandList& list)
+    {
+        const render::TextureHandle hudTarget = stdRenderBabylon_state.hudColorTarget;
+        if ( hudTarget.isNull() )
+        {
+            return false;
+        }
+
+        for ( const render::Command& command : list.commands() )
+        {
+            if ( const render::BeginPass* pBegin = std::get_if<render::BeginPass>(&command) )
+            {
+                for ( const render::ColorAttachment& attachment : pBegin->desc.colorTargets )
+                {
+                    if ( attachment.target == hudTarget )
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // Added: records the HUD layer over the presented frame and returns false, logging why, when the
+    // pipeline or the pass can't be made. Nothing is recorded when no HUD was drawn or there is no
+    // layer. The display-sized layer is sampled like the final pass samples the scene.
+    bool stdRenderBabylon_RecordHudComposite(render::CommandList& list, render::TextureHandle target,
+        render::TextureFormat format)
+    {
+        if ( !stdRenderBabylon_state.bHudLayerDrawn || stdRenderBabylon_state.hudColorTarget.isNull() )
+        {
+            return true;
+        }
+
+        render::PipelineHandle* pPipeline = target.isNull()
+            ? &stdRenderBabylon_state.hudPipeline : &stdRenderBabylon_state.hudCapturePipeline;
+        if ( pPipeline->isNull() )
+        {
+            *pPipeline = stdRenderBabylon_CreateHudPipeline(format);
+        }
+        if ( pPipeline->isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the HUD composite pipeline.\n");
+            return false;
+        }
+
+        // Mirror the final pass: the pre-M9.4 1:1 nearest sample at render scale 1, linear otherwise.
+        // At render scale 1 this keeps the HUD's pixels exactly where the old single pass put them,
+        // also when the window scales the display-sized frame.
+        render::SamplerHandle sampler;
+        if ( stdRenderBabylon_state.renderScale == 1.0f )
+        {
+            if ( !stdRenderBabylon_EnsurePresentSampler() )
+            {
+                return false;
+            }
+            sampler = stdRenderBabylon_state.presentSampler;
+        }
+        else
+        {
+            if ( !stdRenderBabylon_EnsureFinalSampler() )
+            {
+                return false;
+            }
+            sampler = stdRenderBabylon_state.finalSampler;
+        }
+
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ target, 0,
+            render::LoadOp::Load, render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(*pPipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, stdRenderBabylon_state.hudColorTarget, sampler);
+        list.draw(3);
+        return list.endPass();
+    }
+
     // The final pass: the presented source drawn over the whole target (the null handle, for the
     // swapchain), with the tone map when it runs. The vertex shader makes the triangle itself, so
     // nothing is bound but the result and the input. Returns false, having logged nothing, when the
@@ -713,11 +831,17 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         desc.colorTargets   = { render::ColorTargetDesc{ info.swapchainFormat, {} } };
 
         stdRenderBabylon_state.presentPipeline = pDevice->createPipeline(desc);
-        if ( stdRenderBabylon_state.presentPipeline.isNull() || !stdRenderBabylon_EnsurePresentSampler()
-            || !stdRenderBabylon_EnsureFinalSampler() )
+        if ( !stdRenderBabylon_state.presentPipeline.isNull() )
+        {
+            stdRenderBabylon_state.hudPipeline =
+                stdRenderBabylon_CreateHudPipeline(info.swapchainFormat);
+        }
+        if ( stdRenderBabylon_state.presentPipeline.isNull() || stdRenderBabylon_state.hudPipeline.isNull()
+            || !stdRenderBabylon_EnsurePresentSampler() || !stdRenderBabylon_EnsureFinalSampler() )
         {
             STDLOG_ERROR("stdRenderBabylon_Open: could not create the final pass pipeline.\n");
             pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
+            pDevice->destroyPipeline(stdRenderBabylon_state.hudPipeline);
             pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
             pDevice->destroySampler(stdRenderBabylon_state.finalSampler);
             stdRenderBabylon_state = StdRenderBabylonState{};
@@ -742,6 +866,8 @@ void stdRenderBabylon_Close()
 
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.presentPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.capturePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.hudPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.hudCapturePipeline);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.presentSampler);
     stdRenderBabylon_state.pDevice->destroySampler(stdRenderBabylon_state.finalSampler);
     stdRenderBabylon_state = StdRenderBabylonState{};
@@ -762,10 +888,17 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.colorTarget);
     stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.depthTarget);
     stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.normalTarget);
+    stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.hudColorTarget);
+    stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.hudNormalTarget);
+    stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.hudDepthTarget);
     stdRenderBabylon_FreePostTargets();
-    stdRenderBabylon_state.colorTarget  = {};
-    stdRenderBabylon_state.depthTarget  = {};
-    stdRenderBabylon_state.normalTarget = {};
+    stdRenderBabylon_state.colorTarget     = {};
+    stdRenderBabylon_state.depthTarget     = {};
+    stdRenderBabylon_state.normalTarget    = {};
+    stdRenderBabylon_state.hudColorTarget  = {};
+    stdRenderBabylon_state.hudNormalTarget = {};
+    stdRenderBabylon_state.hudDepthTarget  = {};
+    stdRenderBabylon_state.bHudLayerDrawn  = false;
     stdRenderBabylon_state.modeWidth    = 0;
     stdRenderBabylon_state.modeHeight   = 0;
     stdRenderBabylon_state.width        = 0;
@@ -829,22 +962,48 @@ bool stdRenderBabylon_SetBackBufferSize(uint32_t width, uint32_t height, bool* p
     render::TextureDesc normalDesc = colorDesc;
     normalDesc.format = stdRenderBabylon_state.normalFormat;
 
+    // Added: the HUD layer stays at the display size, so the HUD is sharp at any render scale. Its
+    // color is sampled by the composite and its normal target is a same-format dummy the HUD draws
+    // write because their shaders output a normal.
+    render::TextureDesc hudColorDesc = colorDesc;
+    hudColorDesc.width  = width;
+    hudColorDesc.height = height;
+    hudColorDesc.usage  = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+    render::TextureDesc hudNormalDesc = hudColorDesc;
+    hudNormalDesc.format = stdRenderBabylon_state.normalFormat;
+    hudNormalDesc.usage  = render::TextureUsage::ColorTarget;
+    render::TextureDesc hudDepthDesc = depthDesc;
+    hudDepthDesc.width  = width;
+    hudDepthDesc.height = height;
+    hudDepthDesc.usage  = render::TextureUsage::DepthTarget;
+
     const render::TextureHandle colorTarget  = pDevice->createTexture(colorDesc);
     const render::TextureHandle depthTarget  = pDevice->createTexture(depthDesc);
     const render::TextureHandle normalTarget = pDevice->createTexture(normalDesc);
-    if ( colorTarget.isNull() || depthTarget.isNull() || normalTarget.isNull() )
+    const render::TextureHandle hudColorTarget  = pDevice->createTexture(hudColorDesc);
+    const render::TextureHandle hudNormalTarget = pDevice->createTexture(hudNormalDesc);
+    const render::TextureHandle hudDepthTarget  = pDevice->createTexture(hudDepthDesc);
+    if ( colorTarget.isNull() || depthTarget.isNull() || normalTarget.isNull()
+        || hudColorTarget.isNull() || hudNormalTarget.isNull() || hudDepthTarget.isNull() )
     {
         STDLOG_ERROR("stdRenderBabylon_SetBackBufferSize: could not create the %ux%u back buffer (render scale %g).\n",
             width, height, (double)renderScale);
         pDevice->destroyTexture(colorTarget);
         pDevice->destroyTexture(depthTarget);
         pDevice->destroyTexture(normalTarget);
+        pDevice->destroyTexture(hudColorTarget);
+        pDevice->destroyTexture(hudNormalTarget);
+        pDevice->destroyTexture(hudDepthTarget);
         return false;
     }
 
-    stdRenderBabylon_state.colorTarget  = colorTarget;
-    stdRenderBabylon_state.depthTarget  = depthTarget;
-    stdRenderBabylon_state.normalTarget = normalTarget;
+    stdRenderBabylon_state.colorTarget     = colorTarget;
+    stdRenderBabylon_state.depthTarget     = depthTarget;
+    stdRenderBabylon_state.normalTarget    = normalTarget;
+    stdRenderBabylon_state.hudColorTarget  = hudColorTarget;
+    stdRenderBabylon_state.hudNormalTarget = hudNormalTarget;
+    stdRenderBabylon_state.hudDepthTarget  = hudDepthTarget;
+    stdRenderBabylon_state.bHudLayerDrawn  = false;
     stdRenderBabylon_state.modeWidth     = width;
     stdRenderBabylon_state.modeHeight    = height;
     stdRenderBabylon_state.width         = renderWidth;
@@ -986,6 +1145,21 @@ render::TextureFormat stdRenderBabylon_GetNormalFormat()
     return stdRenderBabylon_state.normalFormat;
 }
 
+render::TextureHandle stdRenderBabylon_GetHudColorTarget()
+{
+    return stdRenderBabylon_state.hudColorTarget;
+}
+
+render::TextureHandle stdRenderBabylon_GetHudNormalTarget()
+{
+    return stdRenderBabylon_state.hudNormalTarget;
+}
+
+render::TextureHandle stdRenderBabylon_GetHudDepthTarget()
+{
+    return stdRenderBabylon_state.hudDepthTarget;
+}
+
 uint32_t stdRenderBabylon_GetBackBufferWidth()
 {
     return stdRenderBabylon_state.modeWidth;
@@ -1081,6 +1255,10 @@ namespace
         }
         else
         {
+            // Added: remember whether this frame drew the HUD layer, for the composite below and for
+            // a later RenderPresentToTexture; a frame without a HUD pass leaves no HUD behind.
+            stdRenderBabylon_state.bHudLayerDrawn = stdRenderBabylon_DrawsHudLayer(list);
+
             if ( bPresent )
             {
                 stdRenderBabylon_RecordPostChain(list);
@@ -1091,6 +1269,16 @@ namespace
                         stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
                     {
                         STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                    }
+
+                    // Added: composite the HUD layer over the tone-mapped scene, after the scene's
+                    // post chain, so no scene effect touches the HUD. It runs before the prompt and
+                    // menu overlays.
+                    if ( stdRenderBabylon_state.bHudLayerDrawn
+                        && !stdRenderBabylon_RecordHudComposite(list, render::TextureHandle{},
+                            stdRenderBabylon_state.pDevice->info().swapchainFormat) )
+                    {
+                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the HUD composite.\n");
                     }
                 }
 
@@ -1233,6 +1421,14 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
     if ( !stdRenderBabylon_RecordFinalPass(list, stdRenderBabylon_state.capturePipeline, target) )
     {
         STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
+        return false;
+    }
+
+    // Added: the captured presented frame includes the HUD layer, before the prompt and menu
+    // overlays, like the window.
+    if ( !stdRenderBabylon_RecordHudComposite(list, target, render::TextureFormat::Bgra8) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the HUD composite.\n");
         return false;
     }
 

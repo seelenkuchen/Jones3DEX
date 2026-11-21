@@ -187,6 +187,15 @@ TEST(std3D, TestClearSystemTextureReleasesMipBuffers)
     TEST_ASSERT_EQUAL_size_t(0u, texture.frameNum);
 }
 
+// Added: the HUD layer is presentation state, so the Null backend accepts its markers as no-ops.
+TEST(std3D, TestHudLayerCallsAreNoOps)
+{
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_BeginHudLayer();
+    std3D_EndHudLayer();
+    std3D_EndScene();
+}
+
 TEST_GROUP_RUNNER(std3D)
 {
     RUN_TEST_CASE(std3D, TestPublicLimitsAndConfigKeys);
@@ -196,4 +205,5 @@ TEST_GROUP_RUNNER(std3D)
     RUN_TEST_CASE(std3D, TestColorFormatClassification);
     RUN_TEST_CASE(std3D, TestEmptyTextureState);
     RUN_TEST_CASE(std3D, TestClearSystemTextureReleasesMipBuffers);
+    RUN_TEST_CASE(std3D, TestHudLayerCallsAreNoOps);
 }

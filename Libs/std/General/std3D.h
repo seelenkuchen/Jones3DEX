@@ -44,6 +44,17 @@ size_t std3D_GetNumTextureFormats(void);
 int std3D_StartScene(void);
 void std3D_EndScene(void);
 
+// Added: directs the draws until std3D_EndHudLayer to the display-sized HUD layer instead of the
+// scene targets, so the gameplay HUD stays sharp at any render scale and is never touched by the
+// scene's post effects. Must be called inside a scene; the draws collected so far are recorded into
+// the scene first. The HUD layer is cleared to transparent, drawn with its own depth (the HUD camera's
+// overlay z range is below the scene's, so its ordering is unchanged), and composited over the
+// presented scene after the tone map. The game marks the HUD section with this pair. The
+// Null backend accepts both as no-ops, and std3D_EndScene ends the layer if std3D_EndHudLayer was
+// not called. std3D_EndHudLayer outside the layer is a no-op.
+void std3D_BeginHudLayer(void);
+void std3D_EndHudLayer(void);
+
 void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
 
 // Added: std3D_DrawRenderList for vertices that carry their view-space position and normal

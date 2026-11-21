@@ -23,6 +23,8 @@
 #include <rdroid/Primitives/rdModel3.h>
 #include <rdroid/Raster/rdCache.h>
 
+#include <std/General/std3D.h>
+
 #include <sith/Cog/sithCog.h>
 #include <sith/Dss/sithGamesave.h>
 #include <sith/Engine/sithCamera.h>
@@ -1345,6 +1347,10 @@ void JonesHud_Process(void) // maybe this function should be called something el
             rdCache_FlushAlpha();
             rdCache_Flush();
 
+            // Added: the HUD draws into its own display-sized layer, after the scene and its post
+            // effects, so it stays sharp at any render scale and no scene effect touches it.
+            std3D_BeginHudLayer();
+
             // Render reticle before the any other HUD component
             // Note, also has to be drawn before switching camera to HUD camera
             // because game camera matrix is required for transforming target position to screen space.
@@ -1455,6 +1461,10 @@ void JonesHud_Process(void) // maybe this function should be called something el
 
             rdCache_FlushAlpha();
             rdCache_Flush();
+
+            // Added: the HUD section ends here; the layer is composited over the scene at present.
+            std3D_EndHudLayer();
+
             rdCamera_SetCurrent(pCurCam);
             sithWorld_g_pCurrentWorld->state &= ~SITH_WORLD_STATE_INIT_HUD;
         }

@@ -215,8 +215,8 @@ namespace
 
     // Created at std3D_Open (the white texture std3DX9.c bound for untextured draws, the stream
     // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
-    render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2]; // [primitive][z write]
-    render::PipelineHandle std3D_aLitPipelines[2];                     // lit triangles, [z write]
+    render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2][2]; // [primitive][HUD layer][z write]
+    render::PipelineHandle std3D_aLitPipelines[2][2];                    // lit triangles, [HUD layer][z write]
     render::SamplerHandle std3D_aSamplers[256];                        // std3D_GetSampler's key
     render::TextureHandle std3D_whiteTexture;
     render::BufferHandle std3D_vertexBuffer;
@@ -240,6 +240,14 @@ namespace
     render::LoadOp std3D_sceneColorLoad = render::LoadOp::Load;
     render::LoadOp std3D_sceneDepthLoad = render::LoadOp::Load;
     std::vector<Std3DBabylonDraw> std3D_aSceneDraws;
+
+    // Added: the gameplay HUD section draws into its own display-sized layer, not the scene. It has
+    // its own pass load operations because it is cleared transparent each frame.
+    bool std3D_bHudLayer              = false; // draws go to the HUD layer until EndHudLayer
+    bool std3D_bScenePassBegun        = false; // a scene pass is collected and not recorded yet
+    bool std3D_bHudPassBegun          = false;
+    render::LoadOp std3D_hudColorLoad = render::LoadOp::Clear;
+    render::LoadOp std3D_hudDepthLoad = render::LoadOp::Clear;
 
     // The fog values the shaders see. stdShader_SetFog copied them into the shader constants only
     // when the fog bit of the render state changed (std3DX9.c's SetRenderState), so they are kept
@@ -797,6 +805,7 @@ namespace
         std3D_sceneColorLoad = bClearColor ? render::LoadOp::Clear : render::LoadOp::Load;
         std3D_sceneDepthLoad = bClearDepth ? render::LoadOp::Clear : render::LoadOp::Load;
         std3D_aSceneDraws.clear();
+        std3D_bScenePassBegun = true;
     }
 
     // Makes the light buffer on first use and, when the list changed since (or the buffer is new),
@@ -836,19 +845,29 @@ namespace
     // Records the collected pass into the frame: the back buffer with the pass's load operations,
     // then its draws, each with only the bindings and uniforms that changed since the draw before.
     // The normal target is the second color target; it belongs with the depth, so it is cleared to
-    // 0 (nothing drawn) when depth is. Returns false when the command list refuses the pass. The
-    // pass is done either way.
-    bool std3D_EndScenePass()
+    // 0 (nothing drawn) when depth is. bHud records the display-sized HUD layer instead, with its own
+    // targets and load operations. Returns false when the command list refuses the pass. The pass is
+    // done either way.
+    bool std3D_RecordCollectedPass(bool bHud)
     {
         render::CommandList& frame = stdRenderBabylon_GetFrame();
 
+        const render::TextureHandle colorTarget = bHud
+            ? stdRenderBabylon_GetHudColorTarget() : stdRenderBabylon_GetColorTarget();
+        const render::TextureHandle normalTarget = bHud
+            ? stdRenderBabylon_GetHudNormalTarget() : stdRenderBabylon_GetNormalTarget();
+        const render::TextureHandle depthTarget = bHud
+            ? stdRenderBabylon_GetHudDepthTarget() : stdRenderBabylon_GetDepthTarget();
+        const render::LoadOp colorLoad = bHud ? std3D_hudColorLoad : std3D_sceneColorLoad;
+        const render::LoadOp depthLoad = bHud ? std3D_hudDepthLoad : std3D_sceneDepthLoad;
+
         render::PassDesc pass;
-        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetColorTarget(), 0,
-            std3D_sceneColorLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
-        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetNormalTarget(), 0,
-            std3D_sceneDepthLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
-        pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(),
-            std3D_sceneDepthLoad, render::StoreOp::Store, 1.0f, 0 };
+        pass.colorTargets.push_back(render::ColorAttachment{ colorTarget, 0,
+            colorLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.colorTargets.push_back(render::ColorAttachment{ normalTarget, 0,
+            depthLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.depthTarget = render::DepthAttachment{ depthTarget,
+            depthLoad, render::StoreOp::Store, 1.0f, 0 };
 
         const bool bLitDraws = std::any_of(std3D_aSceneDraws.begin(), std3D_aSceneDraws.end(), [](const Std3DBabylonDraw& draw) { return draw.bLit; });
         const bool bLightBuffer = (bLitDraws || std3D_bLightsDirty) && std3D_UpdateLightBuffer(frame);
@@ -918,7 +937,31 @@ namespace
         }
 
         std3D_aSceneDraws.clear();
+        if ( bHud )
+        {
+            std3D_bHudPassBegun = false;
+        }
+        else
+        {
+            // A later scene pass this frame loads what this one drew instead of clearing again.
+            std3D_bScenePassBegun = false;
+            std3D_sceneColorLoad  = render::LoadOp::Load;
+            std3D_sceneDepthLoad  = render::LoadOp::Load;
+        }
+
         return bRecorded && frame.endPass();
+    }
+
+    bool std3D_EndScenePass()
+    {
+        return std3D_RecordCollectedPass(false);
+    }
+
+    // Added: records the HUD draws collected since BeginHudLayer into the HUD layer, clearing it
+    // transparent and its depth the first time.
+    bool std3D_EndHudPass()
+    {
+        return std3D_RecordCollectedPass(true);
     }
 
     // Makes room for numBytes at *pOffset of a stream buffer. When the rest of the buffer is too
@@ -959,14 +1002,17 @@ namespace
     // Z test LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no
     // culling. The normal target, the second color target, is replaced by draws that write Z and kept
     // (blended with ZERO, ONE) by the others, so it holds the normal of what the depth target holds.
-    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite)
+    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite, bool bHud)
     {
         render::BlendState blend;
         blend.enabled  = true;
         blend.srcColor = render::BlendFactor::SrcAlpha;
         blend.dstColor = render::BlendFactor::OneMinusSrcAlpha;
         blend.colorOp  = render::BlendOp::Add;
-        blend.srcAlpha = render::BlendFactor::SrcAlpha;
+        // Added: the HUD layer is transparent until its draws, so its alpha channel must hold the
+        // coverage the composite blends the scene with. The scene's color target is opaque, where the
+        // original factors only fed an unused channel.
+        blend.srcAlpha = bHud ? render::BlendFactor::One : render::BlendFactor::SrcAlpha;
         blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
         blend.alphaOp  = render::BlendOp::Add;
         render::BlendState keepNormal;
@@ -997,9 +1043,9 @@ namespace
     // std3DX9.c's Direct3D state as a pipeline (std3D_SetPipelineState): its default shader for
     // triangles, its wireframe shader for lines and points, StdVertexTL vertices. The pipeline of each
     // primitive and Z write is created once, on first use.
-    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite)
+    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite, bool bHud)
     {
-        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bZWrite ? 1 : 0];
+        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bHud ? 1 : 0][bZWrite ? 1 : 0];
         if ( !pipeline.isNull() )
         {
             return pipeline;
@@ -1023,7 +1069,7 @@ namespace
                 break;
         }
 
-        std3D_SetPipelineState(desc, bZWrite);
+        std3D_SetPipelineState(desc, bZWrite, bHud);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
@@ -1036,9 +1082,9 @@ namespace
     // The pipeline of lit triangles: the state of std3D_GetPipeline's triangles with the lit shaders
     // and StdVertexLit vertices, the view-space position and normal at locations 4 and 5. Created once
     // per Z write, on first use.
-    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite)
+    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite, bool bHud)
     {
-        render::PipelineHandle& pipeline = std3D_aLitPipelines[bZWrite ? 1 : 0];
+        render::PipelineHandle& pipeline = std3D_aLitPipelines[bHud ? 1 : 0][bZWrite ? 1 : 0];
         if ( !pipeline.isNull() )
         {
             return pipeline;
@@ -1052,7 +1098,7 @@ namespace
         desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 5, 0, render::VertexFormat::Float3, (uint32_t)offsetof(StdVertexLit, nx) });
         desc.primitive = render::PrimitiveType::TriangleList;
 
-        std3D_SetPipelineState(desc, bZWrite);
+        std3D_SetPipelineState(desc, bZWrite, bHud);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
@@ -1137,7 +1183,8 @@ namespace
 
         const bool bTriangles = primitive == Std3DBabylonPrimitive::Triangles;
         const bool bZWrite    = (std3D_renderState & STD3D_RS_ZWRITE_DISABLED) == 0;
-        const render::PipelineHandle pipeline = bLit ? std3D_GetLitPipeline(bZWrite) : std3D_GetPipeline(primitive, bZWrite);
+        const bool bHud       = std3D_bHudLayer;
+        const render::PipelineHandle pipeline = bLit ? std3D_GetLitPipeline(bZWrite, bHud) : std3D_GetPipeline(primitive, bZWrite, bHud);
         const render::SamplerHandle sampler   = bTriangles ? std3D_GetSampler(std3D_renderState) : render::SamplerHandle{};
         if ( pipeline.isNull() || (bTriangles && sampler.isNull()) )
         {
@@ -1196,6 +1243,14 @@ namespace
         }
 
         std3D_aSceneDraws.push_back(draw);
+        if ( bHud )
+        {
+            std3D_bHudPassBegun = true;
+        }
+        else
+        {
+            std3D_bScenePassBegun = true;
+        }
     }
 
     // The resources of the draws made at std3D_Open: the white texture std3DX9.c's
@@ -1240,15 +1295,21 @@ namespace
         {
             for ( auto& aPipelines : std3D_aPipelines )
             {
-                for ( render::PipelineHandle& pipeline : aPipelines )
+                for ( auto& aLayerPipelines : aPipelines )
                 {
-                    pDevice->destroyPipeline(pipeline);
+                    for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                    {
+                        pDevice->destroyPipeline(pipeline);
+                    }
                 }
             }
 
-            for ( render::PipelineHandle& pipeline : std3D_aLitPipelines )
+            for ( auto& aLayerPipelines : std3D_aLitPipelines )
             {
-                pDevice->destroyPipeline(pipeline);
+                for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                {
+                    pDevice->destroyPipeline(pipeline);
+                }
             }
 
             for ( render::SamplerHandle& sampler : std3D_aSamplers )
@@ -1265,15 +1326,21 @@ namespace
 
         for ( auto& aPipelines : std3D_aPipelines )
         {
-            for ( render::PipelineHandle& pipeline : aPipelines )
+            for ( auto& aLayerPipelines : aPipelines )
             {
-                pipeline = {};
+                for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                {
+                    pipeline = {};
+                }
             }
         }
 
-        for ( render::PipelineHandle& pipeline : std3D_aLitPipelines )
+        for ( auto& aLayerPipelines : std3D_aLitPipelines )
         {
-            pipeline = {};
+            for ( render::PipelineHandle& pipeline : aLayerPipelines )
+            {
+                pipeline = {};
+            }
         }
 
         for ( render::SamplerHandle& sampler : std3D_aSamplers )
@@ -1307,6 +1374,10 @@ namespace
         std3D_bInScene           = false;
         std3D_bClearColorPending = false;
         std3D_bClearDepthPending = false;
+        std3D_bHudLayer          = false;
+        std3D_bScenePassBegun    = false;
+        std3D_bHudPassBegun      = false;
+        std3D_aSceneDraws.clear();
     }
 
     // The DX9 InitSystem minus the Direct3D state: formats, the back buffer for the viewport, the
@@ -1703,6 +1774,8 @@ int std3D_StartScene(void)
     std3D_bClearColorPending = false;
     std3D_bClearDepthPending = false;
     std3D_bInScene           = true;
+    std3D_bHudLayer          = false;
+    std3D_bHudPassBegun      = false;
     return 0;
 }
 
@@ -1716,12 +1789,80 @@ void std3D_EndScene(void)
     }
 
     std3D_bInScene = false;
-    if ( !std3D_EndScenePass() )
+
+    // Added: a HUD layer left open by a missing EndHudLayer ends here, before the frame is presented.
+    bool bRecorded = true;
+    if ( std3D_bHudLayer )
+    {
+        if ( !std3D_aSceneDraws.empty() )
+        {
+            bRecorded = std3D_EndHudPass();
+        }
+        std3D_bHudLayer = false;
+    }
+    else if ( std3D_bScenePassBegun )
+    {
+        bRecorded = std3D_EndScenePass();
+    }
+
+    if ( !bRecorded )
     {
         STDLOG_ERROR("Error ending scene.\n");
     }
 
     // The frame stays open: stdDisplay_Update submits and presents it, like stdDisplayDX9.c's Present.
+}
+
+// Added: switches the draws to the HUD layer. The scene draws collected so far are recorded first,
+// so they keep the scene targets and their post effects.
+void std3D_BeginHudLayer(void)
+{
+    if ( !std3D_bInScene )
+    {
+        STDLOG_ERROR("Error beginning the HUD layer: no scene begun.\n");
+        return;
+    }
+
+    if ( std3D_bHudLayer )
+    {
+        STDLOG_ERROR("Error beginning the HUD layer: it is already begun.\n");
+        return;
+    }
+
+    if ( std3D_bScenePassBegun || !std3D_aSceneDraws.empty() )
+    {
+        if ( !std3D_EndScenePass() )
+        {
+            STDLOG_ERROR("Error beginning the HUD layer: the scene pass failed.\n");
+        }
+    }
+
+    std3D_bHudLayer      = true;
+    std3D_bHudPassBegun  = true;
+    std3D_hudColorLoad   = render::LoadOp::Clear;
+    std3D_hudDepthLoad   = render::LoadOp::Clear;
+    std3D_aSceneDraws.clear();
+}
+
+// Added: records the HUD layer draws. Without any, no pass is recorded and the previous layer is not
+// composited (stdRenderBabylon only draws a layer this frame recorded).
+void std3D_EndHudLayer(void)
+{
+    if ( !std3D_bHudLayer )
+    {
+        return;
+    }
+
+    if ( !std3D_aSceneDraws.empty() )
+    {
+        if ( !std3D_EndHudPass() )
+        {
+            STDLOG_ERROR("Error ending the HUD layer.\n");
+        }
+    }
+
+    std3D_bHudLayer     = false;
+    std3D_bHudPassBegun = false;
 }
 
 bool std3D_IsInScene(void)
@@ -2350,6 +2491,27 @@ void std3D_ClearZBuffer(void)
     if ( !std3D_bInScene )
     {
         std3D_bClearDepthPending = true;
+        return;
+    }
+
+    // Added: inside the HUD layer the collected HUD pass is recorded and a new one begins with its
+    // depth cleared, keeping the color already drawn.
+    if ( std3D_bHudLayer )
+    {
+        bool bRecorded = true;
+        if ( !std3D_aSceneDraws.empty() )
+        {
+            bRecorded = std3D_EndHudPass();
+        }
+        if ( !bRecorded )
+        {
+            STDLOG_ERROR("Error when clearing Z.\n");
+        }
+
+        // The first pass of the section still clears the layer's color; later ones keep it.
+        std3D_hudColorLoad = std3D_bHudPassBegun ? render::LoadOp::Clear : render::LoadOp::Load;
+        std3D_hudDepthLoad = render::LoadOp::Clear;
+        std3D_bHudPassBegun = true;
         return;
     }
 
