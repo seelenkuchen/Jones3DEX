@@ -9,6 +9,7 @@
 #include <babylon/ui/Screen.h>
 #include <babylon/ui/Widget.h>
 
+#include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiEndScreens.h>
@@ -55,6 +56,7 @@ TEST_CASE("every screen's button and list uses a non-zero action id")
     JonesUiStore_AppendScreensForTest(screens);
     JonesUiControls_AppendScreensForTest(screens);
     JonesUiDisplay_AppendScreensForTest(screens);
+    JonesUiBrightness_AppendScreensForTest(screens);
     JonesUiGameplay_AppendScreensForTest(screens);
     JonesUiSound_AppendScreensForTest(screens);
 
@@ -78,6 +80,6 @@ TEST_CASE("every screen's button and list uses a non-zero action id")
     }
 
     // A screen list that lost its builders would otherwise pass without walking anything.
-    CHECK(screens.size() >= 16u);
-    CHECK(numInteractive >= 40u);
+    CHECK(screens.size() >= 17u);
+    CHECK(numInteractive >= 42u);
 }

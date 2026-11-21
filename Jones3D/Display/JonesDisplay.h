@@ -37,6 +37,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING                "engine.renderer.sharpening" // Added: M9.9 contrast-adaptive sharpening
 #define JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING               "engine.renderer.toneMapping" // Added: M9.10 tone-mapping operator
 #define JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE                  "engine.renderer.exposure" // Added: M9.10 exposure before the tone map
+#define JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS                "engine.renderer.brightness" // Added: M9.11 calibration gamma after the tone map
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM                     "engine.renderer.bloom" // Added: M9.12 bloom level
 
 

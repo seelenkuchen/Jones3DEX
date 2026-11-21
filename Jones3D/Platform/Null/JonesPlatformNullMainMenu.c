@@ -29,3 +29,12 @@ int J3DAPI jonesConfig_ShowMainMenu(tSysWindow hWnd, JonesState* pConfig, char* 
     // Added: there is no screen; the menu cancels like the developer dialog did.
     return JONES_MAINMENU_QUIT;
 }
+
+int J3DAPI jonesConfig_ShowBrightnessCalibrationIfUnset(tSysWindow hWnd)
+{
+    J3D_UNUSED(hWnd);
+
+    // Added: the Null column has no screen, so the first start never calibrates; the key stays
+    // missing and the Babylon windowed column still shows its screen.
+    return 2;
+}

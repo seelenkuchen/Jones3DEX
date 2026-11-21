@@ -11,6 +11,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
@@ -365,6 +366,8 @@ namespace
         screen.help[layout.crispPixels] =
             "Use nearest filtering for world and model textures, for the original sharp, blocky "
             "look. Applies when the display reopens.";
+        screen.help[layout.brightness] =
+            "Calibrate the scene brightness on a dark test pattern; the value applies at once.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
@@ -558,6 +561,15 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 {
                     JonesBabylon_RequestSetup();
                 }
+                return true;
+            }
+
+            // Added: the Display tab's "Brightness..." entry opens the calibration on top of
+            // Options. It writes its own key, so the tab's apply path does not touch it.
+            if ( active == kJonesOptionsDisplayTab
+                && pAction->action == kJonesDisplayActionBrightness )
+            {
+                static_cast<void>(JonesUiBrightness_Run(uiRef, pPainter));
                 return true;
             }
 

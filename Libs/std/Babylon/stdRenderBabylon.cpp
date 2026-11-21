@@ -61,12 +61,15 @@ namespace
     constexpr const char* stdRenderBabylon_kSharpeningKey = "engine.renderer.sharpening";
     constexpr float stdRenderBabylon_kMaxSharpening = 1.0f;
 
-    // Added: the final tone map's operator (0 clamp, 1 Neutral, 2 ACES fitted) and exposure, read
-    // when the frame owner opens.
+    // Added: the final tone map's operator (0 clamp, 1 Neutral, 2 ACES fitted), exposure and
+    // brightness gamma, read when the frame owner opens.
     constexpr const char* stdRenderBabylon_kToneMappingKey = "engine.renderer.toneMapping";
     constexpr const char* stdRenderBabylon_kExposureKey    = "engine.renderer.exposure";
     constexpr float stdRenderBabylon_kMinExposure = 0.5f;
     constexpr float stdRenderBabylon_kMaxExposure = 2.0f;
+    constexpr const char* stdRenderBabylon_kBrightnessKey = "engine.renderer.brightness";
+    constexpr float stdRenderBabylon_kMinBrightness = 0.6f;
+    constexpr float stdRenderBabylon_kMaxBrightness = 1.8f;
 
     // Added: the built-in bloom stage. engine.renderer.bloom is 0 off, 1 low, 2 medium, 3 high; the
     // strengths live here in one place. The scene is display referred, so the soft-knee prefilter
@@ -1359,7 +1362,8 @@ namespace
         if ( stdRenderBabylon_state.bToneMap )
         {
             const float aParams[4] = { stdRenderBabylon_state.toneMap.exposure,
-                (float)stdRenderBabylon_state.toneMap.oper, 0.0f, 0.0f };
+                (float)stdRenderBabylon_state.toneMap.oper,
+                stdRenderBabylon_state.toneMap.brightness, 0.0f };
             list.pushUniforms(render::ShaderStage::Fragment, 0,
                 std::as_bytes(std::span<const float>(aParams)));
         }
@@ -1613,6 +1617,15 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         {
             stdRenderBabylon_state.toneMap.exposure = std::clamp(exposure,
                 stdRenderBabylon_kMinExposure, stdRenderBabylon_kMaxExposure);
+        }
+
+        // Added: brightness is the calibration gamma after the operator; 1.0 is the identity and
+        // leaves the presented image unchanged.
+        const float brightness = stdConfig_GetFloat(stdRenderBabylon_kBrightnessKey, 1.0f);
+        if ( std::isfinite(brightness) )
+        {
+            stdRenderBabylon_state.toneMap.brightness = std::clamp(brightness,
+                stdRenderBabylon_kMinBrightness, stdRenderBabylon_kMaxBrightness);
         }
 
         // Added: bloom is Low (1) by default in Enhanced builds and off in Retail/QOL-off ones. An
@@ -2721,6 +2734,12 @@ void stdRenderBabylon_SetToneMap(const StdRenderBabylonToneMap& params)
     {
         STDLOG_ERROR("stdRenderBabylon_SetToneMap: tone-map operator %u is not supported.\n",
             params.oper);
+        return;
+    }
+    if ( !std::isfinite(params.brightness) || params.brightness <= 0.0f )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetToneMap: brightness %g is not a finite value above 0.\n",
+            (double)params.brightness);
         return;
     }
     stdRenderBabylon_state.toneMap = params;

@@ -738,6 +738,12 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // skips it; Quit exits like the developer dialog's cancel.
     if ( bShowMainMenu )
     {
+        // Added: the first start, after the setup wizard and the game window and before the main
+        // menu, calibrates the scene's brightness once. The Babylon windowed column shows it when
+        // engine.renderer.brightness is missing from Jones.cfg; the headless and Null columns do
+        // nothing.
+        (void)jonesConfig_ShowBrightnessCalibrationIfUnset(stdWin95_GetWindow());
+
         const int menuResult = jonesConfig_ShowMainMenu(stdWin95_GetWindow(), &JonesMain_state,
             JonesMain_aNdsFilename);
         if ( menuResult == JONES_MAINMENU_NEWGAME )

@@ -37,6 +37,11 @@ struct JonesUiDisplayVideoMode
     std::vector<std::size_t> aModeNums;
 };
 
+// Added: the "Brightness..." row opens the calibration screen. The standalone Display screen
+// handles it itself; a caller that builds this screen as a tab (Options) must handle the same
+// action and run JonesUiBrightness_Run while its screen is open.
+inline constexpr babylon::ui::ActionId kJonesDisplayActionBrightness = 4;
+
 // Collects the video modes of one display device, deduplicated by width and height in the order
 // the environment lists them. Returns false when the environment, the device or its mode list is
 // missing, and leaves modes empty.
@@ -99,6 +104,7 @@ struct JonesUiDisplayLayout
     std::size_t toneMapping = 0; // Added
     std::size_t exposure = 0; // Added
     std::size_t crispPixels = 0; // Added
+    std::size_t brightness = 0; // Added: opens the brightness calibration screen
     std::size_t ok = 0;
     std::size_t back = 0;
 };
