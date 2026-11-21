@@ -2,7 +2,7 @@
 # Builds Jones3D_EX-<version>-x86_64.AppImage from an installed game component:
 #
 #   cmake --install build --prefix staging --component game
-#   INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0
+#   INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0-alpha
 #
 # When INNOEXTRACT_DIR is set it must contain innoextract and a licenses/
 # directory, as produced by packaging/linux/build-innoextract.sh. The game's

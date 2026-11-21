@@ -1,6 +1,6 @@
 ## Jones3D EX (unreleased)
 ### M8: Release
-  - This is version 0.5.0, the first Jones3D EX release; `Jones3D-headless --version` and
+  - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
     `Jones3D --version` print it.
   - The setup wizard and every in-game menu (main menu, Options and its tabs, pause, save/load, store,
     statistics, level completed, game over and message boxes) now draw at the window's native resolution, so
@@ -46,14 +46,12 @@
     `Jones.cfg` and existing savegames are copied there when they are missing, and the old files are kept.
     Pass `--user-dir <dir>` to choose another folder; headless runs stay in the working directory unless
     given `--user-dir`.
-  - Installing with the setup wizard's **Next to the game** no longer leaves an empty
-    `~/.local/share/Jones3DEX/` (`%APPDATA%\Jones3DEX\`) behind: the per-user folder is created only when
-    it is the folder the game uses.
+  - With the setup wizard's **Next to the game**, settings and saves stay next to the game too; the per-user
+    folder is created only when it is the folder the game uses.
   - The startup data search is now `--data <dir>`, `installPath` in `Jones.cfg`, `<user dir>/GameData`,
-    next to the executable, `<executable folder>/GameData`, then the working directory. The game no longer
-    searches stores or asks for a folder itself. `--data`, `--hash-data <dir>` and `--user-dir <dir>` remain
+    next to the executable, `<executable folder>/GameData`, then the working directory. Finding and
+    installing the data is the setup wizard's job. `--data`, `--hash-data <dir>` and `--user-dir <dir>` remain
     developer options; `--hash-data` prints the hash rows for a release and runs without a display.
-  - Removed `--install-data` and `portable.txt`: the setup wizard installs the data now.
   - At startup the game checks the game files against a table of known releases by size and SHA-256. A known
     release is logged by name and an unknown one gets a warning naming the files; the game still starts. The
     setup wizard writes the cache in the user directory, so the first start after installing is quick.

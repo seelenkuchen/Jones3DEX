@@ -288,7 +288,7 @@ if (JONES3D_BUILD_TESTS)
 
     # Added: --version answers before any engine code runs, so these tests need no game data.
     # The expected text is built from the root project's version so a version bump updates the tests.
-    string(REPLACE "." "\\." JONES3D_VERSION_REGEX "${OpenJones3D_VERSION}")
+    string(REPLACE "." "\\." JONES3D_VERSION_REGEX "${JONES3D_VERSION_TEXT}")
     set(JONES3D_VERSION_REGEX "^${JONES3D_PRODUCT_NAME} v${JONES3D_VERSION_REGEX}")
     add_test(NAME Jones3D.Version COMMAND Jones3D-headless --version)
     set_tests_properties(Jones3D.Version PROPERTIES

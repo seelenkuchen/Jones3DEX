@@ -1028,9 +1028,9 @@ Then install the game component, build innoextract for the AppImage, and build t
 ```bash
 cmake --install build --prefix staging --component game
 packaging/linux/build-innoextract.sh build/innoextract
-INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0
-APPIMAGE_EXTRACT_AND_RUN=1 build/out/Jones3D_EX-0.5.0-x86_64.AppImage --version
-build/out/Jones3D_EX-0.5.0-x86_64.AppImage --appimage-extract
+INNOEXTRACT_DIR=build/innoextract packaging/linux/make-appimage.sh staging build/out 0.5.0-alpha
+APPIMAGE_EXTRACT_AND_RUN=1 build/out/Jones3D_EX-0.5.0-alpha-x86_64.AppImage --version
+build/out/Jones3D_EX-0.5.0-alpha-x86_64.AppImage --appimage-extract
 squashfs-root/usr/bin/innoextract --version
 ldd squashfs-root/usr/bin/innoextract
 ```
