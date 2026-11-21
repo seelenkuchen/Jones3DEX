@@ -22,6 +22,11 @@
     upload when `graphics.mipmapFilter` is not `0`. The levels are box-filtered in colour-aware form, so
     colour-keyed and alpha textures do not bleed their transparent colour, and the world stops shimmering
     when it is minified.
+  - The HUD health and endurance indicators stay at the screen edges inside a centered 16:9 safe area
+    on screens wider than 16:9, so they no longer sit in the far corners at 21:9; the 4:3 and 16:9
+    layouts are unchanged. The 3D view and cutscene cameras already widen hor+ at any aspect.
+  - The intro movie keeps its 4:3 aspect on a wider screen: it is pillarboxed with black bars instead
+    of being stretched to the window, and it still fills a 4:3 window.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and

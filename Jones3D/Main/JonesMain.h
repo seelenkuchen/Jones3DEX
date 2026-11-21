@@ -82,6 +82,13 @@ void JonesMain_RefreshDisplayDevice(void);
 
 int JonesMain_PlayIntroMovie(void);
 
+// Added: fit a movie bitmap into the back buffer at its own aspect, centered: pillarboxed on a
+// canvas wider than the bitmap, letterboxed on a taller one, full size when the aspects match.
+// Returns the destination rectangle in pixels; zero input sizes fall back to the whole canvas.
+// Exposed for the layout tests.
+void J3DAPI JonesMain_GetMovieDestination(uint32_t bitmapWidth, uint32_t bitmapHeight,
+    uint32_t screenWidth, uint32_t screenHeight, int* pX, int* pY, int* pWidth, int* pHeight);
+
 void J3DAPI JonesMain_BindToggleMenuControlKeys(const size_t* paKeyIds, size_t numKeys);
 void JonesMain_ProcessMenu(void); // Added: declared for the control scheme tests
 // Added: copies the current toggle-menu keys (the active scheme's JONESCONTROL_ACTION_INTERFACE

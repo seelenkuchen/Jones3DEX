@@ -590,7 +590,9 @@ The committed screenshots are references, not test vectors. [M6.1](References/M6
 reference shots, and [M6.6](References/M6.6/README.md), [M6.7](References/M6.7/README.md),
 [M6.8](References/M6.8/README.md) and [M6.9b](References/M6.9b/README.md) the replayed Babylon frames,
 with their PSNR and differing-pixel counts. The captures themselves contain game data and stay in the private
-reference repository; the screenshots under `Docs/References/` are committed.
+reference repository; the screenshots under `Docs/References/` are committed. The
+[M9.5 widescreen page](References/M9/widescreen/README.md) pairs before and after frames at 4:3, 16:9 and
+21:9 for the HUD, a cutscene and the intro movie.
 
 The windowed `Jones3D` can take screenshots of a scripted menu tour without game data in the test tree. `--input
 <script>` feeds a Babylon `InputScript` instead of the window's key, mouse, gamepad and text events; its frame
