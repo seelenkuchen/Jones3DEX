@@ -1096,6 +1096,8 @@ static const char* JonesHud_InteractionPromptVerb(JonesHudInteractionPrompt prom
         case JONESHUD_INTERACTIONPROMPT_PUSH_PULL: return "Push | Pull";
         case JONESHUD_INTERACTIONPROMPT_CLIMB_UP:  return "Climb up";
         case JONESHUD_INTERACTIONPROMPT_CLIMB:     return "Climb";
+        case JONESHUD_INTERACTIONPROMPT_WHIP_SWING: return "Swing";
+        case JONESHUD_INTERACTIONPROMPT_WHIP_CLIMB: return "Climb";
         default:                                   return "none";
     }
 }
@@ -1123,6 +1125,8 @@ static JonesHudInteractionPrompt JonesHud_InteractionPromptFromKind(SithPlayerIn
         case SITHPLAYERINTERACTION_PUSH_PULL: return JONESHUD_INTERACTIONPROMPT_PUSH_PULL;
         case SITHPLAYERINTERACTION_CLIMB_UP:  return JONESHUD_INTERACTIONPROMPT_CLIMB_UP;
         case SITHPLAYERINTERACTION_CLIMB:     return JONESHUD_INTERACTIONPROMPT_CLIMB;
+        case SITHPLAYERINTERACTION_WHIP_SWING: return JONESHUD_INTERACTIONPROMPT_WHIP_SWING;
+        case SITHPLAYERINTERACTION_WHIP_CLIMB: return JONESHUD_INTERACTIONPROMPT_WHIP_CLIMB;
         default:                              return JONESHUD_INTERACTIONPROMPT_NONE;
     }
 }

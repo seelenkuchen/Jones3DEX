@@ -18,6 +18,8 @@ typedef enum eJonesHudInteractionPrompt
     JONESHUD_INTERACTIONPROMPT_PUSH_PULL,
     JONESHUD_INTERACTIONPROMPT_CLIMB_UP,
     JONESHUD_INTERACTIONPROMPT_CLIMB,
+    JONESHUD_INTERACTIONPROMPT_WHIP_SWING,
+    JONESHUD_INTERACTIONPROMPT_WHIP_CLIMB,
 } JonesHudInteractionPrompt;
 
 // control names the action the press for this prompt would read, so the overlay shows the binding
