@@ -516,6 +516,19 @@ namespace
 
         SamplerHandle doCreateSampler(const SamplerDesc& desc) override
         {
+            // SDL GPU names no per-device anisotropy limit, so the highest the
+            // render interface offers is used as the clamp. A NaN or a value
+            // below 1 turns the feature off.
+            float anisotropy = desc.maxAnisotropy;
+            if ( !(anisotropy >= 1.0f) )
+            {
+                anisotropy = 1.0f;
+            }
+            else if ( anisotropy > 16.0f )
+            {
+                anisotropy = 16.0f;
+            }
+
             SDL_GPUSamplerCreateInfo create{};
             create.min_filter = toSdl(desc.minFilter);
             create.mag_filter = toSdl(desc.magFilter);
@@ -524,6 +537,8 @@ namespace
             create.address_mode_u = toSdl(desc.addressU);
             create.address_mode_v = toSdl(desc.addressV);
             create.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            create.max_anisotropy = anisotropy;
+            create.enable_anisotropy = anisotropy > 1.0f;
             create.compare_op = SDL_GPU_COMPAREOP_ALWAYS;
             create.min_lod = 0.0f;
             create.max_lod = 1000.0f;   // every mip the texture has

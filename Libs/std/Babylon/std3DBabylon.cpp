@@ -13,8 +13,8 @@
 // ran on every Direct3D 9 device with shader model 3: the shaders are ports of its default and
 // wireframe shaders (Shaders/std3d*.hlsl), and the Direct3D state its SetRenderState and
 // InitRenderState set becomes pipelines (blending, depth, primitive), samplers (filter, mip filter,
-// clamp) and uniforms (viewport, fog, alpha reference), worked out from the render state bits at
-// each draw (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms).
+// anisotropy, clamp) and uniforms (viewport, fog, alpha reference), worked out from the render
+// state bits at each draw (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms).
 //
 // std3D_DrawRenderListLit draws like std3D_DrawRenderList, with the lit shaders (Shaders/std3d_lit*.hlsl):
 // they compute the color exactly as the default shaders do and write each fragment's interpolated
@@ -43,6 +43,7 @@
 
 #include <std/General/std.h>
 #include <std/General/stdColor.h>
+#include <std/General/stdConfig.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -61,6 +62,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -140,6 +142,10 @@ namespace
     // The render state of the draws; see std3D_SetRenderState.
     Std3DRenderState std3D_renderState      = (Std3DRenderState)0;
     Std3DMipmapFilterType std3D_mipmapFilter = (Std3DMipmapFilterType)-1;
+    // Presentation filtering read when std3D_Open runs (std3DBabylon_Read... below):
+    // graphics.anisotropicFilter and engine.renderer.texturePixelated.
+    int std3D_anisotropicFilter  = J3D_QOL_VALUE(8, 1);
+    bool std3D_bTexturePixelated = false;
     tSysTexture* std3D_pCurTex             = nullptr;
     float std3D_zDepth                     = 0.0f;
     bool std3D_bRenderFog                  = true;
@@ -211,7 +217,7 @@ namespace
     // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
     render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2]; // [primitive][z write]
     render::PipelineHandle std3D_aLitPipelines[2];                     // lit triangles, [z write]
-    render::SamplerHandle std3D_aSamplers[16];                         // std3D_GetSampler's index
+    render::SamplerHandle std3D_aSamplers[256];                        // std3D_GetSampler's key
     render::TextureHandle std3D_whiteTexture;
     render::BufferHandle std3D_vertexBuffer;
     render::BufferHandle std3D_indexBuffer;
@@ -275,6 +281,42 @@ namespace
         }
 
         return value;
+    }
+
+    // The anisotropy level snapped down to the offered steps (1, 2, 4, 8, 16), so a hand-edited
+    // value outside them still maps to the next lower one the display offers. 1 turns it off.
+    int std3D_NormalizeAnisotropicFilter(int level)
+    {
+        if ( level >= 16 )
+        {
+            return 16;
+        }
+        if ( level >= 8 )
+        {
+            return 8;
+        }
+        if ( level >= 4 )
+        {
+            return 4;
+        }
+        if ( level >= 2 )
+        {
+            return 2;
+        }
+        return 1;
+    }
+
+    // The sampler cache's index of a level; 0 is off and no filtering.
+    uint32_t std3D_AnisotropicFilterIndex(int level)
+    {
+        switch ( std3D_NormalizeAnisotropicFilter(level) )
+        {
+            case 16: return 4;
+            case 8: return 3;
+            case 4: return 2;
+            case 2: return 1;
+            default: return 0;
+        }
     }
 
     void std3D_WritePixel(uint8_t* pDst, size_t numBytes, uint32_t value)
@@ -366,6 +408,172 @@ namespace
         }
 
         return true;
+    }
+
+    // One texel of a generated mip in RGBA8, independent of the upload format.
+    struct Std3DBabylonTexelRgba8
+    {
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+        uint8_t a;
+    };
+
+    // The upload bytes of one level as RGBA8 texels.
+    void std3D_DecodeMipRgba8(const std::vector<std::byte>& data, const Std3DBabylonFormatEntry& entry,
+        uint32_t width, uint32_t height, std::vector<Std3DBabylonTexelRgba8>& texels)
+    {
+        const size_t texelBytes = render::bytesPerTexel(entry.format);
+        const uint8_t* pData    = reinterpret_cast<const uint8_t*>(data.data());
+        texels.resize((size_t)width * height);
+        for ( size_t i = 0; i < texels.size(); ++i )
+        {
+            uint8_t r = 0, g = 0, b = 0, a = 0xFF;
+            stdColor_DecodeRGBA(std3D_ReadPixel(pData + i * texelBytes, texelBytes), entry.pColorInfo,
+                &r, &g, &b, &a);
+            if ( entry.bOpaque )
+            {
+                a = 0xFF;
+            }
+
+            texels[i] = Std3DBabylonTexelRgba8{ r, g, b, a };
+        }
+    }
+
+    // RGBA8 texels as the upload bytes of one level, in the layout and bit depths of entry.
+    void std3D_EncodeMipRgba8(const std::vector<Std3DBabylonTexelRgba8>& texels,
+        const Std3DBabylonFormatEntry& entry, uint32_t width, uint32_t height,
+        std::vector<std::byte>& data)
+    {
+        const size_t texelBytes = render::bytesPerTexel(entry.format);
+        data.resize((size_t)width * height * texelBytes);
+        uint8_t* pData = reinterpret_cast<uint8_t*>(data.data());
+        for ( size_t i = 0; i < texels.size(); ++i )
+        {
+            const Std3DBabylonTexelRgba8& texel = texels[i];
+            const uint8_t alpha = entry.bOpaque ? 0xFF : texel.a;
+            uint32_t value = stdColor_EncodeRGBA(entry.pColorInfo, texel.r, texel.g, texel.b, alpha);
+            if ( entry.bOpaque )
+            {
+                value |= 0xFF000000u;
+            }
+
+            std3D_WritePixel(pData + i * texelBytes, texelBytes, value);
+        }
+    }
+
+    // Box-filters src (srcWidth x srcHeight) down to dstWidth x dstHeight. Each destination texel
+    // averages the whole source area it covers, so odd sizes lose nothing.
+    //
+    // Alpha is respected. A texel of a texture with 1-bit alpha (a color-key texture) contributes
+    // only when it is opaque, and the result is opaque when any contributor is: the transparent
+    // colour cannot bleed into the visible texels. A texture with more than 1 alpha bit is averaged
+    // premultiplied and then unpremultiplied, which likewise keeps transparent texels' colour out
+    // of the result. A format without alpha averages every texel and stays opaque.
+    void std3D_BoxFilterMip(const std::vector<Std3DBabylonTexelRgba8>& src, uint32_t srcWidth,
+        uint32_t srcHeight, uint32_t dstWidth, uint32_t dstHeight,
+        const Std3DBabylonFormatEntry& entry, std::vector<Std3DBabylonTexelRgba8>& dst)
+    {
+        const bool bMaskAlpha   = !entry.bOpaque && entry.pColorInfo->alphaBPP == 1;
+        const bool bPremultiply = !entry.bOpaque && entry.pColorInfo->alphaBPP > 1;
+        dst.resize((size_t)dstWidth * dstHeight);
+        for ( uint32_t dstY = 0; dstY < dstHeight; ++dstY )
+        {
+            uint32_t srcY0 = (uint32_t)((uint64_t)dstY * srcHeight / dstHeight);
+            uint32_t srcY1 = (uint32_t)((uint64_t)(dstY + 1) * srcHeight / dstHeight);
+            if ( srcY1 <= srcY0 )
+            {
+                srcY1 = srcY0 + 1;
+            }
+
+            for ( uint32_t dstX = 0; dstX < dstWidth; ++dstX )
+            {
+                uint32_t srcX0 = (uint32_t)((uint64_t)dstX * srcWidth / dstWidth);
+                uint32_t srcX1 = (uint32_t)((uint64_t)(dstX + 1) * srcWidth / dstWidth);
+                if ( srcX1 <= srcX0 )
+                {
+                    srcX1 = srcX0 + 1;
+                }
+
+                uint64_t sumR = 0;
+                uint64_t sumG = 0;
+                uint64_t sumB = 0;
+                uint64_t sumA = 0;
+                uint64_t count = 0;
+                for ( uint32_t srcY = srcY0; srcY < srcY1 && srcY < srcHeight; ++srcY )
+                {
+                    for ( uint32_t srcX = srcX0; srcX < srcX1 && srcX < srcWidth; ++srcX )
+                    {
+                        const Std3DBabylonTexelRgba8& texel = src[(size_t)srcY * srcWidth + srcX];
+                        if ( bMaskAlpha )
+                        {
+                            if ( texel.a < 128 )
+                            {
+                                continue;
+                            }
+
+                            sumR += texel.r;
+                            sumG += texel.g;
+                            sumB += texel.b;
+                            ++count;
+                        }
+                        else if ( bPremultiply )
+                        {
+                            sumR += (uint64_t)texel.r * texel.a;
+                            sumG += (uint64_t)texel.g * texel.a;
+                            sumB += (uint64_t)texel.b * texel.a;
+                            sumA += texel.a;
+                            ++count;
+                        }
+                        else
+                        {
+                            sumR += texel.r;
+                            sumG += texel.g;
+                            sumB += texel.b;
+                            sumA += 0xFF;
+                            ++count;
+                        }
+                    }
+                }
+
+                Std3DBabylonTexelRgba8& out = dst[(size_t)dstY * dstWidth + dstX];
+                out = Std3DBabylonTexelRgba8{ 0, 0, 0, 0 };
+                if ( count == 0 )
+                {
+                    continue;
+                }
+
+                if ( bMaskAlpha )
+                {
+                    out.r = (uint8_t)((sumR + count / 2) / count);
+                    out.g = (uint8_t)((sumG + count / 2) / count);
+                    out.b = (uint8_t)((sumB + count / 2) / count);
+                    out.a = 0xFF;
+                }
+                else if ( bPremultiply )
+                {
+                    if ( sumA == 0 )
+                    {
+                        continue; // fully transparent
+                    }
+
+                    // sumR is the sum of r * a; sumA the sum of a. Their ratio is the alpha-weighted
+                    // average colour of the covered texels, in 0..255, so the transparent colour
+                    // never reaches it.
+                    out.r = (uint8_t)std::min<uint64_t>(0xFF, (sumR + sumA / 2) / sumA);
+                    out.g = (uint8_t)std::min<uint64_t>(0xFF, (sumG + sumA / 2) / sumA);
+                    out.b = (uint8_t)std::min<uint64_t>(0xFF, (sumB + sumA / 2) / sumA);
+                    out.a = (uint8_t)((sumA + count / 2) / count);
+                }
+                else
+                {
+                    out.r = (uint8_t)((sumR + count / 2) / count);
+                    out.g = (uint8_t)((sumG + count / 2) / count);
+                    out.b = (uint8_t)((sumB + count / 2) / count);
+                    out.a = 0xFF;
+                }
+            }
+        }
     }
 
     void std3D_ReleaseCachedTexture(tSystemTexture* pTexture)
@@ -535,8 +743,8 @@ namespace
         pDriver->minTexHeight                   = 1;
         pDriver->maxTexWidth                    = maxTexSize;
         pDriver->maxTexHeight                   = maxTexSize;
-        pDriver->bAnisotropicFilteringSupported = false; // render::SamplerDesc has no anisotropy
-        pDriver->bMipmapAutoGenSupported        = false; // nor mip generation
+        pDriver->bAnisotropicFilteringSupported = 1; // Added: render::SamplerDesc::maxAnisotropy
+        pDriver->bMipmapAutoGenSupported        = 1; // Added: single-level materials get a mip chain on upload
         pDriver->bMSAASupported                 = false; // nor multisampled targets
         pDriver->bAlphaBlendSupported           = 1;
         pDriver->maxVertexCount                 = 65535u; // 16-bit indices
@@ -855,19 +1063,29 @@ namespace
     }
 
     // std3DX9.c's sampler state of a render state: linear filtering with STD3D_RS_TEXFILTER_BILINEAR
-    // and with STD3D_RS_TEXFILTER_ANISOTROPIC (no device here filters anisotropically, and
-    // std3DX9.c then filtered linearly), else point; the mip filter of std3D_SetMipmapFilter
+    // and with STD3D_RS_TEXFILTER_ANISOTROPIC, else point; the mip filter of std3D_SetMipmapFilter
     // (linear for trilinear, else point: render::SamplerDesc has no D3DTEXF_NONE, and textures
-    // allocated with STD3D_MIPMAPFILTER_NONE have one level); clamp or wrap in U and V. Each of
-    // the 16 is created once, on first use.
+    // allocated with STD3D_MIPMAPFILTER_NONE have one level); clamp or wrap in U and V.
+    //
+    // Two presentation options layer on top: engine.renderer.texturePixelated forces min and mag to
+    // nearest while the mip filter stays as configured (the original look), and
+    // graphics.anisotropicFilter sets the anisotropy of draws that ask for it. The key below
+    // includes both, so a sampler made under one setting is never reused under another.
     render::SamplerHandle std3D_GetSampler(Std3DRenderState state)
     {
-        const bool bLinear    = (state & (STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_TEXFILTER_ANISOTROPIC)) != 0;
-        const bool bMipLinear = std3D_mipmapFilter == STD3D_MIPMAPFILTER_TRILINEAR;
-        const bool bClampU    = (state & STD3D_RS_TEX_CPAMP_U) != 0;
-        const bool bClampV    = (state & STD3D_RS_TEX_CPAMP_V) != 0;
+        const bool bNearest          = std3D_bTexturePixelated;
+        const bool bAnisotropicAsked = (state & STD3D_RS_TEXFILTER_ANISOTROPIC) != 0;
+        const bool bLinear           = !bNearest
+            && (state & (STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_TEXFILTER_ANISOTROPIC)) != 0;
+        const bool bMipLinear        = std3D_mipmapFilter == STD3D_MIPMAPFILTER_TRILINEAR;
+        const bool bClampU           = (state & STD3D_RS_TEX_CPAMP_U) != 0;
+        const bool bClampV           = (state & STD3D_RS_TEX_CPAMP_V) != 0;
+        const uint32_t anisoIndex    = (!bNearest && bAnisotropicAsked)
+            ? std3D_AnisotropicFilterIndex(std3D_anisotropicFilter) : 0u;
 
-        render::SamplerHandle& sampler = std3D_aSamplers[(bLinear ? 1u : 0u) | (bMipLinear ? 2u : 0u) | (bClampU ? 4u : 0u) | (bClampV ? 8u : 0u)];
+        const uint32_t key = (bLinear ? 1u : 0u) | (bMipLinear ? 2u : 0u) | (bClampU ? 4u : 0u)
+            | (bClampV ? 8u : 0u) | (anisoIndex << 4) | (bNearest ? 0x80u : 0u);
+        render::SamplerHandle& sampler = std3D_aSamplers[key];
         if ( !sampler.isNull() )
         {
             return sampler;
@@ -879,6 +1097,8 @@ namespace
         desc.mipFilter = bMipLinear ? render::Filter::Linear : render::Filter::Nearest;
         desc.addressU  = bClampU ? render::AddressMode::ClampToEdge : render::AddressMode::Repeat;
         desc.addressV  = bClampV ? render::AddressMode::ClampToEdge : render::AddressMode::Repeat;
+        desc.maxAnisotropy = anisoIndex
+            ? (float)std3D_NormalizeAnisotropicFilter(std3D_anisotropicFilter) : 1.0f;
 
         sampler = std3D_pRenderDevice->createSampler(desc);
         if ( sampler.isNull() )
@@ -1136,9 +1356,12 @@ namespace
             return false;
         }
 
-        // std3DX9.c's InitRenderState: the trilinear mip filter, linear filtering (no device here
-        // filters anisotropically), wrapping, shader fog off.
+        // std3DX9.c's InitRenderState: the trilinear mip filter, linear filtering, wrapping,
+        // shader fog off. The anisotropic level and the crisp-pixels toggle are presentation state
+        // read from Jones.cfg here, like the render scale is read when the frame owner opens.
         std3D_mipmapFilter = STD3D_MIPMAPFILTER_TRILINEAR;
+        std3D_anisotropicFilter  = std3DBabylon_ReadAnisotropicFilterLevel();
+        std3D_bTexturePixelated  = std3DBabylon_ReadTexturePixelated();
         std3D_renderState  = (Std3DRenderState)(STD3D_RS_UNKNOWN_1 | STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_SUBPIXEL_CORRECTION | STD3D_RS_UNKNOWN_2);
         std3D_pCurTex      = nullptr;
         STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
@@ -1169,6 +1392,57 @@ namespace
         return true;
     }
 }
+
+int std3DBabylon_NormalizeAnisotropicFilterLevel(int level)
+{
+    return std3D_NormalizeAnisotropicFilter(level);
+}
+
+int std3DBabylon_ReadAnisotropicFilterLevel(void)
+{
+    const int defaultLevel = J3D_QOL_VALUE(8, 1);
+    if ( !stdConfig_HasStarted() )
+    {
+        return defaultLevel;
+    }
+
+    // An integer value wins. stdConfig_GetInt returns its default for a value of another JSON
+    // type, so an old boolean Jones.cfg is found by asking for both booleans of it: a real
+    // boolean answers both with itself, while a missing or integer value answers each with its
+    // own default and the two differ.
+    const int missing = std::numeric_limits<int>::min();
+    const int level   = stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, missing);
+    if ( level != missing )
+    {
+        return std3D_NormalizeAnisotropicFilter(level);
+    }
+
+    const bool bTrue  = stdConfig_GetBool(STD3D_CFG_ANISOTROPICFILTER, true);
+    const bool bFalse = stdConfig_GetBool(STD3D_CFG_ANISOTROPICFILTER, false);
+    if ( bTrue == bFalse )
+    {
+        return bTrue ? 8 : 1;
+    }
+
+    return defaultLevel;
+}
+
+bool std3DBabylon_ReadTexturePixelated(void)
+{
+    return stdConfig_HasStarted() ? stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false) : false;
+}
+
+#ifdef J3D_TEST
+void std3DBabylon_SetAnisotropicFilterForTest(int level)
+{
+    std3D_anisotropicFilter = std3D_NormalizeAnisotropicFilter(level);
+}
+
+void std3DBabylon_SetTexturePixelatedForTest(bool bEnabled)
+{
+    std3D_bTexturePixelated = bEnabled;
+}
+#endif
 
 void std3D_ResetGlobals(void)
 {
@@ -1776,6 +2050,10 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
     tVBuffer* pTop = nullptr;
     render::TextureDesc desc;
     std::vector<std::byte> data;
+    std::vector<Std3DBabylonTexelRgba8> prevTexels;
+    std::vector<Std3DBabylonTexelRgba8> nextTexels;
+    uint32_t numSourceLevels = 1;
+    bool bGenerateMips = false;
 
     if ( pCacheTexture->numMipLevels == 0 || !pCacheTexture->apMipmaps )
     {
@@ -1831,6 +2109,17 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
             desc.mipLevels, desc.mipLevels, pCacheTexture->numMipLevels);
     }
 
+    // Added: a material that brings only its top level gets a full chain generated on upload, so
+    // minified world and model textures keep their detail instead of shimmering. graphics.mipmapFilter
+    // 0 keeps the one level. Materials that bring their own levels are uploaded as they are.
+    numSourceLevels = desc.mipLevels;
+    bGenerateMips = pCacheTexture->numMipLevels == 1
+        && std3D_mipmapFilter != STD3D_MIPMAPFILTER_NONE;
+    if ( bGenerateMips )
+    {
+        desc.mipLevels = render::maxMipLevels(desc.width, desc.height);
+    }
+
     texture = std3D_pRenderDevice->createTexture(desc);
     if ( texture.isNull() )
     {
@@ -1838,7 +2127,7 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
         goto error;
     }
 
-    for ( uint32_t mmNum = 0; mmNum < desc.mipLevels; ++mmNum )
+    for ( uint32_t mmNum = 0; mmNum < numSourceLevels; ++mmNum )
     {
         tVBuffer* pMip = pCacheTexture->apMipmaps[mmNum];
         if ( !stdDisplay_VBufferLockReadOnly(pMip) )
@@ -1853,6 +2142,32 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
         {
             STDLOG_ERROR("Error uploading texture level %u.\n", mmNum);
             goto error;
+        }
+    }
+
+    if ( bGenerateMips )
+    {
+        // Each level is box-filtered from the one above in RGBA8, so the alpha handling of
+        // std3D_BoxFilterMip applies at every step. The top level's upload bytes are what that
+        // starts from.
+        std3D_DecodeMipRgba8(data, *pEntry, desc.width, desc.height, prevTexels);
+        uint32_t prevWidth  = desc.width;
+        uint32_t prevHeight = desc.height;
+        for ( uint32_t mmNum = numSourceLevels; mmNum < desc.mipLevels; ++mmNum )
+        {
+            const uint32_t width  = render::mipDimension(desc.width, mmNum);
+            const uint32_t height = render::mipDimension(desc.height, mmNum);
+            std3D_BoxFilterMip(prevTexels, prevWidth, prevHeight, width, height, *pEntry, nextTexels);
+            std3D_EncodeMipRgba8(nextTexels, *pEntry, width, height, data);
+            if ( !std3D_pRenderDevice->uploadTexture(texture, mmNum, std::span<const std::byte>(data)) )
+            {
+                STDLOG_ERROR("Error uploading generated texture level %u.\n", mmNum);
+                goto error;
+            }
+
+            prevTexels.swap(nextTexels);
+            prevWidth  = width;
+            prevHeight = height;
         }
     }
 
