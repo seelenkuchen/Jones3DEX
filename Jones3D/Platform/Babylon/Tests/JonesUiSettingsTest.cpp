@@ -458,9 +458,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 light shafts, 14 depth of field (cutscenes), 15 depth of field (gameplay), 16 sharpening,
-    // 17 tone mapping, 18 exposure, 19 colour grading, 20 anisotropic filtering, 21 crisp pixels,
-    // 22 Brightness..., 23 OK, 24 back.
+    // 13 light shafts, 14 water ripples, 15 depth of field (cutscenes), 16 depth of field (gameplay),
+    // 17 sharpening, 18 tone mapping, 19 exposure, 20 colour grading, 21 anisotropic filtering,
+    // 22 crisp pixels, 23 Brightness..., 24 OK, 25 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -488,6 +488,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // light shafts
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // water ripples
+    testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Down);  // depth of field (cutscenes)
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Down);  // depth of field (gameplay)
@@ -539,6 +541,13 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, -1) == 0);
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Enhanced starts water ripples on, so Enter turns them off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, true));
+#else
+    // Without QOL they start off, so Enter turns them on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, false));
+#endif
 #ifdef J3D_QOL_IMPROVEMENTS
     // Enhanced starts both on, so Enter turns them off.
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES, true));
@@ -1649,10 +1658,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 21).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 22).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 21; ++row )
+    for ( int row = 0; row < 22; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

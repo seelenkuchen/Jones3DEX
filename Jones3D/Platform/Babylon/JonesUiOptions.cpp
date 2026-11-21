@@ -354,6 +354,9 @@ namespace
         screen.help[layout.lightShafts] =
             "Add screen-space light shafts from the visible sky; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
+        screen.help[layout.waterRipples] =
+            "Animate water surfaces with small ripples and a faint highlight; the HUD, menus and "
+            "prompts are unchanged. Applies when the display reopens.";
         screen.help[layout.dofCutscenes] =
             "Soften the picture away from the focus in cutscenes; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
