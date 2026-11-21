@@ -835,7 +835,7 @@ The game shaders (`std3d.vert.hlsl`, `std3d.frag.hlsl` and `std3d_wireframe.frag
 - Screen position gets a half-pixel shift. Direct3D 9 puts pixel centers at integer screen coordinates, while SDL GPU (Direct3D 12, Vulkan, Metal) puts them at integer + 0.5; the shift makes the same pixels be covered and sampled.
 - Colors arrive as bytes `B, G, R, A` and are swizzled with `.zyxw`, matching Direct3D 9's `D3DCOLOR`.
 - The fragment color is texture times diffuse; untextured draws sample the white texture. Specular is not added, because `std3DX9.c` disabled `D3DRS_SPECULARENABLE` and its pixel shader ignored it.
-- Fog is linear in `w`, as DX9 passed it: `saturate((w - start) * (1 / (end - start)))` lerps RGB to the fog color and keeps alpha.
+- Fog is linear in `w`, as DX9 passed it: `saturate((w - start) * (1 / (end - start)))` lerps RGB to the fog color and keeps alpha. The depth, not the factor, is interpolated, so the fog is already per pixel; Direct3D 9's per-vertex fog-table fallback, which banded on large faces, was never used by this backend (checked in M9.15, which added nothing for that reason).
 - The alpha test is fixed-function DX9 behavior in the shader: when `STD3D_RS_ALPHAREF_SET` is set, fragments with alpha not greater than `160 / 255` are discarded (`D3DCMP_GREATER`).
 - Lines and points use the wireframe shader's constant opaque white times diffuse, with no texture and no fog.
 - Both fragment shaders write the constant normal `(0, 0, 1)`, encoded, to the normal target (`SV_Target1`): `StdVertexTL` carries no normal. The lit shaders (`std3d_lit.*.hlsl`) write the interpolated one (see [Lit Vertices](#lit-vertices-m69b)).
