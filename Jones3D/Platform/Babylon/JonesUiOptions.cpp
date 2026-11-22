@@ -11,6 +11,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Babylon/JonesBabylon.h>
+#include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
@@ -339,6 +340,49 @@ namespace
             "Use the high-polygon models; the game must restart to apply the change.";
         screen.help[layout.litFaces] =
             "Light world faces when the display reopens.";
+        screen.help[layout.gameplayFOV] =
+            "Set how wide the view is. It changes only the picture, not the game.";
+        screen.help[layout.renderScale] =
+            "Render the 3D world above (sharper) or below its resolution; menus stay native "
+            "and the display size is unchanged. Applies when the display reopens.";
+        screen.help[layout.antiAliasing] =
+            "Smooth the 3D scene's edges with SMAA; the HUD, menus and prompts are unchanged. "
+            "Applies when the display reopens.";
+        screen.help[layout.bloom] =
+            "Add a soft glow around bright parts of the 3D scene; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.lightShafts] =
+            "Add screen-space light shafts from the visible sky; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.waterRipples] =
+            "Animate water surfaces with small ripples and a faint highlight; the HUD, menus and "
+            "prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.dofCutscenes] =
+            "Soften the picture away from the focus in cutscenes; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.dofGameplay] =
+            "Soften only the far background during play, leaving Indy and the foreground sharp; "
+            "the HUD, menus and prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.sharpening] =
+            "Restore detail softened by a low render scale or by anti-aliasing; the HUD, menus "
+            "and prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.toneMapping] =
+            "Choose how bright scene values are mapped into the display: Clamp, Neutral or "
+            "Filmic. Applies when the display reopens.";
+        screen.help[layout.exposure] =
+            "Scale brightness before tone mapping; higher values brighten, lower ones darken. "
+            "Applies when the display reopens.";
+        screen.help[layout.colorGrading] =
+            "Choose a subtle colour look for the 3D scene after tone mapping; Neutral leaves the "
+            "picture unchanged. Applies when the display reopens.";
+        screen.help[layout.anisotropic] =
+            "Sharpen world and model textures seen at a slant. Higher levels cost more and apply "
+            "when the display reopens.";
+        screen.help[layout.crispPixels] =
+            "Use nearest filtering for world and model textures, for the original sharp, blocky "
+            "look. Applies when the display reopens.";
+        screen.help[layout.brightness] =
+            "Calibrate the scene brightness on a dark test pattern; the value applies at once.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
@@ -532,6 +576,15 @@ int JonesUiOptions_RunOptionsScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
                 {
                     JonesBabylon_RequestSetup();
                 }
+                return true;
+            }
+
+            // Added: the Display tab's "Brightness..." entry opens the calibration on top of
+            // Options. It writes its own key, so the tab's apply path does not touch it.
+            if ( active == kJonesOptionsDisplayTab
+                && pAction->action == kJonesDisplayActionBrightness )
+            {
+                static_cast<void>(JonesUiBrightness_Run(uiRef, pPainter));
                 return true;
             }
 

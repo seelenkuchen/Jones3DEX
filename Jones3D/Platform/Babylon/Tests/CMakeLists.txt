@@ -27,6 +27,7 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiMainMenu.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiEndScreens.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplaySettings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiBrightnessCalibration.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPauseMenu.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiGameplaySettings.cpp"

@@ -70,6 +70,8 @@ TEST(std3D, TestPublicEnumAndRenderStateValues)
     TEST_ASSERT_EQUAL_UINT32(0x00002000u, STD3D_RS_ZWRITE_DISABLED);
     TEST_ASSERT_EQUAL_UINT32(0x00008000u, STD3D_RS_FOG_ENABLED);
     TEST_ASSERT_EQUAL_UINT32(0x00010000u, STD3D_RS_TEXFILTER_ANISOTROPIC);
+    TEST_ASSERT_EQUAL_UINT32(0x00020000u, STD3D_RS_SURFACE_SKY);
+    TEST_ASSERT_EQUAL_UINT32(0x00040000u, STD3D_RS_SURFACE_WATER);
 }
 
 TEST(std3D, TestDevice3DPublicFieldsAcceptFeatureLimits)
@@ -187,6 +189,15 @@ TEST(std3D, TestClearSystemTextureReleasesMipBuffers)
     TEST_ASSERT_EQUAL_size_t(0u, texture.frameNum);
 }
 
+// Added: the HUD layer is presentation state, so the Null backend accepts its markers as no-ops.
+TEST(std3D, TestHudLayerCallsAreNoOps)
+{
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_BeginHudLayer();
+    std3D_EndHudLayer();
+    std3D_EndScene();
+}
+
 TEST_GROUP_RUNNER(std3D)
 {
     RUN_TEST_CASE(std3D, TestPublicLimitsAndConfigKeys);
@@ -196,4 +207,5 @@ TEST_GROUP_RUNNER(std3D)
     RUN_TEST_CASE(std3D, TestColorFormatClassification);
     RUN_TEST_CASE(std3D, TestEmptyTextureState);
     RUN_TEST_CASE(std3D, TestClearSystemTextureReleasesMipBuffers);
+    RUN_TEST_CASE(std3D, TestHudLayerCallsAreNoOps);
 }

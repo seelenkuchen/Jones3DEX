@@ -157,10 +157,14 @@ namespace
         TEST_ASSERT_FALSE(submitted.presented);
     }
 
-    // The color target's bytes (Bgra8, rows top first) as the device holds them.
+    // The back buffer's Bgra8 bytes as the game sees them (rows top first), translated from the
+    // scene color target by stdRenderBabylon_ReadBackBuffer.
     std::vector<std::byte> ColorTargetBytes()
     {
-        return stdDisplayBabylonTest_pDevice->readTexture(stdRenderBabylon_GetColorTarget(), 0);
+        std::vector<std::byte> bytes((size_t)stdRenderBabylon_GetBackBufferWidth()
+            * stdRenderBabylon_GetBackBufferHeight() * 4u);
+        TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(bytes.data(), nullptr, nullptr));
+        return bytes;
     }
 
     void AssertBgra(const std::vector<std::byte>& bytes, size_t pixel, uint8_t b, uint8_t g, uint8_t r, uint8_t a)
@@ -511,7 +515,9 @@ TEST(stdDisplayBabylon, LocksReadBackOnlyWhatTheGpuChanged)
     TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
     TEST_ASSERT_EQUAL_size_t(4u, Null().recorded().size());
     AssertSubmitted(3u);
-    const std::vector<std::byte> zeros(32u, std::byte{ 0 });
+    const std::vector<std::byte> zeros(
+        stdDisplayBabylonTest_pDevice->readTexture(stdRenderBabylon_GetColorTarget(), 0).size(),
+        std::byte{ 0 });
     TEST_ASSERT_TRUE(stdDisplayBabylonTest_pDevice->uploadTexture(stdRenderBabylon_GetColorTarget(), 0, zeros));
     TEST_ASSERT_EQUAL_INT(0, stdDisplay_LockBackBufferReadOnly(&pSurface, &width, &height, &pitch));
     TEST_ASSERT_EQUAL_HEX8(0x40u, static_cast<uint8_t*>(pSurface)[0]);

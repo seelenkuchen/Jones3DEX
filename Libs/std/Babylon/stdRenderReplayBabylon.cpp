@@ -187,9 +187,13 @@ namespace
     // from R10G10B10A2 or Rgba8 to Bgra8.
     bool StdRenderReplayBabylon_WriteNormals(const char* pDirectory, std::size_t frameIndex)
     {
-        std::uint32_t width, height;
-        if ( !StdRenderReplayBabylon_ImageSize(&width, &height) )
+        // Added: the normal target has the scene's render-scale size, which is not the display size
+        // at a render scale other than 1. Write it at that size rather than failing the read.
+        std::uint32_t width  = stdRenderBabylon_GetRenderWidth();
+        std::uint32_t height = stdRenderBabylon_GetRenderHeight();
+        if ( width == 0u || height == 0u || width > INT32_MAX || height > INT32_MAX )
         {
+            STDLOG_ERROR("Render replay: no %ux%u normal target to write.\n", width, height);
             return false;
         }
 

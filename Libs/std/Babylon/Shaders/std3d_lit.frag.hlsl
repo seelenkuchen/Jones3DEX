@@ -4,7 +4,8 @@
 // Color target 0 is computed exactly as std3d.frag.hlsl computes it (texture * diffuse, fog, alpha
 // test; see there), so a lit draw's color is the default draw's, bit for bit. Color target 1 is the
 // normal target (stdRenderBabylon.h): the interpolated view-space normal, normalized again (the
-// interpolation of unit vectors shortens them), as n * 0.5 + 0.5, alpha 1. A zero normal (a vertex
+// interpolation of unit vectors shortens them), as n * 0.5 + 0.5, with the render state's surface
+// tag (added M9.16) in alpha. A zero normal (a vertex
 // without one) writes the constant normal facing the viewer, as the default shader does.
 //
 // Fragment texture and sampler slot 0 (SDL GPU: space2) and fragment uniform block 0 (SDL GPU:
@@ -26,6 +27,7 @@ cbuffer Std3DFragment : register(b0, space3)
     float4 gFogParams; // start, end, 1 / (end - start), enabled (> 0)
     float4 gFogColor;  // r, g, b, a
     float4 gAlphaTest; // x: D3DRS_ALPHAREF / 255; a fragment passes when its alpha is greater
+    float4 gSurfaceTag; // Added: x is the normal target's alpha tag (M9.16); 1 ordinary
 };
 
 // The outputs of std3d_lit.vert.hlsl in its order, without the trailing ones (see there).
@@ -37,8 +39,11 @@ struct Input
     [[vk::location(3)]] float3 normal : TEXCOORD3;
 };
 
-// std3d.frag.hlsl's kStd3DConstantNormal: (0, 0, 1) encoded.
-static const float4 kStd3DConstantNormal = float4(0.5, 0.5, 1.0, 1.0);
+// std3d.frag.hlsl's constant normal: (0, 0, 1) encoded, with the render state's surface tag (M9.16).
+float4 ConstantNormal()
+{
+    return float4(0.5, 0.5, 1.0, gSurfaceTag.x);
+}
 
 struct Output
 {
@@ -64,10 +69,10 @@ float4 EncodeNormal(float3 normal)
     float lengthSquared = dot(normal, normal);
     if ( !(lengthSquared > 0.0) )
     {
-        return kStd3DConstantNormal;
+        return ConstantNormal();
     }
 
-    return float4(normal * rsqrt(lengthSquared) * 0.5 + 0.5, 1.0);
+    return float4(normal * rsqrt(lengthSquared) * 0.5 + 0.5, gSurfaceTag.x);
 }
 
 Output main(Input input)

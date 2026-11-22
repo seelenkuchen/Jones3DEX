@@ -120,6 +120,13 @@ static SithRenderSectorQueue sithRender_visitedSectorQueue = { 0 };
 bool sithRender_bResetCameraAspect; // Note: Exported for sithDSS
 static size_t sithRender_curCamSectorIdx; // Not used for anything particular
 
+// Added: when the Field of view option is active the draw keeps its chosen FOV, but the
+// simulation-facing marks (SITH_TF_SEEN, SITH_SECTOR_SEEN, renderFrame) come from a separate
+// visibility pass pinned to the default FOV. sithRender_bSuppressSimulationMarks silences the
+// draw pass, sithRender_bMarkSimulationOnly makes the thing loop mark without drawing.
+static bool sithRender_bMarkSimulationOnly;
+static bool sithRender_bSuppressSimulationMarks;
+
 static size_t sithRender_numRenderedSectors;
 
 static size_t sithRender_numSectorPointLights;
@@ -173,6 +180,15 @@ static void sithRender_BuildDynamicLights(void);
 static void sithRender_RenderThings(void);
 static int J3DAPI sithRender_RenderThing(SithThing* pThing);
 static void sithRender_RenderAlphaAdjoins(void);
+
+// Added: Field of view option support. BeginFrame resets the per-frame render counters,
+// SetCameraProjection applies a base FOV (with the underwater wobble), MarkSimulationVisibility
+// runs the default-FOV visibility and thing pass for the simulation marks, and MarkThingSeen is
+// the shared mark block.
+static void sithRender_BeginFrame(void);
+static void sithRender_SetCameraProjection(float baseFov);
+static void sithRender_MarkSimulationVisibility(void);
+static void sithRender_MarkThingSeen(SithThing* pThing);
 
 static void sithRender_BuildSmoothNormals(void); // Added
 static void sithRender_FreeSmoothNormals(void); // Added
@@ -343,6 +359,105 @@ void sithRender_TogglePVSCull(void)
     sithRender_bPVSCull = !sithRender_bPVSCull;
 }
 
+// Added: resets the per-frame collection counters and camera state. Shared by the default-FOV
+// simulation mark pass and the draw pass.
+static void sithRender_BeginFrame(void)
+{
+    sithRender_g_numVisibleSectors      = 0;
+    sithRender_numVisibleThingSectors   = 0;
+    sithRender_numThingLights           = 0;
+    sithRender_numSectorFrustums        = 0;
+    sithRender_numAlphaAdjoins          = 0;
+    sithRender_numSpritesToDraw         = 0;
+    sithRender_totalVisibleThingSectors = 0;
+    sithRender_numRenderedSectors       = 0;
+    sithRender_g_numDrawnThings         = 0;
+    sithRender_g_numVisibleAdjoins      = 0;
+
+    rdCamera_ClearLights(rdCamera_g_pCurCamera);
+
+    sithRender_curCamSectorIdx = sithCamera_g_pCurCamera->pSector - sithWorld_g_pCurrentWorld->aSectors; // TODO: ?? redundant
+}
+
+// Added: the camera setup the Field of view decoupling needs for both passes. Unlike the
+// original block it always applies the projection, because the two passes use different FOVs.
+static void sithRender_SetCameraProjection(float baseFov)
+{
+    SithCamera* pCamera = sithCamera_g_pCurCamera;
+    if ( (pCamera->pSector->flags & SITH_SECTOR_UNDERWATER) != 0 )
+    {
+        // Little underwater effect
+        float sin, cos;
+        float angle = sithTime_g_secGameTime * 70.0f;
+        stdMath_SinCos(angle, &sin, &cos);
+
+        rdCamera_SetFOV(&pCamera->rdCamera, sin * 1.0f + baseFov);
+
+        angle = sithTime_g_secGameTime * 100.0f;
+        stdMath_SinCos(angle, &sin, &cos);
+
+        float aspect = sin / 30.0f + pCamera->aspectRatio;
+        rdCamera_SetAspectRatio(&pCamera->rdCamera, aspect);
+
+        sithRender_bResetCameraAspect = true;
+    }
+    else
+    {
+        rdCamera_SetFOV(&pCamera->rdCamera, baseFov);
+        rdCamera_SetAspectRatio(&pCamera->rdCamera, pCamera->aspectRatio);
+        sithRender_bResetCameraAspect = false;
+    }
+}
+
+// Added: walks visibility and the thing sectors at the default FOV and applies only the
+// simulation-facing marks. The caller points the camera at SITHCAMERA_FOVDEFAULT first.
+static void sithRender_MarkSimulationVisibility(void)
+{
+    sithRender_BeginFrame();
+
+    if ( sithRender_bPVSCull && sithWorld_g_pCurrentWorld->aPVS )
+    {
+        sithRender_BuildVisibleSectorListPVS(sithCamera_g_pCurCamera->pSector, rdCamera_g_pCurCamera->pFrustum);
+    }
+    else
+    {
+        sithRender_BuildVisibleSectorList(sithCamera_g_pCurCamera->pSector, rdCamera_g_pCurCamera->pFrustum);
+    }
+
+    sithRender_BuildVisibleThingSectorList();
+
+    if ( sithRender_numVisibleThingSectors > 0 )
+    {
+        bool bSavedMarkOnly = sithRender_bMarkSimulationOnly;
+        sithRender_bMarkSimulationOnly = true;
+        sithRender_RenderThings();
+        sithRender_bMarkSimulationOnly = bSavedMarkOnly;
+    }
+}
+
+// Added: the mark block sithRender_RenderThing used to contain inline. The mark pass calls it
+// without drawing, and the draw pass calls it only when the FOV option is not decoupled.
+static void sithRender_MarkThingSeen(SithThing* pThing)
+{
+    if ( (pThing->flags & SITH_TF_SEEN) == 0 )
+    {
+        if ( (pThing->flags & SITH_TF_COGLINKED) != 0 )
+        {
+            sithCog_ThingSendMessage(pThing, 0, SITHCOG_MSG_SIGHTED);
+        }
+
+        if ( pThing->controlType == SITH_CT_AI && pThing->controlInfo.aiControl.pLocal )
+        {
+            pThing->controlInfo.aiControl.pLocal->mode &= ~SITHAI_MODE_SLEEPING;
+        }
+
+        pThing->flags |= SITH_TF_SEEN;
+    }
+
+    // Set thing cur render frame num
+    pThing->renderFrame = sithMain_g_frameNumber;
+}
+
 void sithRender_Draw(void)
 {
     rdSetLightingMode(sithRender_lightMode);
@@ -351,8 +466,24 @@ void sithRender_Draw(void)
     rdflags |= RDROID_USE_AMBIENT_CAMERA_LIGHT;
     rdSetRenderOptions(rdflags);
 
+    // Altered: with the Field of view option active, the draw keeps its chosen FOV but the
+    // simulation-facing marks come from a pass pinned to the default FOV, so SIGHTED messages,
+    // AI wake and renderFrame behave exactly as they do at the default.
+    bool bDecoupleFOV = sithCamera_IsGameplayFOV(sithCamera_g_pCurCamera)
+        && sithCamera_g_pCurCamera->fov != SITHCAMERA_FOVDEFAULT;
+
+    if ( bDecoupleFOV )
+    {
+        sithRender_SetCameraProjection(SITHCAMERA_FOVDEFAULT);
+        sithRender_MarkSimulationVisibility();
+
+        // The mark pass stamped the sector and vertex caches with this tick; invalidate them so
+        // the draw pass rebuilds its own at the chosen FOV.
+        sithAdvanceRenderTick();
+        sithRender_SetCameraProjection(sithCamera_g_pCurCamera->fov);
+    }
     // Set camera
-    if ( (sithCamera_g_pCurCamera->pSector->flags & SITH_SECTOR_UNDERWATER) != 0 )
+    else if ( (sithCamera_g_pCurCamera->pSector->flags & SITH_SECTOR_UNDERWATER) != 0 )
     {
         // Little underwater effect
         float sin, cos;
@@ -377,20 +508,10 @@ void sithRender_Draw(void)
         sithRender_bResetCameraAspect = false;
     }
 
-    sithRender_g_numVisibleSectors      = 0;
-    sithRender_numVisibleThingSectors   = 0;
-    sithRender_numThingLights           = 0;
-    sithRender_numSectorFrustums        = 0;
-    sithRender_numAlphaAdjoins          = 0;
-    sithRender_numSpritesToDraw         = 0;
-    sithRender_totalVisibleThingSectors = 0;
-    sithRender_numRenderedSectors       = 0;
-    sithRender_g_numDrawnThings         = 0;
-    sithRender_g_numVisibleAdjoins      = 0;
+    sithRender_BeginFrame();
 
-    rdCamera_ClearLights(rdCamera_g_pCurCamera);
-
-    sithRender_curCamSectorIdx = sithCamera_g_pCurCamera->pSector - sithWorld_g_pCurrentWorld->aSectors; // TODO: ?? redundant
+    bool bSavedSuppressMarks = sithRender_bSuppressSimulationMarks;
+    sithRender_bSuppressSimulationMarks = bDecoupleFOV;
 
     // Collect sector and things to draw
     if ( sithRender_bPVSCull && sithWorld_g_pCurrentWorld->aPVS )
@@ -426,6 +547,18 @@ void sithRender_Draw(void)
     // Set projection
     std3D_SetProjection(sithCamera_g_pCurCamera->rdCamera.fov, sithCamera_g_pCurCamera->rdCamera.pFrustum->nearPlane, sithCamera_g_pCurCamera->rdCamera.pFrustum->farPlane);
 
+    // Added: the light-shaft stage's fade needs the frame's game time (M9.16, presentation only).
+    std3D_SetFrameTime(sithTime_g_frameTimeFlex);
+
+    // Added: the depth-of-field stage's per-frame focus input (presentation only). It reads the
+    // current camera and its focus thing, and nothing here marks a thing or sector.
+    SithThing* pFocusThing = sithCamera_GetRenderFocusThing(sithCamera_g_pCurCamera);
+    if ( pFocusThing )
+    {
+        const float focusDistance = rdVector_Dist3(&sithCamera_g_pCurCamera->lookPos, &pFocusThing->pos);
+        std3D_SetFocus(focusDistance, sithCamera_IsCutsceneCamera(sithCamera_g_pCurCamera), sithTime_g_frameTimeFlex);
+    }
+
     // Now draw everything
     sithRender_RenderSectors();
 
@@ -440,6 +573,8 @@ void sithRender_Draw(void)
     }
 
     sithAIUtil_RenderAIWaypoints();
+
+    sithRender_bSuppressSimulationMarks = bSavedSuppressMarks;
 }
 
 void J3DAPI sithRender_BuildVisibleSectorList(SithSector* pSector, rdClipFrustum* pFrustrum)
@@ -719,7 +854,9 @@ void J3DAPI sithRender_BuildVisibleSector(SithSector* pSector, const rdClipFrust
 
     sithRender_aVisibleSectors[sithRender_g_numVisibleSectors++] = pSector;
 
-    if ( (pSector->flags & SITH_SECTOR_SEEN) == 0 )
+    // Altered: the draw pass at the chosen FOV does not mark sectors seen; the default-FOV
+    // simulation pass did that already.
+    if ( !sithRender_bSuppressSimulationMarks && (pSector->flags & SITH_SECTOR_SEEN) == 0 )
     {
         pSector->flags |= SITH_SECTOR_SEEN;
         if ( (pSector->flags & SITH_SECTOR_COGLINKED) != 0 )
@@ -866,7 +1003,7 @@ void sithRender_RenderSectors(void)
                     // first let's project them to NDC space
                     rdCamera_g_pCurCamera->pfProjectList(sithRender_aSurfaceTransformedVertices, sithRender_aClipVertices, sithRender_clipFaceView.numVertices);
 
-                    pPoly->flags     = pSurf->face.flags;
+                    pPoly->flags     = pSurf->face.flags | RD_FF_SKY_SURFACE; // Added: surface tag for the normal target alpha (M9.16)
                     pPoly->pMaterial = pSurf->face.pMaterial;
 
                     // Now make sky poly from transformed vertices
@@ -912,6 +1049,11 @@ void sithRender_RenderSectors(void)
                     else
                     {
                         pPoly->flags |= extraFaceFlags;
+                        // Added: water surfaces carry their tag to the normal target alpha (M9.16).
+                        if ( (pSurf->flags & SITH_SURFACE_WATER) != 0 )
+                        {
+                            pPoly->flags |= RD_FF_WATER_SURFACE;
+                        }
                     }
 
                     pPoly->pMaterial = pSurf->face.pMaterial;
@@ -1233,7 +1375,10 @@ void sithRender_RenderThings(void)
     sithRender_g_numThingPolys     = 0;
     sithRender_g_numAlphaThingPoly = 0;
 
-    rdModel3_EnableFogRendering(sithWorld_g_pCurrentWorld->fog.bEnabled);
+    if ( !sithRender_bMarkSimulationOnly )
+    {
+        rdModel3_EnableFogRendering(sithWorld_g_pCurrentWorld->fog.bEnabled);
+    }
 
     for ( size_t i = 0; i < sithRender_numVisibleThingSectors; ++i )
     {
@@ -1278,12 +1423,15 @@ void sithRender_RenderThings(void)
                         //
                         // TODO [bug]: sithRender_numSectorPointLights is never incremented, but changing this breaks thin illumination as the light will affect also things from other sectors
                         //             Maybe just a temp var for light can be used instead and we can then increase limitation of max thing light?
-                        sithRender_aSectorPointLights[sithRender_numSectorPointLights].color     = pSector->light.color;
-                        sithRender_aSectorPointLights[sithRender_numSectorPointLights].minRadius = pSector->light.minRadius;
-                        sithRender_aSectorPointLights[sithRender_numSectorPointLights].maxRadius = pSector->light.maxRadius;
+                        if ( !sithRender_bMarkSimulationOnly )
+                        {
+                            sithRender_aSectorPointLights[sithRender_numSectorPointLights].color     = pSector->light.color;
+                            sithRender_aSectorPointLights[sithRender_numSectorPointLights].minRadius = pSector->light.minRadius;
+                            sithRender_aSectorPointLights[sithRender_numSectorPointLights].maxRadius = pSector->light.maxRadius;
 
-                        rdCamera_AddLight(rdCamera_g_pCurCamera, &sithRender_aSectorPointLights[sithRender_numSectorPointLights], &pSector->light.pos);
-                        bLightSet = true;
+                            rdCamera_AddLight(rdCamera_g_pCurCamera, &sithRender_aSectorPointLights[sithRender_numSectorPointLights], &pSector->light.pos);
+                            bLightSet = true;
+                        }
                     }break;
 
                     case RD_THING_SPRITE3:
@@ -1320,29 +1468,35 @@ void sithRender_RenderThings(void)
 
                 if ( bRender )
                 {
-                    // Collect thing flat light
-                    // Altered: The original tests any of light.color r, g, b > 0 here; !IsZero3 also passes negative or NaN components.
-                    if ( (pCurThing->flags & SITH_TF_EMITLIGHT) != 0
-                        && !rdVector_IsZero3((rdVector3*)&pCurThing->light.color)
-                        && SITHRENDER_ISFLATLIGHT(pCurThing->light.color.alpha) )// if light range is <= 0.01f
+                    if ( !sithRender_bMarkSimulationOnly )
                     {
-                        SITH_ASSERT(!rdVector_IsNAN3((const rdVector3*)&pCurThing->light.color)); // Debug builds catch NaN components, which !rdVector_IsZero3 lets through
-                        rdVector4 ambientLight;
-                        rdVector_Add4(&ambientLight, &sectorAmbientLight, &pCurThing->light.color);
-                        rdMath_ClampVector4Acc(&ambientLight, 0.0f, 1.0f);
-                        ambientLight.alpha = sectorAmbientLight.alpha;
+                        // Collect thing flat light
+                        // Altered: The original tests any of light.color r, g, b > 0 here; !IsZero3 also passes negative or NaN components.
+                        if ( (pCurThing->flags & SITH_TF_EMITLIGHT) != 0
+                            && !rdVector_IsZero3((rdVector3*)&pCurThing->light.color)
+                            && SITHRENDER_ISFLATLIGHT(pCurThing->light.color.alpha) )// if light range is <= 0.01f
+                        {
+                            SITH_ASSERT(!rdVector_IsNAN3((const rdVector3*)&pCurThing->light.color)); // Debug builds catch NaN components, which !rdVector_IsZero3 lets through
+                            rdVector4 ambientLight;
+                            rdVector_Add4(&ambientLight, &sectorAmbientLight, &pCurThing->light.color);
+                            rdMath_ClampVector4Acc(&ambientLight, 0.0f, 1.0f);
+                            ambientLight.alpha = sectorAmbientLight.alpha;
 
-                        rdCamera_SetAmbientLight(rdCamera_g_pCurCamera, &ambientLight);
-                    }
-                    else
-                    {
-                        rdCamera_SetAmbientLight(rdCamera_g_pCurCamera, &sectorAmbientLight);
+                            rdCamera_SetAmbientLight(rdCamera_g_pCurCamera, &ambientLight);
+                        }
+                        else
+                        {
+                            rdCamera_SetAmbientLight(rdCamera_g_pCurCamera, &sectorAmbientLight);
+                        }
                     }
 
                     // Now draw thing
                     if ( sithRender_RenderThing(pCurThing) )
                     {
-                        ++sithRender_g_numDrawnThings;
+                        if ( !sithRender_bMarkSimulationOnly )
+                        {
+                            ++sithRender_g_numDrawnThings;
+                        }
                     }
                 }
 
@@ -1355,31 +1509,29 @@ void sithRender_RenderThings(void)
         }
     }
 
-    rdModel3_EnableFogRendering(0);
-    rdCache_Flush();
+    if ( !sithRender_bMarkSimulationOnly )
+    {
+        rdModel3_EnableFogRendering(0);
+        rdCache_Flush();
+    }
 }
 
 int J3DAPI sithRender_RenderThing(SithThing* pThing)
 {
     RD_ASSERTREL(pThing != NULL); // TODO: Why using RD_ASSERTREL
 
-    if ( (pThing->flags & SITH_TF_SEEN) == 0 )
+    // Altered: the default-FOV simulation pass marks without drawing.
+    if ( sithRender_bMarkSimulationOnly )
     {
-        if ( (pThing->flags & SITH_TF_COGLINKED) != 0 )
-        {
-            sithCog_ThingSendMessage(pThing, 0, SITHCOG_MSG_SIGHTED);
-        }
-
-        if ( pThing->controlType == SITH_CT_AI && pThing->controlInfo.aiControl.pLocal )
-        {
-            pThing->controlInfo.aiControl.pLocal->mode &= ~SITHAI_MODE_SLEEPING;
-        }
-
-        pThing->flags |= SITH_TF_SEEN;
+        sithRender_MarkThingSeen(pThing);
+        return 1;
     }
 
-    // Set thing cur render frame num
-    pThing->renderFrame = sithMain_g_frameNumber;
+    // Altered: the draw pass at the chosen FOV leaves the simulation marks to that pass.
+    if ( !sithRender_bSuppressSimulationMarks )
+    {
+        sithRender_MarkThingSeen(pThing);
+    }
 
     // Now draw thing
     pThing->orient.dvec = pThing->pos;
@@ -1478,6 +1630,15 @@ void sithRender_RenderAlphaAdjoins(void)
 
         pPoly->matCelNum = pSurf->face.matCelNum;
         pPoly->flags     = extraFaceFlags | pSurf->face.flags;
+        // Added: sky and water surface tags for the normal target alpha (M9.16).
+        if ( (pSurf->flags & (SITH_SURFACE_CEILINGSKY | SITH_SURFACE_HORIZONSKY)) != 0 )
+        {
+            pPoly->flags |= RD_FF_SKY_SURFACE;
+        }
+        if ( (pSurf->flags & SITH_SURFACE_WATER) != 0 )
+        {
+            pPoly->flags |= RD_FF_WATER_SURFACE;
+        }
         pPoly->pMaterial = pSurf->face.pMaterial;
 
         rdCache_AddAlphaProcFace(pSurf->face.numVertices);

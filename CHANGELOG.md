@@ -1,4 +1,102 @@
 ## Jones3D EX (unreleased)
+### M9: Presentation
+  - Options > Display has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
+    50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample
+    the world and values below it trade detail for speed. The final pass resolves the scene to the
+    presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
+    thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
+    display reopens, like the other Display options.
+  - **Options > Display** has an **Anti-aliasing** row (`engine.renderer.antiAliasing`, SMAA by default
+    in Enhanced and off in Retail). SMAA 1x runs on the tone-mapped 3D scene at the presented
+    resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are never anti-aliased.
+    Off presents exactly the previous image. Applies when the display reopens.
+  - **Options > Display** has a **Bloom** row (`engine.renderer.bloom`: Off, Low, Medium or High =
+    0, 1, 2, 3, with strengths 0, 0.15, 0.3, 0.5; Low by default in Enhanced and off in Retail).
+    A built-in stage before the tone map keeps bright parts of the 3D scene (with a soft-knee
+    threshold so display-referred values below 1.0 glow too) and blurs them through a half-size
+    prefilter and a downsample/upsample chain. The HUD, 2D layer, menus and prompts are never
+    bloomed. Off skips the stage and presents exactly the previous image. Applies when the display
+    reopens.
+  - **Options > Display** has **Depth of field (cutscenes)** and **Depth of field (gameplay)** rows
+    (`engine.renderer.dof.cutscenes` and `.gameplay`; both on by default in Enhanced and off in
+    Retail, with `engine.renderer.dof.strength` 0.5 to 2.0 at 1.0). A stage after the post chain and
+    before bloom softens the 3D scene away from the camera's focus, read each frame without touching
+    the simulation. Cutscenes soften both nearer and farther than the focus; gameplay softens only
+    the far background, starting well behind Indy, so the foreground and nearby geometry stay
+    sharp. The HUD, 2D layer, menus and prompts are never softened. Both off skip the stage and
+    present exactly the previous image. Applies when the display reopens.
+  - **Options > Display** has a **Light shafts** row (`engine.renderer.lightShafts`: Off, Low, Medium
+    or High = 0, 1, 2, 3, with strengths 0, 0.25, 0.5, 0.8; Low by default in Enhanced and off in
+    Retail). A screen-space stage after depth of field and before bloom masks the bright sky, finds
+    its luminance-weighted position on the GPU, and adds a radial blur of the mask to the HDR scene, scaled down on the sky itself so the clouds stay crisp.
+    Sky and water faces are now tagged in the normal target's alpha for this stage and the later
+    water work; the colour image is unchanged. The fade follows about 0.3 s of game time, the HUD,
+    2D layer, menus and prompts are never touched, and Off skips every pass so the image is exactly
+    the previous one. Applies when the display reopens.
+  - **Options > Display** has a **Water ripples** row (`engine.renderer.water.ripples`; on by default
+    in Enhanced and off in Retail). A stage after the post-processing chain and before depth of field
+    animates only the pixels the normal target tags as water: two scrolling sine layers offset the
+    scene sample and a faint view-dependent highlight is added, phased by the frame's game time so
+    the water pauses with the game. The offset is a constant fraction of the output height, so its
+    pixel size follows the resolution, and a sample that leaves the water falls back to the unoffset
+    sample so edges do not smear geometry. The HUD, 2D layer, menus and prompts are never touched;
+    Off skips the stage and presents exactly the previous image. Applies when the display reopens.
+    Screen-space reflections are not built: translucent water does not write depth, so the depth
+    target holds the scene behind it rather than the water plane.
+  - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
+    High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
+    sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring
+    detail lost to a render scale below 100% and the softening of anti-aliasing; the HUD, 2D layer,
+    menus and prompts are never sharpened. Off skips the pass and presents exactly the previous
+    image. Applies when the display reopens.
+  - **Options > Display** has a **Tone mapping** row (`engine.renderer.toneMapping`: Clamp, Neutral or
+    Filmic; Neutral by default in Enhanced and Clamp in Retail) and an **Exposure** row
+    (`engine.renderer.exposure`: 0.5 to 2.0, default 1.0). Neutral is Khronos PBR Neutral, which
+    rolls off highlights and leaves midtones nearly unchanged; Filmic is the ACES fitted curve.
+    Exposure scales the color before the curve. Clamp at exposure 1.0 presents exactly the previous
+    image. Applies when the display reopens.
+  - **Options > Display** has a **Brightness...** entry and `engine.renderer.brightness` (0.6 to 1.8,
+    default 1.0). The calibration screen shows three symbols on black at scene values 0.03, 0.06 and
+    0.12, drawn with the final tone-map pass's formula, and a 0.05-step slider with **Default** (1.0).
+    It opens on the first windowed start when the key is missing from `Jones.cfg`, after the setup
+    wizard and before the main menu. OK and Back keep the value and write the key, like the other
+    Options changes, and the slider previews the open frame owner at once. The final pass applies the
+    gamma after the operator as `pow(saturate(x), 1 / brightness)`; 1.0 skips it and presents exactly
+    the previous image. Applies on the next display restart when the key is edited outside the screen.
+  - **Options > Display** has a **Colour grading** row (`engine.renderer.colorGrading`: Neutral,
+    Warm, Cool, Adventure, Vivid or Muted = 0..5; Neutral in every build). A subtle colour preset
+    is applied in the final tone-map pass after the operator and before brightness, from a 32^3
+    lookup table generated in code and stored as a 1024 x 32 `Rgba8` strip. Neutral skips the
+    lookup and presents exactly the previous image; the HUD, 2D layer, menus and prompts are never
+    graded. Applies when the display reopens.
+  - The intermediate targets of the post-processing chain now use the scene's `Rgba16F` format
+    where the device supports it, so a pass before the tone map keeps values above 1.0 instead of
+    clamping them early. With no post passes nothing changes.
+  - The gameplay HUD (health and endurance, item and weapon icons, compass, ammo and the inventory menu)
+    draws at the display resolution after the scene's post effects, so it stays sharp at any render
+    scale and is never blurred or tinted by them. The scene still renders at the chosen scale.
+  - **Options > Display** has a **Field of view** row (`engine.renderer.fov`), 60 to 110 horizontal degrees
+    at 4:3 and 90 by default. It applies to the normal first-person and third-person cameras; cutscene
+    cameras and a FOV set by a COG keep their authored value. The picture widens but the simulation does
+    not: visibility marks, `SIGHTED` messages, AI wake and visibility queries still use the default FOV.
+    The `fov` console command still sets the current camera directly.
+  - **Options > Display** has an **Anisotropic filtering** row (`graphics.anisotropicFilter`, now a level:
+    1, 2, 4, 8 or 16; 8 by default in Enhanced and 1 in Retail). It keeps world and model textures sharp
+    when they are seen at a slant; an existing `true`/`false` value is read as `8`/`1`. It applies when
+    the display reopens and never touches the HUD, 2D layer or menus.
+  - **Options > Display** has a **Crisp pixels** row (`engine.renderer.texturePixelated`, off by default).
+    It uses nearest minification and magnification for world and model textures, for the original sharp,
+    blocky look, while the mip filter stays as configured.
+  - A world or model texture whose material brings only its top level now gets a mip chain generated on
+    upload when `graphics.mipmapFilter` is not `0`. The levels are box-filtered in colour-aware form, so
+    colour-keyed and alpha textures do not bleed their transparent colour, and the world stops shimmering
+    when it is minified.
+  - The HUD health and endurance indicators stay at the screen edges inside a centered 16:9 safe area
+    on screens wider than 16:9, so they no longer sit in the far corners at 21:9; the 4:3 and 16:9
+    layouts are unchanged. The 3D view and cutscene cameras already widen hor+ at any aspect.
+  - The intro movie keeps its 4:3 aspect on a wider screen: it is pillarboxed with black bars instead
+    of being stretched to the window, and it still fills a 4:3 window.
+
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
     `Jones3D --version` print it.

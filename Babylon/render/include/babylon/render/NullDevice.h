@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <variant>
 #include <vector>
@@ -88,6 +89,11 @@ namespace babylon::render
         // Everything recorded since creation or the last clearRecorded().
         const std::vector<RecordedCommand>& recorded() const;
         void clearRecorded();
+
+        // The desc of a live sampler, or nullopt for the null handle and a
+        // stale one. The device keeps it as it was given, so a test can look at
+        // every field the caller set, anisotropy included.
+        std::optional<SamplerDesc> samplerDesc(SamplerHandle sampler) const;
 
     private:
         const TextureDesc* findTexture(TextureHandle texture) const override;

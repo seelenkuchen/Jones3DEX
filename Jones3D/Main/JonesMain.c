@@ -738,6 +738,12 @@ int J3DAPI JonesMain_Startup(const char* lpCmdLine)
     // skips it; Quit exits like the developer dialog's cancel.
     if ( bShowMainMenu )
     {
+        // Added: the first start, after the setup wizard and the game window and before the main
+        // menu, calibrates the scene's brightness once. The Babylon windowed column shows it when
+        // engine.renderer.brightness is missing from Jones.cfg; the headless and Null columns do
+        // nothing.
+        (void)jonesConfig_ShowBrightnessCalibrationIfUnset(stdWin95_GetWindow());
+
         const int menuResult = jonesConfig_ShowMainMenu(stdWin95_GetWindow(), &JonesMain_state,
             JonesMain_aNdsFilename);
         if ( menuResult == JONES_MAINMENU_NEWGAME )
@@ -2303,6 +2309,47 @@ void JonesMain_OnSkipIntro(void)
     JonesMain_bSkipIntro = true;
 }
 
+// Added: fit a movie bitmap into the canvas at its own aspect, centered. A wider canvas leaves
+// black pillars at the sides and a taller one black bars at the top and bottom; matching aspects
+// still fill the canvas, as the original blit did at 4:3.
+void J3DAPI JonesMain_GetMovieDestination(uint32_t bitmapWidth, uint32_t bitmapHeight,
+    uint32_t screenWidth, uint32_t screenHeight, int* pX, int* pY, int* pWidth, int* pHeight)
+{
+    uint32_t destWidth  = screenWidth;
+    uint32_t destHeight = screenHeight;
+
+    if ( bitmapWidth != 0 && bitmapHeight != 0 && screenWidth != 0 && screenHeight != 0 )
+    {
+        uint64_t scaledWidth  = (uint64_t)screenHeight * bitmapWidth;
+        uint64_t scaledHeight = (uint64_t)screenWidth * bitmapHeight;
+        if ( scaledHeight > scaledWidth )
+        {
+            // Wider canvas: keep the full height and pillarbox.
+            destWidth = (uint32_t)(scaledWidth / bitmapHeight);
+        }
+        else
+        {
+            // Taller canvas: keep the full width and letterbox.
+            destHeight = (uint32_t)(scaledHeight / bitmapWidth);
+        }
+    }
+
+    *pX      = (int)((screenWidth - destWidth) / 2u);
+    *pY      = (int)((screenHeight - destHeight) / 2u);
+    *pWidth  = (int)destWidth;
+    *pHeight = (int)destHeight;
+}
+
+// Added: the movie blits only overwrite their destination rectangle, so clear the canvas first
+// and let the surrounding pillars or bars show as black instead of the previous frame's pixels.
+static void JonesMain_ClearMovieBars(void* pSurface, uint32_t width, uint32_t height, int pitch, size_t bytesPerPixel)
+{
+    for ( uint32_t y = 0; y < height; ++y )
+    {
+        memset((uint8_t*)pSurface + (size_t)pitch * y, 0, (size_t)width * bytesPerPixel);
+    }
+}
+
 int J3DAPI JonesMain_IntroMovieBlt565(const SmushBitmap* pBitmap, int a2)
 {
     J3D_UNUSED(a2);
@@ -2319,27 +2366,34 @@ int J3DAPI JonesMain_IntroMovieBlt565(const SmushBitmap* pBitmap, int a2)
     uint16_t* pCurPixelOut;
     uint8_t* pRow;
     int pitch;
+    int destX;
+    int destY;
+    int destWidth;
+    int destHeight;
 
     stdDisplay_LockBackBuffer(&pSurface, &width, &height, &pitch);
+    JonesMain_GetMovieDestination(pBitmap->width, pBitmap->height, width, height,
+        &destX, &destY, &destWidth, &destHeight);
+    JonesMain_ClearMovieBars(pSurface, width, height, pitch, sizeof(uint16_t));
 
-    pRow = (uint8_t*)pSurface;
+    pRow = (uint8_t*)pSurface + (size_t)destY * pitch;
     pPixels = (uint8_t*)pBitmap->pPixels;
     curHeight = 0;
 
-    for ( i = 0; i < height; ++i )
+    for ( i = 0; i < (uint32_t)destHeight; ++i )
     {
         curWidth = 0;
         pCurPixelIn = pPixels;
-        pCurPixelOut = (uint16_t*)pRow;
+        pCurPixelOut = (uint16_t*)(pRow + (size_t)destX * sizeof(uint16_t));
 
-        for ( j = 0; j < width; ++j )
+        for ( j = 0; j < (uint32_t)destWidth; ++j )
         {
             *pCurPixelOut++ = *(uint16_t*)pCurPixelIn;
 
             curWidth += pBitmap->width;
-            while ( (int)curWidth >= (int)width )
+            while ( (int)curWidth >= destWidth )
             {
-                curWidth -= width;
+                curWidth -= destWidth;
                 pCurPixelIn += pBitmap->pixelSize;
             }
         }
@@ -2347,9 +2401,9 @@ int J3DAPI JonesMain_IntroMovieBlt565(const SmushBitmap* pBitmap, int a2)
         pRow += pitch;
 
         curHeight += pBitmap->height;
-        while ( (int)curHeight >= (int)height )
+        while ( (int)curHeight >= destHeight )
         {
-            curHeight -= height;
+            curHeight -= destHeight;
             pPixels += pBitmap->pitch;
         }
     }
@@ -2393,27 +2447,34 @@ int J3DAPI JonesMain_IntroMovieBlt555(const SmushBitmap* pBitmap, int a2)
     uint16_t* pCurPixelOut;
     uint8_t* pRow;
     int pitch;
+    int destX;
+    int destY;
+    int destWidth;
+    int destHeight;
 
     stdDisplay_LockBackBuffer(&pSurface, &width, &height, &pitch);
+    JonesMain_GetMovieDestination(pBitmap->width, pBitmap->height, width, height,
+        &destX, &destY, &destWidth, &destHeight);
+    JonesMain_ClearMovieBars(pSurface, width, height, pitch, sizeof(uint16_t));
 
-    pRow = (uint8_t*)pSurface;
+    pRow = (uint8_t*)pSurface + (size_t)destY * pitch;
     pPixels = (uint8_t*)pBitmap->pPixels;
     curHeight = 0;
 
-    for ( i = 0; i < height; ++i )
+    for ( i = 0; i < (uint32_t)destHeight; ++i )
     {
         curWidth = 0;
         pCurPixelIn = pPixels;
-        pCurPixelOut = (uint16_t*)pRow;
+        pCurPixelOut = (uint16_t*)(pRow + (size_t)destX * sizeof(uint16_t));
 
-        for ( j = 0; j < width; ++j )
+        for ( j = 0; j < (uint32_t)destWidth; ++j )
         {
             *pCurPixelOut++ = *(uint16_t*)&JonesMain_aIntroMovieColorTable[2 * *(uint16_t*)pCurPixelIn];
 
             curWidth += pBitmap->width;
-            while ( (int)curWidth >= (int)width )
+            while ( (int)curWidth >= destWidth )
             {
-                curWidth -= width;
+                curWidth -= destWidth;
                 pCurPixelIn += pBitmap->pixelSize;
             }
         }
@@ -2421,9 +2482,9 @@ int J3DAPI JonesMain_IntroMovieBlt555(const SmushBitmap* pBitmap, int a2)
         pRow += pitch;
 
         curHeight += pBitmap->height;
-        while ( (int)curHeight >= (int)height )
+        while ( (int)curHeight >= destHeight )
         {
-            curHeight -= height;
+            curHeight -= destHeight;
             pPixels += pBitmap->pitch;
         }
     }
@@ -2467,27 +2528,34 @@ int J3DAPI JonesMain_IntroMovieBlt32(const SmushBitmap* pBitmap, int a2)
     uint32_t* pCurPixelOut;
     uint8_t* pRow;
     int pitch;
+    int destX;
+    int destY;
+    int destWidth;
+    int destHeight;
 
     stdDisplay_LockBackBuffer(&pSurface, &width, &height, &pitch);
+    JonesMain_GetMovieDestination(pBitmap->width, pBitmap->height, width, height,
+        &destX, &destY, &destWidth, &destHeight);
+    JonesMain_ClearMovieBars(pSurface, width, height, pitch, sizeof(uint32_t));
 
-    pRow = (uint8_t*)pSurface;
+    pRow = (uint8_t*)pSurface + (size_t)destY * pitch;
     pPixels = (uint8_t*)pBitmap->pPixels;
     curHeight = 0;
 
-    for ( i = 0; i < height; ++i )
+    for ( i = 0; i < (uint32_t)destHeight; ++i )
     {
         curWidth = 0;
         pCurPixelIn = pPixels;
-        pCurPixelOut = (uint32_t*)pRow;
+        pCurPixelOut = (uint32_t*)(pRow + (size_t)destX * sizeof(uint32_t));
 
-        for ( j = 0; j < width; ++j )
+        for ( j = 0; j < (uint32_t)destWidth; ++j )
         {
             *pCurPixelOut++ = *(uint32_t*)&JonesMain_aIntroMovieColorTable[4 * *(uint16_t*)pCurPixelIn];
 
             curWidth += pBitmap->width;
-            while ( (int)curWidth >= (int)width )
+            while ( (int)curWidth >= destWidth )
             {
-                curWidth -= width;
+                curWidth -= destWidth;
                 pCurPixelIn += pBitmap->pixelSize;
             }
         }
@@ -2495,9 +2563,9 @@ int J3DAPI JonesMain_IntroMovieBlt32(const SmushBitmap* pBitmap, int a2)
         pRow += pitch;
 
         curHeight += pBitmap->height;
-        while ( (int)curHeight >= (int)height )
+        while ( (int)curHeight >= destHeight )
         {
-            curHeight -= height;
+            curHeight -= destHeight;
             pPixels += pBitmap->pitch;
         }
     }
@@ -2770,6 +2838,10 @@ void J3DAPI JonesMain_LoadSettings(StdDisplayEnvironment* pDisplayEnv, JonesStat
     // during the backward step. Options > Display turns it on.
     int bHiPoly = stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, false);
     sithModel_EnableHiPoly(bHiPoly); // Added
+
+    // Added: the player's Field of view option. 0 or a missing key keeps the original default,
+    // so a run with no option behaves exactly as before.
+    sithCamera_SetGameplayFOV(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, 0.0f));
 
     JonesMain_pStartupDisplayEnv = pDisplayEnv;
 

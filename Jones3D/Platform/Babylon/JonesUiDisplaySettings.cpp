@@ -29,14 +29,17 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Main/jonesString.h>
+#include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
 
+#include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/World/sithModel.h>
 #include <sith/World/sithWorld.h>
 
 #include <std/Babylon/stdBabylon.h>
+#include <std/Babylon/std3DBabylon.h>
 #include <std/General/std.h>
 #include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
@@ -49,6 +52,7 @@
 #include <babylon/ui/Widget.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <optional>
@@ -78,6 +82,78 @@ namespace
     constexpr const char* kJonesDisplayHiPolyText      = "Hi-poly models"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLitFacesText    =
         "Lit faces (applies when the display reopens)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayFOVText = "Field of view"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayBloomText = "Bloom"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayLightShaftsText = "Light shafts"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayWaterRipplesText = "Water ripples"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayDofCutscenesText = "Depth of field (cutscenes)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayDofGameplayText = "Depth of field (gameplay)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplaySharpeningText = "Sharpening"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayToneMappingText = "Tone mapping"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayExposureText = "Exposure"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayColorGradingText = "Colour grading"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayBrightnessText = "Brightness..."; // TODO: [COMPAT]
+
+    // Added: M9.4 render scale choices. The value is a multiple of the game's 3D resolution; the
+    // label is what the Options row shows. 100% (index 3) is the default.
+    constexpr float kJonesDisplayRenderScaleValues[] = { 0.5f, 0.67f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f };
+    constexpr const char* kJonesDisplayRenderScaleLabels[] = {
+        "50%", "67%", "75%", "100%", "125%", "150%", "200%" };
+    constexpr std::size_t kJonesDisplayRenderScaleDefault = 3;
+
+    // Added: M9.8 anti-aliasing choices; SMAA (index 1) is the Enhanced default, off in Retail.
+    constexpr int kJonesDisplayAntiAliasingValues[] = { 0, 1 };
+    constexpr const char* kJonesDisplayAntiAliasingLabels[] = { "Off", "SMAA" };
+    constexpr std::size_t kJonesDisplayAntiAliasingDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.12 bloom choices; Low (1) is the Enhanced default, off in Retail/QOL-off builds.
+    constexpr int kJonesDisplayBloomValues[] = { 0, 1, 2, 3 };
+    constexpr const char* kJonesDisplayBloomLabels[] = { "Off", "Low", "Medium", "High" };
+    constexpr std::size_t kJonesDisplayBloomDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.16 light-shaft choices; Low (1) is the Enhanced default, off in Retail/QOL-off
+    // builds.
+    constexpr int kJonesDisplayLightShaftsValues[] = { 0, 1, 2, 3 };
+    constexpr const char* kJonesDisplayLightShaftsLabels[] = { "Off", "Low", "Medium", "High" };
+    constexpr std::size_t kJonesDisplayLightShaftsDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.17 water ripples; on in Enhanced builds and off in Retail/QOL-off ones.
+    constexpr bool kJonesDisplayWaterRipplesDefault = J3D_QOL_VALUE(1, 0) != 0;
+
+    // Added: M9.14 depth-of-field rows. Both are on in Enhanced builds and off in Retail/QOL-off
+    // ones. The strength has no row; the Options apply path leaves its key as it is.
+    constexpr bool kJonesDisplayDofCutscenesDefault = J3D_QOL_VALUE(1, 0) != 0;
+    constexpr bool kJonesDisplayDofGameplayDefault  = J3D_QOL_VALUE(1, 0) != 0;
+
+    // Added: M9.9 contrast-adaptive sharpening choices. Low (0.3) is the Enhanced default, off in
+    // Retail/QOL-off builds.
+    constexpr float kJonesDisplaySharpeningValues[] = { 0.0f, 0.3f, 0.5f, 0.8f };
+    constexpr const char* kJonesDisplaySharpeningLabels[] = { "Off", "Low", "Medium", "High" };
+    constexpr std::size_t kJonesDisplaySharpeningDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.10 tone-mapping operators; Neutral (index 1) is the Enhanced default, clamp in
+    // Retail/QOL-off builds.
+    constexpr int kJonesDisplayToneMappingValues[] = { 0, 1, 2 };
+    constexpr const char* kJonesDisplayToneMappingLabels[] = { "Clamp", "Neutral", "Filmic" };
+    constexpr std::size_t kJonesDisplayToneMappingDefault = J3D_QOL_VALUE(1, 0);
+    constexpr double kJonesDisplayExposureMin = 0.5;
+    constexpr double kJonesDisplayExposureMax = 2.0;
+    constexpr double kJonesDisplayExposureStep = 0.1;
+
+    // Added: M9.13 color-grading presets; Neutral (index 0) is the default in every build.
+    constexpr int kJonesDisplayColorGradingValues[] = { 0, 1, 2, 3, 4, 5 };
+    constexpr const char* kJonesDisplayColorGradingLabels[] = {
+        "Neutral", "Warm", "Cool", "Adventure", "Vivid", "Muted" };
+    constexpr std::size_t kJonesDisplayColorGradingDefault = 0;
+
+    // Added: M9.7 anisotropic filtering choices; 8x (index 3) is the Enhanced default.
+    constexpr int kJonesDisplayAnisotropicValues[] = { 1, 2, 4, 8, 16 };
+    constexpr const char* kJonesDisplayAnisotropicLabels[] = { "Off", "2x", "4x", "8x", "16x" };
+    constexpr std::size_t kJonesDisplayAnisotropicDefault = 3;
 
     std::string JonesUiDisplay_BitDepthLabel(int bpp)
     {
@@ -179,6 +255,134 @@ namespace
     bool JonesUiDisplay_ReadConfigBool(const char* pKey, bool defaultValue)
     {
         return stdConfig_HasStarted() ? stdConfig_GetBool(pKey, defaultValue) : defaultValue;
+    }
+
+    float JonesUiDisplay_ReadConfigFloat(const char* pKey, float defaultValue)
+    {
+        return stdConfig_HasStarted() ? stdConfig_GetFloat(pKey, defaultValue) : defaultValue;
+    }
+
+    // The render scale choice nearest to scale; 100% when the value is not finite.
+    std::size_t JonesUiDisplay_RenderScaleIndex(float scale)
+    {
+        if ( !std::isfinite(scale) )
+        {
+            return kJonesDisplayRenderScaleDefault;
+        }
+
+        std::size_t best = 0;
+        float bestDistance = std::fabs(scale - kJonesDisplayRenderScaleValues[0]);
+        for ( std::size_t cur = 1; cur < STD_ARRAYLEN(kJonesDisplayRenderScaleValues); ++cur )
+        {
+            const float distance = std::fabs(scale - kJonesDisplayRenderScaleValues[cur]);
+            if ( distance < bestDistance )
+            {
+                best         = cur;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
+    }
+
+    // The anti-aliasing choice of a stored value: SMAA for a nonzero one, Off otherwise.
+    std::size_t JonesUiDisplay_AntiAliasingIndex(int value)
+    {
+        return value != 0 ? 1u : 0u;
+    }
+
+    // The bloom choice of a stored level; Low when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_BloomIndex(int level)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayBloomValues); ++cur )
+        {
+            if ( kJonesDisplayBloomValues[cur] == level )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayBloomDefault;
+    }
+
+    // The light-shaft choice of a stored level; Low when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_LightShaftsIndex(int level)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayLightShaftsValues); ++cur )
+        {
+            if ( kJonesDisplayLightShaftsValues[cur] == level )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayLightShaftsDefault;
+    }
+
+    // The sharpening choice nearest to strength; Low when the value is not finite.
+    std::size_t JonesUiDisplay_SharpeningIndex(float strength)
+    {
+        if ( !std::isfinite(strength) )
+        {
+            return kJonesDisplaySharpeningDefault;
+        }
+
+        std::size_t best = 0;
+        float bestDistance = std::fabs(strength - kJonesDisplaySharpeningValues[0]);
+        for ( std::size_t cur = 1; cur < STD_ARRAYLEN(kJonesDisplaySharpeningValues); ++cur )
+        {
+            const float distance = std::fabs(strength - kJonesDisplaySharpeningValues[cur]);
+            if ( distance < bestDistance )
+            {
+                best         = cur;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
+    }
+
+    // The tone-mapping choice of a stored operator; Neutral when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_ToneMappingIndex(int oper)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayToneMappingValues); ++cur )
+        {
+            if ( kJonesDisplayToneMappingValues[cur] == oper )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayToneMappingDefault;
+    }
+
+    // The color-grading choice of a stored preset; Neutral when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_ColorGradingIndex(int preset)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayColorGradingValues); ++cur )
+        {
+            if ( kJonesDisplayColorGradingValues[cur] == preset )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayColorGradingDefault;
+    }
+
+    // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
+    std::size_t JonesUiDisplay_AnisotropicIndex(int level)
+    {
+        const int normalized = std3DBabylon_NormalizeAnisotropicFilterLevel(level);
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayAnisotropicValues); ++cur )
+        {
+            if ( kJonesDisplayAnisotropicValues[cur] == normalized )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayAnisotropicDefault;
     }
 
     void JonesUiDisplay_SetConfigInt(const char* pKey, int value)
@@ -307,6 +511,166 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Toggle{
             JonesUiDisplay_ResolveLabel(kJonesDisplayLitFacesText), std::string(), true,
             values.bLitFaces });
+
+        // Added: the player's Field of view, horizontal degrees at 4:3. It only changes what the
+        // player sees; the simulation keeps its default visibility frustum.
+        layout.gameplayFOV = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Slider{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayFOVText), std::string(),
+            (double)SITHCAMERA_GAMEPLAYFOVMIN, (double)SITHCAMERA_GAMEPLAYFOVMAX, 1.0, true,
+            values.gameplayFOV });
+
+        // Added: M9.4. The internal 3D resolution heads up into supersampling. Screen coordinates,
+        // menus and the read-back image keep the display size; the in-world HUD is drawn with the
+        // scene.
+        std::vector<std::string> renderScaleOptions;
+        for ( const char* pLabel : kJonesDisplayRenderScaleLabels )
+        {
+            renderScaleOptions.emplace_back(pLabel);
+        }
+        layout.renderScale = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayRenderScaleText), std::string(),
+            std::move(renderScaleOptions), true,
+            values.renderScale < STD_ARRAYLEN(kJonesDisplayRenderScaleValues)
+                ? values.renderScale : kJonesDisplayRenderScaleDefault });
+
+        // Added: M9.8. SMAA smooths the 3D scene's edges after the tone map; the HUD, menus and
+        // prompts are never anti-aliased.
+        std::vector<std::string> antiAliasingOptions;
+        for ( const char* pLabel : kJonesDisplayAntiAliasingLabels )
+        {
+            antiAliasingOptions.emplace_back(pLabel);
+        }
+        layout.antiAliasing = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayAntiAliasingText), std::string(),
+            std::move(antiAliasingOptions), true,
+            values.antiAliasing < STD_ARRAYLEN(kJonesDisplayAntiAliasingValues)
+                ? values.antiAliasing : kJonesDisplayAntiAliasingDefault });
+
+        // Added: M9.12. Bloom adds a soft glow around bright parts of the 3D scene before the tone
+        // map; the HUD, menus and prompts are never bloomed.
+        std::vector<std::string> bloomOptions;
+        for ( const char* pLabel : kJonesDisplayBloomLabels )
+        {
+            bloomOptions.emplace_back(pLabel);
+        }
+        layout.bloom = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayBloomText), std::string(),
+            std::move(bloomOptions), true,
+            values.bloom < STD_ARRAYLEN(kJonesDisplayBloomValues)
+                ? values.bloom : kJonesDisplayBloomDefault });
+
+        // Added: M9.16. Light shafts smear the bright sky into rays; the HUD, menus and prompts
+        // are never touched.
+        std::vector<std::string> lightShaftsOptions;
+        for ( const char* pLabel : kJonesDisplayLightShaftsLabels )
+        {
+            lightShaftsOptions.emplace_back(pLabel);
+        }
+        layout.lightShafts = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayLightShaftsText), std::string(),
+            std::move(lightShaftsOptions), true,
+            values.lightShafts < STD_ARRAYLEN(kJonesDisplayLightShaftsValues)
+                ? values.lightShafts : kJonesDisplayLightShaftsDefault });
+
+        // Added: M9.17. Water ripples animate water-tagged pixels; the HUD, menus and prompts are
+        // never touched.
+        layout.waterRipples = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayWaterRipplesText), std::string(), true,
+            values.bWaterRipples });
+
+        // Added: M9.14. Depth of field softens the background; cutscenes blur both sides of the
+        // focus. The HUD, menus and prompts are never blurred.
+        layout.dofCutscenes = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayDofCutscenesText), std::string(), true,
+            values.bDofCutscenes });
+
+        layout.dofGameplay = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayDofGameplayText), std::string(), true,
+            values.bDofGameplay });
+
+        // Added: M9.9. Contrast-adaptive sharpening restores detail lost to a low render scale or
+        // to SMAA; the HUD, menus and prompts are never sharpened.
+        std::vector<std::string> sharpeningOptions;
+        for ( const char* pLabel : kJonesDisplaySharpeningLabels )
+        {
+            sharpeningOptions.emplace_back(pLabel);
+        }
+        layout.sharpening = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplaySharpeningText), std::string(),
+            std::move(sharpeningOptions), true,
+            values.sharpening < STD_ARRAYLEN(kJonesDisplaySharpeningValues)
+                ? values.sharpening : kJonesDisplaySharpeningDefault });
+
+        // Added: M9.10. The operator maps the display-referred scene tone into 0..1; Neutral compresses
+        // highlights while leaving midtones, Filmic is the classic ACES curve. Exposure scales the
+        // color before the curve.
+        std::vector<std::string> toneMappingOptions;
+        for ( const char* pLabel : kJonesDisplayToneMappingLabels )
+        {
+            toneMappingOptions.emplace_back(pLabel);
+        }
+        layout.toneMapping = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayToneMappingText), std::string(),
+            std::move(toneMappingOptions), true,
+            values.toneMapping < STD_ARRAYLEN(kJonesDisplayToneMappingValues)
+                ? values.toneMapping : kJonesDisplayToneMappingDefault });
+
+        layout.exposure = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Slider{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayExposureText), std::string(),
+            kJonesDisplayExposureMin, kJonesDisplayExposureMax, kJonesDisplayExposureStep, true,
+            std::clamp(values.exposure, kJonesDisplayExposureMin, kJonesDisplayExposureMax) });
+
+        // Added: M9.13. A subtle color-grading preset on the 3D scene after the tone-map operator;
+        // Neutral leaves the image exactly as it was.
+        std::vector<std::string> colorGradingOptions;
+        for ( const char* pLabel : kJonesDisplayColorGradingLabels )
+        {
+            colorGradingOptions.emplace_back(pLabel);
+        }
+        layout.colorGrading = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayColorGradingText), std::string(),
+            std::move(colorGradingOptions), true,
+            values.colorGrading < STD_ARRAYLEN(kJonesDisplayColorGradingValues)
+                ? values.colorGrading : kJonesDisplayColorGradingDefault });
+
+        // Added: M9.7. Anisotropic filtering sharpens world and model textures seen at a slant;
+        // off keeps the plain linear filter. Crisp pixels drops min/mag filtering to nearest for
+        // the original look, while the mip filter follows the Mipmap filter row.
+        std::vector<std::string> anisotropicOptions;
+        for ( const char* pLabel : kJonesDisplayAnisotropicLabels )
+        {
+            anisotropicOptions.emplace_back(pLabel);
+        }
+        layout.anisotropic = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayAnisotropicText), std::string(),
+            std::move(anisotropicOptions), true,
+            values.anisotropic < STD_ARRAYLEN(kJonesDisplayAnisotropicValues)
+                ? values.anisotropic : kJonesDisplayAnisotropicDefault });
+
+        layout.crispPixels = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayCrispPixelsText), std::string(), true,
+            values.bCrispPixels });
+
+        // Added: opens the brightness calibration screen; the value is written there, not by
+        // this screen's OK.
+        layout.brightness = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Button{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayBrightnessText),
+            kJonesDisplayActionBrightness, true });
 
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
@@ -439,6 +803,34 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.bHiPoly = sithModel_IsHiPolyEnabled();
     model.bLitFaces = JonesUiDisplay_ReadConfigBool(
         JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+    model.gameplayFOV = sithCamera_GetGameplayFOV();
+    model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
+        JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
+    model.antiAliasing = JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, J3D_QOL_VALUE(1, 0));
+    model.bloom = std::clamp(JonesUiDisplay_ReadConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM,
+        J3D_QOL_VALUE(1, 0)), 0, (int)STD_ARRAYLEN(kJonesDisplayBloomValues) - 1);
+    model.lightShafts = std::clamp(JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, J3D_QOL_VALUE(1, 0)), 0,
+        (int)STD_ARRAYLEN(kJonesDisplayLightShaftsValues) - 1);
+    model.bWaterRipples = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
+        kJonesDisplayWaterRipplesDefault);
+    model.bDofCutscenes = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
+        kJonesDisplayDofCutscenesDefault);
+    model.bDofGameplay = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY,
+        kJonesDisplayDofGameplayDefault);
+    model.sharpening = std::clamp(JonesUiDisplay_ReadConfigFloat(
+        JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, J3D_QOL_VALUE(0.3f, 0.0f)), 0.0f, 1.0f);
+    model.toneMapping = JonesUiDisplay_ReadConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING,
+        J3D_QOL_VALUE(1, 0));
+    model.exposure = (float)std::clamp((double)JonesUiDisplay_ReadConfigFloat(
+        JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, 1.0f), kJonesDisplayExposureMin,
+        kJonesDisplayExposureMax);
+    model.colorGrading = std::clamp(JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING, 0), 0,
+        (int)STD_ARRAYLEN(kJonesDisplayColorGradingValues) - 1);
+    model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
+    model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
 
     values.bBitDepth   = model.bitDepths.size() > 1;
     values.bitDepth    = model.curBitDepth;
@@ -451,6 +843,20 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.performance = (std::size_t)performance;
     values.bHiPoly     = model.bHiPoly;
     values.bLitFaces   = model.bLitFaces;
+    values.gameplayFOV = (double)model.gameplayFOV;
+    values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
+    values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
+    values.bloom = JonesUiDisplay_BloomIndex(model.bloom);
+    values.lightShafts = JonesUiDisplay_LightShaftsIndex(model.lightShafts);
+    values.bWaterRipples = model.bWaterRipples;
+    values.bDofCutscenes = model.bDofCutscenes;
+    values.bDofGameplay = model.bDofGameplay;
+    values.sharpening = JonesUiDisplay_SharpeningIndex(model.sharpening);
+    values.toneMapping = JonesUiDisplay_ToneMappingIndex(model.toneMapping);
+    values.exposure = (double)model.exposure;
+    values.colorGrading = JonesUiDisplay_ColorGradingIndex(model.colorGrading);
+    values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
+    values.bCrispPixels = model.bCrispPixels;
     return model;
 }
 
@@ -490,6 +896,34 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.bHiPoly));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.litFaces,
         values.bLitFaces));
+    static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.gameplayFOV,
+        values.gameplayFOV));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.renderScale,
+        values.renderScale));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.antiAliasing,
+        values.antiAliasing));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.bloom,
+        values.bloom));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.lightShafts,
+        values.lightShafts));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.waterRipples,
+        values.bWaterRipples));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofCutscenes,
+        values.bDofCutscenes));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofGameplay,
+        values.bDofGameplay));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.sharpening,
+        values.sharpening));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.toneMapping,
+        values.toneMapping));
+    static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.exposure,
+        values.exposure));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.colorGrading,
+        values.colorGrading));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
+        values.anisotropic));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.crispPixels,
+        values.bCrispPixels));
 }
 
 bool JonesUiDisplay_CollectVideoModes(const StdDisplayEnvironment* pEnv, int displayDeviceNum,
@@ -666,6 +1100,76 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED,
         values.bLitFaces);
 
+    const float gameplayFOV = (float)std::clamp(values.gameplayFOV,
+        (double)SITHCAMERA_GAMEPLAYFOVMIN, (double)SITHCAMERA_GAMEPLAYFOVMAX);
+    sithCamera_SetGameplayFOV(gameplayFOV);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, gameplayFOV);
+
+    // Added: M9.4. The scale is read when the display opens; the Options OK already asks for a
+    // display restart, the same way the other presentation keys take effect.
+    const std::size_t renderScale = std::min(values.renderScale,
+        STD_ARRAYLEN(kJonesDisplayRenderScaleValues) - 1);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE,
+        kJonesDisplayRenderScaleValues[renderScale]);
+
+    // Added: M9.8. Read when the frame owner opens, like the render scale.
+    const std::size_t antiAliasing = std::min(values.antiAliasing,
+        STD_ARRAYLEN(kJonesDisplayAntiAliasingValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING,
+        kJonesDisplayAntiAliasingValues[antiAliasing]);
+
+    // Added: M9.12. Read when the frame owner opens, like anti-aliasing.
+    const std::size_t bloom = std::min(values.bloom,
+        STD_ARRAYLEN(kJonesDisplayBloomValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM,
+        kJonesDisplayBloomValues[bloom]);
+
+    // Added: M9.16. Read when the frame owner opens, like bloom.
+    const std::size_t lightShafts = std::min(values.lightShafts,
+        STD_ARRAYLEN(kJonesDisplayLightShaftsValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS,
+        kJonesDisplayLightShaftsValues[lightShafts]);
+
+    // Added: M9.17. Read when the frame owner opens, like bloom.
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
+        values.bWaterRipples);
+
+    // Added: M9.14. Read when the frame owner opens, like bloom. The strength key is only read
+    // there, so this screen leaves it unchanged.
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
+        values.bDofCutscenes);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY,
+        values.bDofGameplay);
+
+    // Added: M9.9. Read when the frame owner opens, like anti-aliasing.
+    const std::size_t sharpening = std::min(values.sharpening,
+        STD_ARRAYLEN(kJonesDisplaySharpeningValues) - 1);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING,
+        kJonesDisplaySharpeningValues[sharpening]);
+
+    // Added: M9.10. Read when the frame owner opens, like the render scale.
+    const std::size_t toneMapping = std::min(values.toneMapping,
+        STD_ARRAYLEN(kJonesDisplayToneMappingValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING,
+        kJonesDisplayToneMappingValues[toneMapping]);
+    JonesUiDisplay_SetConfigFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE,
+        (float)std::clamp(values.exposure, kJonesDisplayExposureMin,
+            kJonesDisplayExposureMax));
+
+    // Added: M9.13. Read when the frame owner opens, like the tone map.
+    const std::size_t colorGrading = std::min(values.colorGrading,
+        STD_ARRAYLEN(kJonesDisplayColorGradingValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING,
+        kJonesDisplayColorGradingValues[colorGrading]);
+
+    // Added: M9.7. Both are read by std3D_Open, so they take effect with the same display restart
+    // the other presentation rows ask for.
+    const std::size_t anisotropic = std::min(values.anisotropic,
+        STD_ARRAYLEN(kJonesDisplayAnisotropicValues) - 1);
+    JonesUiDisplay_SetConfigInt(STD3D_CFG_ANISOTROPICFILTER,
+        kJonesDisplayAnisotropicValues[anisotropic]);
+    JonesUiDisplay_SetConfigBool(STD3D_CFG_TEXTUREPIXELATED, values.bCrispPixels);
+
     return kJonesDialogOk;
 }
 
@@ -690,8 +1194,19 @@ int JonesUiDisplay_RunDisplayScreen(babylon::ui::Ui& ui, babylon::ui::Painter* p
     {
         const babylon::ui::ActionPressed* pAction =
             std::get_if<babylon::ui::ActionPressed>(&event);
-        if ( !pAction || pAction->screen != screenId
-            || pAction->action != kJonesDisplayActionOk )
+        if ( !pAction || pAction->screen != screenId )
+        {
+            return false;
+        }
+
+        if ( pAction->action == kJonesDisplayActionBrightness )
+        {
+            // Added: the calibration keeps its own value and closes back to this screen.
+            static_cast<void>(JonesUiBrightness_Run(uiRef, pPainter));
+            return true;
+        }
+
+        if ( pAction->action != kJonesDisplayActionOk )
         {
             return false;
         }

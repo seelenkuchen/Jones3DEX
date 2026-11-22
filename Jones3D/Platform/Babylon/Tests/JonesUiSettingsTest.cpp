@@ -5,6 +5,7 @@
 // outputs. The drawing sample lives in JonesUiRenderTest.cpp.
 #include <doctest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -32,6 +33,7 @@
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
 #include <Jones3D/Platform/Babylon/JonesUiGameplaySettings.h>
@@ -43,6 +45,7 @@
 #include <sound/DriverOutput.h>
 
 #include <sith/Devices/sithControl.h>
+#include <sith/Engine/sithCamera.h>
 #include <sith/Engine/sithPuppet.h>
 #include <sith/Engine/sithRender.h>
 #include <sith/Gameplay/sithOverlayMap.h>
@@ -54,7 +57,9 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonEvents.h>
+#include <std/Babylon/std3DBabylon.h>
 #include <std/General/std.h>
+#include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
 #include <std/General/stdJSON.h>
 #include <std/General/stdPlatform.h>
@@ -446,12 +451,16 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     JonesDisplaySettings settings = DefaultDisplaySettings();
     sithModel_EnableHiPoly(1);
     sithRender_g_fogDensity = 100.0f;
+    sithCamera_SetGameplayFOV(0.0f);
 
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
-    // 7 hi-poly, 8 lit faces, 9 OK, 10 back.
+    // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
+    // 13 light shafts, 14 water ripples, 15 depth of field (cutscenes), 16 depth of field (gameplay),
+    // 17 sharpening, 18 tone mapping, 19 exposure, 20 colour grading, 21 anisotropic filtering,
+    // 22 crisp pixels, 23 Brightness..., 24 OK, 25 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -469,6 +478,35 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Enter); // hi-poly off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // lit faces off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Left); // field of view 90 -> 89
+    testContext.platform.PushKey(platform::Key::Down);  // render scale
+    testContext.platform.PushKey(platform::Key::Right); // 100% -> 125%
+    testContext.platform.PushKey(platform::Key::Down);  // anti-aliasing
+    testContext.platform.PushKey(platform::Key::Left);  // SMAA -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // bloom
+    testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // light shafts
+    testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // water ripples
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);  // depth of field (cutscenes)
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);  // depth of field (gameplay)
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Down);  // sharpening
+    testContext.platform.PushKey(platform::Key::Left);  // Low -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // tone mapping
+    testContext.platform.PushKey(platform::Key::Right); // Neutral -> Filmic
+    testContext.platform.PushKey(platform::Key::Down);  // exposure
+    testContext.platform.PushKey(platform::Key::Left);  // 1.0 -> 0.9
+    testContext.platform.PushKey(platform::Key::Down);  // colour grading
+    testContext.platform.PushKey(platform::Key::Right); // Neutral -> Warm
+    testContext.platform.PushKey(platform::Key::Down);  // anisotropic filtering
+    testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
+    testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
+    testContext.platform.PushKey(platform::Key::Enter); // crisp pixels on
+    testContext.platform.PushKey(platform::Key::Down);  // Brightness...
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
 
@@ -496,6 +534,48 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, -1) == 2);
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, true));
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true));
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, 0.0f) == doctest::Approx(89.0f));
+    CHECK(sithCamera_GetGameplayFOV() == doctest::Approx(89.0f));
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 0.0f)
+        == doctest::Approx(1.25f));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, -1) == 0);
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Enhanced starts water ripples on, so Enter turns them off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, true));
+#else
+    // Without QOL they start off, so Enter turns them on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, false));
+#endif
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Enhanced starts both on, so Enter turns them off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES, true));
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY, true));
+#else
+    // Without QOL both start off, so Enter turns them on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES, false));
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY, false));
+#endif
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING, -1.0f)
+        == doctest::Approx(0.0f));
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING, -1) == 2);
+#else
+    // Without QOL the row starts at Clamp (0); stepping right from the first choice selects
+    // Neutral (1), not Filmic.
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING, -1) == 1);
+#endif
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE, -1.0f)
+        == doctest::Approx(0.9f));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING, -1) == 1);
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 4);
+#else
+    // Without QOL the row starts at Off (1); stepping left from the first choice keeps it there.
+    CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 1);
+#endif
+    CHECK(stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false));
     char aDisplay[128] = { 0 };
     CHECK(stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aDisplay,
         sizeof(aDisplay), ""));
@@ -506,6 +586,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_BUFFERING, true));
     CHECK_FALSE(sithModel_IsHiPolyEnabled());
     CHECK(sithRender_g_fogDensity == doctest::Approx(99.0f));
+
+    // Leave the shared option at its default for the following cases.
+    sithCamera_SetGameplayFOV(0.0f);
 }
 
 TEST_CASE("the display screen back writes nothing")
@@ -549,6 +632,32 @@ TEST_CASE("the display screen back writes nothing")
     CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, false));
     CHECK(sithModel_IsHiPolyEnabled());
     CHECK(sithRender_g_fogDensity == doctest::Approx(100.0f));
+}
+
+TEST_CASE("the anisotropic filtering key accepts the old boolean form")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == J3D_QOL_VALUE(8, 1));
+
+    // An existing Jones.cfg from before the level existed holds true or false.
+    REQUIRE(stdConfig_SetBool(STD3D_CFG_ANISOTROPICFILTER, true));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 8);
+    REQUIRE(stdConfig_SetBool(STD3D_CFG_ANISOTROPICFILTER, false));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 1);
+
+    REQUIRE(stdConfig_SetInt(STD3D_CFG_ANISOTROPICFILTER, 4));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 4);
+    // A hand-edited value snaps to the next lower offered step.
+    REQUIRE(stdConfig_SetInt(STD3D_CFG_ANISOTROPICFILTER, 3));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 2);
+    REQUIRE(stdConfig_SetInt(STD3D_CFG_ANISOTROPICFILTER, 100));
+    CHECK(std3DBabylon_ReadAnisotropicFilterLevel() == 16);
+
+    CHECK_FALSE(std3DBabylon_ReadTexturePixelated());
+    REQUIRE(stdConfig_SetBool(STD3D_CFG_TEXTUREPIXELATED, true));
+    CHECK(std3DBabylon_ReadTexturePixelated());
 }
 
 TEST_CASE("Alt+Enter toggles fullscreen and writes graphics.window")
@@ -832,7 +941,13 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK(sithWeapon_IsBloodSplatterEnabled());
     CHECK_FALSE(JonesHud_IsInteractionPromptsEnabled());
     CHECK_FALSE(sithWeapon_IsQuickWhipEnabled());
+#ifdef J3D_QOL_IMPROVEMENTS
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, true));
+#else
+    // The non-QOL weapon ignores the toggle, so the row was loaded off and Enter turned the
+    // stored value on; this build only exercises the write path.
+    CHECK(stdConfig_GetBool(SITHWEAPON_CFG_GAMEPLAY_QUICKWHIP, false));
+#endif
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
@@ -1076,7 +1191,12 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
                 REQUIRE(choice->options.size() == 2u);
                 CHECK(choice->options[0] == "Modern");
                 CHECK(choice->options[1] == "Classic");
+#ifdef J3D_QOL_IMPROVEMENTS
                 CHECK(choice->enabled);
+#else
+                // The per-device styles are Enhanced-only; the rows are shown but locked.
+                CHECK_FALSE(choice->enabled);
+#endif
                 REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
                 CHECK(!controlsTab.help[i].empty());
             }
@@ -1086,7 +1206,11 @@ TEST_CASE("the options tabs expose their rows and Display has no Performance row
                 REQUIRE(choice->options.size() == 2u);
                 CHECK(choice->options[0] == "Modern");
                 CHECK(choice->options[1] == "Classic");
+#ifdef J3D_QOL_IMPROVEMENTS
                 CHECK(choice->enabled);
+#else
+                CHECK_FALSE(choice->enabled);
+#endif
                 REQUIRE(controlsTab.help.size() == controlsTab.widgets.size());
                 CHECK(!controlsTab.help[i].empty());
             }
@@ -1209,6 +1333,7 @@ TEST_CASE("Q and E switch options tabs and keep a changed value")
     CHECK(ui.screenCount() == 0u);
 }
 
+#ifdef J3D_QOL_IMPROVEMENTS
 TEST_CASE("the Controls tab reads and writes the per-device control styles")
 {
     SettingsTestContext testContext;
@@ -1266,6 +1391,7 @@ TEST_CASE("the Controls tab reads and writes the per-device control styles")
     // The old single key is no longer written.
     CHECK_FALSE(stdConfig_Contains(SITHCONTROL_CFG_ENGINE_INPUT_CONTROLSTYLE));
 }
+#endif
 
 TEST_CASE("the retail profile locks the Controls tab style rows")
 {
@@ -1399,4 +1525,155 @@ TEST_CASE("leaving the options screen with back applies the changes")
     CHECK(display.bWindowMode == 1);
     CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_GRAPHICS_WINDOW, false));
     CHECK(ui.screenCount() == 0u);
+}
+
+
+TEST_CASE("the brightness calibration is wanted only while its key is missing")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    CHECK(JonesUiBrightness_NeedsCalibration());
+
+    REQUIRE(stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, 1.2f));
+    CHECK_FALSE(JonesUiBrightness_NeedsCalibration());
+}
+
+TEST_CASE("the brightness swatch uses the tone-map gamma formula")
+{
+    const ui::Color identity = JonesUiBrightness_MapSceneColor(0.25f, 1.0f, 0u, 1.0f);
+    CHECK(identity.r == doctest::Approx(0.25f));
+    CHECK(identity.g == doctest::Approx(0.25f));
+    CHECK(identity.b == doctest::Approx(0.25f));
+
+    const ui::Color bright = JonesUiBrightness_MapSceneColor(0.25f, 1.0f, 0u, 1.5f);
+    const float expected = std::pow(0.25f, 1.0f / 1.5f);
+    CHECK(bright.r == doctest::Approx(expected).epsilon(1e-6));
+    CHECK(bright.g == doctest::Approx(expected).epsilon(1e-6));
+
+    // An invalid brightness falls back to the identity, and the operator stays ahead of it.
+    CHECK(JonesUiBrightness_MapSceneColor(0.25f, 1.0f, 0u, 0.0f).r
+        == doctest::Approx(0.25f));
+    const ui::Color neutral = JonesUiBrightness_MapSceneColor(0.25f, 1.0f, 1u, 1.0f);
+    CHECK(neutral.r == doctest::Approx(0.25f));
+}
+
+TEST_CASE("the brightness screen steps by 0.05, clamps and writes the key on OK")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    REQUIRE(stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, 1.0f));
+    testContext.platform.PushKey(platform::Key::Right); // 1.00 -> 1.05
+    testContext.platform.PushKey(platform::Key::Down);  // Default
+    testContext.platform.PushKey(platform::Key::Down);  // OK
+    testContext.platform.PushKey(platform::Key::Enter);
+    REQUIRE(JonesUiBrightness_Run(ui, &painter) == 1);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, -1.0f)
+        == doctest::Approx(1.05f));
+
+    // Left at the lower end and Right at the upper end keep the clamp.
+    REQUIRE(stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, 0.6f));
+    testContext.platform.PushKey(platform::Key::Left);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    REQUIRE(JonesUiBrightness_Run(ui, &painter) == 1);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, -1.0f)
+        == doctest::Approx(0.6f));
+
+    REQUIRE(stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, 1.8f));
+    testContext.platform.PushKey(platform::Key::Right);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter);
+    REQUIRE(JonesUiBrightness_Run(ui, &painter) == 1);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, -1.0f)
+        == doctest::Approx(1.8f));
+}
+
+TEST_CASE("the brightness screen Default returns to 1.0")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    REQUIRE(stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, 1.3f));
+    testContext.platform.PushKey(platform::Key::Down);  // Default
+    testContext.platform.PushKey(platform::Key::Enter); // reopen at 1.0
+    testContext.platform.PushKey(platform::Key::Down);  // Default
+    testContext.platform.PushKey(platform::Key::Down);  // OK
+    testContext.platform.PushKey(platform::Key::Enter);
+
+    REQUIRE(JonesUiBrightness_Run(ui, &painter) == 1);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, -1.0f)
+        == doctest::Approx(1.0f));
+}
+
+TEST_CASE("the brightness screen back keeps the value")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    REQUIRE(stdConfig_SetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, 1.0f));
+    testContext.platform.PushKey(platform::Key::Right); // 1.05
+    testContext.platform.PushKey(platform::Key::Escape);
+
+    REQUIRE(JonesUiBrightness_Run(ui, &painter) == 2);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, -1.0f)
+        == doctest::Approx(1.05f));
+}
+
+TEST_CASE("the Options Display brightness row opens the calibration")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings display = DefaultDisplaySettings();
+    JonesSoundSettings sound{};
+    sound.maxSoundVolume = 1.0f;
+    JonesControlsConfig controls{};
+
+    JonesUiOptionsData data;
+    data.bEnhancedProfile = true;
+    data.pDisplayEnv      = &env;
+    data.pDisplaySettings = &display;
+    data.pSoundSettings   = &sound;
+    data.pControlsConfig  = &controls;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 22).
+    testContext.platform.PushKey(platform::Key::E);
+    testContext.platform.PushKey(platform::Key::E);
+    for ( int row = 0; row < 22; ++row )
+    {
+        testContext.platform.PushKey(platform::Key::Down);
+    }
+
+    testContext.platform.PushKey(platform::Key::Enter); // open the calibration
+    testContext.platform.PushKey(platform::Key::Right); // 1.00 -> 1.05
+    testContext.platform.PushKey(platform::Key::Down);  // Default
+    testContext.platform.PushKey(platform::Key::Down);  // OK
+    testContext.platform.PushKey(platform::Key::Enter);
+    testContext.platform.PushKey(platform::Key::Escape); // leave Options, keeping changes
+
+    REQUIRE(JonesUiOptions_RunOptionsScreen(ui, &painter, data) == 1);
+    CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS, -1.0f)
+        == doctest::Approx(1.05f));
 }

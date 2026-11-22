@@ -14,6 +14,8 @@
 
 #define STD3D_CFG_MIPMAPAUTOGEN     "graphics.mipmapAutoGen"
 #define STD3D_CFG_ANISOTROPICFILTER "graphics.anisotropicFilter"
+// Added: nearest min/mag for world and model textures, the original look (Options > Display).
+#define STD3D_CFG_TEXTUREPIXELATED  "engine.renderer.texturePixelated"
 
 #define STD3D_CFG_MSAAENABLED "graphics.msaa.enabled"
 #define STD3D_CFG_MSAASAMPLES "graphics.msaa.samples"
@@ -41,6 +43,17 @@ size_t std3D_GetNumTextureFormats(void);
 
 int std3D_StartScene(void);
 void std3D_EndScene(void);
+
+// Added: directs the draws until std3D_EndHudLayer to the display-sized HUD layer instead of the
+// scene targets, so the gameplay HUD stays sharp at any render scale and is never touched by the
+// scene's post effects. Must be called inside a scene; the draws collected so far are recorded into
+// the scene first. The HUD layer is cleared to transparent, drawn with its own depth (the HUD camera's
+// overlay z range is below the scene's, so its ordering is unchanged), and composited over the
+// presented scene after the tone map. The game marks the HUD section with this pair. The
+// Null backend accepts both as no-ops, and std3D_EndScene ends the layer if std3D_EndHudLayer was
+// not called. std3D_EndHudLayer outside the layer is a no-op.
+void std3D_BeginHudLayer(void);
+void std3D_EndHudLayer(void);
 
 void J3DAPI std3D_DrawRenderList(tSysTexture* pTex, Std3DRenderState rdflags, StdVertexTL* aVerts, size_t numVerts, uint16_t* aIndices, size_t numIndices);
 
@@ -78,6 +91,22 @@ void std3D_ResetTextureCache(void);
 size_t J3DAPI std3D_GetMipMapCount(const tSystemTexture* pTexture);
 void J3DAPI std3D_UpdateFrameCount(tSystemTexture* pTexture);
 size_t J3DAPI std3D_FindClosestFormat(const ColorInfo* pMatch);
+
+// Added: the per-frame focus input of the optional depth-of-field stage (M9.14, presentation
+// only). distance is the view-space distance from the camera to the thing the current camera looks
+// at, bCutscene true for a cutscene camera (near and far blur) and false for a gameplay camera
+// (background blur only). deltaTime, in seconds of game time, smooths the distance towards the
+// target; a non-positive value snaps it. The backend keeps the last near and far plane of
+// std3D_SetProjection for the depth linearisation. Backends without depth of field (Null, and the
+// replay path) ignore the call, and it records nothing in a capture. It changes no simulation
+// state.
+void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime);
+
+// Added: the frame's game time in seconds, for the optional light-shaft stage's fade (M9.16,
+// presentation only). Called once per rendered frame; the backend keeps it for the renderer's
+// smoothing. A non-finite value is ignored and a long step is clamped. Backends without light
+// shafts (Null, and the replay path) ignore the call, and it records nothing in a capture.
+void J3DAPI std3D_SetFrameTime(float deltaTime);
 
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);

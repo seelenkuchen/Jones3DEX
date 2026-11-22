@@ -82,3 +82,14 @@ honors the whole contract, and contract tests that run against every backend
 - Passes and pipelines with several color targets (up to `kMaxColorTargets`) were already part of the
   interface; contract tests now clear several targets of different formats in one pass on every backend, and
   a shader test draws into two targets at once.
+
+## Amendment (2026-11-21): a half-float color format for HDR scene targets
+
+- `TextureFormat::Rgba16F` (four little-endian IEEE 754 half floats per texel, red first) joins the
+  formats, for an offscreen scene color target that holds values outside 0..1 for a later tone map. It
+  maps to SDL GPU's `SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT`, which Vulkan, Direct3D 12 and Metal offer as
+  both a sampled and a color-attachment format. The Null backend clears, uploads and reads it byte-exact like
+  the other color formats, including subnormal half values. It is appended last, so the values of the
+  existing formats don't change.
+- Contract and shader-draw tests cover creating, clearing, uploading, reading and sampling it on both
+  backends, as they do for the other color formats.

@@ -15,6 +15,7 @@
 #include <sith/World/sithThing.h>
 #include <sith/World/sithWorld.h>
 
+#include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
 
@@ -34,6 +35,12 @@ rdMatrix34 sithCamera_g_orbCamOrient;
 rdVector3 sithCamera_g_camLookSpot;
 
 static size_t sithCamera_aCycleCamIndices[3] = { SITHCAMERA_INTCAMERANUM, SITHCAMERA_EXTCAMERANUM, SITHCAMERA_ORBCAMERANUM };
+
+// Added: the Field of view option and which static cameras currently take their FOV from it.
+// A COG, a scripted lerp or the console clears the flag for the camera it changes, so those
+// authored values keep priority over the option.
+static float sithCamera_g_gameplayFOV = SITHCAMERA_FOVDEFAULT;
+static bool sithCamera_aGameplayFOV[STD_ARRAYLEN(sithCamera_g_aCameras)];
 
 static rdVector3 sithCamera_vecExtCameraLookOffset             = { { 0.0f }, { 0.02f }, { 0.02f } };
 static rdVector3 sithCamera_vecExtCameraPrevLookOffset;
@@ -67,6 +74,85 @@ static int sithCamera_bOpen;
 
 SithSector* J3DAPI sithCamera_SearchSectorInRadius(int a1, SithSector* pSector, const rdVector3* startPos, rdVector3* endPos, float unused, int flags);
 
+// Added: index of a camera in the static array, or false for a dynamically created one.
+static bool sithCamera_GetStaticIndex(const SithCamera* pCamera, size_t* pIndex)
+{
+    for ( size_t i = 0; i < STD_ARRAYLEN(sithCamera_g_aCameras); ++i )
+    {
+        if ( &sithCamera_g_aCameras[i] == pCamera )
+        {
+            *pIndex = i;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Added: true for the player's normal gameplay cameras, the only ones the option drives.
+static bool sithCamera_IsGameplayCameraType(const SithCamera* pCamera)
+{
+    return pCamera->type == SITHCAMERA_INTERNAL || pCamera->type == SITHCAMERA_EXTERNAL;
+}
+
+static void sithCamera_ClearGameplayFOV(const SithCamera* pCamera)
+{
+    size_t index;
+    if ( sithCamera_GetStaticIndex(pCamera, &index) )
+    {
+        sithCamera_aGameplayFOV[index] = false;
+    }
+}
+
+// Added: gives a gameplay camera the option value. Cameras outside the static array (and the
+// cutscene, idle, orbital and unknown cameras) never take it, so authored FOVs stay untouched.
+static void sithCamera_ApplyGameplayFOV(SithCamera* pCamera)
+{
+    size_t index;
+    if ( !sithCamera_GetStaticIndex(pCamera, &index) || !sithCamera_IsGameplayCameraType(pCamera) )
+    {
+        return;
+    }
+
+    pCamera->fov = sithCamera_g_gameplayFOV;
+    rdCamera_SetFOV(&pCamera->rdCamera, pCamera->fov);
+    sithCamera_aGameplayFOV[index] = true;
+}
+
+void sithCamera_SetGameplayFOV(float fov)
+{
+    // Written as a positive test so a NaN from the config also takes the default.
+    if ( !(fov > 0.0f) )
+    {
+        fov = SITHCAMERA_FOVDEFAULT;
+    }
+
+    sithCamera_g_gameplayFOV = STDMATH_CLAMP(fov, SITHCAMERA_GAMEPLAYFOVMIN, SITHCAMERA_GAMEPLAYFOVMAX);
+
+    // Only cameras that still use the option follow it. One an authored value reached keeps
+    // its FOV until the player selects a gameplay camera again.
+    for ( size_t i = 0; i < STD_ARRAYLEN(sithCamera_g_aCameras); ++i )
+    {
+        SithCamera* pCamera = &sithCamera_g_aCameras[i];
+        if ( sithCamera_aGameplayFOV[i] && sithCamera_IsGameplayCameraType(pCamera) )
+        {
+            pCamera->fov = sithCamera_g_gameplayFOV;
+            rdCamera_SetFOV(&pCamera->rdCamera, pCamera->fov);
+        }
+    }
+}
+
+float sithCamera_GetGameplayFOV(void)
+{
+    return sithCamera_g_gameplayFOV;
+}
+
+bool sithCamera_IsGameplayFOV(const SithCamera* pCamera)
+{
+    size_t index;
+    return sithCamera_GetStaticIndex(pCamera, &index) && sithCamera_aGameplayFOV[index];
+}
+
 void sithCamera_ResetGlobals(void)
 {
     STD_ZEROMEM(&sithCamera_g_pCurCamera, sizeof(sithCamera_g_pCurCamera));
@@ -97,6 +183,9 @@ void sithCamera_ResetGlobals(void)
     sithCamera_bUpdateCameraOffset = 0;
     sithCamera_bStartup = 0;
     sithCamera_bOpen = 0;
+    // Added: the Field of view option starts at the original default.
+    sithCamera_g_gameplayFOV = SITHCAMERA_FOVDEFAULT;
+    STD_ZEROMEM(sithCamera_aGameplayFOV, sizeof(sithCamera_aGameplayFOV));
 }
 
 int sithCamera_Startup(void)
@@ -110,6 +199,10 @@ int sithCamera_Startup(void)
     sithCamera_NewEntry(&sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM], 0, SITHCAMERA_EXTERNAL, SITHCAMERA_FOVDEFAULT, 1.0f, NULL, NULL, NULL);
     sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].offset      = sithCamera_vecExtCameraOffset;
     sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM].interpSpeed = 0.35f;
+
+    // Added: the two normal gameplay cameras take the Field of view option.
+    sithCamera_ApplyGameplayFOV(&sithCamera_g_aCameras[SITHCAMERA_INTCAMERANUM]);
+    sithCamera_ApplyGameplayFOV(&sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM]);
 
     sithCamera_NewEntry(&sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM], 0, SITHCAMERA_CINEMATIC, SITHCAMERA_FOVDEFAULT, 1.0f, NULL, NULL, NULL);
     sithCamera_g_aCameras[SITHCAMERA_CINEMACAMERANUM].interpSpeed = 1.0f;
@@ -189,8 +282,9 @@ void sithCamera_ResetAllCameras(void)
     sithCamera_vecExtCameraOffset     = sithCamera_vecExtCameraDefaultOffset;
     sithCamera_vecExtCameraLookOffset = sithCamera_vecExtCameraDefaultLookOffset;
 
-    // Set default FOV for 3rd person camera
-    sithCamera_SetCameraFOV(&sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM], SITHCAMERA_FOVDEFAULT);
+    // Altered: the gameplay cameras take the Field of view option instead of the hard default.
+    sithCamera_ApplyGameplayFOV(&sithCamera_g_aCameras[SITHCAMERA_INTCAMERANUM]);
+    sithCamera_ApplyGameplayFOV(&sithCamera_g_aCameras[SITHCAMERA_EXTCAMERANUM]);
 
     if ( (sithMain_g_sith_mode.debugModeFlags & SITHDEBUG_INEDITOR) != 0 )
     {
@@ -295,6 +389,9 @@ int J3DAPI sithCamera_SetCurrentCamera(SithCamera* pCamera)
     sithCamera_g_pCurCamera   = pCamera;
     sithCamera_g_bCurCameraSet = 1;
 
+    // Added: entering a normal gameplay camera returns it to the Field of view option.
+    sithCamera_ApplyGameplayFOV(pCamera);
+
     rdCamera_SetCurrent(&pCamera->rdCamera);
     switch ( pCamera->type )
     {
@@ -376,6 +473,7 @@ void J3DAPI sithCamera_SetCameraFocus(SithCamera* pCamera, SithThing* pPrimaryFo
 void J3DAPI SithCamera_ZoomIn(SithCamera* pCamera)
 {
     SITH_ASSERTREL(pCamera);
+    sithCamera_ClearGameplayFOV(pCamera);
     pCamera->fov += 1.0f;
     if ( pCamera->fov > SITHCAMERA_FOVMAX )
     {
@@ -388,6 +486,7 @@ void J3DAPI SithCamera_ZoomIn(SithCamera* pCamera)
 void J3DAPI SithCamera_ZoomOut(SithCamera* pCamera)
 {
     SITH_ASSERTREL(pCamera);
+    sithCamera_ClearGameplayFOV(pCamera);
     pCamera->fov -= 1.0f;
     if ( pCamera->fov < SITHCAMERA_FOVMIN )
     {
@@ -402,6 +501,8 @@ void J3DAPI sithCamera_SetCameraFOV(SithCamera* pCamera, float fov)
     SITH_ASSERTREL(pCamera);
     if ( fov >= SITHCAMERA_FOVMIN && fov <= SITHCAMERA_FOVMAX )
     {
+        // Added: an explicitly set FOV (COG, scripted lerp or console) wins over the option.
+        sithCamera_ClearGameplayFOV(pCamera);
         pCamera->fov = fov;
         rdCamera_SetFOV(&pCamera->rdCamera, pCamera->fov);
     }
@@ -469,6 +570,29 @@ SithThing* J3DAPI sithCamera_GetSecondaryFocus(const SithCamera* pCamera)
 {
     SITH_ASSERTREL(pCamera != NULL);
     return pCamera->pSecondaryFocusThing;
+}
+
+SithThing* J3DAPI sithCamera_GetRenderFocusThing(const SithCamera* pCamera)
+{
+    // Added: presentation-only read of the camera's focus. The cinematic camera's primary focus is
+    // its position anchor, so its look target (the secondary focus) is what depth of field follows.
+    if ( !pCamera )
+    {
+        return NULL;
+    }
+
+    if ( pCamera->type == SITHCAMERA_CINEMATIC )
+    {
+        return pCamera->pSecondaryFocusThing;
+    }
+
+    return pCamera->pPrimaryFocusThing;
+}
+
+bool sithCamera_IsCutsceneCamera(const SithCamera* pCamera)
+{
+    // Added: the cinematic camera is the scripted cutscene camera.
+    return pCamera && pCamera->type == SITHCAMERA_CINEMATIC;
 }
 
 void J3DAPI sithCamera_Update(SithCamera* pCamera)

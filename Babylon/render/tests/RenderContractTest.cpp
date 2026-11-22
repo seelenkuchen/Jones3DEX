@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -404,6 +405,9 @@ TEST_CASE("A cleared color target reads back as the clear color in its format")
         { TextureFormat::B4G4R4A4, bytesOf({ 0x00, 0xFF }), bytesOf({ 0xFF, 0x00 }) },
         { TextureFormat::R10G10B10A2, bytesOf({ 0xFF, 0x03, 0x00, 0xC0 }),
             bytesOf({ 0x00, 0xFC, 0xFF, 0x3F }) },
+        // Half floats: 1.0 is 0x3C00, 0.0 is 0x0000, red first.
+        { TextureFormat::Rgba16F, bytesOf({ 0x00, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3C }),
+            bytesOf({ 0x00, 0x00, 0x00, 0x3C, 0x00, 0x3C, 0x00, 0x00 }) },
     };
 
     forEachDevice([&expectations](Device& device)
@@ -621,6 +625,43 @@ TEST_CASE("Buffers are created, uploaded and read back within their limits")
         noWarning(sink);
         device.destroySampler(sampler);
         oneWarning(sink);
+    });
+}
+
+TEST_CASE("Samplers accept every filter combination and anisotropy level")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+
+        SamplerDesc desc;
+        desc.minFilter = Filter::Nearest;
+        desc.magFilter = Filter::Linear;
+        desc.mipFilter = Filter::Linear;
+        desc.addressU  = AddressMode::ClampToEdge;
+        desc.addressV  = AddressMode::MirroredRepeat;
+        desc.maxAnisotropy = 8.0f;
+        const SamplerHandle sampler = device.createSampler(desc);
+        CHECK_FALSE(sampler.isNull());
+        noWarning(sink);
+
+        // Off, off by a non-finite value and far past the device limit are
+        // all accepted; the backend clamps what it maps.
+        const float aLevels[] = { 1.0f, 2.0f, 16.0f, 1000.0f,
+            std::numeric_limits<float>::quiet_NaN() };
+        for ( const float level : aLevels )
+        {
+            SamplerDesc aniso = desc;
+            aniso.maxAnisotropy = level;
+            const SamplerHandle other = device.createSampler(aniso);
+            CHECK_FALSE(other.isNull());
+            noWarning(sink);
+            device.destroySampler(other);
+            noWarning(sink);
+        }
+
+        device.destroySampler(sampler);
+        noWarning(sink);
     });
 }
 

@@ -20,6 +20,11 @@ J3D_EXTERN_C_START
 #define SITHCAMERA_FOVMAX     150.0f
 #define SITHCAMERA_FOVDEFAULT  90.0f // default camera fov
 
+// Added: range of the player's Field of view option. The unit is the camera's horizontal
+// FOV at 4:3, the same as SITHCAMERA_FOVDEFAULT. 0 in the config means the default.
+#define SITHCAMERA_GAMEPLAYFOVMIN      60.0f
+#define SITHCAMERA_GAMEPLAYFOVMAX     110.0f
+
 // Default camera attenuation
 #define SITHCAMERA_ATTENUATIONMIN 0.4f
 #define SITHCAMERA_ATTENUATIONMAX 0.8f
@@ -89,6 +94,19 @@ void J3DAPI SithCamera_ZoomIn(SithCamera* pCamera); // Added from debug
 void J3DAPI SithCamera_ZoomOut(SithCamera* pCamera); // Added from debug
 void J3DAPI sithCamera_SetCameraFOV(SithCamera* pCamera, float fov);
 
+// Added: the player's Field of view option (Options > Display, engine.renderer.fov). The
+// setter clamps to SITHCAMERA_GAMEPLAYFOVMIN..MAX and treats 0 as SITHCAMERA_FOVDEFAULT.
+// It only changes the INTERNAL and EXTERNAL cameras that still use the option; cameras with
+// an authored FOV (a cutscene COG, a scripted lerp or the console) keep it. The getter returns
+// the current option value in degrees.
+void sithCamera_SetGameplayFOV(float fov);
+float sithCamera_GetGameplayFOV(void);
+
+// Added: true when the camera's FOV comes from the Field of view option rather than an
+// authored value. The renderer uses it to keep the simulation's visibility frustum at the
+// default FOV while drawing with the chosen one.
+bool sithCamera_IsGameplayFOV(const SithCamera* pCamera);
+
 void J3DAPI sithCamera_SetCameraPosition(SithCamera* pCamera, const rdVector3* pPos);
 void J3DAPI sithCamera_GetCameraPosition(const SithCamera* pCamera, rdVector3* pDstPos);
 
@@ -98,6 +116,15 @@ void sithCamera_RestoreExtCamera(void);
 
 SithThing* J3DAPI sithCamera_GetPrimaryFocus(const SithCamera* pCamera);
 SithThing* J3DAPI sithCamera_GetSecondaryFocus(const SithCamera* pCamera);
+
+// Added: the thing the current camera's depth of field focuses on, for presentation only. The
+// gameplay and idle-style cameras use their primary focus thing (Indy for the play cameras); the
+// cinematic cutscene camera uses its secondary focus thing, the look target, because its primary
+// is the camera anchor. NULL when the camera has no such focus.
+SithThing* J3DAPI sithCamera_GetRenderFocusThing(const SithCamera* pCamera);
+
+// Added: true for the script-driven cinematic camera, the cutscene camera.
+bool sithCamera_IsCutsceneCamera(const SithCamera* pCamera);
 
 void J3DAPI sithCamera_Update(SithCamera* pCamera);
 void sithCamera_RenderScene(void);

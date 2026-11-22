@@ -37,6 +37,11 @@ struct JonesUiDisplayVideoMode
     std::vector<std::size_t> aModeNums;
 };
 
+// Added: the "Brightness..." row opens the calibration screen. The standalone Display screen
+// handles it itself; a caller that builds this screen as a tab (Options) must handle the same
+// action and run JonesUiBrightness_Run while its screen is open.
+inline constexpr babylon::ui::ActionId kJonesDisplayActionBrightness = 4;
+
 // Collects the video modes of one display device, deduplicated by width and height in the order
 // the environment lists them. Returns false when the environment, the device or its mode list is
 // missing, and leaves modes empty.
@@ -59,6 +64,35 @@ struct JonesUiDisplayValues
     std::size_t performance = 0;
     bool bHiPoly = false;
     bool bLitFaces = false;
+    double gameplayFOV = 90.0; // Added: Field of view, horizontal degrees at 4:3.
+    // Added: index into the render scale choices (50..200%, 100% at index 3).
+    std::size_t renderScale = 3;
+    // Added: index into the anti-aliasing choices (Off, SMAA; SMAA at index 1 in Enhanced).
+    std::size_t antiAliasing = 1;
+    // Added: index into the bloom choices (Off, Low, Medium, High; Low at index 1 in Enhanced).
+    std::size_t bloom = 1;
+    // Added: index into the light-shaft choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t lightShafts = 1;
+    // Added: water ripples, a toggle (on in Enhanced, off in Retail/QOL-off).
+    bool bWaterRipples = true;
+    // Added: depth of field, a toggle for cutscene cameras and one for gameplay cameras.
+    bool bDofCutscenes = true;
+    bool bDofGameplay = true;
+    // Added: index into the sharpening choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t sharpening = 1;
+    // Added: index into the anisotropic choices (1, 2, 4, 8, 16; 8 at index 3).
+    std::size_t anisotropic = 3;
+    // Added: index into the tone-mapping choices (Clamp, Neutral, Filmic = operator 0, 1, 2;
+    // Neutral at index 1 in Enhanced).
+    std::size_t toneMapping = 1;
+    // Added: exposure multiplier applied before the tone-map curve, 0.5..2.0.
+    double exposure = 1.0;
+    // Added: index into the color-grading choices (Neutral, Warm, Cool, Adventure, Vivid, Muted =
+    // preset 0..5; Neutral at index 0 in every build).
+    std::size_t colorGrading = 0;
+    bool bCrispPixels = false;
 };
 
 struct JonesUiDisplayLayout
@@ -72,6 +106,21 @@ struct JonesUiDisplayLayout
     std::size_t performance = 0;
     std::size_t hiPoly = 0;
     std::size_t litFaces = 0;
+    std::size_t gameplayFOV = 0; // Added
+    std::size_t renderScale = 0;
+    std::size_t antiAliasing = 0; // Added
+    std::size_t bloom = 0; // Added
+    std::size_t lightShafts = 0; // Added: M9.16 light-shaft level
+    std::size_t waterRipples = 0; // Added: M9.17 water ripples toggle
+    std::size_t dofCutscenes = 0; // Added: M9.14 depth of field in cutscenes
+    std::size_t dofGameplay = 0; // Added: M9.14 depth of field in gameplay
+    std::size_t sharpening = 0; // Added
+    std::size_t anisotropic = 0; // Added
+    std::size_t toneMapping = 0; // Added
+    std::size_t exposure = 0; // Added
+    std::size_t colorGrading = 0; // Added
+    std::size_t crispPixels = 0; // Added
+    std::size_t brightness = 0; // Added: opens the brightness calibration screen
     std::size_t ok = 0;
     std::size_t back = 0;
 };
@@ -92,6 +141,20 @@ struct JonesUiDisplayModel
     int perfLevel = 4;
     bool bHiPoly = false;
     bool bLitFaces = false;
+    float gameplayFOV = 90.0f; // Added: sithCamera_GetGameplayFOV()
+    float renderScale = 1.0f;
+    int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA
+    int bloom = 1;              // Added: engine.renderer.bloom, 0 off / 1 low / 2 medium / 3 high
+    int lightShafts = 1;        // Added: engine.renderer.lightShafts, 0 off / 1 low / 2 medium / 3 high
+    bool bWaterRipples = true;  // Added: engine.renderer.water.ripples
+    bool bDofCutscenes = true;  // Added: engine.renderer.dof.cutscenes
+    bool bDofGameplay = true;   // Added: engine.renderer.dof.gameplay
+    float sharpening = 0.3f;    // Added: engine.renderer.sharpening, 0..1
+    int anisotropic = 8;        // Added: graphics.anisotropicFilter, normalized
+    int toneMapping = 1;        // Added: engine.renderer.toneMapping, 0 clamp / 1 Neutral / 2 ACES
+    float exposure = 1.0f;      // Added: engine.renderer.exposure, 0.5..2.0
+    int colorGrading = 0;       // Added: engine.renderer.colorGrading, 0 Neutral .. 5 Muted
+    bool bCrispPixels = false;  // Added: engine.renderer.texturePixelated
 };
 
 // Reads the environment and settings into a model and the initial values.

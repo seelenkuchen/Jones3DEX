@@ -13,8 +13,8 @@
 // ran on every Direct3D 9 device with shader model 3: the shaders are ports of its default and
 // wireframe shaders (Shaders/std3d*.hlsl), and the Direct3D state its SetRenderState and
 // InitRenderState set becomes pipelines (blending, depth, primitive), samplers (filter, mip filter,
-// clamp) and uniforms (viewport, fog, alpha reference), worked out from the render state bits at
-// each draw (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms).
+// anisotropy, clamp) and uniforms (viewport, fog, alpha reference), worked out from the render
+// state bits at each draw (std3D_GetPipeline, std3D_GetSampler, std3D_GetFragmentUniforms).
 //
 // std3D_DrawRenderListLit draws like std3D_DrawRenderList, with the lit shaders (Shaders/std3d_lit*.hlsl):
 // they compute the color exactly as the default shaders do and write each fragment's interpolated
@@ -43,6 +43,7 @@
 
 #include <std/General/std.h>
 #include <std/General/stdColor.h>
+#include <std/General/stdConfig.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -61,6 +62,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -140,8 +142,15 @@ namespace
     // The render state of the draws; see std3D_SetRenderState.
     Std3DRenderState std3D_renderState      = (Std3DRenderState)0;
     Std3DMipmapFilterType std3D_mipmapFilter = (Std3DMipmapFilterType)-1;
+    // Presentation filtering read when std3D_Open runs (std3DBabylon_Read... below):
+    // graphics.anisotropicFilter and engine.renderer.texturePixelated.
+    int std3D_anisotropicFilter  = J3D_QOL_VALUE(8, 1);
+    bool std3D_bTexturePixelated = false;
     tSysTexture* std3D_pCurTex             = nullptr;
     float std3D_zDepth                     = 0.0f;
+    // Added: the last projection's planes, for std3D_SetFocus's depth linearisation.
+    float std3D_nearPlane                  = 0.1f;
+    float std3D_farPlane                   = 1000.0f;
     bool std3D_bRenderFog                  = true;
     float std3D_fogStartDepth              = 0.0f;
     float std3D_fogEndDepth                = 0.0f;
@@ -171,8 +180,9 @@ namespace
         float aFogParams[4]; // DX9's g_fogParams: start, end, 1 / (end - start), enabled
         float aFogColor[4];  // DX9's g_fogColor
         float aAlphaTest[4]; // D3DRS_ALPHAREF / 255, then unused
+        float aSurfaceTag[4]; // Added: x is the normal target's alpha tag (M9.16), then unused
     };
-    static_assert(sizeof(Std3DBabylonFragmentUniforms) == 48, "Std3DBabylonFragmentUniforms must match the shaders' block");
+    static_assert(sizeof(Std3DBabylonFragmentUniforms) == 64, "Std3DBabylonFragmentUniforms must match the shaders' block");
 
     // One draw of the scene's current pass, recorded into it when the pass ends. Its vertices and
     // indices are already streamed into vertexBuffer and indexBuffer, at firstVertex and firstIndex.
@@ -209,9 +219,14 @@ namespace
 
     // Created at std3D_Open (the white texture std3DX9.c bound for untextured draws, the stream
     // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
-    render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2]; // [primitive][z write]
-    render::PipelineHandle std3D_aLitPipelines[2];                     // lit triangles, [z write]
-    render::SamplerHandle std3D_aSamplers[16];                         // std3D_GetSampler's index
+    render::PipelineHandle std3D_aPipelines[std3D_kNumPrimitives][2][2]; // [primitive][HUD layer][z write]
+    render::PipelineHandle std3D_aLitPipelines[2][2];                    // lit triangles, [HUD layer][z write]
+    // Added: variants for a water surface drawn without Z write (M9.17). Their normal target keeps the
+    // colour and replaces the alpha with the surface tag, so the water is tagged even though it does
+    // not write depth. [primitive][HUD layer] and the lit form, [HUD layer].
+    render::PipelineHandle std3D_aWaterPipelines[std3D_kNumPrimitives][2];
+    render::PipelineHandle std3D_aLitWaterPipelines[2];
+    render::SamplerHandle std3D_aSamplers[256];                        // std3D_GetSampler's key
     render::TextureHandle std3D_whiteTexture;
     render::BufferHandle std3D_vertexBuffer;
     render::BufferHandle std3D_indexBuffer;
@@ -234,6 +249,14 @@ namespace
     render::LoadOp std3D_sceneColorLoad = render::LoadOp::Load;
     render::LoadOp std3D_sceneDepthLoad = render::LoadOp::Load;
     std::vector<Std3DBabylonDraw> std3D_aSceneDraws;
+
+    // Added: the gameplay HUD section draws into its own display-sized layer, not the scene. It has
+    // its own pass load operations because it is cleared transparent each frame.
+    bool std3D_bHudLayer              = false; // draws go to the HUD layer until EndHudLayer
+    bool std3D_bScenePassBegun        = false; // a scene pass is collected and not recorded yet
+    bool std3D_bHudPassBegun          = false;
+    render::LoadOp std3D_hudColorLoad = render::LoadOp::Clear;
+    render::LoadOp std3D_hudDepthLoad = render::LoadOp::Clear;
 
     // The fog values the shaders see. stdShader_SetFog copied them into the shader constants only
     // when the fog bit of the render state changed (std3DX9.c's SetRenderState), so they are kept
@@ -275,6 +298,42 @@ namespace
         }
 
         return value;
+    }
+
+    // The anisotropy level snapped down to the offered steps (1, 2, 4, 8, 16), so a hand-edited
+    // value outside them still maps to the next lower one the display offers. 1 turns it off.
+    int std3D_NormalizeAnisotropicFilter(int level)
+    {
+        if ( level >= 16 )
+        {
+            return 16;
+        }
+        if ( level >= 8 )
+        {
+            return 8;
+        }
+        if ( level >= 4 )
+        {
+            return 4;
+        }
+        if ( level >= 2 )
+        {
+            return 2;
+        }
+        return 1;
+    }
+
+    // The sampler cache's index of a level; 0 is off and no filtering.
+    uint32_t std3D_AnisotropicFilterIndex(int level)
+    {
+        switch ( std3D_NormalizeAnisotropicFilter(level) )
+        {
+            case 16: return 4;
+            case 8: return 3;
+            case 4: return 2;
+            case 2: return 1;
+            default: return 0;
+        }
     }
 
     void std3D_WritePixel(uint8_t* pDst, size_t numBytes, uint32_t value)
@@ -366,6 +425,172 @@ namespace
         }
 
         return true;
+    }
+
+    // One texel of a generated mip in RGBA8, independent of the upload format.
+    struct Std3DBabylonTexelRgba8
+    {
+        uint8_t r;
+        uint8_t g;
+        uint8_t b;
+        uint8_t a;
+    };
+
+    // The upload bytes of one level as RGBA8 texels.
+    void std3D_DecodeMipRgba8(const std::vector<std::byte>& data, const Std3DBabylonFormatEntry& entry,
+        uint32_t width, uint32_t height, std::vector<Std3DBabylonTexelRgba8>& texels)
+    {
+        const size_t texelBytes = render::bytesPerTexel(entry.format);
+        const uint8_t* pData    = reinterpret_cast<const uint8_t*>(data.data());
+        texels.resize((size_t)width * height);
+        for ( size_t i = 0; i < texels.size(); ++i )
+        {
+            uint8_t r = 0, g = 0, b = 0, a = 0xFF;
+            stdColor_DecodeRGBA(std3D_ReadPixel(pData + i * texelBytes, texelBytes), entry.pColorInfo,
+                &r, &g, &b, &a);
+            if ( entry.bOpaque )
+            {
+                a = 0xFF;
+            }
+
+            texels[i] = Std3DBabylonTexelRgba8{ r, g, b, a };
+        }
+    }
+
+    // RGBA8 texels as the upload bytes of one level, in the layout and bit depths of entry.
+    void std3D_EncodeMipRgba8(const std::vector<Std3DBabylonTexelRgba8>& texels,
+        const Std3DBabylonFormatEntry& entry, uint32_t width, uint32_t height,
+        std::vector<std::byte>& data)
+    {
+        const size_t texelBytes = render::bytesPerTexel(entry.format);
+        data.resize((size_t)width * height * texelBytes);
+        uint8_t* pData = reinterpret_cast<uint8_t*>(data.data());
+        for ( size_t i = 0; i < texels.size(); ++i )
+        {
+            const Std3DBabylonTexelRgba8& texel = texels[i];
+            const uint8_t alpha = entry.bOpaque ? 0xFF : texel.a;
+            uint32_t value = stdColor_EncodeRGBA(entry.pColorInfo, texel.r, texel.g, texel.b, alpha);
+            if ( entry.bOpaque )
+            {
+                value |= 0xFF000000u;
+            }
+
+            std3D_WritePixel(pData + i * texelBytes, texelBytes, value);
+        }
+    }
+
+    // Box-filters src (srcWidth x srcHeight) down to dstWidth x dstHeight. Each destination texel
+    // averages the whole source area it covers, so odd sizes lose nothing.
+    //
+    // Alpha is respected. A texel of a texture with 1-bit alpha (a color-key texture) contributes
+    // only when it is opaque, and the result is opaque when any contributor is: the transparent
+    // colour cannot bleed into the visible texels. A texture with more than 1 alpha bit is averaged
+    // premultiplied and then unpremultiplied, which likewise keeps transparent texels' colour out
+    // of the result. A format without alpha averages every texel and stays opaque.
+    void std3D_BoxFilterMip(const std::vector<Std3DBabylonTexelRgba8>& src, uint32_t srcWidth,
+        uint32_t srcHeight, uint32_t dstWidth, uint32_t dstHeight,
+        const Std3DBabylonFormatEntry& entry, std::vector<Std3DBabylonTexelRgba8>& dst)
+    {
+        const bool bMaskAlpha   = !entry.bOpaque && entry.pColorInfo->alphaBPP == 1;
+        const bool bPremultiply = !entry.bOpaque && entry.pColorInfo->alphaBPP > 1;
+        dst.resize((size_t)dstWidth * dstHeight);
+        for ( uint32_t dstY = 0; dstY < dstHeight; ++dstY )
+        {
+            uint32_t srcY0 = (uint32_t)((uint64_t)dstY * srcHeight / dstHeight);
+            uint32_t srcY1 = (uint32_t)((uint64_t)(dstY + 1) * srcHeight / dstHeight);
+            if ( srcY1 <= srcY0 )
+            {
+                srcY1 = srcY0 + 1;
+            }
+
+            for ( uint32_t dstX = 0; dstX < dstWidth; ++dstX )
+            {
+                uint32_t srcX0 = (uint32_t)((uint64_t)dstX * srcWidth / dstWidth);
+                uint32_t srcX1 = (uint32_t)((uint64_t)(dstX + 1) * srcWidth / dstWidth);
+                if ( srcX1 <= srcX0 )
+                {
+                    srcX1 = srcX0 + 1;
+                }
+
+                uint64_t sumR = 0;
+                uint64_t sumG = 0;
+                uint64_t sumB = 0;
+                uint64_t sumA = 0;
+                uint64_t count = 0;
+                for ( uint32_t srcY = srcY0; srcY < srcY1 && srcY < srcHeight; ++srcY )
+                {
+                    for ( uint32_t srcX = srcX0; srcX < srcX1 && srcX < srcWidth; ++srcX )
+                    {
+                        const Std3DBabylonTexelRgba8& texel = src[(size_t)srcY * srcWidth + srcX];
+                        if ( bMaskAlpha )
+                        {
+                            if ( texel.a < 128 )
+                            {
+                                continue;
+                            }
+
+                            sumR += texel.r;
+                            sumG += texel.g;
+                            sumB += texel.b;
+                            ++count;
+                        }
+                        else if ( bPremultiply )
+                        {
+                            sumR += (uint64_t)texel.r * texel.a;
+                            sumG += (uint64_t)texel.g * texel.a;
+                            sumB += (uint64_t)texel.b * texel.a;
+                            sumA += texel.a;
+                            ++count;
+                        }
+                        else
+                        {
+                            sumR += texel.r;
+                            sumG += texel.g;
+                            sumB += texel.b;
+                            sumA += 0xFF;
+                            ++count;
+                        }
+                    }
+                }
+
+                Std3DBabylonTexelRgba8& out = dst[(size_t)dstY * dstWidth + dstX];
+                out = Std3DBabylonTexelRgba8{ 0, 0, 0, 0 };
+                if ( count == 0 )
+                {
+                    continue;
+                }
+
+                if ( bMaskAlpha )
+                {
+                    out.r = (uint8_t)((sumR + count / 2) / count);
+                    out.g = (uint8_t)((sumG + count / 2) / count);
+                    out.b = (uint8_t)((sumB + count / 2) / count);
+                    out.a = 0xFF;
+                }
+                else if ( bPremultiply )
+                {
+                    if ( sumA == 0 )
+                    {
+                        continue; // fully transparent
+                    }
+
+                    // sumR is the sum of r * a; sumA the sum of a. Their ratio is the alpha-weighted
+                    // average colour of the covered texels, in 0..255, so the transparent colour
+                    // never reaches it.
+                    out.r = (uint8_t)std::min<uint64_t>(0xFF, (sumR + sumA / 2) / sumA);
+                    out.g = (uint8_t)std::min<uint64_t>(0xFF, (sumG + sumA / 2) / sumA);
+                    out.b = (uint8_t)std::min<uint64_t>(0xFF, (sumB + sumA / 2) / sumA);
+                    out.a = (uint8_t)((sumA + count / 2) / count);
+                }
+                else
+                {
+                    out.r = (uint8_t)((sumR + count / 2) / count);
+                    out.g = (uint8_t)((sumG + count / 2) / count);
+                    out.b = (uint8_t)((sumB + count / 2) / count);
+                    out.a = 0xFF;
+                }
+            }
+        }
     }
 
     void std3D_ReleaseCachedTexture(tSystemTexture* pTexture)
@@ -535,8 +760,8 @@ namespace
         pDriver->minTexHeight                   = 1;
         pDriver->maxTexWidth                    = maxTexSize;
         pDriver->maxTexHeight                   = maxTexSize;
-        pDriver->bAnisotropicFilteringSupported = false; // render::SamplerDesc has no anisotropy
-        pDriver->bMipmapAutoGenSupported        = false; // nor mip generation
+        pDriver->bAnisotropicFilteringSupported = 1; // Added: render::SamplerDesc::maxAnisotropy
+        pDriver->bMipmapAutoGenSupported        = 1; // Added: single-level materials get a mip chain on upload
         pDriver->bMSAASupported                 = false; // nor multisampled targets
         pDriver->bAlphaBlendSupported           = 1;
         pDriver->maxVertexCount                 = 65535u; // 16-bit indices
@@ -589,6 +814,7 @@ namespace
         std3D_sceneColorLoad = bClearColor ? render::LoadOp::Clear : render::LoadOp::Load;
         std3D_sceneDepthLoad = bClearDepth ? render::LoadOp::Clear : render::LoadOp::Load;
         std3D_aSceneDraws.clear();
+        std3D_bScenePassBegun = true;
     }
 
     // Makes the light buffer on first use and, when the list changed since (or the buffer is new),
@@ -628,19 +854,29 @@ namespace
     // Records the collected pass into the frame: the back buffer with the pass's load operations,
     // then its draws, each with only the bindings and uniforms that changed since the draw before.
     // The normal target is the second color target; it belongs with the depth, so it is cleared to
-    // 0 (nothing drawn) when depth is. Returns false when the command list refuses the pass. The
-    // pass is done either way.
-    bool std3D_EndScenePass()
+    // 0 (nothing drawn) when depth is. bHud records the display-sized HUD layer instead, with its own
+    // targets and load operations. Returns false when the command list refuses the pass. The pass is
+    // done either way.
+    bool std3D_RecordCollectedPass(bool bHud)
     {
         render::CommandList& frame = stdRenderBabylon_GetFrame();
 
+        const render::TextureHandle colorTarget = bHud
+            ? stdRenderBabylon_GetHudColorTarget() : stdRenderBabylon_GetColorTarget();
+        const render::TextureHandle normalTarget = bHud
+            ? stdRenderBabylon_GetHudNormalTarget() : stdRenderBabylon_GetNormalTarget();
+        const render::TextureHandle depthTarget = bHud
+            ? stdRenderBabylon_GetHudDepthTarget() : stdRenderBabylon_GetDepthTarget();
+        const render::LoadOp colorLoad = bHud ? std3D_hudColorLoad : std3D_sceneColorLoad;
+        const render::LoadOp depthLoad = bHud ? std3D_hudDepthLoad : std3D_sceneDepthLoad;
+
         render::PassDesc pass;
-        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetColorTarget(), 0,
-            std3D_sceneColorLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
-        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_GetNormalTarget(), 0,
-            std3D_sceneDepthLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
-        pass.depthTarget = render::DepthAttachment{ stdRenderBabylon_GetDepthTarget(),
-            std3D_sceneDepthLoad, render::StoreOp::Store, 1.0f, 0 };
+        pass.colorTargets.push_back(render::ColorAttachment{ colorTarget, 0,
+            colorLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.colorTargets.push_back(render::ColorAttachment{ normalTarget, 0,
+            depthLoad, render::StoreOp::Store, render::ClearColor{ 0.0f, 0.0f, 0.0f, 0.0f } });
+        pass.depthTarget = render::DepthAttachment{ depthTarget,
+            depthLoad, render::StoreOp::Store, 1.0f, 0 };
 
         const bool bLitDraws = std::any_of(std3D_aSceneDraws.begin(), std3D_aSceneDraws.end(), [](const Std3DBabylonDraw& draw) { return draw.bLit; });
         const bool bLightBuffer = (bLitDraws || std3D_bLightsDirty) && std3D_UpdateLightBuffer(frame);
@@ -648,7 +884,10 @@ namespace
         bool bRecorded = frame.beginPass(pass);
         if ( bRecorded && !std3D_aSceneDraws.empty() )
         {
-            // std3DX9.c's g_viewport, set at each BeginScene: the viewport rectangle, the whole back buffer.
+            // std3DX9.c's g_viewport, set at each BeginScene: the rectangle the screen vertices are in.
+            // It stays the display/video-mode size at every render scale (GetBackBufferWidth/Height),
+            // so the same screen position maps to the whole scaled target and a larger target
+            // supersamples the scene; the GPU's viewport is the target itself.
             const float aViewport[4] = { 0.0f, 0.0f, (float)stdRenderBabylon_GetBackBufferWidth(), (float)stdRenderBabylon_GetBackBufferHeight() };
             frame.pushUniforms(render::ShaderStage::Vertex, 0, std::as_bytes(std::span<const float>(aViewport)));
 
@@ -707,7 +946,31 @@ namespace
         }
 
         std3D_aSceneDraws.clear();
+        if ( bHud )
+        {
+            std3D_bHudPassBegun = false;
+        }
+        else
+        {
+            // A later scene pass this frame loads what this one drew instead of clearing again.
+            std3D_bScenePassBegun = false;
+            std3D_sceneColorLoad  = render::LoadOp::Load;
+            std3D_sceneDepthLoad  = render::LoadOp::Load;
+        }
+
         return bRecorded && frame.endPass();
+    }
+
+    bool std3D_EndScenePass()
+    {
+        return std3D_RecordCollectedPass(false);
+    }
+
+    // Added: records the HUD draws collected since BeginHudLayer into the HUD layer, clearing it
+    // transparent and its depth the first time.
+    bool std3D_EndHudPass()
+    {
+        return std3D_RecordCollectedPass(true);
     }
 
     // Makes room for numBytes at *pOffset of a stream buffer. When the rest of the buffer is too
@@ -748,24 +1011,48 @@ namespace
     // Z test LESSEQUAL (D3DRS_ZENABLE, D3DRS_ZFUNC), Z writes as STD3D_RS_ZWRITE_DISABLED says; no
     // culling. The normal target, the second color target, is replaced by draws that write Z and kept
     // (blended with ZERO, ONE) by the others, so it holds the normal of what the depth target holds.
-    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite)
+    // Added: a water draw without Z write keeps the normal's colour but replaces its alpha with the
+    // tag (ZERO, ONE on the colour, ONE, ZERO on the alpha), so translucent water is marked without
+    // changing the image or the normals behind it (M9.17).
+    void std3D_SetPipelineState(render::PipelineDesc& desc, bool bZWrite, bool bWaterTag, bool bHud)
     {
         render::BlendState blend;
         blend.enabled  = true;
         blend.srcColor = render::BlendFactor::SrcAlpha;
         blend.dstColor = render::BlendFactor::OneMinusSrcAlpha;
         blend.colorOp  = render::BlendOp::Add;
-        blend.srcAlpha = render::BlendFactor::SrcAlpha;
+        // Added: the HUD layer is transparent until its draws, so its alpha channel must hold the
+        // coverage the composite blends the scene with. The scene's color target is opaque, where the
+        // original factors only fed an unused channel.
+        blend.srcAlpha = bHud ? render::BlendFactor::One : render::BlendFactor::SrcAlpha;
         blend.dstAlpha = render::BlendFactor::OneMinusSrcAlpha;
         blend.alphaOp  = render::BlendOp::Add;
-        render::BlendState keepNormal;
-        keepNormal.enabled  = !bZWrite;
-        keepNormal.srcColor = render::BlendFactor::Zero;
-        keepNormal.dstColor = render::BlendFactor::One;
-        keepNormal.srcAlpha = render::BlendFactor::Zero;
-        keepNormal.dstAlpha = render::BlendFactor::One;
-        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend },
-            render::ColorTargetDesc{ stdRenderBabylon_GetNormalFormat(), bZWrite ? render::BlendState{} : keepNormal } };
+        render::BlendState normalBlend;
+        if ( bZWrite )
+        {
+            // Replaced by the draw's normal and tag.
+        }
+        else
+        {
+            normalBlend.enabled  = true;
+            normalBlend.srcColor = render::BlendFactor::Zero;
+            normalBlend.dstColor = render::BlendFactor::One;
+            if ( bWaterTag )
+            {
+                // Keep the normal's colour, take the shader's alpha tag.
+                normalBlend.srcAlpha = render::BlendFactor::One;
+                normalBlend.dstAlpha = render::BlendFactor::Zero;
+            }
+            else
+            {
+                normalBlend.srcAlpha = render::BlendFactor::Zero;
+                normalBlend.dstAlpha = render::BlendFactor::One;
+            }
+            normalBlend.colorOp = render::BlendOp::Add;
+            normalBlend.alphaOp = render::BlendOp::Add;
+        }
+        desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), blend },
+            render::ColorTargetDesc{ stdRenderBabylon_GetNormalFormat(), normalBlend } };
         desc.depthFormat  = stdRenderBabylon_GetDepthFormat();
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
         desc.cull         = render::CullMode::None;
@@ -786,9 +1073,13 @@ namespace
     // std3DX9.c's Direct3D state as a pipeline (std3D_SetPipelineState): its default shader for
     // triangles, its wireframe shader for lines and points, StdVertexTL vertices. The pipeline of each
     // primitive and Z write is created once, on first use.
-    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite)
+    render::PipelineHandle std3D_GetPipeline(Std3DBabylonPrimitive primitive, bool bZWrite,
+        bool bWaterTag, bool bHud)
     {
-        render::PipelineHandle& pipeline = std3D_aPipelines[(size_t)primitive][bZWrite ? 1 : 0];
+        const bool bWaterAlpha = bWaterTag && !bZWrite;
+        render::PipelineHandle& pipeline = bWaterAlpha
+            ? std3D_aWaterPipelines[(size_t)primitive][bHud ? 1 : 0]
+            : std3D_aPipelines[(size_t)primitive][bHud ? 1 : 0][bZWrite ? 1 : 0];
         if ( !pipeline.isNull() )
         {
             return pipeline;
@@ -812,7 +1103,7 @@ namespace
                 break;
         }
 
-        std3D_SetPipelineState(desc, bZWrite);
+        std3D_SetPipelineState(desc, bZWrite, bWaterAlpha, bHud);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
@@ -825,9 +1116,12 @@ namespace
     // The pipeline of lit triangles: the state of std3D_GetPipeline's triangles with the lit shaders
     // and StdVertexLit vertices, the view-space position and normal at locations 4 and 5. Created once
     // per Z write, on first use.
-    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite)
+    render::PipelineHandle std3D_GetLitPipeline(bool bZWrite, bool bWaterTag, bool bHud)
     {
-        render::PipelineHandle& pipeline = std3D_aLitPipelines[bZWrite ? 1 : 0];
+        const bool bWaterAlpha = bWaterTag && !bZWrite;
+        render::PipelineHandle& pipeline = bWaterAlpha
+            ? std3D_aLitWaterPipelines[bHud ? 1 : 0]
+            : std3D_aLitPipelines[bHud ? 1 : 0][bZWrite ? 1 : 0];
         if ( !pipeline.isNull() )
         {
             return pipeline;
@@ -841,7 +1135,7 @@ namespace
         desc.vertexLayout.attributes.push_back(render::VertexAttribute{ 5, 0, render::VertexFormat::Float3, (uint32_t)offsetof(StdVertexLit, nx) });
         desc.primitive = render::PrimitiveType::TriangleList;
 
-        std3D_SetPipelineState(desc, bZWrite);
+        std3D_SetPipelineState(desc, bZWrite, bWaterAlpha, bHud);
         pipeline = std3D_pRenderDevice->createPipeline(desc);
         if ( pipeline.isNull() )
         {
@@ -852,19 +1146,29 @@ namespace
     }
 
     // std3DX9.c's sampler state of a render state: linear filtering with STD3D_RS_TEXFILTER_BILINEAR
-    // and with STD3D_RS_TEXFILTER_ANISOTROPIC (no device here filters anisotropically, and
-    // std3DX9.c then filtered linearly), else point; the mip filter of std3D_SetMipmapFilter
+    // and with STD3D_RS_TEXFILTER_ANISOTROPIC, else point; the mip filter of std3D_SetMipmapFilter
     // (linear for trilinear, else point: render::SamplerDesc has no D3DTEXF_NONE, and textures
-    // allocated with STD3D_MIPMAPFILTER_NONE have one level); clamp or wrap in U and V. Each of
-    // the 16 is created once, on first use.
+    // allocated with STD3D_MIPMAPFILTER_NONE have one level); clamp or wrap in U and V.
+    //
+    // Two presentation options layer on top: engine.renderer.texturePixelated forces min and mag to
+    // nearest while the mip filter stays as configured (the original look), and
+    // graphics.anisotropicFilter sets the anisotropy of draws that ask for it. The key below
+    // includes both, so a sampler made under one setting is never reused under another.
     render::SamplerHandle std3D_GetSampler(Std3DRenderState state)
     {
-        const bool bLinear    = (state & (STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_TEXFILTER_ANISOTROPIC)) != 0;
-        const bool bMipLinear = std3D_mipmapFilter == STD3D_MIPMAPFILTER_TRILINEAR;
-        const bool bClampU    = (state & STD3D_RS_TEX_CPAMP_U) != 0;
-        const bool bClampV    = (state & STD3D_RS_TEX_CPAMP_V) != 0;
+        const bool bNearest          = std3D_bTexturePixelated;
+        const bool bAnisotropicAsked = (state & STD3D_RS_TEXFILTER_ANISOTROPIC) != 0;
+        const bool bLinear           = !bNearest
+            && (state & (STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_TEXFILTER_ANISOTROPIC)) != 0;
+        const bool bMipLinear        = std3D_mipmapFilter == STD3D_MIPMAPFILTER_TRILINEAR;
+        const bool bClampU           = (state & STD3D_RS_TEX_CPAMP_U) != 0;
+        const bool bClampV           = (state & STD3D_RS_TEX_CPAMP_V) != 0;
+        const uint32_t anisoIndex    = (!bNearest && bAnisotropicAsked)
+            ? std3D_AnisotropicFilterIndex(std3D_anisotropicFilter) : 0u;
 
-        render::SamplerHandle& sampler = std3D_aSamplers[(bLinear ? 1u : 0u) | (bMipLinear ? 2u : 0u) | (bClampU ? 4u : 0u) | (bClampV ? 8u : 0u)];
+        const uint32_t key = (bLinear ? 1u : 0u) | (bMipLinear ? 2u : 0u) | (bClampU ? 4u : 0u)
+            | (bClampV ? 8u : 0u) | (anisoIndex << 4) | (bNearest ? 0x80u : 0u);
+        render::SamplerHandle& sampler = std3D_aSamplers[key];
         if ( !sampler.isNull() )
         {
             return sampler;
@@ -876,6 +1180,8 @@ namespace
         desc.mipFilter = bMipLinear ? render::Filter::Linear : render::Filter::Nearest;
         desc.addressU  = bClampU ? render::AddressMode::ClampToEdge : render::AddressMode::Repeat;
         desc.addressV  = bClampV ? render::AddressMode::ClampToEdge : render::AddressMode::Repeat;
+        desc.maxAnisotropy = anisoIndex
+            ? (float)std3D_NormalizeAnisotropicFilter(std3D_anisotropicFilter) : 1.0f;
 
         sampler = std3D_pRenderDevice->createSampler(desc);
         if ( sampler.isNull() )
@@ -895,6 +1201,13 @@ namespace
         std::memcpy(uniforms.aFogParams, std3D_aShaderFogParams, sizeof(uniforms.aFogParams));
         std::memcpy(uniforms.aFogColor, std3D_aShaderFogColor, sizeof(uniforms.aFogColor));
         uniforms.aAlphaTest[0] = (std3D_renderState & STD3D_RS_ALPHAREF_SET) != 0 ? (float)std3D_kAlphaRef / 255.0f : 0.0f;
+        // Added: the surface tag of the normal target's alpha (M9.16). The tags are read-only state
+        // carried from the face flags through rdCache; sky and water are mutually exclusive here.
+        uniforms.aSurfaceTag[0] = (std3D_renderState & STD3D_RS_SURFACE_SKY) != 0
+            ? stdRenderBabylon_kSurfaceTags.sky
+            : ((std3D_renderState & STD3D_RS_SURFACE_WATER) != 0
+                ? stdRenderBabylon_kSurfaceTags.water
+                : stdRenderBabylon_kSurfaceTags.ordinary);
         return uniforms;
     }
 
@@ -914,7 +1227,13 @@ namespace
 
         const bool bTriangles = primitive == Std3DBabylonPrimitive::Triangles;
         const bool bZWrite    = (std3D_renderState & STD3D_RS_ZWRITE_DISABLED) == 0;
-        const render::PipelineHandle pipeline = bLit ? std3D_GetLitPipeline(bZWrite) : std3D_GetPipeline(primitive, bZWrite);
+        const bool bHud       = std3D_bHudLayer;
+        // Added: a translucent water surface is drawn without Z write, so its tag is written through a
+        // separate pipeline that keeps the normal's colour and replaces only alpha (M9.17).
+        const bool bWaterTag  = (std3D_renderState & STD3D_RS_SURFACE_WATER) != 0;
+        const render::PipelineHandle pipeline = bLit
+            ? std3D_GetLitPipeline(bZWrite, bWaterTag, bHud)
+            : std3D_GetPipeline(primitive, bZWrite, bWaterTag, bHud);
         const render::SamplerHandle sampler   = bTriangles ? std3D_GetSampler(std3D_renderState) : render::SamplerHandle{};
         if ( pipeline.isNull() || (bTriangles && sampler.isNull()) )
         {
@@ -973,6 +1292,14 @@ namespace
         }
 
         std3D_aSceneDraws.push_back(draw);
+        if ( bHud )
+        {
+            std3D_bHudPassBegun = true;
+        }
+        else
+        {
+            std3D_bScenePassBegun = true;
+        }
     }
 
     // The resources of the draws made at std3D_Open: the white texture std3DX9.c's
@@ -1017,13 +1344,32 @@ namespace
         {
             for ( auto& aPipelines : std3D_aPipelines )
             {
-                for ( render::PipelineHandle& pipeline : aPipelines )
+                for ( auto& aLayerPipelines : aPipelines )
+                {
+                    for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                    {
+                        pDevice->destroyPipeline(pipeline);
+                    }
+                }
+            }
+
+            for ( auto& aLayerPipelines : std3D_aLitPipelines )
+            {
+                for ( render::PipelineHandle& pipeline : aLayerPipelines )
                 {
                     pDevice->destroyPipeline(pipeline);
                 }
             }
 
-            for ( render::PipelineHandle& pipeline : std3D_aLitPipelines )
+            for ( auto& aLayerPipelines : std3D_aWaterPipelines )
+            {
+                for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                {
+                    pDevice->destroyPipeline(pipeline);
+                }
+            }
+
+            for ( render::PipelineHandle& pipeline : std3D_aLitWaterPipelines )
             {
                 pDevice->destroyPipeline(pipeline);
             }
@@ -1042,13 +1388,32 @@ namespace
 
         for ( auto& aPipelines : std3D_aPipelines )
         {
-            for ( render::PipelineHandle& pipeline : aPipelines )
+            for ( auto& aLayerPipelines : aPipelines )
+            {
+                for ( render::PipelineHandle& pipeline : aLayerPipelines )
+                {
+                    pipeline = {};
+                }
+            }
+        }
+
+        for ( auto& aLayerPipelines : std3D_aLitPipelines )
+        {
+            for ( render::PipelineHandle& pipeline : aLayerPipelines )
             {
                 pipeline = {};
             }
         }
 
-        for ( render::PipelineHandle& pipeline : std3D_aLitPipelines )
+        for ( auto& aLayerPipelines : std3D_aWaterPipelines )
+        {
+            for ( render::PipelineHandle& pipeline : aLayerPipelines )
+            {
+                pipeline = {};
+            }
+        }
+
+        for ( render::PipelineHandle& pipeline : std3D_aLitWaterPipelines )
         {
             pipeline = {};
         }
@@ -1084,6 +1449,10 @@ namespace
         std3D_bInScene           = false;
         std3D_bClearColorPending = false;
         std3D_bClearDepthPending = false;
+        std3D_bHudLayer          = false;
+        std3D_bScenePassBegun    = false;
+        std3D_bHudPassBegun      = false;
+        std3D_aSceneDraws.clear();
     }
 
     // The DX9 InitSystem minus the Direct3D state: formats, the back buffer for the viewport, the
@@ -1133,9 +1502,12 @@ namespace
             return false;
         }
 
-        // std3DX9.c's InitRenderState: the trilinear mip filter, linear filtering (no device here
-        // filters anisotropically), wrapping, shader fog off.
+        // std3DX9.c's InitRenderState: the trilinear mip filter, linear filtering, wrapping,
+        // shader fog off. The anisotropic level and the crisp-pixels toggle are presentation state
+        // read from Jones.cfg here, like the render scale is read when the frame owner opens.
         std3D_mipmapFilter = STD3D_MIPMAPFILTER_TRILINEAR;
+        std3D_anisotropicFilter  = std3DBabylon_ReadAnisotropicFilterLevel();
+        std3D_bTexturePixelated  = std3DBabylon_ReadTexturePixelated();
         std3D_renderState  = (Std3DRenderState)(STD3D_RS_UNKNOWN_1 | STD3D_RS_TEXFILTER_BILINEAR | STD3D_RS_SUBPIXEL_CORRECTION | STD3D_RS_UNKNOWN_2);
         std3D_pCurTex      = nullptr;
         STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
@@ -1166,6 +1538,57 @@ namespace
         return true;
     }
 }
+
+int std3DBabylon_NormalizeAnisotropicFilterLevel(int level)
+{
+    return std3D_NormalizeAnisotropicFilter(level);
+}
+
+int std3DBabylon_ReadAnisotropicFilterLevel(void)
+{
+    const int defaultLevel = J3D_QOL_VALUE(8, 1);
+    if ( !stdConfig_HasStarted() )
+    {
+        return defaultLevel;
+    }
+
+    // An integer value wins. stdConfig_GetInt returns its default for a value of another JSON
+    // type, so an old boolean Jones.cfg is found by asking for both booleans of it: a real
+    // boolean answers both with itself, while a missing or integer value answers each with its
+    // own default and the two differ.
+    const int missing = std::numeric_limits<int>::min();
+    const int level   = stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, missing);
+    if ( level != missing )
+    {
+        return std3D_NormalizeAnisotropicFilter(level);
+    }
+
+    const bool bTrue  = stdConfig_GetBool(STD3D_CFG_ANISOTROPICFILTER, true);
+    const bool bFalse = stdConfig_GetBool(STD3D_CFG_ANISOTROPICFILTER, false);
+    if ( bTrue == bFalse )
+    {
+        return bTrue ? 8 : 1;
+    }
+
+    return defaultLevel;
+}
+
+bool std3DBabylon_ReadTexturePixelated(void)
+{
+    return stdConfig_HasStarted() ? stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false) : false;
+}
+
+#ifdef J3D_TEST
+void std3DBabylon_SetAnisotropicFilterForTest(int level)
+{
+    std3D_anisotropicFilter = std3D_NormalizeAnisotropicFilter(level);
+}
+
+void std3DBabylon_SetTexturePixelatedForTest(bool bEnabled)
+{
+    std3D_bTexturePixelated = bEnabled;
+}
+#endif
 
 void std3D_ResetGlobals(void)
 {
@@ -1426,6 +1849,8 @@ int std3D_StartScene(void)
     std3D_bClearColorPending = false;
     std3D_bClearDepthPending = false;
     std3D_bInScene           = true;
+    std3D_bHudLayer          = false;
+    std3D_bHudPassBegun      = false;
     return 0;
 }
 
@@ -1439,12 +1864,80 @@ void std3D_EndScene(void)
     }
 
     std3D_bInScene = false;
-    if ( !std3D_EndScenePass() )
+
+    // Added: a HUD layer left open by a missing EndHudLayer ends here, before the frame is presented.
+    bool bRecorded = true;
+    if ( std3D_bHudLayer )
+    {
+        if ( !std3D_aSceneDraws.empty() )
+        {
+            bRecorded = std3D_EndHudPass();
+        }
+        std3D_bHudLayer = false;
+    }
+    else if ( std3D_bScenePassBegun )
+    {
+        bRecorded = std3D_EndScenePass();
+    }
+
+    if ( !bRecorded )
     {
         STDLOG_ERROR("Error ending scene.\n");
     }
 
     // The frame stays open: stdDisplay_Update submits and presents it, like stdDisplayDX9.c's Present.
+}
+
+// Added: switches the draws to the HUD layer. The scene draws collected so far are recorded first,
+// so they keep the scene targets and their post effects.
+void std3D_BeginHudLayer(void)
+{
+    if ( !std3D_bInScene )
+    {
+        STDLOG_ERROR("Error beginning the HUD layer: no scene begun.\n");
+        return;
+    }
+
+    if ( std3D_bHudLayer )
+    {
+        STDLOG_ERROR("Error beginning the HUD layer: it is already begun.\n");
+        return;
+    }
+
+    if ( std3D_bScenePassBegun || !std3D_aSceneDraws.empty() )
+    {
+        if ( !std3D_EndScenePass() )
+        {
+            STDLOG_ERROR("Error beginning the HUD layer: the scene pass failed.\n");
+        }
+    }
+
+    std3D_bHudLayer      = true;
+    std3D_bHudPassBegun  = true;
+    std3D_hudColorLoad   = render::LoadOp::Clear;
+    std3D_hudDepthLoad   = render::LoadOp::Clear;
+    std3D_aSceneDraws.clear();
+}
+
+// Added: records the HUD layer draws. Without any, no pass is recorded and the previous layer is not
+// composited (stdRenderBabylon only draws a layer this frame recorded).
+void std3D_EndHudLayer(void)
+{
+    if ( !std3D_bHudLayer )
+    {
+        return;
+    }
+
+    if ( !std3D_aSceneDraws.empty() )
+    {
+        if ( !std3D_EndHudPass() )
+        {
+            STDLOG_ERROR("Error ending the HUD layer.\n");
+        }
+    }
+
+    std3D_bHudLayer     = false;
+    std3D_bHudPassBegun = false;
 }
 
 bool std3D_IsInScene(void)
@@ -1524,7 +2017,7 @@ void J3DAPI std3D_SetLights(const StdLight* aLights, size_t numLights)
 
 void std3D_SetWireframeRenderState(void)
 {
-    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200));
+    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200 | STD3D_RS_SURFACE_SKY | STD3D_RS_SURFACE_WATER));
     std3D_SetRenderState(rdstate);
     std3D_pCurTex = nullptr;
 }
@@ -1773,6 +2266,10 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
     tVBuffer* pTop = nullptr;
     render::TextureDesc desc;
     std::vector<std::byte> data;
+    std::vector<Std3DBabylonTexelRgba8> prevTexels;
+    std::vector<Std3DBabylonTexelRgba8> nextTexels;
+    uint32_t numSourceLevels = 1;
+    bool bGenerateMips = false;
 
     if ( pCacheTexture->numMipLevels == 0 || !pCacheTexture->apMipmaps )
     {
@@ -1828,6 +2325,17 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
             desc.mipLevels, desc.mipLevels, pCacheTexture->numMipLevels);
     }
 
+    // Added: a material that brings only its top level gets a full chain generated on upload, so
+    // minified world and model textures keep their detail instead of shimmering. graphics.mipmapFilter
+    // 0 keeps the one level. Materials that bring their own levels are uploaded as they are.
+    numSourceLevels = desc.mipLevels;
+    bGenerateMips = pCacheTexture->numMipLevels == 1
+        && std3D_mipmapFilter != STD3D_MIPMAPFILTER_NONE;
+    if ( bGenerateMips )
+    {
+        desc.mipLevels = render::maxMipLevels(desc.width, desc.height);
+    }
+
     texture = std3D_pRenderDevice->createTexture(desc);
     if ( texture.isNull() )
     {
@@ -1835,7 +2343,7 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
         goto error;
     }
 
-    for ( uint32_t mmNum = 0; mmNum < desc.mipLevels; ++mmNum )
+    for ( uint32_t mmNum = 0; mmNum < numSourceLevels; ++mmNum )
     {
         tVBuffer* pMip = pCacheTexture->apMipmaps[mmNum];
         if ( !stdDisplay_VBufferLockReadOnly(pMip) )
@@ -1850,6 +2358,32 @@ void J3DAPI std3D_AddToTextureCache(tSystemTexture* pCacheTexture, StdColorForma
         {
             STDLOG_ERROR("Error uploading texture level %u.\n", mmNum);
             goto error;
+        }
+    }
+
+    if ( bGenerateMips )
+    {
+        // Each level is box-filtered from the one above in RGBA8, so the alpha handling of
+        // std3D_BoxFilterMip applies at every step. The top level's upload bytes are what that
+        // starts from.
+        std3D_DecodeMipRgba8(data, *pEntry, desc.width, desc.height, prevTexels);
+        uint32_t prevWidth  = desc.width;
+        uint32_t prevHeight = desc.height;
+        for ( uint32_t mmNum = numSourceLevels; mmNum < desc.mipLevels; ++mmNum )
+        {
+            const uint32_t width  = render::mipDimension(desc.width, mmNum);
+            const uint32_t height = render::mipDimension(desc.height, mmNum);
+            std3D_BoxFilterMip(prevTexels, prevWidth, prevHeight, width, height, *pEntry, nextTexels);
+            std3D_EncodeMipRgba8(nextTexels, *pEntry, width, height, data);
+            if ( !std3D_pRenderDevice->uploadTexture(texture, mmNum, std::span<const std::byte>(data)) )
+            {
+                STDLOG_ERROR("Error uploading generated texture level %u.\n", mmNum);
+                goto error;
+            }
+
+            prevTexels.swap(nextTexels);
+            prevWidth  = width;
+            prevHeight = height;
         }
     }
 
@@ -1988,7 +2522,33 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
     // The projection matrix std3DX9.c set is unused by its pre-transformed vertices; only its
     // fixed-function fog table used the depth scale.
     std3D_zDepth = distance * 10.0f;
+
+    // Added: the depth-of-field stage linearises the depth target with these planes.
+    std3D_nearPlane = nearPlane;
+    std3D_farPlane  = farPlane;
     return 0;
+}
+
+void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime)
+{
+    // Added: presentation only; a backend without depth of field ignores the call.
+    if ( !std3D_pRenderDevice || !stdRenderBabylon_IsOpen() )
+    {
+        return;
+    }
+
+    stdRenderBabylon_SetFocus(distance, bCutscene, std3D_nearPlane, std3D_farPlane, deltaTime);
+}
+
+void J3DAPI std3D_SetFrameTime(float deltaTime)
+{
+    // Added: the light-shaft stage's fade (M9.16); a backend without it ignores the call.
+    if ( !std3D_pRenderDevice || !stdRenderBabylon_IsOpen() )
+    {
+        return;
+    }
+
+    stdRenderBabylon_SetFrameTime(deltaTime);
 }
 
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
@@ -2032,6 +2592,27 @@ void std3D_ClearZBuffer(void)
     if ( !std3D_bInScene )
     {
         std3D_bClearDepthPending = true;
+        return;
+    }
+
+    // Added: inside the HUD layer the collected HUD pass is recorded and a new one begins with its
+    // depth cleared, keeping the color already drawn.
+    if ( std3D_bHudLayer )
+    {
+        bool bRecorded = true;
+        if ( !std3D_aSceneDraws.empty() )
+        {
+            bRecorded = std3D_EndHudPass();
+        }
+        if ( !bRecorded )
+        {
+            STDLOG_ERROR("Error when clearing Z.\n");
+        }
+
+        // The first pass of the section still clears the layer's color; later ones keep it.
+        std3D_hudColorLoad = std3D_bHudPassBegun ? render::LoadOp::Clear : render::LoadOp::Load;
+        std3D_hudDepthLoad = render::LoadOp::Clear;
+        std3D_bHudPassBegun = true;
         return;
     }
 

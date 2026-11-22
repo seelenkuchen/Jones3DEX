@@ -26,6 +26,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <variant>
@@ -177,6 +178,44 @@ namespace
             bytes.insert(bytes.end(), pRow, pRow + rowBytes);
         }
         return bytes;
+    }
+
+    // Writes one encoded texel of ci into a locked VBuffer.
+    void SetTexel(tVBuffer* pVBuffer, const ColorInfo& ci, uint32_t x, uint32_t y, uint32_t value)
+    {
+        const size_t texelBytes = ci.bpp / 8u;
+        uint8_t* pTexel = pVBuffer->pPixels + y * pVBuffer->rasterInfo.rowSize + x * texelBytes;
+        for ( size_t i = 0; i < texelBytes; ++i )
+        {
+            pTexel[i] = (uint8_t)(value >> (8u * i));
+        }
+    }
+
+    // One little-endian texel of upload bytes.
+    uint32_t ReadTexel(const std::vector<std::byte>& data, size_t index, size_t texelBytes)
+    {
+        uint32_t value = 0;
+        for ( size_t i = 0; i < texelBytes; ++i )
+        {
+            value |= (uint32_t)(uint8_t)data[index * texelBytes + i] << (8u * i);
+        }
+        return value;
+    }
+
+    // The last texture bound by a recorded draw.
+    render::BindTexture LastBoundTexture()
+    {
+        const std::vector<render::RecordedCommand>& recorded = Null().recorded();
+        for ( auto it = recorded.rbegin(); it != recorded.rend(); ++it )
+        {
+            if ( const render::BindTexture* pBind = std::get_if<render::BindTexture>(&*it) )
+            {
+                return *pBind;
+            }
+        }
+
+        TEST_FAIL_MESSAGE("no BindTexture recorded");
+        return {};
     }
 
     void AssertBytes(const std::vector<std::byte>& expected, const std::vector<std::byte>& actual)
@@ -374,8 +413,8 @@ TEST(std3DBabylon, OneDeviceDescribesTheRenderDevice)
     TEST_ASSERT_EQUAL_size_t(8192u, pDevice->maxTexWidth);   // the Null device's maxTextureDimension
     TEST_ASSERT_EQUAL_size_t(8192u, pDevice->maxTexHeight);
     TEST_ASSERT_EQUAL_size_t(65535u, pDevice->maxVertexCount);
-    TEST_ASSERT_FALSE(pDevice->bAnisotropicFilteringSupported);
-    TEST_ASSERT_FALSE(pDevice->bMipmapAutoGenSupported);
+    TEST_ASSERT_TRUE(pDevice->bAnisotropicFilteringSupported);
+    TEST_ASSERT_TRUE(pDevice->bMipmapAutoGenSupported);
     TEST_ASSERT_FALSE(pDevice->bMSAASupported);
     TEST_ASSERT_EQUAL_STRING("Jones3D Babylon Display (Babylon render, null)", pDevice->deviceDescription);
     TEST_ASSERT_EQUAL_STRING("stdDisplayBabylon", pDevice->deviceName);
@@ -520,6 +559,175 @@ TEST(std3DBabylon, MipFilterNoneUploadsOneLevel)
     std3D_ClearSystemTexture(&texture);
     stdDisplay_VBufferFree(apMips[0]);
     stdDisplay_VBufferFree(apMips[1]);
+}
+
+TEST(std3DBabylon, SingleLevelTexturesGetAGeneratedMipChain)
+{
+    OpenStd3D(); // the default trilinear mip filter generates
+
+    // Four 2x2 blocks, each one colour, so every generated level has an exact expected texel.
+    const uint8_t aBlocks[4][3] = {
+        { 0, 0, 0 }, { 40, 80, 120 }, { 160, 120, 80 }, { 200, 160, 40 },
+    };
+    tVBuffer* pVBuffer = NewVBuffer(stdColor_cfARGB8888, 4u, 4u, 0);
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferLock(pVBuffer));
+    for ( uint32_t y = 0; y < 4u; ++y )
+    {
+        for ( uint32_t x = 0; x < 4u; ++x )
+        {
+            const uint8_t* pBlock = aBlocks[(y / 2u) * 2u + x / 2u];
+            SetTexel(pVBuffer, stdColor_cfARGB8888, x, y,
+                stdColor_EncodeRGBA(&stdColor_cfARGB8888, pBlock[0], pBlock[1], pBlock[2], 255));
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pVBuffer));
+
+    static tSystemTexture texture;
+    std3D_AllocSystemTexture(&texture, &pVBuffer, 1u, STDCOLOR_FORMAT_RGBA);
+    TEST_ASSERT_EQUAL_size_t(1u, std3D_GetMipMapCount(&texture)); // one source level
+    std3D_AddToTextureCache(&texture, STDCOLOR_FORMAT_RGBA);
+    TEST_ASSERT_NOT_NULL(texture.pCachedTexture);
+
+    // The generated 2x2 level holds the blocks; 4x4 has three levels.
+    const std::vector<std::byte> mip1 = Null().readTexture(CachedHandle(texture), 1);
+    TEST_ASSERT_EQUAL_size_t(2u * 2u * 4u, mip1.size());
+    for ( size_t i = 0; i < 4u; ++i )
+    {
+        uint8_t r = 0, g = 0, b = 0, a = 0;
+        stdColor_DecodeRGBA(ReadTexel(mip1, i, 4u), &stdColor_cfARGB8888, &r, &g, &b, &a);
+        TEST_ASSERT_EQUAL_INT(aBlocks[i][0], r);
+        TEST_ASSERT_EQUAL_INT(aBlocks[i][1], g);
+        TEST_ASSERT_EQUAL_INT(aBlocks[i][2], b);
+        TEST_ASSERT_EQUAL_INT(0xFF, a);
+    }
+
+    // The 1x1 level is the average of the four blocks.
+    const std::vector<std::byte> mip2 = Null().readTexture(CachedHandle(texture), 2);
+    TEST_ASSERT_EQUAL_size_t(4u, mip2.size());
+    uint8_t r = 0, g = 0, b = 0, a = 0;
+    stdColor_DecodeRGBA(ReadTexel(mip2, 0, 4u), &stdColor_cfARGB8888, &r, &g, &b, &a);
+    TEST_ASSERT_EQUAL_INT(100, r);
+    TEST_ASSERT_EQUAL_INT(90, g);
+    TEST_ASSERT_EQUAL_INT(60, b);
+    TEST_ASSERT_EQUAL_INT(0xFF, a);
+
+    // A 4x4 texture has no level 3.
+    TEST_ASSERT_TRUE(ReadTexture(CachedHandle(texture), 3).empty());
+
+    std3D_ClearSystemTexture(&texture);
+    stdDisplay_VBufferFree(pVBuffer);
+}
+
+TEST(std3DBabylon, GeneratedMipsKeepTheColourKeyColourOut)
+{
+    OpenStd3D();
+
+    // A colour-keyed texture (1-bit alpha): an opaque red half and a transparent green half.
+    // Mask averaging may only take the red, so the green key colour never reaches a visible texel.
+    const uint32_t red   = (31u << 10) | (1u << 15); // R5=31, A1=1
+    const uint32_t green = (31u << 5);               // G5=31, A1=0
+    tVBuffer* pVBuffer = NewVBuffer(stdColor_cfARGB5551, 4u, 4u, 0);
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferLock(pVBuffer));
+    for ( uint32_t y = 0; y < 4u; ++y )
+    {
+        for ( uint32_t x = 0; x < 4u; ++x )
+        {
+            SetTexel(pVBuffer, stdColor_cfARGB5551, x, y, x < 2u ? red : green);
+        }
+    }
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_VBufferUnlock(pVBuffer));
+
+    static tSystemTexture texture;
+    std3D_AllocSystemTexture(&texture, &pVBuffer, 1u, STDCOLOR_FORMAT_RGBA_1BITALPHA);
+    std3D_AddToTextureCache(&texture, STDCOLOR_FORMAT_RGBA_1BITALPHA);
+    TEST_ASSERT_NOT_NULL(texture.pCachedTexture);
+
+    // The 2x2 level: left texels stay opaque red, right ones transparent with no green.
+    const std::vector<std::byte> mip1 = Null().readTexture(CachedHandle(texture), 1);
+    TEST_ASSERT_EQUAL_size_t(2u * 2u * 2u, mip1.size());
+    for ( size_t i = 0; i < 4u; ++i )
+    {
+        uint8_t r = 0, g = 0, b = 0, a = 0;
+        stdColor_DecodeRGBA(ReadTexel(mip1, i, 2u), &stdColor_cfARGB5551, &r, &g, &b, &a);
+        if ( i % 2u == 0u )
+        {
+            TEST_ASSERT_EQUAL_INT(0xFF, r);
+            TEST_ASSERT_EQUAL_INT(0, g);
+            TEST_ASSERT_EQUAL_INT(0, b);
+            TEST_ASSERT_EQUAL_INT(0xFF, a);
+        }
+        else
+        {
+            TEST_ASSERT_EQUAL_INT(0, a);
+            TEST_ASSERT_EQUAL_INT(0, g); // the transparent green key colour didn't bleed
+        }
+    }
+
+    // The 1x1 level averages only the opaque red texels; the result is still opaque red.
+    const std::vector<std::byte> mip2 = Null().readTexture(CachedHandle(texture), 2);
+    TEST_ASSERT_EQUAL_size_t(2u, mip2.size());
+    uint8_t r = 0, g = 0, b = 0, a = 0;
+    stdColor_DecodeRGBA(ReadTexel(mip2, 0, 2u), &stdColor_cfARGB5551, &r, &g, &b, &a);
+    TEST_ASSERT_EQUAL_INT(0xFF, r);
+    TEST_ASSERT_EQUAL_INT(0, g);
+    TEST_ASSERT_EQUAL_INT(0, b);
+    TEST_ASSERT_EQUAL_INT(0xFF, a);
+
+    std3D_ClearSystemTexture(&texture);
+    stdDisplay_VBufferFree(pVBuffer);
+}
+
+TEST(std3DBabylon, AnisotropyAndCrispPixelsReachTheSampler)
+{
+    OpenStd3D();
+
+    static tSystemTexture texture;
+    MakeCachedTexture(&texture, stdColor_cfARGB8888, 5);
+
+    static StdVertexTL aVertices[3] = {
+        { 1.0f, 2.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0u, 0.0f, 0.0f },
+        { 3.0f, 2.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0u, 1.0f, 0.0f },
+        { 2.0f, 4.0f, 4.0f, 0.5f, 0xFFFFFFFFu, 0u, 0.5f, 1.0f },
+    };
+    static uint16_t aIndices[3] = { 0u, 1u, 2u };
+    const auto drawWithState = [&](Std3DRenderState state)
+    {
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_DrawRenderList(texture.pCachedTexture, state, aVertices, 3u, aIndices, 3u);
+        EndFrame();
+        return LastBoundTexture();
+    };
+
+    // An anisotropic draw takes the configured level.
+    std3DBabylon_SetAnisotropicFilterForTest(8);
+    render::BindTexture bind = drawWithState(STD3D_RS_TEXFILTER_ANISOTROPIC);
+    std::optional<render::SamplerDesc> desc = Null().samplerDesc(bind.sampler);
+    TEST_ASSERT_TRUE(desc.has_value());
+    TEST_ASSERT_EQUAL_FLOAT(8.0f, desc->maxAnisotropy);
+    TEST_ASSERT_TRUE(desc->minFilter == render::Filter::Linear);
+    TEST_ASSERT_TRUE(desc->magFilter == render::Filter::Linear);
+    TEST_ASSERT_TRUE(desc->mipFilter == render::Filter::Linear); // trilinear, the default
+
+    // Off falls back to plain linear.
+    std3DBabylon_SetAnisotropicFilterForTest(1);
+    bind = drawWithState(STD3D_RS_TEXFILTER_ANISOTROPIC);
+    desc = Null().samplerDesc(bind.sampler);
+    TEST_ASSERT_TRUE(desc.has_value());
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, desc->maxAnisotropy);
+    TEST_ASSERT_TRUE(desc->minFilter == render::Filter::Linear);
+
+    // Crisp pixels makes min and mag nearest and leaves the mip filter as configured.
+    std3DBabylon_SetTexturePixelatedForTest(true);
+    bind = drawWithState(STD3D_RS_TEXFILTER_BILINEAR);
+    desc = Null().samplerDesc(bind.sampler);
+    TEST_ASSERT_TRUE(desc.has_value());
+    TEST_ASSERT_TRUE(desc->minFilter == render::Filter::Nearest);
+    TEST_ASSERT_TRUE(desc->magFilter == render::Filter::Nearest);
+    TEST_ASSERT_TRUE(desc->mipFilter == render::Filter::Linear);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, desc->maxAnisotropy);
+
+    std3DBabylon_SetTexturePixelatedForTest(false);
+    std3D_ClearSystemTexture(&texture);
 }
 
 TEST(std3DBabylon, CacheKeepsTheDX9ListAndMemory)
@@ -697,7 +905,8 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     OpenStd3D(320u, 200u);
     TEST_ASSERT_EQUAL_UINT32(320u, stdRenderBabylon_GetBackBufferWidth());
     TEST_ASSERT_EQUAL_UINT32(200u, stdRenderBabylon_GetBackBufferHeight());
-    TEST_ASSERT_EQUAL_size_t(320u * 200u * 4u, Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(320u * 200u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
     TEST_ASSERT_TRUE(stdRenderBabylon_GetDepthFormat() == render::TextureFormat::D24S8);
 
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
@@ -716,9 +925,121 @@ TEST(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer)
     TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_GetBackBufferWidth());
     TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_GetBackBufferHeight());
     AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
-    TEST_ASSERT_EQUAL_size_t(64u * 48u * 4u, Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(64u * 48u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
 
     TEST_ASSERT_TRUE(ReadTexture(oldColor, 0).empty());
+}
+
+TEST(std3DBabylon, ARenderScaleSizesTheSceneTargetsAndKeepsTheDisplaySize)
+{
+    OpenStd3D(32u, 16u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(2.0f));
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, stdRenderBabylon_GetRenderScale());
+    // The game's display size is unchanged; only the GPU scene targets grew.
+    TEST_ASSERT_EQUAL_UINT32(32u, stdRenderBabylon_GetBackBufferWidth());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetBackBufferHeight());
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_GetRenderWidth());
+    TEST_ASSERT_EQUAL_UINT32(32u, stdRenderBabylon_GetRenderHeight());
+    TEST_ASSERT_EQUAL_size_t(64u * 32u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(64u * 32u * render::bytesPerTexel(stdRenderBabylon_GetNormalFormat()),
+        Null().readTexture(stdRenderBabylon_GetNormalTarget(), 0).size());
+
+    // The scene fills the scaled target, and a present at the display size succeeds.
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    const render::TextureHandle present = Null().createTexture(
+        render::TextureDesc{ 32u, 16u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(present.isNull());
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(present, 32u, 16u));
+    TEST_ASSERT_EQUAL_size_t(32u * 16u * 4u, Null().readTexture(present, 0).size());
+    Null().destroyTexture(present);
+
+    // The read-back image has the display size.
+    std::vector<std::byte> aPixels(32u * 16u * 4u);
+    uint32_t width  = 0;
+    uint32_t height = 0;
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), &width, &height));
+    TEST_ASSERT_EQUAL_UINT32(32u, width);
+    TEST_ASSERT_EQUAL_UINT32(16u, height);
+
+    // 50% makes the scene target smaller; the display and read-back sizes stay.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(0.5f));
+    TEST_ASSERT_EQUAL_UINT32(32u, stdRenderBabylon_GetBackBufferWidth());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetBackBufferHeight());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetRenderWidth());
+    TEST_ASSERT_EQUAL_UINT32(8u, stdRenderBabylon_GetRenderHeight());
+    TEST_ASSERT_EQUAL_size_t(16u * 8u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), &width, &height));
+    TEST_ASSERT_EQUAL_UINT32(32u, width);
+    TEST_ASSERT_EQUAL_UINT32(16u, height);
+}
+
+TEST(std3DBabylon, RenderScaleOneRoundTripsTheBackBufferBytes)
+{
+    OpenStd3D(16u, 8u);
+
+    std::vector<std::byte> aExpected(16u * 8u * 4u);
+    for ( uint32_t y = 0; y < 8u; ++y )
+    {
+        for ( uint32_t x = 0; x < 16u; ++x )
+        {
+            std::byte* pTexel = aExpected.data() + ((size_t)y * 16u + x) * 4u;
+            pTexel[0] = (std::byte)((x * 7u + y * 13u) & 0xFFu);
+            pTexel[1] = (std::byte)((x * 11u + y * 5u) & 0xFFu);
+            pTexel[2] = (std::byte)((x * 3u + y * 17u) & 0xFFu);
+            pTexel[3] = std::byte{ 0xFF };
+        }
+    }
+
+    // At 100% the bytes go into the scene target and come back unchanged: no resampling runs.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_WriteBackBuffer(aExpected.data()));
+    std::vector<std::byte> aActual(16u * 8u * 4u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aActual.data(), nullptr, nullptr));
+    AssertBytes(aExpected, aActual);
+}
+
+TEST(std3DBabylon, ARenderScaleAboveTheDeviceLimitIsClamped)
+{
+    OpenStd3D(6000u, 16u);
+    const uint32_t maxSize = Null().info().limits.maxTextureDimension;
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(2.0f));
+    const uint32_t renderWidth  = stdRenderBabylon_GetRenderWidth();
+    const uint32_t renderHeight = stdRenderBabylon_GetRenderHeight();
+
+    TEST_ASSERT_TRUE(renderWidth <= maxSize);
+    TEST_ASSERT_TRUE(renderHeight <= maxSize);
+    TEST_ASSERT_TRUE(renderWidth < 12000u); // 2.0 * the 6000 pixel display width was clamped
+    TEST_ASSERT_EQUAL_UINT32(6000u, stdRenderBabylon_GetBackBufferWidth());
+    TEST_ASSERT_EQUAL_UINT32(16u, stdRenderBabylon_GetBackBufferHeight());
+    TEST_ASSERT_EQUAL_size_t((size_t)renderWidth * renderHeight
+            * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetColorTarget(), 0).size());
+
+    // The read-back image stays the display size.
+    std::vector<std::byte> aPixels(6000u * 16u * 4u);
+    uint32_t width  = 0;
+    uint32_t height = 0;
+    TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), &width, &height));
+    TEST_ASSERT_EQUAL_UINT32(6000u, width);
+    TEST_ASSERT_EQUAL_UINT32(16u, height);
+}
+
+TEST(std3DBabylon, TheSceneTargetIsBgra8WithoutRgba16F)
+{
+    UseNullDevice(render::NullDeviceDesc{ { render::TextureFormat::Rgba16F } });
+    OpenStd3D();
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetColorFormat() == render::TextureFormat::Bgra8);
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
+    AssertScenePass(0, render::LoadOp::Clear, render::LoadOp::Clear);
 }
 
 TEST(std3DBabylon, DepthIsD32FWithoutD24S8)
@@ -785,14 +1106,16 @@ namespace
         return std::vector<std::byte>(pBytes, pBytes + count * sizeof(T));
     }
 
-    // Fragment uniform block 0 of the std3D shaders: fog params, fog color, alpha reference / 255.
+    // Fragment uniform block 0 of the std3D shaders: fog params, fog color, alpha reference / 255
+    // and the surface tag in x (M9.16).
     std::vector<std::byte> FragmentUniforms(const float (&aFogParams)[4], const float (&aFogColor)[4], float alphaRef)
     {
-        float aBlock[12] = { 0.0f };
+        float aBlock[16] = { 0.0f };
         std::memcpy(aBlock, aFogParams, sizeof(aFogParams));
         std::memcpy(aBlock + 4, aFogColor, sizeof(aFogColor));
-        aBlock[8] = alphaRef;
-        return BytesOf(aBlock, 12u);
+        aBlock[8]  = alphaRef;
+        aBlock[12] = 1.0f;
+        return BytesOf(aBlock, 16u);
     }
 
     std::vector<std::byte> NoFogUniforms(float alphaRef)
@@ -840,7 +1163,7 @@ namespace
         keep.dstColor = render::BlendFactor::One;
         keep.srcAlpha = render::BlendFactor::Zero;
         keep.dstAlpha = render::BlendFactor::One;
-        desc.colorTargets = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, blend },
+        desc.colorTargets = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), blend },
             render::ColorTargetDesc{ render::TextureFormat::R10G10B10A2, bZWrite ? render::BlendState{} : keep } };
         desc.depthFormat  = render::TextureFormat::D24S8;
         desc.depth        = render::DepthState{ true, bZWrite, render::CompareOp::LessOrEqual };
@@ -1477,14 +1800,14 @@ TEST(std3DBabylon, TheNormalTargetIsRgba8WithoutR10G10B10A2)
 namespace
 {
     // The post pass pipeline stdRenderBabylon_AddPostPass makes of a fragment shader: the present
-    // pass's full-screen triangle into Bgra8, nothing else.
+    // pass's full-screen triangle into a target of the scene's format, nothing else.
     render::PipelineDesc ExpectedPostPipeline(const render::ShaderDesc& fragmentShader)
     {
         render::PipelineDesc desc;
         desc.vertexShader   = stdBabylon::shaders::presentVert();
         desc.fragmentShader = fragmentShader;
         desc.primitive      = render::PrimitiveType::TriangleList;
-        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+        desc.colorTargets   = { render::ColorTargetDesc{ stdRenderBabylon_GetColorFormat(), {} } };
         return desc;
     }
 
@@ -1577,10 +1900,12 @@ TEST(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer)
     const render::TextureHandle output = AssertPostPass(2, pipeline, { stdRenderBabylon_GetColorTarget() });
     AssertSubmitted(7);
     TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == output);
-    TEST_ASSERT_EQUAL_size_t(16u * 8u * 4u, Null().readTexture(output, 0).size());
+    const size_t postBytes = 16u * 8u
+        * render::bytesPerTexel(stdRenderBabylon_GetColorFormat());
+    TEST_ASSERT_EQUAL_size_t(postBytes, Null().readTexture(output, 0).size());
 
     // Reading the back buffer flushes without the chain and gets the back buffer.
-    TEST_ASSERT_TRUE(Null().uploadTexture(output, 0, std::vector<std::byte>(16u * 8u * 4u, std::byte{ 0x77 })));
+    TEST_ASSERT_TRUE(Null().uploadTexture(output, 0, std::vector<std::byte>(postBytes, std::byte{ 0x77 })));
     Null().clearRecorded();
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     std3D_EndScene();
@@ -1588,7 +1913,7 @@ TEST(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer)
     TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aPixels.data(), nullptr, nullptr));
     TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
     AssertSubmitted(2);
-    AssertBytes(Null().readTexture(stdRenderBabylon_GetColorTarget(), 0), aPixels);
+    // Through the translation to Bgra8 the scene target is the cleared black.
     AssertBytes(std::vector<std::byte>(16u * 8u * 4u, std::byte{ 0 }), aPixels);
 
     // A present without anything recorded runs the chain too, on the same target.
@@ -1646,7 +1971,8 @@ TEST(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets)
     TEST_ASSERT_TRUE(ReadTexture(first, 0).empty());
     TEST_ASSERT_TRUE(ReadTexture(second, 0).empty());
     TEST_ASSERT_FALSE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
-    TEST_ASSERT_EQUAL_size_t(8u * 4u * 4u, Null().readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
+    TEST_ASSERT_EQUAL_size_t(8u * 4u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        Null().readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
 }
 
 TEST(std3DBabylon, BadPostPassesAreRefused)
@@ -1671,6 +1997,213 @@ TEST(std3DBabylon, BadPostPassesAreRefused)
     }
     TEST_ASSERT_EQUAL_size_t(0u, stdRenderBabylon_GetNumPostPasses());
     TEST_ASSERT_EQUAL_size_t(0u, Null().recorded().size());
+}
+
+TEST(std3DBabylon, AntiAliasingAddsThreeSmaaPassesBeforeThePresent)
+{
+    OpenStd3D(16u, 8u);
+    const render::TextureHandle target = Null().createTexture(
+        render::TextureDesc{ 16u, 8u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(target.isNull());
+
+    // Off (the default without a started config): only the final present pass.
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetAntiAliasing());
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    std::vector<render::BeginPass> aOffPasses;
+    for ( const render::RecordedCommand& command : Null().recorded() )
+    {
+        if ( const render::BeginPass* pPass = std::get_if<render::BeginPass>(&command) )
+        {
+            aOffPasses.push_back(*pPass);
+        }
+    }
+    TEST_ASSERT_EQUAL_size_t(1u, aOffPasses.size());
+    TEST_ASSERT_TRUE(aOffPasses[0].desc.colorTargets[0].target == target);
+
+    // On: the tone map into an LDR target, edges, weights, then the blend into the target.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetAntiAliasing());
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+
+    std::vector<render::BeginPass> aPasses;
+    for ( const render::RecordedCommand& command : Null().recorded() )
+    {
+        if ( const render::BeginPass* pPass = std::get_if<render::BeginPass>(&command) )
+        {
+            aPasses.push_back(*pPass);
+        }
+    }
+    TEST_ASSERT_EQUAL_size_t(4u, aPasses.size());
+    // The first pass is the tone map into an LDR target, not the capture target.
+    TEST_ASSERT_FALSE(aPasses[0].desc.colorTargets[0].target == target);
+    // The last pass writes the capture target from the anti-aliased image.
+    TEST_ASSERT_EQUAL_size_t(1u, aPasses[3].desc.colorTargets.size());
+    TEST_ASSERT_TRUE(aPasses[3].desc.colorTargets[0].target == target);
+
+    Null().destroyTexture(target);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+}
+
+TEST(std3DBabylon, SharpeningAddsACasPassAfterTheToneMapOrSmaa)
+{
+    OpenStd3D(16u, 8u);
+    const render::TextureHandle target = Null().createTexture(
+        render::TextureDesc{ 16u, 8u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(target.isNull());
+
+    auto passes = []
+    {
+        std::vector<render::BeginPass> aPasses;
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            if ( const render::BeginPass* pPass = std::get_if<render::BeginPass>(&command) )
+            {
+                aPasses.push_back(*pPass);
+            }
+        }
+        return aPasses;
+    };
+
+    // Off (the default without a started config): only the final present pass.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdRenderBabylon_GetSharpening());
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    TEST_ASSERT_EQUAL_size_t(1u, passes().size());
+
+    // Without anti-aliasing: the tone map into the sharpening source, then CAS into the target.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetSharpening());
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    std::vector<render::BeginPass> aPasses = passes();
+    TEST_ASSERT_EQUAL_size_t(2u, aPasses.size());
+    TEST_ASSERT_FALSE(aPasses[0].desc.colorTargets[0].target == target);
+    TEST_ASSERT_TRUE(aPasses[1].desc.colorTargets[0].target == target);
+
+    // With anti-aliasing: tone map, edges, weights, the SMAA blend into the sharpening source, CAS.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    aPasses = passes();
+    TEST_ASSERT_EQUAL_size_t(5u, aPasses.size());
+    TEST_ASSERT_FALSE(aPasses[0].desc.colorTargets[0].target == target);
+    TEST_ASSERT_FALSE(aPasses[3].desc.colorTargets[0].target == target);
+    TEST_ASSERT_TRUE(aPasses[4].desc.colorTargets[0].target == target);
+
+    Null().destroyTexture(target);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+}
+
+TEST(std3DBabylon, BloomAddsAPrefilterBlurAndCompositeBeforeTheToneMap)
+{
+    OpenStd3D(16u, 8u);
+    const render::TextureHandle target = Null().createTexture(
+        render::TextureDesc{ 16u, 8u, 1u, render::TextureFormat::Bgra8,
+            render::TextureUsage::ColorTarget });
+    TEST_ASSERT_FALSE(target.isNull());
+
+    auto passes = []
+    {
+        std::vector<render::BeginPass> aPasses;
+        std::vector<std::vector<render::PushUniforms>> aUniforms;
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            if ( const render::BeginPass* pPass = std::get_if<render::BeginPass>(&command) )
+            {
+                aPasses.push_back(*pPass);
+                aUniforms.emplace_back();
+            }
+            else if ( const render::PushUniforms* pUniforms = std::get_if<render::PushUniforms>(&command) )
+            {
+                if ( !aUniforms.empty() )
+                {
+                    aUniforms.back().push_back(*pUniforms);
+                }
+            }
+        }
+        return std::make_pair(aPasses, aUniforms);
+    };
+
+    // Off (the default without a started config): the scene pass only; the present source is the
+    // back buffer.
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, stdRenderBabylon_GetBloom());
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(1u, passes().first.size());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+
+    // On: the scene, then half-size prefilter, four downsamples, four additive upsamples and the
+    // scene-sized composite, all before the tone map.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.3f));
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, stdRenderBabylon_GetBloom());
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+
+    const auto [aPasses, aUniforms] = passes();
+    TEST_ASSERT_EQUAL_size_t(11u, aPasses.size()); // the scene and ten bloom passes
+    const size_t texelBytes = render::bytesPerTexel(stdRenderBabylon_GetColorFormat());
+    auto texels = [texelBytes](const render::BeginPass& pass)
+    {
+        return Null().readTexture(pass.desc.colorTargets[0].target, 0).size() / texelBytes;
+    };
+
+    // The prefilter target is half the scene; the threshold and soft knee reach its shader.
+    TEST_ASSERT_EQUAL_size_t(8u * 4u, texels(aPasses[1]));
+    TEST_ASSERT_EQUAL_size_t(1u, aUniforms[1].size());
+    TEST_ASSERT_EQUAL_size_t(16u, aUniforms[1][0].data.size());
+    float aPrefilter[4];
+    std::memcpy(aPrefilter, aUniforms[1][0].data.data(), sizeof(aPrefilter));
+    TEST_ASSERT_EQUAL_FLOAT(0.6f, aPrefilter[0]);
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, aPrefilter[1]);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f / 16.0f, aPrefilter[2]);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f / 8.0f, aPrefilter[3]);
+
+    // Downsample chain: 1/4, 1/8, 1/16, 1/32 of the scene, each replacing its target.
+    const size_t aDownSizes[] = { 4u * 2u, 2u * 1u, 1u * 1u, 1u * 1u };
+    for ( size_t i = 0; i < sizeof(aDownSizes) / sizeof(aDownSizes[0]); ++i )
+    {
+        TEST_ASSERT_EQUAL_size_t(aDownSizes[i], texels(aPasses[2u + i]));
+        TEST_ASSERT_TRUE(aPasses[2u + i].desc.colorTargets[0].load == render::LoadOp::DontCare);
+    }
+
+    // Upsamples run from 1/32 back to 1/2, adding into the downsampled target.
+    for ( size_t i = 0; i < 4u; ++i )
+    {
+        TEST_ASSERT_TRUE(aPasses[6u + i].desc.colorTargets[0].load == render::LoadOp::Load);
+    }
+    TEST_ASSERT_EQUAL_size_t(8u * 4u, texels(aPasses[9]));
+
+    // The composite is scene sized and feeds the tone map.
+    TEST_ASSERT_EQUAL_size_t(16u * 8u, texels(aPasses[10]));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == aPasses[10].desc.colorTargets[0].target);
+    TEST_ASSERT_EQUAL_size_t(1u, aUniforms[10].size());
+    float aComposite[4];
+    std::memcpy(aComposite, aUniforms[10][0].data.data(), sizeof(aComposite));
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, aComposite[0]);
+
+    // A capture reads the composite and adds only the final tone-map pass into its target.
+    Null().clearRecorded();
+    TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, 16u, 8u));
+    const auto [aCapturePasses, aCaptureUniforms] = passes();
+    TEST_ASSERT_EQUAL_size_t(1u, aCapturePasses.size());
+    TEST_ASSERT_TRUE(aCapturePasses[0].desc.colorTargets[0].target == target);
+
+    // Off again skips the stage and presents the back buffer.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    EndFrame();
+    TEST_ASSERT_EQUAL_size_t(1u, passes().first.size());
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
+
+    Null().destroyTexture(target);
 }
 
 TEST(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass)
@@ -1777,16 +2310,17 @@ TEST(std3DBabylon, APresentToTextureIncludesTheOverlay)
     TEST_ASSERT_EQUAL_UINT32(32u, call.target.width);
     TEST_ASSERT_EQUAL_UINT32(16u, call.target.height);
 
-    // The present pass into the capture target, then the overlay's pass on it, then one submit.
+    // The final tone-map pass into the capture target (pipeline, input, lookup, parameters,
+    // triangle), then the overlay's pass on it, then one submit.
     const render::BeginPass& present = RecordedAt<render::BeginPass>(0);
     TEST_ASSERT_TRUE(present.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(present.desc.colorTargets[0].load == render::LoadOp::DontCare);
-    RecordedAt<render::EndPass>(4);
-    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(5);
+    RecordedAt<render::EndPass>(6);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(7);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
-    RecordedAt<render::EndPass>(6);
-    AssertSubmitted(7);
+    RecordedAt<render::EndPass>(8);
+    AssertSubmitted(9);
     TEST_ASSERT_EQUAL_size_t(32u * 16u * 4u, Null().readTexture(target, 0).size());
 
     stdRenderBabylon_SetPresentOverlay(nullptr, nullptr);
@@ -1810,16 +2344,62 @@ TEST(std3DBabylon, APresentToTextureIncludesTheHudOverlay)
 
     TEST_ASSERT_EQUAL_INT(1, hud.calls);
     TEST_ASSERT_TRUE(hud.target.texture == target);
-    // The present pass, then the HUD overlay's pass on the capture target, then one submit.
-    RecordedAt<render::EndPass>(4);
-    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(5);
+    // The final tone-map pass, then the HUD overlay's pass on the capture target, then one submit.
+    RecordedAt<render::EndPass>(6);
+    const render::BeginPass& overlay = RecordedAt<render::BeginPass>(7);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].target == target);
     TEST_ASSERT_TRUE(overlay.desc.colorTargets[0].load == render::LoadOp::Load);
-    RecordedAt<render::EndPass>(6);
-    AssertSubmitted(7);
+    RecordedAt<render::EndPass>(8);
+    AssertSubmitted(9);
 
     stdRenderBabylon_SetHudOverlay(nullptr, nullptr);
     Null().destroyTexture(target);
+}
+
+TEST(std3DBabylon, ToneMapParametersValidateAndDefault)
+{
+    OpenStd3D();
+    const StdRenderBabylonToneMap defaults = stdRenderBabylon_GetToneMap();
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.exposure);
+    TEST_ASSERT_EQUAL_UINT32(0u, defaults.oper);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, defaults.brightness);
+    TEST_ASSERT_EQUAL_UINT32(0u, defaults.colorGrading);
+
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.5f, 0u });
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().brightness);
+
+    // Operators 1 (Neutral) and 2 (ACES fitted) are accepted; anything else changes nothing.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 2.0f, 1u });
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdRenderBabylon_GetToneMap().oper);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.5f, 2u });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(2u, stdRenderBabylon_GetToneMap().oper);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.25f, 3u });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(2u, stdRenderBabylon_GetToneMap().oper);
+
+    // Brightness is a positive finite gamma; a bad value changes nothing.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().brightness);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 0.0f });
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, stdRenderBabylon_GetToneMap().brightness);
+
+    // Color grading is preset 0..5; anything above 5 changes nothing.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f, 3u });
+    TEST_ASSERT_EQUAL_UINT32(3u, stdRenderBabylon_GetToneMap().colorGrading);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f, 6u });
+    TEST_ASSERT_EQUAL_UINT32(3u, stdRenderBabylon_GetToneMap().colorGrading);
+
+    // The defaults return when the frame owner is closed and opened again.
+    CloseStd3D();
+    OpenStd3D();
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().exposure);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().oper);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, stdRenderBabylon_GetToneMap().brightness);
+    TEST_ASSERT_EQUAL_UINT32(0u, stdRenderBabylon_GetToneMap().colorGrading);
 }
 
 TEST(std3DBabylon, CloseClearsThePresentOverlay)
@@ -1839,6 +2419,31 @@ TEST(std3DBabylon, CloseClearsThePresentOverlay)
     TEST_ASSERT_EQUAL_size_t(3u, Null().recorded().size());
 }
 
+TEST(std3DBabylon, FocusSmoothingReachesTheTarget)
+{
+    OpenStd3D();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(true, true, 1.0f));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+
+    // The first input sets the distance; later ones approach the target over about 0.2 s.
+    std3D_SetFocus(20.0f, false, 0.0f);
+    TEST_ASSERT_EQUAL_FLOAT(20.0f, stdRenderBabylon_GetFocusDistance());
+    std3D_SetFocus(60.0f, false, 0.1f);
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetFocusDistance() > 20.0f);
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetFocusDistance() < 60.0f);
+    std3D_SetFocus(60.0f, false, 0.1f);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 60.0f, stdRenderBabylon_GetFocusDistance());
+    for ( int i = 0; i < 16; ++i )
+    {
+        std3D_SetFocus(60.0f, false, 0.1f);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 60.0f, stdRenderBabylon_GetFocusDistance());
+
+    // The cutscene flag changes the ramp only, not the smoothed distance.
+    std3D_SetFocus(10.0f, true, 0.0f);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, stdRenderBabylon_GetFocusDistance());
+}
+
 TEST_GROUP_RUNNER(std3DBabylon)
 {
     RUN_TEST_CASE(std3DBabylon, StartupFailsWithoutARenderDevice);
@@ -1848,12 +2453,19 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, TexturesUploadEveryMipByteExactPerFormat);
     RUN_TEST_CASE(std3DBabylon, OtherLayoutsAreConvertedToTheFormatOfTheirType);
     RUN_TEST_CASE(std3DBabylon, MipFilterNoneUploadsOneLevel);
+    RUN_TEST_CASE(std3DBabylon, SingleLevelTexturesGetAGeneratedMipChain);
+    RUN_TEST_CASE(std3DBabylon, GeneratedMipsKeepTheColourKeyColourOut);
+    RUN_TEST_CASE(std3DBabylon, AnisotropyAndCrispPixelsReachTheSampler);
     RUN_TEST_CASE(std3DBabylon, CacheKeepsTheDX9ListAndMemory);
     RUN_TEST_CASE(std3DBabylon, AFullCachePurgesATextureOfTheSameSizeNotUsedThisFrame);
     RUN_TEST_CASE(std3DBabylon, ATextureClearedInASceneLivesUntilTheSubmit);
     RUN_TEST_CASE(std3DBabylon, ScenesRecordAPassWithTheDX9Clears);
     RUN_TEST_CASE(std3DBabylon, SceneCallsOutOfOrderFailLikeDX9);
     RUN_TEST_CASE(std3DBabylon, ADisplaySizeChangeRecreatesTheBackBuffer);
+    RUN_TEST_CASE(std3DBabylon, ARenderScaleSizesTheSceneTargetsAndKeepsTheDisplaySize);
+    RUN_TEST_CASE(std3DBabylon, RenderScaleOneRoundTripsTheBackBufferBytes);
+    RUN_TEST_CASE(std3DBabylon, ARenderScaleAboveTheDeviceLimitIsClamped);
+    RUN_TEST_CASE(std3DBabylon, TheSceneTargetIsBgra8WithoutRgba16F);
     RUN_TEST_CASE(std3DBabylon, DepthIsD32FWithoutD24S8);
     RUN_TEST_CASE(std3DBabylon, BadAndEmptyDrawsRecordNothing);
     RUN_TEST_CASE(std3DBabylon, TwoDrawsRecordTheirStreamExactly);
@@ -1872,10 +2484,15 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, APostPassRunsAtEachPresentAndLeavesTheBackBuffer);
     RUN_TEST_CASE(std3DBabylon, PostPassesChainAndReadTheNormalAndDepthTargets);
     RUN_TEST_CASE(std3DBabylon, BadPostPassesAreRefused);
+    RUN_TEST_CASE(std3DBabylon, AntiAliasingAddsThreeSmaaPassesBeforeThePresent);
+    RUN_TEST_CASE(std3DBabylon, SharpeningAddsACasPassAfterTheToneMapOrSmaa);
+    RUN_TEST_CASE(std3DBabylon, BloomAddsAPrefilterBlurAndCompositeBeforeTheToneMap);
     RUN_TEST_CASE(std3DBabylon, ThePresentOverlayRecordsAfterTheScenePass);
     RUN_TEST_CASE(std3DBabylon, TheHudOverlayRecordsBeforeThePresentOverlay);
     RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheOverlay);
     RUN_TEST_CASE(std3DBabylon, APresentToTextureIncludesTheHudOverlay);
+    RUN_TEST_CASE(std3DBabylon, ToneMapParametersValidateAndDefault);
+    RUN_TEST_CASE(std3DBabylon, FocusSmoothingReachesTheTarget);
     RUN_TEST_CASE(std3DBabylon, CloseClearsThePresentOverlay);
 }
 
@@ -2151,7 +2768,8 @@ TEST(std3DBabylonGpu, TexturesReadBackByteExactPerFormat)
     TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
     EndFrame();
     const std::vector<std::byte> pixels = ReadTexture(stdRenderBabylon_GetColorTarget(), 0);
-    TEST_ASSERT_EQUAL_size_t(640u * 480u * 4u, pixels.size());
+    TEST_ASSERT_EQUAL_size_t(640u * 480u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        pixels.size());
     TEST_ASSERT_EQUAL_INT(0, (int)pixels[0]);
     TEST_ASSERT_EQUAL_INT(0, (int)pixels[pixels.size() - 1]);
 }
@@ -2240,6 +2858,7 @@ namespace
     {
         std::vector<std::string> aWarnings;
         int startResult = 1;
+        bool bRead = false;
         {
             babylon::log::CaptureSink sink;
             startResult = std3D_StartScene();
@@ -2249,7 +2868,11 @@ namespace
                 std3D_EndScene();
                 (void)stdDisplay_Update(); // no assert while the sink is attached
             }
-            std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetColorTarget(), 0);
+            // The game-visible back buffer: the scene color target translated to Bgra8.
+            std::vector<std::byte> aPixels((size_t)stdRenderBabylon_GetBackBufferWidth()
+                * stdRenderBabylon_GetBackBufferHeight() * 4u);
+            bRead = stdRenderBabylon_ReadBackBuffer(aPixels.data(), nullptr, nullptr);
+            std3DBabylonGpuTest_pixels = std::move(aPixels);
             for ( const babylon::log::CapturedRecord& record : sink.records() )
             {
                 aWarnings.push_back(record.message);
@@ -2257,6 +2880,7 @@ namespace
         }
 
         TEST_ASSERT_EQUAL_INT(0, startResult);
+        TEST_ASSERT_TRUE(bRead);
         for ( const std::string& warning : aWarnings )
         {
             TEST_FAIL_MESSAGE(warning.c_str());
@@ -2285,6 +2909,20 @@ namespace
     void AssertClear(uint32_t x, uint32_t y)
     {
         AssertPixel(x, y, 0, 0, 0, 0, 0);
+    }
+
+    // Runs the final pass (with its tone map at the current parameters) over the last presented
+    // source into an offscreen Bgra8 target and returns its pixels, rows top first.
+    std::vector<std::byte> CapturePresented(uint32_t width, uint32_t height)
+    {
+        const render::TextureHandle target = std3DBabylonTest_pDevice->createTexture(
+            render::TextureDesc{ width, height, 1, render::TextureFormat::Bgra8,
+                render::TextureUsage::ColorTarget });
+        TEST_ASSERT_FALSE(target.isNull());
+        TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, width, height));
+        std::vector<std::byte> bytes = std3DBabylonTest_pDevice->readTexture(target, 0);
+        std3DBabylonTest_pDevice->destroyTexture(target);
+        return bytes;
     }
 
     // A quad from (x0, y0) to (x1, y1) in screen pixels, texture coordinates 0 to 1, rhwLeft on the
@@ -2561,7 +3199,9 @@ TEST(std3DBabylonGpu, TexturingIsPerspectiveCorrect)
     }
 
     // A 256 x 1 texture whose texel i has red i, on a 64 x 32 quad with rhw 1 on the left edge and
-    // 1/4 on the right one, point filtered and clamped.
+    // 1/4 on the right one, point filtered and clamped. The mip filter is None so the test reads
+    // the perspective-correct texel itself rather than a generated, averaged level.
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetMipmapFilter(STD3D_MIPMAPFILTER_NONE));
     std::vector<uint32_t> aTexels;
     for ( uint32_t i = 0; i < 256u; ++i )
     {
@@ -2694,7 +3334,7 @@ namespace
         return { (int)(word & 0xFFu), (int)((word >> 8) & 0xFFu), (int)((word >> 16) & 0xFFu), (int)(word >> 24) };
     }
 
-    // The constant normal (0, 0, 1) of std3d.frag.hlsl encoded as n * 0.5 + 0.5, alpha 1 (x and y
+    // The constant normal (0, 0, 1) of std3d.frag.hlsl encoded as n * 0.5 + 0.5, ordinary tag 1 (x and y
     // are a half, which rounds either way), or the clear 0.
     void AssertNormal(const std::vector<std::byte>& aBytes, uint32_t x, uint32_t y, bool bDrawn)
     {
@@ -2853,20 +3493,26 @@ TEST(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer)
     TEST_ASSERT_TRUE(stdRenderBabylon_ReadBackBuffer(aBackBuffer.data(), nullptr, nullptr));
     AssertBytes(std3DBabylonGpuTest_pixels, aBackBuffer);
 
-    // The presented image is inverted, alpha kept.
+    // The presented image is inverted, alpha kept. The chain's intermediate is the scene's
+    // Rgba16F format, so the check goes through the tone map's Bgra8 presented image.
     TEST_ASSERT_FALSE(stdRenderBabylon_GetPresentSource() == stdRenderBabylon_GetColorTarget());
-    std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0);
+    std3DBabylonGpuTest_pixels = CapturePresented(64u, 64u);
     TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, std3DBabylonGpuTest_pixels.size());
     AssertPixel(8u, 8u, 0, 191, 223, 255, 0);
     AssertPixel(40u, 40u, 255, 255, 255, 0, 0);
 
-    // Inverted twice, the presented image is the back buffer again, byte for byte.
+    // Inverted twice, the presented image is the back buffer again.
     TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postInvertFrag()));
     RenderScene([]
     {
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 16.0f, 0.5f, 0xFFFF4020u);
     });
-    AssertBytes(std3DBabylonGpuTest_pixels, std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0));
+    const std::vector<std::byte> twice = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(std3DBabylonGpuTest_pixels.size(), twice.size());
+    for ( size_t i = 0; i < twice.size(); ++i )
+    {
+        TEST_ASSERT_INT_WITHIN(1, (int)std3DBabylonGpuTest_pixels[i], (int)twice[i]);
+    }
 }
 
 TEST(std3DBabylonGpu, APostPassReadsTheNormalTarget)
@@ -2883,9 +3529,278 @@ TEST(std3DBabylonGpu, APostPassReadsTheNormalTarget)
     });
 
     // The normal's red, green and blue with the scene's alpha: (0.5, 0.5, 1) where drawn, 0 elsewhere.
-    std3DBabylonGpuTest_pixels = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0);
+    std3DBabylonGpuTest_pixels = CapturePresented(64u, 64u);
     AssertPixel(8u, 8u, 128, 128, 255, 255);
     AssertClear(40u, 40u);
+}
+
+TEST(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    const bool bHdr = stdRenderBabylon_GetColorFormat() == render::TextureFormat::Rgba16F;
+
+    auto draw = [](uint32_t color)
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+    };
+    auto red = [](const std::vector<std::byte>& pixels)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + 2u];
+    };
+    auto capture = [&red](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return red(CapturePresented(64u, 64u));
+    };
+
+    // Operator 0 with exposure 1 is the identity clamp: mid grey stays mid grey.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u });
+    const int clampHalf = capture(0xFF808080u);
+    TEST_ASSERT_INT_WITHIN(1, 128, clampHalf);
+
+    // Operator 1 (Neutral) leaves the midtone nearly unchanged.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 1u });
+    const int neutralHalf = capture(0xFF808080u);
+    TEST_ASSERT_INT_WITHIN(2, clampHalf, neutralHalf);
+
+    // Operator 2 (ACES fitted) is monotonic over the scene's range.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 2u });
+    const int acesHalf  = capture(0xFF808080u);
+    const int acesThree = capture(0xFFC0C0C0u);
+    const int acesOne   = capture(0xFFFFFFFFu);
+    TEST_ASSERT_TRUE(acesHalf < acesThree);
+    TEST_ASSERT_TRUE(acesThree < acesOne);
+
+    // Exposure is applied before the curve: 0.25 at 2.0 equals 0.5 at 1.0 under Neutral.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 2.0f, 1u });
+    const int doubleExposure = capture(0xFF404040u);
+    TEST_ASSERT_INT_WITHIN(2, neutralHalf, doubleExposure);
+
+    // A post pass that doubles its input writes 2.0; the chain keeps it because its target is the
+    // scene's Rgba16F format. Only an HDR intermediate preserves that value.
+    TEST_ASSERT_TRUE(stdRenderBabylon_AddPostPass(std3DBabylonTest::shaders::postDoubleFrag()));
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 1u });
+    RenderScene([&] { draw(0xFFFFFFFFu); });
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * render::bytesPerTexel(stdRenderBabylon_GetColorFormat()),
+        std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetPresentSource(), 0).size());
+    const int compressed = red(CapturePresented(64u, 64u));
+    TEST_ASSERT_TRUE(compressed < 250);
+    TEST_ASSERT_TRUE(compressed > neutralHalf);
+
+    // Half exposure on the doubled 2.0 is 1.0: 255 through an HDR intermediate, 128 after an
+    // intermediate that clamped 2.0 to 1.0.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 0.5f, 0u });
+    RenderScene([&] { draw(0xFFFFFFFFu); });
+    const int halfExposure = red(CapturePresented(64u, 64u));
+    TEST_ASSERT_INT_WITHIN(2, bHdr ? 255 : 128, halfExposure);
+}
+
+TEST(std3DBabylonGpu, ToneMapBrightnessIsIdentityAtOneAndGammaAfterTheOperator)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    auto center = [](const std::vector<std::byte>& pixels)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + 2u];
+    };
+    auto capture = [&center](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return center(CapturePresented(64u, 64u));
+    };
+
+    // Brightness 1.0 skips the pow and presents the operator's output unchanged.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f });
+    const int identity = capture(0xFF404040u);
+
+    // 1.5 brightens the 0.25 scene value to pow(0.25, 1/1.5) within one 8-bit step.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.5f });
+    const int brightened = capture(0xFF404040u);
+    const int expected = (int)std::lround(255.0 * std::pow(64.0 / 255.0, 1.0 / 1.5));
+    TEST_ASSERT_INT_WITHIN(1, expected, brightened);
+    TEST_ASSERT_TRUE(brightened > identity);
+}
+
+TEST(std3DBabylonGpu, ColorGradingNeutralIsTheIdentity)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    auto capture = [](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return CapturePresented(64u, 64u);
+    };
+    auto channel = [](const std::vector<std::byte>& pixels, size_t index)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + index];
+    };
+
+    // Preset 0 skips the lookup: mid grey stays exactly mid grey.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 0u });
+    const std::vector<std::byte> neutralGrey = capture(0xFF808080u);
+    TEST_ASSERT_INT_WITHIN(1, 128, channel(neutralGrey, 2u));
+    TEST_ASSERT_INT_WITHIN(1, 128, channel(neutralGrey, 1u));
+    TEST_ASSERT_INT_WITHIN(1, 128, channel(neutralGrey, 0u));
+
+    // A colored draw is unchanged by Neutral and changed by Vivid.
+    const std::vector<std::byte> neutralColor = capture(0xFFFF4020u);
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 4u });
+    const std::vector<std::byte> vividColor = capture(0xFFFF4020u);
+    int maxDifference = 0;
+    for ( size_t i = 0; i < neutralColor.size() && i < vividColor.size(); ++i )
+    {
+        maxDifference = std::max(maxDifference,
+            std::abs((int)neutralColor[i] - (int)vividColor[i]));
+    }
+    TEST_ASSERT_TRUE(maxDifference >= 2);
+
+    // Back at Neutral the presented image is byte-identical to the first Neutral capture.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 0u });
+    const std::vector<std::byte> neutralAgain = capture(0xFFFF4020u);
+    TEST_ASSERT_EQUAL_size_t(neutralColor.size(), neutralAgain.size());
+    for ( size_t i = 0; i < neutralColor.size(); ++i )
+    {
+        TEST_ASSERT_EQUAL_INT((int)neutralColor[i], (int)neutralAgain[i]);
+    }
+
+    // Six known colors across the frame come back unchanged: Neutral is the identity, not just a
+    // grey-preserving curve.
+    const uint32_t aColors[6] = { 0xFF000000u, 0xFF204060u, 0xFF804020u, 0xFF808080u,
+        0xFFC0A080u, 0xFFFFFFFFu };
+    RenderScene([&aColors]
+    {
+        for ( size_t cur = 0; cur < 6u; ++cur )
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, (float)cur * 10.0f, 0.0f,
+                (float)(cur + 1u) * 10.0f, 64.0f, 0.5f, aColors[cur]);
+        }
+    });
+    const std::vector<std::byte> stripes = CapturePresented(64u, 64u);
+    for ( size_t cur = 0; cur < 6u; ++cur )
+    {
+        const size_t at = ((size_t)32u * 64u + cur * 10u + 5u) * 4u;
+        const int expected[3] = { (int)((aColors[cur] >> 16u) & 0xFFu),
+            (int)((aColors[cur] >> 8u) & 0xFFu), (int)(aColors[cur] & 0xFFu) };
+        const int actual[3] = { (int)stripes[at + 2u], (int)stripes[at + 1u],
+            (int)stripes[at] };
+        for ( size_t channelIndex = 0; channelIndex < 3u; ++channelIndex )
+        {
+            TEST_ASSERT_INT_WITHIN(1, expected[channelIndex], actual[channelIndex]);
+        }
+    }
+}
+
+TEST(std3DBabylonGpu, ColorGradingPresetsMapGreyAndKeepBlackAndWhite)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    auto capture = [](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        return CapturePresented(64u, 64u);
+    };
+    auto channel = [](const std::vector<std::byte>& pixels, size_t index)
+    {
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u + index];
+    };
+
+    int aMidGrey[6][3] = {};
+    for ( uint32_t preset = 0; preset <= 5u; ++preset )
+    {
+        stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, preset });
+        const std::vector<std::byte> grey = capture(0xFF808080u);
+        aMidGrey[preset][0] = channel(grey, 2u);
+        aMidGrey[preset][1] = channel(grey, 1u);
+        aMidGrey[preset][2] = channel(grey, 0u);
+
+        // Black stays black and white stays near white under every preset.
+        const std::vector<std::byte> black = capture(0xFF000000u);
+        for ( size_t cur = 0; cur < 3u; ++cur )
+        {
+            TEST_ASSERT_INT_WITHIN(2, 0, channel(black, cur));
+        }
+
+        const std::vector<std::byte> white = capture(0xFFFFFFFFu);
+        for ( size_t cur = 0; cur < 3u; ++cur )
+        {
+            TEST_ASSERT_INT_WITHIN(15, 255, channel(white, cur));
+        }
+
+        for ( size_t cur = 0; cur < 3u; ++cur )
+        {
+            TEST_ASSERT_INT_WITHIN(20, 128, aMidGrey[preset][cur]);
+        }
+    }
+
+    // The mid-grey direction of each preset.
+    TEST_ASSERT_INT_WITHIN(1, 128, aMidGrey[0][0]);
+    TEST_ASSERT_INT_WITHIN(1, 128, aMidGrey[0][1]);
+    TEST_ASSERT_INT_WITHIN(1, 128, aMidGrey[0][2]);
+    TEST_ASSERT_TRUE(aMidGrey[1][0] > aMidGrey[1][1]);
+    TEST_ASSERT_TRUE(aMidGrey[1][1] > aMidGrey[1][2]);
+    TEST_ASSERT_TRUE(aMidGrey[2][2] > aMidGrey[2][0]);
+    TEST_ASSERT_TRUE(aMidGrey[3][1] > aMidGrey[3][0]);
+    TEST_ASSERT_TRUE(aMidGrey[3][1] > aMidGrey[3][2]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[4][0]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[4][1]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[4][2]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[5][0]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[5][1]);
+    TEST_ASSERT_INT_WITHIN(3, 128, aMidGrey[5][2]);
+}
+
+TEST(std3DBabylonGpu, ColorGradingLutInterpolatesBetweenSlices)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // Vivid's blue output rises quickly with blue, so a color between two slices must read between
+    // the colors at those slices rather than at either one.
+    stdRenderBabylon_SetToneMap(StdRenderBabylonToneMap{ 1.0f, 0u, 1.0f, 4u });
+    auto blue = [](uint32_t color)
+    {
+        RenderScene([color]
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, color);
+        });
+        const std::vector<std::byte> pixels = CapturePresented(64u, 64u);
+        return (int)pixels[((size_t)32u * 64u + 32u) * 4u];
+    };
+
+    // Blue 165 and 173 sit just inside slices 20 and 21; blue 169 lies between them.
+    const int slice20 = blue(0xFF8080A5u);
+    const int between = blue(0xFF8080A9u);
+    const int slice21 = blue(0xFF8080ADu);
+    TEST_ASSERT_TRUE(slice20 < between);
+    TEST_ASSERT_TRUE(between < slice21);
+    TEST_ASSERT_TRUE(between - slice20 >= 3);
+    TEST_ASSERT_TRUE(slice21 - between >= 3);
 }
 
 TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)
@@ -2940,6 +3855,1073 @@ TEST(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain)
     }
 }
 
+TEST(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath)
+{
+    // A scene with interpolated, opaque and blended color, drawn the same way in both paths.
+    auto drawScene = []
+    {
+        StdVertexTL aVerts[3] = { Vertex(0.0f, 0.0f, 0.5f, 1.0f, 0xFFFF0000u),
+            Vertex(64.0f, 0.0f, 0.5f, 1.0f, 0xFF00FF00u),
+            Vertex(0.0f, 64.0f, 0.5f, 1.0f, 0xFF0000FFu) };
+        uint16_t aIndices[3] = { 0u, 1u, 2u };
+        std3D_DrawRenderList(nullptr, (Std3DRenderState)0, aVerts, 3u, aIndices, 3u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 32.0f, 64.0f, 0.5f, 0xFFFF4020u);
+        // One blended quad over the opaque one: blue at 128 / 255.
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 32.0f, 32.0f, 64.0f, 0.25f, 0x800000FFu);
+    };
+
+    // Renders the scene once through a fresh device and returns the presented image; pbHdr tells
+    // whether the frame used Rgba16F.
+    auto renderPath = [&drawScene](bool bLegacy, bool* pbHdr)
+    {
+        stdRenderBabylon_ForceLegacyPresentationForTest(bLegacy);
+        if ( !OpenGpuStd3D(64u, 64u) )
+        {
+            return std::vector<std::byte>{};
+        }
+        *pbHdr = stdRenderBabylon_GetColorFormat() == render::TextureFormat::Rgba16F;
+        RenderScene(drawScene);
+        std::vector<std::byte> presented = CapturePresented(64u, 64u);
+        CloseStd3D();
+        stdRenderBabylon_Close();
+        DropDevice();
+        return presented;
+    };
+
+    bool bHdrHdr = false;
+    bool bLegacyHdr = false;
+    const std::vector<std::byte> hdr = renderPath(false, &bHdrHdr);
+    if ( hdr.empty() )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    const std::vector<std::byte> legacy = renderPath(true, &bLegacyHdr);
+
+    TEST_ASSERT_FALSE(legacy.empty());
+    // The default path uses Rgba16F where the device can (the fallback still has to match), and the
+    // forced path never does.
+    TEST_ASSERT_FALSE(bLegacyHdr);
+
+    TEST_ASSERT_EQUAL_size_t(hdr.size(), legacy.size());
+    int maxDiff = 0;
+    size_t numAboveOne = 0;
+    for ( size_t i = 0; i < hdr.size(); ++i )
+    {
+        const int diff = std::abs((int)hdr[i] - (int)legacy[i]);
+        maxDiff = std::max(maxDiff, diff);
+        if ( diff > 1 )
+        {
+            ++numAboveOne;
+        }
+    }
+    std::printf("M9.3 image identity (%s vs forced Bgra8): %zu bytes, max per-channel difference %d/255, %zu bytes differ by more than 1/255\n",
+        bHdrHdr ? "Rgba16F" : "Bgra8 fallback", hdr.size(), maxDiff, numAboveOne);
+    TEST_ASSERT_TRUE(maxDiff <= 1);
+}
+
+TEST(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize)
+{
+    // A full-screen quad in the display's screen pixels: the scene fills the scaled target, and the
+    // read-back image is always the display size.
+    auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFFFF0000u);
+    };
+
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // 200%: the scene target is 64x32 and resolves to the 32x16 read-back image.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(2.0f));
+    RenderScene(drawScene);
+    AssertPixel(16u, 8u, 255, 0, 0, 255);
+
+    // 50%: the scene target is 16x8; the read-back image is still 32x16.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(0.5f));
+    RenderScene(drawScene);
+    AssertPixel(16u, 8u, 255, 0, 0, 255);
+}
+
+TEST(std3DBabylonGpu, AHudLayerLineStaysOnePixelAtRenderScaleHalf)
+{
+    // The HUD keeps drawing in the game's display pixels. At 50% the scene target is 16x8 but the
+    // display-sized HUD layer is 32x16, so a 1-pixel line stays 1 pixel in the presented image.
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(0.5f));
+
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFFFF0000u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255);
+    AssertPixel(15u, 8u, 255, 0, 0, 255);
+    AssertPixel(17u, 8u, 255, 0, 0, 255);
+}
+
+TEST(std3DBabylonGpu, TheHudLayerCompositeMatchesTheSingleScenePassAtScaleOne)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetRenderScale(1.0f));
+
+    // The same red background and two overlapping half-transparent HUD quads, drawn once in the scene
+    // pass (the pre-M9.4b path) and once in the HUD layer.
+    auto draw = [](bool bHudLayer)
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFFFF0000u);
+        if ( bHudLayer )
+        {
+            std3D_BeginHudLayer();
+        }
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 0.0f, 32.0f, 64.0f, 0.25f, 0x800000FFu);
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED, 0.0f, 0.0f, 16.0f, 64.0f, 0.20f, 0x8000FF00u);
+        if ( bHudLayer )
+        {
+            std3D_EndHudLayer();
+        }
+    };
+
+    RenderScene([&draw] { draw(false); });
+    const std::vector<std::byte> singlePass = CapturePresented(64u, 64u);
+
+    RenderScene([&draw] { draw(true); });
+    const std::vector<std::byte> hudLayer = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_EQUAL_size_t(singlePass.size(), hudLayer.size());
+    // The presented frame is opaque; its alpha channel is a leftover of the scene pass's blending and
+    // the composite writes 255 there. Compare the visible color channels.
+    int maxDiff = 0;
+    size_t numAboveOne = 0;
+    for ( size_t i = 0; i < singlePass.size(); ++i )
+    {
+        if ( i % 4u == 3u )
+        {
+            continue;
+        }
+        const int diff = std::abs((int)singlePass[i] - (int)hudLayer[i]);
+        maxDiff = std::max(maxDiff, diff);
+        if ( diff > 1 )
+        {
+            ++numAboveOne;
+        }
+    }
+    std::printf("M9.4b HUD identity (HUD layer vs single scene pass): %zu color bytes, max per-channel difference %d/255, %zu bytes differ by more than 1/255\n",
+        singlePass.size(), maxDiff, numAboveOne);
+    TEST_ASSERT_TRUE(maxDiff <= 1);
+}
+
+TEST(std3DBabylonGpu, SharpeningSteepensAStepEdgeAndLeavesFlatAreas)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // A vertical step between mid-grey levels (an edge at 0 and 1 is clamped by CAS and would
+    // not move), one pixel per texel.
+    std::vector<uint32_t> aTexels(64u * 64u);
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const uint32_t value = x < 32u ? 64u : 192u;
+            aTexels[(size_t)y * 64u + x] = Texel(stdColor_cfARGB8888, value, value, value,
+                MaxOf(8u));
+        }
+    }
+    static tSystemTexture texture;
+    MakeTexture(&texture, stdColor_cfARGB8888, 64u, 64u, aTexels);
+
+    auto drawScene = []
+    {
+        DrawQuad(texture.pCachedTexture, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f,
+            0xFFFFFFFFu);
+    };
+
+    auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    // Off is the plain tone-mapped present, byte for byte.
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    const int darkOff  = redChannel(off, 31u, 32u);
+    const int lightOff = redChannel(off, 32u, 32u);
+    TEST_ASSERT_INT_WITHIN(1, 64, darkOff);
+    TEST_ASSERT_INT_WITHIN(1, 192, lightOff);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> zero = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), zero.data(), off.size());
+
+    // On: the pixels beside the edge move away from the mean, and the far flat areas stay put.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.8f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(redChannel(on, 31u, 32u) < darkOff);
+    TEST_ASSERT_TRUE(redChannel(on, 32u, 32u) > lightOff);
+    for ( uint32_t y = 4u; y < 60u; ++y )
+    {
+        for ( uint32_t x = 4u; x < 60u; ++x )
+        {
+            if ( x == 31u || x == 32u )
+            {
+                continue;
+            }
+            TEST_ASSERT_INT_WITHIN(1, redChannel(off, x, y), redChannel(on, x, y));
+        }
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    std3D_ClearSystemTexture(&texture);
+}
+
+TEST(std3DBabylonGpu, SharpeningLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.8f));
+
+    // A uniform grey scene behind a one-pixel green HUD line: the scene may be sharpened, the HUD
+    // is composited after it and keeps its exact colour and width.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFF404040u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255);
+    AssertPixel(15u, 8u, 64, 64, 64, 255);
+    AssertPixel(17u, 8u, 64, 64, 64, 255);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+}
+
+TEST(std3DBabylonGpu, SmaaBlendsAHardDiagonalEdgeAndLeavesFarPixels)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // A 64 x 64 image with a hard 45-degree edge: white where x >= y, black elsewhere. Drawn 1:1,
+    // the scene has an exact black/white diagonal before anti-aliasing.
+    std::vector<uint32_t> aTexels(64u * 64u);
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const uint32_t value = x >= y ? MaxOf(8u) : 0u;
+            aTexels[(size_t)y * 64u + x] = Texel(stdColor_cfARGB8888, value, value, value, MaxOf(8u));
+        }
+    }
+    static tSystemTexture texture;
+    MakeTexture(&texture, stdColor_cfARGB8888, 64u, 64u, aTexels);
+
+    auto drawScene = []
+    {
+        DrawQuad(texture.pCachedTexture, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f,
+            0xFFFFFFFFu);
+    };
+
+    auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    // Off: the hard edge keeps the two colours apart.
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_INT(255, redChannel(off, 55u, 5u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 5u, 55u));
+    TEST_ASSERT_EQUAL_INT(255, redChannel(off, 40u, 20u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 20u, 40u));
+    // Nothing is blended with the option off: the edge keeps the two colours apart.
+    size_t numOffBlended = 0;
+    for ( uint32_t y = 4u; y < 60u; ++y )
+    {
+        for ( uint32_t x = 4u; x < 60u; ++x )
+        {
+            const int value = redChannel(off, x, y);
+            if ( value > 16 && value < 239 )
+            {
+                ++numOffBlended;
+            }
+        }
+    }
+    TEST_ASSERT_EQUAL_size_t(0u, numOffBlended);
+
+    // On: pixels along the diagonal carry intermediate values, the far sides stay untouched.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_INT(255, redChannel(on, 55u, 5u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(on, 5u, 55u));
+
+    size_t numBlended = 0;
+    for ( uint32_t y = 4u; y < 60u; ++y )
+    {
+        for ( uint32_t x = 4u; x < 60u; ++x )
+        {
+            const int value = redChannel(on, x, y);
+            if ( value > 16 && value < 239 )
+            {
+                ++numBlended;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(numBlended > 0u);
+
+    std3D_ClearSystemTexture(&texture);
+}
+
+TEST(std3DBabylonGpu, SmaaLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+
+    // A uniform scene behind a one-pixel green HUD line: anti-aliasing must not blur the HUD into
+    // its neighbours, and the line stays the exact HUD colour.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFF000000u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255, 0);
+    AssertPixel(15u, 8u, 0, 0, 0, 255, 0);
+    AssertPixel(17u, 8u, 0, 0, 0, 255, 0);
+}
+
+TEST(std3DBabylonGpu, BloomSpreadsABrightSpotAndLeavesFarBlack)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // An opaque black background with a small white spot at the centre.
+    auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.9f, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 28.0f, 28.0f, 36.0f, 36.0f, 0.5f, 0xFFFFFFFFu);
+    };
+
+    auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_INT(255, redChannel(off, 32u, 32u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 39u, 32u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 60u, 60u));
+
+    // On: the neighbourhood of the spot picks up a falloff, the far black stays black.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.15f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    const int near   = redChannel(on, 39u, 32u);
+    const int farther = redChannel(on, 43u, 32u);
+    const int far    = redChannel(on, 60u, 60u);
+    std::printf("M9.12 bloom falloff: spot 255, 3 px away %d/255, 7 px away %d/255, far corner %d/255\n",
+        near, farther, far);
+    TEST_ASSERT_TRUE(near > 0);
+    TEST_ASSERT_TRUE(near >= farther);
+    TEST_ASSERT_TRUE(far <= 1);
+    TEST_ASSERT_EQUAL_INT(255, redChannel(on, 32u, 32u));
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+}
+
+TEST(std3DBabylonGpu, BloomLeavesASubThresholdImageUnchanged)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // 0x40 grey is luma ~0.25, below the soft knee's 0.6 - 0.3 start, so nothing contributes.
+    auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF404040u);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.15f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_EQUAL_size_t(off.size(), on.size());
+    int maxDiff = 0;
+    for ( size_t i = 0; i < off.size(); ++i )
+    {
+        maxDiff = std::max(maxDiff, std::abs((int)off[i] - (int)on[i]));
+    }
+    std::printf("M9.12 bloom sub-threshold grey: max per-channel difference %d/255\n", maxDiff);
+    TEST_ASSERT_TRUE(maxDiff <= 1);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+}
+
+TEST(std3DBabylonGpu, BloomLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.15f));
+
+    // A bright scene behind a one-pixel green HUD line: the scene may bloom, the HUD is composited
+    // after the tone map and keeps its exact colour.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.5f, 0xFFFFFFFFu);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255, 0);
+    AssertPixel(15u, 8u, 255, 255, 255, 255, 0);
+    AssertPixel(17u, 8u, 255, 255, 255, 255, 0);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+}
+
+TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // Only depth of field changes the image: no bloom, anti-aliasing or sharpening.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+
+    // A black far background with a white spot at the centre, and a black near quad on the left
+    // with its own white spot. Linear eye depths 60 and 2, with the focus at 5.
+    const float nearPlane = 1.0f;
+    const float farPlane  = 100.0f;
+    const auto zForDepth = [nearPlane, farPlane](float depth)
+    {
+        return (farPlane - nearPlane * farPlane / depth) / (farPlane - nearPlane);
+    };
+    const float zNear = zForDepth(2.0f);
+    const float zFar  = zForDepth(60.0f);
+    const auto drawScene = [zNear, zFar]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, zFar, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 30.0f, 30.0f, 34.0f, 34.0f, zFar, 0xFFFFFFFFu);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 24.0f, 64.0f, zNear, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 8.0f, 30.0f, 12.0f, 34.0f, zNear, 0xFFFFFFFFu);
+    };
+    const auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    // No focus use: the stage is skipped and both spots stay crisp.
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 18u, 32u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 40u, 32u));
+
+    // Gameplay: the far spot spreads, the near one stays sharp.
+    std3D_SetFocus(5.0f, false, 0.0f);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, true, 1.0f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> gameplay = CapturePresented(64u, 64u);
+    const int gameplayNear = redChannel(gameplay, 18u, 32u);
+    const int gameplayFar  = redChannel(gameplay, 40u, 32u);
+    std::printf("M9.14 depth of field gameplay: 6 px from the near spot %d/255, from the far spot %d/255\n",
+        gameplayNear, gameplayFar);
+    TEST_ASSERT_TRUE(gameplayNear <= 1);
+    TEST_ASSERT_TRUE(gameplayFar > 0);
+
+    // Cutscene: both spots spread away from the focus.
+    std3D_SetFocus(5.0f, true, 0.0f);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(true, false, 1.0f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> cutscene = CapturePresented(64u, 64u);
+    const int cutsceneNear = redChannel(cutscene, 18u, 32u);
+    const int cutsceneFar  = redChannel(cutscene, 40u, 32u);
+    std::printf("M9.14 depth of field cutscene: 6 px from the near spot %d/255, from the far spot %d/255\n",
+        cutsceneNear, cutsceneFar);
+    TEST_ASSERT_TRUE(cutsceneNear > 0);
+    TEST_ASSERT_TRUE(cutsceneFar > 0);
+}
+
+TEST(std3DBabylonGpu, DepthOfFieldOffIsByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+
+    const float zFar = 0.99f;
+    const auto drawScene = [zFar]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, zFar, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 30.0f, 30.0f, 34.0f, 34.0f, zFar, 0xFFFFFFFFu);
+    };
+
+    std3D_SetFocus(5.0f, false, 0.0f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    // Both on: the far spot is blurred.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(true, true, 1.0f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != on);
+
+    // Both off again: the stage is skipped, so the image is byte-identical to the first one.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    RenderScene(drawScene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(off.size(), offAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+}
+
+TEST(std3DBabylonGpu, DepthOfFieldLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, true, 2.0f));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+    std3D_SetFocus(5.0f, false, 0.0f);
+
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, 0.99f, 0xFF000000u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    });
+
+    std3DBabylonGpuTest_pixels = CapturePresented(32u, 16u);
+    AssertPixel(16u, 8u, 0, 255, 0, 255, 0);
+    AssertPixel(15u, 8u, 0, 0, 0, 255, 0);
+    AssertPixel(17u, 8u, 0, 0, 0, 255, 0);
+}
+
+
+TEST(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+
+    // Three opaque surfaces side by side: ordinary, sky and water. Only the normal target's alpha
+    // differs; the color is the same red for all three.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 16.0f, 64.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 16.0f, 0.0f, 48.0f, 64.0f, 0.5f, 0xFFFF0000u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, 48.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFFFF0000u);
+    });
+
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(
+        stdRenderBabylon_GetNormalTarget(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, aNormals.size());
+    const bool b10 = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+
+    // Alpha is the tag: 1 ordinary, 2/3 sky, 1/3 water. R10G10B10A2 stores 3, 2 and 1 in its two
+    // alpha bits; Rgba8 stores 255, 170 and 85, which are the same fractions exactly.
+    const std::array<int, 3> aExpected = b10
+        ? std::array<int, 3>{ 3, 2, 1 }
+        : std::array<int, 3>{ 255, 170, 85 };
+    const std::array<int, 4> ordinary = NormalTexel(aNormals, 8u, 32u);
+    const std::array<int, 4> sky      = NormalTexel(aNormals, 32u, 32u);
+    const std::array<int, 4> water    = NormalTexel(aNormals, 56u, 32u);
+    TEST_ASSERT_EQUAL_INT(aExpected[0], ordinary[3]);
+    TEST_ASSERT_EQUAL_INT(aExpected[1], sky[3]);
+    TEST_ASSERT_EQUAL_INT(aExpected[2], water[3]);
+
+    // The normal's red, green and blue are the ordinary constant normal in every case.
+    const int half = b10 ? 511 : 127;
+    const int full = b10 ? 1023 : 255;
+    for ( const std::array<int, 4>* pTexel : { &ordinary, &sky, &water } )
+    {
+        TEST_ASSERT_INT_WITHIN(1, half, (*pTexel)[0]);
+        TEST_ASSERT_INT_WITHIN(1, half, (*pTexel)[1]);
+        TEST_ASSERT_EQUAL_INT(full, (*pTexel)[2]);
+    }
+
+    // The color target's alpha (presented) is opaque and the color is the red that was drawn, so
+    // only the normal target's alpha changed.
+    AssertPixel(8u, 32u, 255, 0, 0, 255, 0);
+    AssertPixel(32u, 32u, 255, 0, 0, 255, 0);
+    AssertPixel(56u, 32u, 255, 0, 0, 255, 0);
+}
+
+TEST(std3DBabylonGpu, TranslucentWaterWritesItsTagWithoutChangingTheImage)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+
+    // A translucent water quad over an opaque ordinary one on the left, and the same translucent
+    // quad without the water tag on the right. Only the normal target's alpha may differ.
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 64.0f, 0.7f, 0xFF804020u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 64.0f, 0.7f, 0xFF804020u);
+        DrawQuad(nullptr, (Std3DRenderState)(STD3D_RS_ZWRITE_DISABLED | STD3D_RS_SURFACE_WATER),
+            0.0f, 0.0f, 32.0f, 64.0f, 0.5f, 0x8000C0FFu);
+        DrawQuad(nullptr, STD3D_RS_ZWRITE_DISABLED,
+            32.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0x8000C0FFu);
+    });
+
+    // The translucent water draw did not change the colour blend: both halves are the same.
+    const size_t left  = ((size_t)32u * 64u + 8u) * 4u;
+    const size_t right = ((size_t)32u * 64u + 56u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 0u], (int)std3DBabylonGpuTest_pixels[right + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 1u], (int)std3DBabylonGpuTest_pixels[right + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 2u], (int)std3DBabylonGpuTest_pixels[right + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)std3DBabylonGpuTest_pixels[left + 3u], (int)std3DBabylonGpuTest_pixels[right + 3u]);
+
+    // The alpha is the tag: water on the left, ordinary on the right; the colour is the normal that
+    // was behind both quads, unchanged by the alpha-only tag write.
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(
+        stdRenderBabylon_GetNormalTarget(), 0);
+    TEST_ASSERT_EQUAL_size_t(64u * 64u * 4u, aNormals.size());
+    const bool b10 = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+    const std::array<int, 4> water    = NormalTexel(aNormals, 8u, 32u);
+    const std::array<int, 4> ordinary = NormalTexel(aNormals, 56u, 32u);
+    TEST_ASSERT_EQUAL_INT(b10 ? 1 : 85, water[3]);
+    TEST_ASSERT_EQUAL_INT(b10 ? 3 : 255, ordinary[3]);
+    for ( int i = 0; i < 3; ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(ordinary[i], water[i]);
+    }
+}
+
+TEST(std3DBabylonGpu, WaterRipplesOffLeavesTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetWaterRipples());
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.9f, 0xFF204080u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, 8.0f, 8.0f, 56.0f, 56.0f, 0.5f, 0xFF3080C0u);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    RenderScene(drawScene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(off.size(), offAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+
+    // On, but no water in the scene: every pixel is copied through unchanged.
+    // Nearer than the water in the scene before, so the depth test lets it replace every pixel.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(true));
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.3f, 0xFF204080u);
+    });
+    const std::vector<std::byte> onNoWater = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    RenderScene([]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.3f, 0xFF204080u);
+    });
+    const std::vector<std::byte> offNoWater = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(offNoWater.size(), onNoWater.size());
+    TEST_ASSERT_EQUAL_MEMORY(offNoWater.data(), onNoWater.data(), onNoWater.size());
+}
+
+TEST(std3DBabylonGpu, WaterRipplesChangeOnlyWaterPixelsAndFollowGameTime)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetWaterRipples());
+
+    // The left half is water in vertical stripes, so an offset sample picks a different colour; the
+    // right half is ordinary geometry and must stay byte-identical.
+    const auto drawScene = []
+    {
+        for ( uint32_t stripe = 0; stripe < 4u; ++stripe )
+        {
+            const uint32_t color = (stripe & 1u) ? 0xFFC0C0C0u : 0xFF404040u;
+            DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, (float)(stripe * 8u), 0.0f,
+                (float)(stripe * 8u + 8u), 64.0f, 0.5f, color);
+        }
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF204080u);
+    };
+
+    std3D_SetFrameTime(0.0f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    std3D_SetFrameTime(0.05f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> moved = CapturePresented(64u, 64u);
+
+    // No game time passes: the phase is frozen, so the image is exactly the same.
+    RenderScene(drawScene);
+    const std::vector<std::byte> frozen = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(moved.data(), frozen.data(), moved.size());
+
+    // Only water pixels may change, and animation must change some of them.
+    size_t numWaterChanged = 0;
+    size_t numOrdinaryChanged = 0;
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const size_t at = ((size_t)y * 64u + x) * 4u;
+            if ( memcmp(&on[at], &moved[at], 4u) != 0 )
+            {
+                if ( x < 32u )
+                {
+                    ++numWaterChanged;
+                }
+                else
+                {
+                    ++numOrdinaryChanged;
+                }
+            }
+        }
+    }
+    std::printf("M9.17 water ripples: %zu water pixels changed, %zu ordinary pixels changed\n",
+        numWaterChanged, numOrdinaryChanged);
+    TEST_ASSERT_TRUE(numWaterChanged > 0u);
+    TEST_ASSERT_EQUAL_size_t(0u, numOrdinaryChanged);
+
+    // Off vs on: the water changes and the ordinary half is byte-identical.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    size_t numWaterAgainstOff = 0;
+    size_t numOrdinaryAgainstOff = 0;
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const size_t at = ((size_t)y * 64u + x) * 4u;
+            if ( memcmp(&off[at], &on[at], 4u) != 0 )
+            {
+                if ( x < 32u )
+                {
+                    ++numWaterAgainstOff;
+                }
+                else
+                {
+                    ++numOrdinaryAgainstOff;
+                }
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(numWaterAgainstOff > 0u);
+    TEST_ASSERT_EQUAL_size_t(0u, numOrdinaryAgainstOff);
+}
+
+TEST(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_WATER, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF3080C0u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 28.0f, 0.0f, 30.0f, 64.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(true));
+    std3D_SetFrameTime(0.05f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    // The HUD strip is the same colour on both paths; the water around it differs.
+    const size_t hud = ((size_t)32u * 64u + 29u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 0u], (int)on[hud + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 1u], (int)on[hud + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 2u], (int)on[hud + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 3u], (int)on[hud + 3u]);
+}
+
+TEST(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF204060u);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    RenderScene(drawScene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(off.size(), offAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetLightShaftCentroidForTest(nullptr, nullptr, nullptr));
+}
+
+TEST(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(3));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+
+    // A bright sky quad on the left half, over a dark lower half. Its luminance-weighted centroid
+    // is at about (0.25, 0.25) in image uv.
+    const auto drawSky = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f, 0.95f, 0xFF101010u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+    };
+    const auto drawNoSky = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f, 0.95f, 0xFF101010u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+    };
+
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawSky);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    stdRenderBabylon_SetLightShafts(3);
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawSky);
+    float u = -1.0f;
+    float v = -1.0f;
+    float weight = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLightShaftCentroidForTest(&u, &v, &weight));
+    std::printf("M9.16 light shafts: centroid (%g, %g), weight %g\n", (double)u, (double)v, (double)weight);
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.25f, u);
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.25f, v);
+    TEST_ASSERT_TRUE(weight > 0.0f);
+
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != on);
+
+    // Bright geometry that is not tagged sky contributes no mask, so the stage adds exactly zero.
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawNoSky);
+    const std::vector<std::byte> noSky = CapturePresented(64u, 64u);
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawNoSky);
+    const std::vector<std::byte> noSkyOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(noSkyOff.size(), noSky.size());
+    TEST_ASSERT_EQUAL_MEMORY(noSkyOff.data(), noSky.data(), noSky.size());
+}
+
+TEST(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+
+    // A full-screen mid-grey sky with a small ordinary-grey quad over it. The uniform sky makes the
+    // radial blur nearly constant, so the two pixels start at the same scene value and see about the
+    // same shaft value; only the normal tag differs. The composite scales the shafts by 0.15 on the
+    // sky tag, keeping the clouds crisp, and at full strength on ordinary geometry.
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 64.0f, 64.0f, 0.9f, 0xFF808080u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 32.0f, 34.0f, 34.0f, 0.5f, 0xFF808080u);
+    };
+    const auto redChannel = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    const int skyOff      = redChannel(off, 10u, 10u);
+    const int ordinaryOff = redChannel(off, 32u, 32u);
+
+    stdRenderBabylon_SetLightShafts(1); // Low, strength 0.25
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    const int skyAdded      = redChannel(on, 10u, 10u) - skyOff;
+    const int ordinaryAdded = redChannel(on, 32u, 32u) - ordinaryOff;
+
+    // The two pixels have different shaft values (the ordinary quad is a hole in the mask), so
+    // compare the added light per unit of the half-res blur the composite actually samples.
+    float skyShaft = 0.0f;
+    float ordinaryShaft = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLightShaftValueForTest(10u, 10u, &skyShaft));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLightShaftValueForTest(32u, 32u, &ordinaryShaft));
+    TEST_ASSERT_TRUE(skyShaft > 0.0f);
+    TEST_ASSERT_TRUE(ordinaryShaft > 0.0f);
+    const float skyPerShaft      = (float)skyAdded / skyShaft;
+    const float ordinaryPerShaft = (float)ordinaryAdded / ordinaryShaft;
+    std::printf("M9.16 light shafts sky/geometry: added %d/255 to sky (%.3f per shaft), %d/255 to geometry (%.3f per shaft)\n",
+        skyAdded, (double)skyPerShaft, ordinaryAdded, (double)ordinaryPerShaft);
+    TEST_ASSERT_TRUE(ordinaryPerShaft > 20.0f);
+    TEST_ASSERT_TRUE(skyAdded >= 0);
+    TEST_ASSERT_TRUE(skyPerShaft <= ordinaryPerShaft * 0.15f + 3.0f);
+
+    // Sanity: the normal target still holds the two tags the composite reads.
+    const std::vector<std::byte> aNormals = std3DBabylonTest_pDevice->readTexture(
+        stdRenderBabylon_GetNormalTarget(), 0);
+    const bool b10 = stdRenderBabylon_GetNormalFormat() == render::TextureFormat::R10G10B10A2;
+    TEST_ASSERT_EQUAL_INT(b10 ? 2 : 170, NormalTexel(aNormals, 10u, 10u)[3]);
+    TEST_ASSERT_EQUAL_INT(b10 ? 3 : 255, NormalTexel(aNormals, 32u, 32u)[3]);
+}
+
+TEST(std3DBabylonGpu, LightShaftsLeaveTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 16.0f, 0.9f, 0xFFFFFFFFu);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    stdRenderBabylon_SetLightShafts(0);
+    RenderScene(drawScene);
+    const std::vector<std::byte> hudOff = CapturePresented(32u, 16u);
+
+    stdRenderBabylon_SetLightShafts(3);
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> hudOn = CapturePresented(32u, 16u);
+
+    // The HUD's green line is composited after the shaft stage: its pixels are unchanged.
+    for ( uint32_t x = 16u; x <= 16u; ++x )
+    {
+        const size_t at = ((size_t)8u * 32u + x) * 4u;
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 2u], (int)hudOn[at + 2u]);
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 1u], (int)hudOn[at + 1u]);
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 0u], (int)hudOn[at + 0u]);
+        TEST_ASSERT_EQUAL_INT((int)hudOff[at + 3u], (int)hudOn[at + 3u]);
+    }
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -2957,7 +4939,32 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
+    RUN_TEST_CASE(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha);
+    RUN_TEST_CASE(std3DBabylonGpu, TranslucentWaterWritesItsTagWithoutChangingTheImage);
+    RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesChangeOnlyWaterPixelsAndFollowGameTime);
+    RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry);
+    RUN_TEST_CASE(std3DBabylonGpu, LightShaftsLeaveTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
+    RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
+    RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);
+    RUN_TEST_CASE(std3DBabylonGpu, AHudLayerLineStaysOnePixelAtRenderScaleHalf);
+    RUN_TEST_CASE(std3DBabylonGpu, TheHudLayerCompositeMatchesTheSingleScenePassAtScaleOne);
+    RUN_TEST_CASE(std3DBabylonGpu, SharpeningSteepensAStepEdgeAndLeavesFlatAreas);
+    RUN_TEST_CASE(std3DBabylonGpu, SharpeningLeavesTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, SmaaBlendsAHardDiagonalEdgeAndLeavesFarPixels);
+    RUN_TEST_CASE(std3DBabylonGpu, SmaaLeavesTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, BloomSpreadsABrightSpotAndLeavesFarBlack);
+    RUN_TEST_CASE(std3DBabylonGpu, BloomLeavesASubThresholdImageUnchanged);
+    RUN_TEST_CASE(std3DBabylonGpu, BloomLeavesTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes);
+    RUN_TEST_CASE(std3DBabylonGpu, DepthOfFieldOffIsByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, DepthOfFieldLeavesTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, ToneMapOperatorsAndFloatIntermediates);
+    RUN_TEST_CASE(std3DBabylonGpu, ToneMapBrightnessIsIdentityAtOneAndGammaAfterTheOperator);
 }
 
 // The replay suite of stdRenderReplayTest.c, a C file.

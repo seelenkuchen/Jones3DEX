@@ -276,6 +276,16 @@ LABEL_4:
             rdflags |= STD3D_RS_FOG_ENABLED;
         }
 
+        // Added: carry the surface tag to the normal target's alpha (M9.16).
+        if ( (fflags & RD_FF_SKY_SURFACE) != 0 )
+        {
+            rdflags |= STD3D_RS_SURFACE_SKY;
+        }
+        if ( (fflags & RD_FF_WATER_SURFACE) != 0 )
+        {
+            rdflags |= STD3D_RS_SURFACE_WATER;
+        }
+
         // Added: a draw holds only lit faces (std3D_DrawRenderListLit) or only classic ones
         bool bLit = pCurPoly->aViewNormals != NULL;
 

@@ -22,6 +22,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL "graphics.performanceLevel"
 
 #define JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY                    "engine.renderer.hipoly"
+#define JONESDISPLAY_CFG_ENGINE_RENDER_FOV                       "engine.renderer.fov" // Added: Options > Display, Field of view
 #define JONESDISPLAY_CFG_ENGINE_RENDER_GEOMETRYMODE              "engine.renderer.geometry"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTINGMODE              "engine.renderer.lighting"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_FOGENABLED                "engine.renderer.fog.enabled"
@@ -31,6 +32,19 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MAXTHINGCOLLECTDISTANCE   "engine.renderer.culling.culledSectorTraversal.maxThingCollectDistance"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MAXLIGHTCOLLECTDISTANCE   "engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED           "engine.renderer.litFaces.enabled" // Added: option A L3 (ADR-0023)
+#define JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE               "engine.renderer.renderScale" // Added: M9.4 internal 3D resolution
+#define JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING              "engine.renderer.antiAliasing" // Added: M9.8 SMAA 1x scene anti-aliasing
+#define JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING                "engine.renderer.sharpening" // Added: M9.9 contrast-adaptive sharpening
+#define JONESDISPLAY_CFG_ENGINE_RENDER_TONEMAPPING               "engine.renderer.toneMapping" // Added: M9.10 tone-mapping operator
+#define JONESDISPLAY_CFG_ENGINE_RENDER_EXPOSURE                  "engine.renderer.exposure" // Added: M9.10 exposure before the tone map
+#define JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS                "engine.renderer.brightness" // Added: M9.11 calibration gamma after the tone map
+#define JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM                     "engine.renderer.bloom" // Added: M9.12 bloom level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS               "engine.renderer.lightShafts" // Added: M9.16 light-shaft level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES             "engine.renderer.water.ripples" // Added: M9.17 water ripples
+#define JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING              "engine.renderer.colorGrading" // Added: M9.13 color-grading preset
+#define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES             "engine.renderer.dof.cutscenes" // Added: M9.14 depth of field in cutscenes
+#define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY              "engine.renderer.dof.gameplay" // Added: M9.14 depth of field in gameplay
+#define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_STRENGTH              "engine.renderer.dof.strength" // Added: M9.14 depth-of-field strength
 
 
 // Returns 0 for success and 1 indicating error

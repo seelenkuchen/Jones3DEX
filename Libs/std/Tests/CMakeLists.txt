@@ -293,6 +293,7 @@ if (J3D_PLATFORM_BABYLON)
         SOURCES
             "${STD_BABYLON_SOURCE_DIR}/Tests/Shaders/post_invert.frag.hlsl"
             "${STD_BABYLON_SOURCE_DIR}/Tests/Shaders/post_normal.frag.hlsl"
+            "${STD_BABYLON_SOURCE_DIR}/Tests/Shaders/post_double.frag.hlsl"
     )
 
     source_group("Tested Sources" FILES ${STD3D_BABYLON_TESTED_SOURCES})

@@ -24,4 +24,20 @@ struct sSysTexture
 // captures the frame and draws its own, then starts a new scene for the caller before returning.
 bool std3D_IsInScene(void);
 
+// The level of graphics.anisotropicFilter: 1 (off), 2, 4, 8 or 16. An old boolean value
+// (true/false) reads as 8/1; a missing or invalid one as J3D_QOL_VALUE(8, 1). std3D_Open reads it.
+int std3DBabylon_ReadAnisotropicFilterLevel(void);
+
+// Snaps a level to the offered steps, so 3 is 2 and 12 is 8; anything below 2 is 1.
+int std3DBabylon_NormalizeAnisotropicFilterLevel(int level);
+
+// engine.renderer.texturePixelated: nearest min and mag filtering for world and model textures.
+bool std3DBabylon_ReadTexturePixelated(void);
+
+#ifdef J3D_TEST
+// Test support: the same state std3D_Open reads from the config, without starting one.
+void std3DBabylon_SetAnisotropicFilterForTest(int level);
+void std3DBabylon_SetTexturePixelatedForTest(bool bEnabled);
+#endif
+
 #endif // STD_STD3DBABYLON_H

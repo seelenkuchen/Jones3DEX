@@ -23,6 +23,8 @@
 #include <rdroid/Primitives/rdModel3.h>
 #include <rdroid/Raster/rdCache.h>
 
+#include <std/General/std3D.h>
+
 #include <sith/Cog/sithCog.h>
 #include <sith/Dss/sithGamesave.h>
 #include <sith/Engine/sithCamera.h>
@@ -1345,6 +1347,10 @@ void JonesHud_Process(void) // maybe this function should be called something el
             rdCache_FlushAlpha();
             rdCache_Flush();
 
+            // Added: the HUD draws into its own display-sized layer, after the scene and its post
+            // effects, so it stays sharp at any render scale and no scene effect touches it.
+            std3D_BeginHudLayer();
+
             // Render reticle before the any other HUD component
             // Note, also has to be drawn before switching camera to HUD camera
             // because game camera matrix is required for transforming target position to screen space.
@@ -1455,6 +1461,10 @@ void JonesHud_Process(void) // maybe this function should be called something el
 
             rdCache_FlushAlpha();
             rdCache_Flush();
+
+            // Added: the HUD section ends here; the layer is composited over the scene at present.
+            std3D_EndHudLayer();
+
             rdCamera_SetCurrent(pCurCam);
             sithWorld_g_pCurrentWorld->state &= ~SITH_WORLD_STATE_INIT_HUD;
         }
@@ -1560,6 +1570,22 @@ void JonesHud_UpdateSinCosTable(void)
     }
 }
 
+// Added: the horizontal band a 16:9 safe area covers on a wider canvas. The HUD anchors to the
+// screen edges inside it, so 21:9 and wider do not push the indicators into the corners. At 4:3
+// and 16:9 the safe area is the whole canvas and the layout is unchanged.
+static void JonesHud_GetSafeArea(uint32_t width, uint32_t height, float* pLeft, float* pRight)
+{
+    *pLeft  = 0.0f;
+    *pRight = (float)width;
+
+    if ( height > 0 && (float)width / (float)height > (16.0f / 9.0f) )
+    {
+        float safeWidth = (float)height * (16.0f / 9.0f);
+        *pLeft  = ((float)width - safeWidth) * 0.5f;
+        *pRight = *pLeft + safeWidth;
+    }
+}
+
 void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height)
 {
    // Fixed: Fixed HUD scaling of indicator by using only JonesHud_widthAspectRatioScale
@@ -1568,15 +1594,19 @@ void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height)
     float aspectScale   =  JonesHud_heightAspectRatioScale;
     float healthIndSize = (aspectScale * JonesHud_healthIndSize); // Altered: OG: 60.0f
 
+    float safeLeft  = 0.0f;
+    float safeRight = (float)width;
+    JonesHud_GetSafeArea(width, height, &safeLeft, &safeRight);
+
     if ( JonesHud_healthIndPosX <= 1.0f )
     {
         // Fixed anchored position to left
-        JonesHud_healthIndRect.x = ((RD_REF_WIDTH - JonesHud_healthIndSize) * JonesHud_healthIndPosX) * aspectScale;  // Altered: OG: JonesHud_widthAspectRatioScale * 24.0f;
+        JonesHud_healthIndRect.x = safeLeft + ((RD_REF_WIDTH - JonesHud_healthIndSize) * JonesHud_healthIndPosX) * aspectScale;  // Altered: OG: JonesHud_widthAspectRatioScale * 24.0f;
     }
     else
     {
         // Relative position to screen width
-        JonesHud_healthIndRect.x = ((float)width - healthIndSize) * (JonesHud_healthIndPosX - 1.0f); // Altered: OG: JonesHud_widthAspectRatioScale * 24.0f;
+        JonesHud_healthIndRect.x = safeLeft + (safeRight - safeLeft - healthIndSize) * (JonesHud_healthIndPosX - 1.0f); // Altered: OG: JonesHud_widthAspectRatioScale * 24.0f;
     }
 
     JonesHud_healthIndRect.y      = ((RD_REF_HEIGHT - JonesHud_healthIndSize) * JonesHud_healthIndPosY) * aspectScale; // Altered: OG: (float)height - JonesHud_healthIndRect.x - JonesHud_heightAspectRatioScale * 60.0f;
@@ -1592,12 +1622,12 @@ void J3DAPI JonesHud_UpdateHUDLayout(uint32_t width, uint32_t height)
     if ( JonesHud_enduranceIndPosX <= 1.0f )
     {
         // Fixed anchored position to left
-        JonesHud_enduranceRect.x = ((RD_REF_WIDTH - JonesHud_enduranceIndSize) * JonesHud_enduranceIndPosX) * aspectScale;  // Altered: OG: JonesHud_healthIndRect.x + JonesHud_healthIndRect.width + JonesHud_widthAspectRatioScale * 8.0f;
+        JonesHud_enduranceRect.x = safeLeft + ((RD_REF_WIDTH - JonesHud_enduranceIndSize) * JonesHud_enduranceIndPosX) * aspectScale;  // Altered: OG: JonesHud_healthIndRect.x + JonesHud_healthIndRect.width + JonesHud_widthAspectRatioScale * 8.0f;
     }
     else
     {
         // Relative position to screen width
-        JonesHud_enduranceRect.x = ((float)width - enduranceInd) * (JonesHud_enduranceIndPosX - 1.0f); // Altered: OG: JonesHud_healthIndRect.x + JonesHud_healthIndRect.width + JonesHud_widthAspectRatioScale * 8.0f;
+        JonesHud_enduranceRect.x = safeLeft + (safeRight - safeLeft - enduranceInd) * (JonesHud_enduranceIndPosX - 1.0f); // Altered: OG: JonesHud_healthIndRect.x + JonesHud_healthIndRect.width + JonesHud_widthAspectRatioScale * 8.0f;
     }
 
     JonesHud_enduranceRect.y      = ((RD_REF_HEIGHT - JonesHud_enduranceIndSize) * JonesHud_enduranceIndPosY) * aspectScale; // Altered: OG: JonesHud_healthIndRect.y 

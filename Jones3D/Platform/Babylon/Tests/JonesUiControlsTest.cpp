@@ -1378,6 +1378,7 @@ TEST_CASE("the Options Controls tab opens the Button Layout screen and keeps Opt
 }
 
 
+#ifdef J3D_QOL_IMPROVEMENTS
 TEST_CASE("Modern stick-owned rows do not capture a binding")
 {
     sithControl_SetModernControlStyle(true);
@@ -1415,6 +1416,7 @@ TEST_CASE("Modern stick-owned rows do not capture a binding")
 
     sithControl_SetModernControlStyle(true);
 }
+#endif
 
 
 TEST_CASE("Back on an unchanged built-in scheme closes without nagging")

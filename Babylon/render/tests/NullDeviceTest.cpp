@@ -219,6 +219,43 @@ TEST_CASE("The Null device records pipeline creations and a submitted frame exac
     noWarning(sink);
 }
 
+TEST_CASE("The Null device keeps and reports a sampler's desc")
+{
+    CaptureSink sink;
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+
+    SamplerDesc desc;
+    desc.minFilter     = Filter::Nearest;
+    desc.magFilter     = Filter::Linear;
+    desc.mipFilter     = Filter::Linear;
+    desc.addressU      = AddressMode::ClampToEdge;
+    desc.addressV      = AddressMode::MirroredRepeat;
+    desc.maxAnisotropy = 8.0f;
+    const SamplerHandle sampler = device->createSampler(desc);
+    REQUIRE_FALSE(sampler.isNull());
+    noWarning(sink);
+
+    const std::optional<SamplerDesc> stored = device->samplerDesc(sampler);
+    REQUIRE(stored.has_value());
+    CHECK(*stored == desc);
+    CHECK(stored->maxAnisotropy == 8.0f);
+
+    CHECK_FALSE(device->samplerDesc(SamplerHandle{}).has_value());
+    device->destroySampler(sampler);
+    noWarning(sink);
+    CHECK_FALSE(device->samplerDesc(sampler).has_value());
+
+    // The far end of the range and a value below the off point are kept as
+    // given; the Null backend has no device limit to clamp against.
+    SamplerDesc high = desc;
+    high.maxAnisotropy = 1000.0f;
+    const SamplerHandle highHandle = device->createSampler(high);
+    REQUIRE_FALSE(highHandle.isNull());
+    REQUIRE(device->samplerDesc(highHandle).has_value());
+    CHECK(device->samplerDesc(highHandle)->maxAnisotropy == 1000.0f);
+    noWarning(sink);
+}
+
 TEST_CASE("The Null device refuses invalid pipeline descs with one warning each")
 {
     CaptureSink sink;
