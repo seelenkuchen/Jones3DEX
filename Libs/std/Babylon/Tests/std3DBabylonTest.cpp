@@ -2978,6 +2978,14 @@ namespace
     {
         return bits ? (int)std::lround(value * 255.0 / MaxOf(bits)) : 255;
     }
+
+    // rdCamera's scene depth: 0.1 at the near plane, 1.0 at the far plane, 1/z-linear in between.
+    float SceneDepthForEyeDepth(float eyeDepth, float nearPlane, float farPlane)
+    {
+        const float linear = (farPlane - nearPlane * farPlane / eyeDepth)
+            / (farPlane - nearPlane);
+        return 0.1f + 0.9f * linear;
+    }
 }
 
 TEST(std3DBabylonGpu, AVertexColoredTriangleInterpolatesItsColors)
@@ -4337,12 +4345,8 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
     // far plane to keep spreading; the near sample sits 5 px from its spot and the far one 6 px.
     const float nearPlane = 0.25f;
     const float farPlane  = 100.0f;
-    const auto zForDepth = [nearPlane, farPlane](float depth)
-    {
-        return (farPlane - nearPlane * farPlane / depth) / (farPlane - nearPlane);
-    };
-    const float zNear = zForDepth(0.5f);
-    const float zFar  = zForDepth(99.0f);
+    const float zNear = SceneDepthForEyeDepth(0.5f, nearPlane, farPlane);
+    const float zFar  = SceneDepthForEyeDepth(99.0f, nearPlane, farPlane);
     const auto drawScene = [zNear, zFar]
     {
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, zFar, 0xFF000000u);
@@ -4384,6 +4388,30 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
         cutsceneNear, cutsceneFar);
     TEST_ASSERT_TRUE(cutsceneNear > 0);
     TEST_ASSERT_TRUE(cutsceneFar > 0);
+
+    // A surface just inside the gameplay sharp zone must stay sharp. With the focus at 5 the blur
+    // starts at max(6 * 5, 1.5) = 30 and ramps over max(24 * 5, 6) = 120, so an eye depth of 29.5
+    // has a circle of confusion of 0. The old shader read the scene depth as 0..1 instead of the
+    // game's 0.1..1.0, which linearised this surface (sz 0.994609) to about 31.7, past the 30
+    // start, so it would have blurred. Everything is at the same depth, so with the correct
+    // mapping the depth-of-field stage leaves the whole frame byte-identical to the stage off.
+    const float sharpZ = SceneDepthForEyeDepth(29.5f, nearPlane, farPlane);
+    const auto drawSharpScene = [sharpZ]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, sharpZ, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 30.0f, 30.0f, 34.0f, 34.0f, sharpZ, 0xFFFFFFFFu);
+    };
+
+    std3D_SetFocus(5.0f, false, 0.0f);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    RenderScene(drawSharpScene);
+    const std::vector<std::byte> sharpOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(redChannel(sharpOff, 32u, 32u) > 0);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, true, 1.0f));
+    RenderScene(drawSharpScene);
+    const std::vector<std::byte> sharpGameplay = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(sharpOff.data(), sharpGameplay.data(), sharpOff.size());
 }
 
 TEST(std3DBabylonGpu, DepthOfFieldOffIsByteIdentical)
@@ -4757,14 +4785,6 @@ namespace
         return count > 0u ? (float)(sum / (double)count) : 0.0f;
     }
 
-    // rdCamera's scene depth: 0.1 at the near plane, 1.0 at the far plane, 1/z-linear in between.
-    float SsaoSceneDepthForEyeDepth(float eyeDepth, float nearPlane, float farPlane)
-    {
-        const float linear = (farPlane - nearPlane * farPlane / eyeDepth)
-            / (farPlane - nearPlane);
-        return 0.1f + 0.9f * linear;
-    }
-
     // The ambient-occlusion test scene: a floor below a box corner, the near left wall at eye depth
     // 1.8, the far right wall at 2.4 and the floor at 3.2, converted to rdCamera's scene depth. The
     // creases at x = 32 and y = 32 occlude each other inside the Low level's 0.25-unit radius.
@@ -4772,11 +4792,11 @@ namespace
     {
         const uint32_t grey = 0xFF808080u;
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 32.0f,
-            SsaoSceneDepthForEyeDepth(1.8f, nearPlane, farPlane), grey);
+            SceneDepthForEyeDepth(1.8f, nearPlane, farPlane), grey);
         DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 32.0f,
-            SsaoSceneDepthForEyeDepth(2.4f, nearPlane, farPlane), grey);
+            SceneDepthForEyeDepth(2.4f, nearPlane, farPlane), grey);
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f,
-            SsaoSceneDepthForEyeDepth(3.2f, nearPlane, farPlane), grey);
+            SceneDepthForEyeDepth(3.2f, nearPlane, farPlane), grey);
     }
 
     void DrawSsaoCreaseScene()

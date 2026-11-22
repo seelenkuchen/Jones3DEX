@@ -24,11 +24,13 @@ cbuffer DofShape : register(b1, space3)
     float4 gDofShape;
 };
 
-float LinearizeDepth(float depth)
+// rdCamera's sz is 0.1 at the near plane and 1.0 at the far plane, 1/z-linear in between.
+float LinearizeDepth(float sz)
 {
-    const float nearPlane = max(gDof.y, 1.0e-4);
-    const float farPlane  = max(gDof.z, nearPlane + 1.0e-3);
-    return (nearPlane * farPlane) / max(farPlane - depth * (farPlane - nearPlane), 1.0e-4);
+    const float nearPlane = max(gDof.y, 1.0e-5);
+    const float farPlane  = max(gDof.z, nearPlane + 1.0e-5);
+    const float depthRange = saturate((sz - 0.1) / 0.9);
+    return (nearPlane * farPlane) / max(farPlane - depthRange * (farPlane - nearPlane), 1.0e-5);
 }
 
 float CircleOfConfusion(float depth)
