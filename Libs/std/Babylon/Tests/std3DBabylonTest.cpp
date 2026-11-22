@@ -4329,18 +4329,20 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
     TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
     TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
     TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
-    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 1.0f, 100.0f));
+    TEST_ASSERT_EQUAL_INT(0, std3D_SetProjection(1.5f, 0.25f, 100.0f));
 
     // A black far background with a white spot at the centre, and a black near quad on the left
-    // with its own white spot. Linear eye depths 60 and 2, with the focus at 5.
-    const float nearPlane = 1.0f;
+    // with its own white spot. Linear eye depths 99 and 0.5, with the focus at 5. The gentler
+    // cutscene ramp needs the near spot well inside the dead zone and the far spot close to the
+    // far plane to keep spreading; the near sample sits 5 px from its spot and the far one 6 px.
+    const float nearPlane = 0.25f;
     const float farPlane  = 100.0f;
     const auto zForDepth = [nearPlane, farPlane](float depth)
     {
         return (farPlane - nearPlane * farPlane / depth) / (farPlane - nearPlane);
     };
-    const float zNear = zForDepth(2.0f);
-    const float zFar  = zForDepth(60.0f);
+    const float zNear = zForDepth(0.5f);
+    const float zFar  = zForDepth(99.0f);
     const auto drawScene = [zNear, zFar]
     {
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, zFar, 0xFF000000u);
@@ -4356,7 +4358,7 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
     // No focus use: the stage is skipped and both spots stay crisp.
     RenderScene(drawScene);
     const std::vector<std::byte> off = CapturePresented(64u, 64u);
-    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 18u, 32u));
+    TEST_ASSERT_EQUAL_INT(0, redChannel(off, 17u, 32u));
     TEST_ASSERT_EQUAL_INT(0, redChannel(off, 40u, 32u));
 
     // Gameplay: the far spot spreads, the near one stays sharp.
@@ -4364,9 +4366,9 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
     TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, true, 1.0f));
     RenderScene(drawScene);
     const std::vector<std::byte> gameplay = CapturePresented(64u, 64u);
-    const int gameplayNear = redChannel(gameplay, 18u, 32u);
+    const int gameplayNear = redChannel(gameplay, 17u, 32u);
     const int gameplayFar  = redChannel(gameplay, 40u, 32u);
-    std::printf("M9.14 depth of field gameplay: 6 px from the near spot %d/255, from the far spot %d/255\n",
+    std::printf("M9.14 depth of field gameplay: 5 px from the near spot %d/255, from the far spot %d/255\n",
         gameplayNear, gameplayFar);
     TEST_ASSERT_TRUE(gameplayNear <= 1);
     TEST_ASSERT_TRUE(gameplayFar > 0);
@@ -4376,9 +4378,9 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
     TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(true, false, 1.0f));
     RenderScene(drawScene);
     const std::vector<std::byte> cutscene = CapturePresented(64u, 64u);
-    const int cutsceneNear = redChannel(cutscene, 18u, 32u);
+    const int cutsceneNear = redChannel(cutscene, 17u, 32u);
     const int cutsceneFar  = redChannel(cutscene, 40u, 32u);
-    std::printf("M9.14 depth of field cutscene: 6 px from the near spot %d/255, from the far spot %d/255\n",
+    std::printf("M9.14 depth of field cutscene: 5 px from the near spot %d/255, from the far spot %d/255\n",
         cutsceneNear, cutsceneFar);
     TEST_ASSERT_TRUE(cutsceneNear > 0);
     TEST_ASSERT_TRUE(cutsceneFar > 0);

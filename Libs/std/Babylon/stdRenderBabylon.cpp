@@ -128,15 +128,15 @@ namespace
     constexpr float stdRenderBabylon_kMinDofStrength        = 0.5f;
     constexpr float stdRenderBabylon_kMaxDofStrength        = 2.0f;
     constexpr float stdRenderBabylon_kDofFocusSmoothingTime = 0.2f; // seconds to reach a new focus
-    constexpr float stdRenderBabylon_kDofMaxRadius          = 10.0f; // half-res texels at strength 1
-    constexpr float stdRenderBabylon_kDofGameplayStartScale = 4.0f;
-    constexpr float stdRenderBabylon_kDofGameplayMinStart    = 1.0f;
-    constexpr float stdRenderBabylon_kDofGameplaySpanScale  = 12.0f;
-    constexpr float stdRenderBabylon_kDofGameplayMinSpan     = 3.0f;
-    constexpr float stdRenderBabylon_kDofCutsceneDeadScale  = 0.1f;
-    constexpr float stdRenderBabylon_kDofCutsceneSpanScale  = 0.6f;
-    constexpr float stdRenderBabylon_kDofCutsceneMinDead     = 0.05f;
-    constexpr float stdRenderBabylon_kDofCutsceneMinSpan     = 0.5f;
+    constexpr float stdRenderBabylon_kDofMaxRadius          = 6.0f; // half-res texels at strength 1
+    constexpr float stdRenderBabylon_kDofGameplayStartScale = 6.0f;
+    constexpr float stdRenderBabylon_kDofGameplayMinStart    = 1.5f;
+    constexpr float stdRenderBabylon_kDofGameplaySpanScale  = 24.0f;
+    constexpr float stdRenderBabylon_kDofGameplayMinSpan     = 6.0f;
+    constexpr float stdRenderBabylon_kDofCutsceneDeadScale  = 0.25f;
+    constexpr float stdRenderBabylon_kDofCutsceneSpanScale  = 1.2f;
+    constexpr float stdRenderBabylon_kDofCutsceneMinDead     = 0.1f;
+    constexpr float stdRenderBabylon_kDofCutsceneMinSpan     = 1.0f;
 
     // Added: the built-in light-shaft stage (M9.16), after depth of field and before bloom.
     // engine.renderer.lightShafts is 0 off, 1 Low, 2 Medium, 3 High; the strengths live here in one

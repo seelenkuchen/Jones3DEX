@@ -24,7 +24,7 @@
     the simulation. Cutscenes soften both nearer and farther than the focus; gameplay softens only
     the far background, starting well behind Indy, so the foreground and nearby geometry stay
     sharp. The HUD, 2D layer, menus and prompts are never softened. Both off skip the stage and
-    present exactly the previous image. Applies when the display reopens.
+    present exactly the previous image. Applies when the display reopens. Subtler by default.
   - **Options > Display** has a **Light shafts** row (`engine.renderer.lightShafts`: Off, Low, Medium
     or High = 0, 1, 2, 3, with strengths 0, 0.25, 0.5, 0.8; Low by default in Enhanced and off in
     Retail). A screen-space stage after depth of field and before bloom masks the bright sky, finds
