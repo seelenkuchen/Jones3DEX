@@ -43,6 +43,14 @@
     Off skips the stage and presents exactly the previous image. Applies when the display reopens.
     Screen-space reflections are not built: translucent water does not write depth, so the depth
     target holds the scene behind it rather than the water plane.
+  - **Options > Display** has an **Ambient occlusion** row (`engine.renderer.ssao`: Off, Low, Medium
+    or High = 0, 1, 2, 3; Low by default in Enhanced and off in Retail). A stage after the water
+    ripples and before depth of field reconstructs view-space positions and normals from the depth
+    target, gathers 8, 12 or 16 hemisphere samples at half resolution in a fixed 4 x 4 rotation
+    pattern, blurs them depth-aware and multiplies the HDR scene by the occlusion term. Wall
+    corners, creases and contact areas darken; the sky, translucent water, HUD, 2D layer, menus and
+    prompts are left unchanged. Off skips every pass and presents exactly the previous image.
+    Applies when the display reopens.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring

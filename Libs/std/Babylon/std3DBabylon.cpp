@@ -2526,6 +2526,9 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
     // Added: the depth-of-field stage linearises the depth target with these planes.
     std3D_nearPlane = nearPlane;
     std3D_farPlane  = farPlane;
+
+    // Added: the ambient-occlusion stage reconstructs view-space positions from the projection.
+    stdRenderBabylon_SetProjection(fov, nearPlane, farPlane);
     return 0;
 }
 

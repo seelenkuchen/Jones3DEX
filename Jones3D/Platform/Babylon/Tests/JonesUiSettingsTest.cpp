@@ -437,6 +437,46 @@ TEST_CASE("the display resolution list is deduplicated by size")
     CHECK_FALSE(JonesUiDisplay_CollectVideoModes(&env, 1, modes));
 }
 
+TEST_CASE("the display screen reads the ambient occlusion default per build")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+
+    REQUIRE(layout.ssao < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.ssao]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Ambient occlusion");
+    CHECK(pChoice->options == std::vector<std::string>{ "Off", "Low", "Medium", "High" });
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(pChoice->selected == 1u);
+#else
+    CHECK(pChoice->selected == 0u);
+#endif
+
+    // The row sits after Light shafts and before Water ripples.
+    const babylon::ui::Choice* pShafts =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.lightShafts]);
+    const babylon::ui::Toggle* pWater =
+        std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.waterRipples]);
+    REQUIRE(pShafts != nullptr);
+    REQUIRE(pWater != nullptr);
+    CHECK(layout.lightShafts < layout.ssao);
+    CHECK(layout.ssao < layout.waterRipples);
+}
+
 TEST_CASE("the display screen OK writes the chosen settings and config")
 {
     SettingsTestContext testContext;
@@ -458,9 +498,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 light shafts, 14 water ripples, 15 depth of field (cutscenes), 16 depth of field (gameplay),
-    // 17 sharpening, 18 tone mapping, 19 exposure, 20 colour grading, 21 anisotropic filtering,
-    // 22 crisp pixels, 23 Brightness..., 24 OK, 25 back.
+    // 13 light shafts, 14 ambient occlusion, 15 water ripples, 16 depth of field (cutscenes),
+    // 17 depth of field (gameplay), 18 sharpening, 19 tone mapping, 20 exposure, 21 colour grading,
+    // 22 anisotropic filtering, 23 crisp pixels, 24 Brightness..., 25 OK, 26 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -487,6 +527,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Down);  // bloom
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // light shafts
+    testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // ambient occlusion
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // water ripples
     testContext.platform.PushKey(platform::Key::Enter);
@@ -541,6 +583,7 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, -1) == 0);
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, -1) == 0);
 #ifdef J3D_QOL_IMPROVEMENTS
     // Enhanced starts water ripples on, so Enter turns them off.
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, true));
@@ -1658,10 +1701,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 22).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 23).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 22; ++row )
+    for ( int row = 0; row < 23; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

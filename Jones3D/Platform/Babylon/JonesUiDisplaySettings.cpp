@@ -87,6 +87,7 @@ namespace
     constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayBloomText = "Bloom"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLightShaftsText = "Light shafts"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplaySsaoText = "Ambient occlusion"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayWaterRipplesText = "Water ripples"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofCutscenesText = "Depth of field (cutscenes)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofGameplayText = "Depth of field (gameplay)"; // TODO: [COMPAT]
@@ -120,6 +121,12 @@ namespace
     constexpr int kJonesDisplayLightShaftsValues[] = { 0, 1, 2, 3 };
     constexpr const char* kJonesDisplayLightShaftsLabels[] = { "Off", "Low", "Medium", "High" };
     constexpr std::size_t kJonesDisplayLightShaftsDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.17b ambient-occlusion choices; Low (1) is the Enhanced default, off in
+    // Retail/QOL-off builds.
+    constexpr int kJonesDisplaySsaoValues[] = { 0, 1, 2, 3 };
+    constexpr const char* kJonesDisplaySsaoLabels[] = { "Off", "Low", "Medium", "High" };
+    constexpr std::size_t kJonesDisplaySsaoDefault = J3D_QOL_VALUE(1, 0);
 
     // Added: M9.17 water ripples; on in Enhanced builds and off in Retail/QOL-off ones.
     constexpr bool kJonesDisplayWaterRipplesDefault = J3D_QOL_VALUE(1, 0) != 0;
@@ -317,6 +324,20 @@ namespace
         }
 
         return kJonesDisplayLightShaftsDefault;
+    }
+
+    // The ambient-occlusion choice of a stored level; Low when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_SsaoIndex(int level)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplaySsaoValues); ++cur )
+        {
+            if ( kJonesDisplaySsaoValues[cur] == level )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplaySsaoDefault;
     }
 
     // The sharpening choice nearest to strength; Low when the value is not finite.
@@ -577,6 +598,20 @@ namespace
             values.lightShafts < STD_ARRAYLEN(kJonesDisplayLightShaftsValues)
                 ? values.lightShafts : kJonesDisplayLightShaftsDefault });
 
+        // Added: M9.17b. Ambient occlusion darkens the creases where geometry meets itself; the
+        // HUD, menus and prompts are never touched.
+        std::vector<std::string> ssaoOptions;
+        for ( const char* pLabel : kJonesDisplaySsaoLabels )
+        {
+            ssaoOptions.emplace_back(pLabel);
+        }
+        layout.ssao = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplaySsaoText), std::string(),
+            std::move(ssaoOptions), true,
+            values.ssao < STD_ARRAYLEN(kJonesDisplaySsaoValues)
+                ? values.ssao : kJonesDisplaySsaoDefault });
+
         // Added: M9.17. Water ripples animate water-tagged pixels; the HUD, menus and prompts are
         // never touched.
         layout.waterRipples = screen.widgets.size();
@@ -813,6 +848,9 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.lightShafts = std::clamp(JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, J3D_QOL_VALUE(1, 0)), 0,
         (int)STD_ARRAYLEN(kJonesDisplayLightShaftsValues) - 1);
+    model.ssao = std::clamp(JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, J3D_QOL_VALUE(1, 0)), 0,
+        (int)STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
     model.bWaterRipples = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
         kJonesDisplayWaterRipplesDefault);
     model.bDofCutscenes = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
@@ -848,6 +886,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
     values.bloom = JonesUiDisplay_BloomIndex(model.bloom);
     values.lightShafts = JonesUiDisplay_LightShaftsIndex(model.lightShafts);
+    values.ssao = JonesUiDisplay_SsaoIndex(model.ssao);
     values.bWaterRipples = model.bWaterRipples;
     values.bDofCutscenes = model.bDofCutscenes;
     values.bDofGameplay = model.bDofGameplay;
@@ -906,6 +945,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.bloom));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.lightShafts,
         values.lightShafts));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.ssao,
+        values.ssao));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.waterRipples,
         values.bWaterRipples));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofCutscenes,
@@ -1129,6 +1170,12 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplayLightShaftsValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS,
         kJonesDisplayLightShaftsValues[lightShafts]);
+
+    // Added: M9.17b. Read when the frame owner opens, like bloom.
+    const std::size_t ssao = std::min(values.ssao,
+        STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO,
+        kJonesDisplaySsaoValues[ssao]);
 
     // Added: M9.17. Read when the frame owner opens, like bloom.
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
