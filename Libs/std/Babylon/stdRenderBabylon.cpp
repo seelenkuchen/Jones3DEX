@@ -174,6 +174,41 @@ namespace
     constexpr float stdRenderBabylon_kWaterRippleHighlight        = 0.035f;
     constexpr float stdRenderBabylon_kWaterRippleHighlightPower   = 24.0f;
 
+    // Added: the M9.18 camera effects. Lens flare is a toggle; it reuses the light-shaft stage's sky
+    // centroid and smoothed strength, so its constants sit with that stage's. The ghosts lie along
+    // the line from the light through the screen centre: t is the fraction of that line (1 is the
+    // centre), radius is in screen-height units and tint is the rgb the ghost adds. The halo is a
+    // soft disc around the light. Vignette and film grain are toggles on the presented LDR image;
+    // their tuning lives here too. All values are presentation only.
+    constexpr const char* stdRenderBabylon_kLensFlareKey = "engine.renderer.lensFlare";
+    constexpr const char* stdRenderBabylon_kVignetteKey  = "engine.renderer.vignette";
+    constexpr const char* stdRenderBabylon_kFilmGrainKey = "engine.renderer.filmGrain";
+
+    struct StdRenderBabylonFlareGhost
+    {
+        float t;         // fraction along the light-to-centre line, 1 at the centre
+        float radius;    // screen-height units
+        float intensity;
+        float aTint[3];
+    };
+    constexpr StdRenderBabylonFlareGhost stdRenderBabylon_aFlareGhosts[] = {
+        { 0.75f, 0.045f, 0.45f, { 1.00f, 0.72f, 0.38f } },
+        { 1.40f, 0.025f, 0.35f, { 0.40f, 0.78f, 1.00f } },
+        { 1.95f, 0.035f, 0.30f, { 0.55f, 1.00f, 0.65f } },
+        { 2.60f, 0.055f, 0.22f, { 1.00f, 0.50f, 0.90f } },
+    };
+    constexpr int stdRenderBabylon_kNumFlareGhosts =
+        (int)(sizeof(stdRenderBabylon_aFlareGhosts) / sizeof(stdRenderBabylon_aFlareGhosts[0]));
+    constexpr float stdRenderBabylon_kFlareGain      = 0.65f;
+    constexpr float stdRenderBabylon_kFlareHaloRadius = 0.25f;
+    constexpr float stdRenderBabylon_kFlareHaloIntensity = 0.30f;
+
+    constexpr float stdRenderBabylon_kVignetteStrength = 0.35f;
+    constexpr float stdRenderBabylon_kVignetteInner    = 0.45f;
+    constexpr float stdRenderBabylon_kVignetteOuter    = 1.00f;
+
+    constexpr float stdRenderBabylon_kFilmGrainAmplitude = 0.035f;
+
     // TODO: [COMPAT] Screen-space reflections on the water pixels are not built: translucent water
     // does not write depth, so the depth target at a water pixel holds the scene behind it rather
     // than the water plane, and a view-space ray march would start from the wrong depth. Build them
@@ -237,6 +272,22 @@ namespace
         render::PipelineHandle smaaBlendCasPipeline;  // SMAA's blend into casSourceTarget
         render::PipelineHandle casPipeline;           // to the swapchain
         render::PipelineHandle casCapturePipeline;    // to a Bgra8 capture target
+
+        // Added: the M9.18 vignette and film grain on the presented-size LDR image, after SMAA and
+        // sharpening and before the HUD composite. fxSourceTarget is the image the existing chain
+        // leaves for the effect pass (Bgra8); the effect pass then writes the swapchain or a Bgra8
+        // capture target. bFxSetupFailed stops repeated log lines. grainFrame advances with the
+        // game time received through stdRenderBabylon_SetFrameTime, never with wall-clock time.
+        bool bVignette      = false;
+        bool bFilmGrain     = false;
+        bool bFxSetupFailed = false;
+        uint32_t grainFrame = 0;
+        render::TextureHandle fxSourceTarget;
+        uint32_t fxWidth  = 0;
+        uint32_t fxHeight = 0;
+        render::PipelineHandle fxPipeline;        // to the swapchain
+        render::PipelineHandle fxCapturePipeline; // to a Bgra8 capture target
+        render::PipelineHandle fxToneMapPipeline; // the tone map into fxSourceTarget (Bgra8)
 
         // Added: the built-in bloom stage before the tone map. The prefilter target is half the
         // scene size; downsamples go to 1/4, 1/8, 1/16 and 1/32, then additive tent upsamples run
@@ -304,6 +355,22 @@ namespace
         render::PipelineHandle shaftStrengthPipeline;
         render::PipelineHandle shaftBlurPipeline;
         render::PipelineHandle shaftCompositePipeline;
+        // The mask reduced to 1 x 1 and the smoothed strength most recently written. The lens-flare
+        // stage reads both; light shafts write them too, so the flare needs no readback.
+        render::TextureHandle shaftCentroidTarget;
+        render::TextureHandle shaftStrengthTarget;
+
+        // Added: the built-in lens-flare stage after light shafts and before bloom. bLensFlare is
+        // the option; flareColorTarget is the scene-sized HDR result that bloom then reads.
+        // bFlareRan tells SceneSource to return it.
+        bool bLensFlare        = false;
+        bool bFlareSetupFailed = false;
+        bool bFlareRan         = false;
+        bool bFlareLogged      = false;
+        render::TextureHandle flareColorTarget;
+        uint32_t flareWidth  = 0;
+        uint32_t flareHeight = 0;
+        render::PipelineHandle flarePipeline;
 
         // Added: the built-in water-ripple stage after the post chain and before depth of field. Its
         // one scene-sized target holds the offset result; waterTime is the accumulated game time the
@@ -826,6 +893,138 @@ namespace
 
         *pPipeline = stdRenderBabylon_state.pDevice->createPipeline(desc);
         return !pPipeline->isNull();
+    }
+
+    // Added: frees the M9.18 camera-effect source target.
+    void stdRenderBabylon_FreeFxTarget()
+    {
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.fxSourceTarget);
+        stdRenderBabylon_state.fxSourceTarget = {};
+        stdRenderBabylon_state.fxWidth        = 0;
+        stdRenderBabylon_state.fxHeight       = 0;
+    }
+
+    // Added: the presented-size Bgra8 image the vignette and grain pass reads, made when its size
+    // changes. False, logging why, when it can't be created.
+    bool stdRenderBabylon_EnsureFxTarget(uint32_t width, uint32_t height)
+    {
+        if ( width == 0 || height == 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.fxSourceTarget.isNull()
+            && stdRenderBabylon_state.fxWidth == width
+            && stdRenderBabylon_state.fxHeight == height )
+        {
+            return true;
+        }
+
+        stdRenderBabylon_FreeFxTarget();
+
+        render::TextureDesc desc;
+        desc.width     = width;
+        desc.height    = height;
+        desc.mipLevels = 1;
+        desc.format    = render::TextureFormat::Bgra8;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+
+        const render::TextureHandle target = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( target.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u camera-effect source.\n",
+                width, height);
+            return false;
+        }
+
+        stdRenderBabylon_state.fxSourceTarget = target;
+        stdRenderBabylon_state.fxWidth        = width;
+        stdRenderBabylon_state.fxHeight       = height;
+        return true;
+    }
+
+    // Added: the tone-map pass into the Bgra8 camera-effect source, made on first use.
+    bool stdRenderBabylon_EnsureFxToneMapPipeline()
+    {
+        if ( !stdRenderBabylon_state.fxToneMapPipeline.isNull() )
+        {
+            return true;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdRenderBabylon_FinalFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+
+        stdRenderBabylon_state.fxToneMapPipeline =
+            stdRenderBabylon_state.pDevice->createPipeline(desc);
+        return !stdRenderBabylon_state.fxToneMapPipeline.isNull();
+    }
+
+    // Added: the vignette and grain pipeline for target (the swapchain or a Bgra8 capture), made on
+    // first use.
+    bool stdRenderBabylon_EnsureFxPipeline(bool bSwapchain, render::TextureFormat format)
+    {
+        render::PipelineHandle* pPipeline = bSwapchain
+            ? &stdRenderBabylon_state.fxPipeline : &stdRenderBabylon_state.fxCapturePipeline;
+        if ( !pPipeline->isNull() )
+        {
+            return true;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdBabylon::shaders::cameraFxFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ format, {} } };
+
+        *pPipeline = stdRenderBabylon_state.pDevice->createPipeline(desc);
+        return !pPipeline->isNull();
+    }
+
+    // Added: the M9.18 vignette and film-grain pass from the presented-size source into target (the
+    // swapchain for a null handle). Each effect is skipped in the shader at strength zero; the
+    // caller only records the pass when one is on. False, having logged nothing, when a resource
+    // can't be made or a pass can't be started or ended.
+    bool stdRenderBabylon_RecordCameraFx(render::CommandList& list, render::TextureHandle source,
+        render::TextureHandle target, render::TextureFormat format, uint32_t width, uint32_t height)
+    {
+        if ( source.isNull() || width == 0 || height == 0
+            || !stdRenderBabylon_EnsureFxPipeline(target.isNull(), format)
+            || !stdRenderBabylon_EnsurePresentSampler() )
+        {
+            return false;
+        }
+
+        const float aSize[4] = { (float)width, (float)height, 0.0f, 0.0f };
+        const float aVignette[4] = { stdRenderBabylon_state.bVignette
+                ? stdRenderBabylon_kVignetteStrength : 0.0f,
+            stdRenderBabylon_kVignetteInner, stdRenderBabylon_kVignetteOuter, 0.0f };
+        const float aGrain[4] = { stdRenderBabylon_state.bFilmGrain
+                ? stdRenderBabylon_kFilmGrainAmplitude : 0.0f,
+            (float)stdRenderBabylon_state.grainFrame, 0.0f, 0.0f };
+
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ target, 0,
+            render::LoadOp::DontCare, render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(target.isNull() ? stdRenderBabylon_state.fxPipeline
+                                         : stdRenderBabylon_state.fxCapturePipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, source,
+            stdRenderBabylon_state.presentSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(aSize, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 1,
+            std::as_bytes(std::span<const float>(aVignette, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 2,
+            std::as_bytes(std::span<const float>(aGrain, 4u)));
+        list.draw(3);
+        return list.endPass();
     }
 
     // Added: a bloom target dimension at level 1 (half) to 5 (1/32), rounded to nearest and at least
@@ -1478,6 +1677,8 @@ namespace
         stdRenderBabylon_state.shaftMaskTarget            = {};
         stdRenderBabylon_state.shaftBlurTarget            = {};
         stdRenderBabylon_state.shaftColorTarget           = {};
+        stdRenderBabylon_state.shaftCentroidTarget        = {};
+        stdRenderBabylon_state.shaftStrengthTarget        = {};
         stdRenderBabylon_state.aShaftReduceTargets.clear();
         stdRenderBabylon_state.aShaftStrengthTargets[0]   = {};
         stdRenderBabylon_state.aShaftStrengthTargets[1]   = {};
@@ -1678,15 +1879,14 @@ namespace
         return true;
     }
 
-    // Added: the light-shaft stage over the scene source (the depth-of-field output or the post
-    // chain's). It masks the sky at half size, reduces the mask's mean weighted position to 1 x 1,
-    // smooths a coverage strength against the previous frame, radial-blurs the mask toward it and
-    // adds the result to the HDR scene. bShaftsRan is set afterwards so bloom and the tone map read
-    // the composite. False, having logged nothing, when a resource or pass fails.
-    bool stdRenderBabylon_RecordLightShafts(render::CommandList& list)
+    // Added: the mask, centroid reduction and strength part of the light-shaft stage. It masks the
+    // sky at half size, reduces the mask's mean weighted position to 1 x 1 and smooths a coverage
+    // strength against the previous frame. The 1 x 1 centroid and strength are kept in the state,
+    // so the lens-flare stage can reuse them without a readback, including when light shafts are
+    // off. False, having logged nothing, when a resource or pass fails.
+    bool stdRenderBabylon_RecordShaftMaskCentroid(render::CommandList& list)
     {
-        if ( stdRenderBabylon_state.lightShaftStrength <= 0.0f
-            || stdRenderBabylon_state.colorTarget.isNull()
+        if ( stdRenderBabylon_state.colorTarget.isNull()
             || stdRenderBabylon_state.normalTarget.isNull() )
         {
             return false;
@@ -1698,15 +1898,6 @@ namespace
             || !stdRenderBabylon_EnsureShaftResources() )
         {
             return false;
-        }
-
-        if ( !stdRenderBabylon_state.bShaftsLogged )
-        {
-            STDLOG_STATUS("stdRenderBabylon: light shafts on, level %d, strength %g; mask %ux%u, %zu reduce levels, composite %ux%u.\n",
-                stdRenderBabylon_state.lightShafts, (double)stdRenderBabylon_state.lightShaftStrength,
-                stdRenderBabylon_ShaftHalf(width), stdRenderBabylon_ShaftHalf(height),
-                stdRenderBabylon_state.aShaftReduceTargets.size(), width, height);
-            stdRenderBabylon_state.bShaftsLogged = true;
         }
 
         const render::TextureHandle scene = stdRenderBabylon_SceneSource();
@@ -1796,6 +1987,29 @@ namespace
         }
         stdRenderBabylon_state.shaftStrengthIndex = nextIndex;
         stdRenderBabylon_state.bShaftStrengthValid = true;
+        stdRenderBabylon_state.shaftCentroidTarget = centroid;
+        stdRenderBabylon_state.shaftStrengthTarget =
+            stdRenderBabylon_state.aShaftStrengthTargets[nextIndex];
+        return true;
+    }
+
+    // Added: the radial blur and composite part of the light-shaft stage over the scene source (the
+    // depth-of-field output or the post chain's). It adds the shafts to the HDR scene into the
+    // scene-sized target that bloom then reads. bShaftsRan is set afterwards so bloom and the tone
+    // map read the composite. False, having logged nothing, when a pass fails.
+    bool stdRenderBabylon_RecordShaftComposite(render::CommandList& list)
+    {
+        if ( stdRenderBabylon_state.lightShaftStrength <= 0.0f
+            || stdRenderBabylon_state.shaftCentroidTarget.isNull()
+            || stdRenderBabylon_state.shaftStrengthTarget.isNull()
+            || stdRenderBabylon_state.colorTarget.isNull()
+            || stdRenderBabylon_state.normalTarget.isNull() )
+        {
+            return false;
+        }
+
+        const render::TextureHandle scene = stdRenderBabylon_SceneSource();
+        const render::TextureHandle centroid = stdRenderBabylon_state.shaftCentroidTarget;
 
         // Added: the radial blur of the mask toward the centroid, scaled by the smoothed strength.
         const float aBlur[4] = { stdRenderBabylon_kLightShaftDecay,
@@ -1814,7 +2028,7 @@ namespace
         list.bindTexture(render::ShaderStage::Fragment, 1, centroid,
             stdRenderBabylon_state.presentSampler);
         list.bindTexture(render::ShaderStage::Fragment, 2,
-            stdRenderBabylon_state.aShaftStrengthTargets[nextIndex],
+            stdRenderBabylon_state.shaftStrengthTarget,
             stdRenderBabylon_state.presentSampler);
         list.pushUniforms(render::ShaderStage::Fragment, 0,
             std::as_bytes(std::span<const float>(aBlur, 4u)));
@@ -1852,6 +2066,195 @@ namespace
         }
 
         stdRenderBabylon_state.bShaftsRan = true;
+        return true;
+    }
+
+    // Added: the light-shaft stage over the scene source: the mask and centroid reduction, then the
+    // radial blur and composite. False, having logged nothing, when a resource or pass fails.
+    bool stdRenderBabylon_RecordLightShafts(render::CommandList& list)
+    {
+        if ( stdRenderBabylon_state.lightShaftStrength <= 0.0f
+            || stdRenderBabylon_state.colorTarget.isNull()
+            || stdRenderBabylon_state.normalTarget.isNull() )
+        {
+            return false;
+        }
+
+        const uint32_t width  = stdRenderBabylon_state.width;
+        const uint32_t height = stdRenderBabylon_state.height;
+        if ( !stdRenderBabylon_RecordShaftMaskCentroid(list) )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.bShaftsLogged )
+        {
+            STDLOG_STATUS("stdRenderBabylon: light shafts on, level %d, strength %g; mask %ux%u, %zu reduce levels, composite %ux%u.\n",
+                stdRenderBabylon_state.lightShafts, (double)stdRenderBabylon_state.lightShaftStrength,
+                stdRenderBabylon_ShaftHalf(width), stdRenderBabylon_ShaftHalf(height),
+                stdRenderBabylon_state.aShaftReduceTargets.size(), width, height);
+            stdRenderBabylon_state.bShaftsLogged = true;
+        }
+
+        return stdRenderBabylon_RecordShaftComposite(list);
+    }
+
+    // Added: frees the lens-flare stage's target. Recreated by the next present with the stage on
+    // after a scene size or render scale change.
+    void stdRenderBabylon_FreeFlareTargets()
+    {
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.flareColorTarget);
+        stdRenderBabylon_state.flareColorTarget = {};
+        stdRenderBabylon_state.flareWidth       = 0;
+        stdRenderBabylon_state.flareHeight      = 0;
+        stdRenderBabylon_state.bFlareRan        = false;
+    }
+
+    // Added: the lens-flare stage's scene-sized HDR target, made when its size changes. False,
+    // logging why, when it can't be created.
+    bool stdRenderBabylon_EnsureFlareTargets(uint32_t width, uint32_t height)
+    {
+        if ( width == 0 || height == 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.flareColorTarget.isNull()
+            && stdRenderBabylon_state.flareWidth == width
+            && stdRenderBabylon_state.flareHeight == height )
+        {
+            return true;
+        }
+
+        stdRenderBabylon_FreeFlareTargets();
+
+        render::TextureDesc desc;
+        desc.width     = width;
+        desc.height    = height;
+        desc.mipLevels = 1;
+        desc.format    = stdRenderBabylon_state.colorFormat;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+
+        const render::TextureHandle target = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( target.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u lens-flare target.\n",
+                width, height);
+            return false;
+        }
+
+        stdRenderBabylon_state.flareColorTarget = target;
+        stdRenderBabylon_state.flareWidth       = width;
+        stdRenderBabylon_state.flareHeight      = height;
+        return true;
+    }
+
+    // Added: the lens-flare pipeline, made on first use. It is one full-screen pass over the scene
+    // in the scene format.
+    bool stdRenderBabylon_EnsureFlareResources()
+    {
+        if ( stdRenderBabylon_state.bFlareSetupFailed )
+        {
+            return false;
+        }
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdBabylon::shaders::lensFlareFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ stdRenderBabylon_state.colorFormat, {} } };
+
+        stdRenderBabylon_state.flarePipeline =
+            stdRenderBabylon_state.pDevice->createPipeline(desc);
+        if ( stdRenderBabylon_state.flarePipeline.isNull()
+            || !stdRenderBabylon_EnsurePresentSampler()
+            || !stdRenderBabylon_EnsureFinalSampler() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the lens-flare pass.\n");
+            stdRenderBabylon_state.bFlareSetupFailed = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    // Added: the lens-flare stage over the scene source, after light shafts and before bloom. It
+    // reads the 1 x 1 centroid and smoothed strength the shaft stage left, draws tinted ghosts along
+    // the light-to-centre line and a halo, and writes the scene-sized HDR target that bloom then
+    // reads. The shader itself adds nothing when no sky is visible or the centroid is off screen.
+    // False, having logged nothing, when a resource or pass fails.
+    bool stdRenderBabylon_RecordLensFlare(render::CommandList& list)
+    {
+        if ( !stdRenderBabylon_state.bLensFlare
+            || stdRenderBabylon_state.shaftCentroidTarget.isNull()
+            || stdRenderBabylon_state.shaftStrengthTarget.isNull()
+            || stdRenderBabylon_state.colorTarget.isNull() )
+        {
+            return false;
+        }
+
+        const uint32_t width  = stdRenderBabylon_state.width;
+        const uint32_t height = stdRenderBabylon_state.height;
+        if ( !stdRenderBabylon_EnsureFlareTargets(width, height)
+            || !stdRenderBabylon_EnsureFlareResources() )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.bFlareLogged )
+        {
+            STDLOG_STATUS("stdRenderBabylon: lens flare on, gain %g, %d ghosts, target %ux%u.\n",
+                (double)stdRenderBabylon_kFlareGain, stdRenderBabylon_kNumFlareGhosts, width, height);
+            stdRenderBabylon_state.bFlareLogged = true;
+        }
+
+        float aParams[4] = { stdRenderBabylon_kFlareGain,
+            (float)width / (float)height, stdRenderBabylon_kFlareHaloRadius,
+            stdRenderBabylon_kFlareHaloIntensity };
+        float aUniforms[4 * (1 + 2 * stdRenderBabylon_kNumFlareGhosts)] = { 0.0f };
+        std::memcpy(&aUniforms[0], aParams, sizeof(aParams));
+        for ( int i = 0; i < stdRenderBabylon_kNumFlareGhosts; ++i )
+        {
+            const StdRenderBabylonFlareGhost& ghost = stdRenderBabylon_aFlareGhosts[i];
+            const size_t ghostAt = 4u + (size_t)i * 4u;
+            aUniforms[ghostAt + 0u] = ghost.t;
+            aUniforms[ghostAt + 1u] = ghost.radius;
+            aUniforms[ghostAt + 2u] = ghost.intensity;
+            aUniforms[ghostAt + 3u] = 0.0f;
+            const size_t tintAt = 4u + (size_t)stdRenderBabylon_kNumFlareGhosts * 4u
+                + (size_t)i * 4u;
+            aUniforms[tintAt + 0u] = ghost.aTint[0];
+            aUniforms[tintAt + 1u] = ghost.aTint[1];
+            aUniforms[tintAt + 2u] = ghost.aTint[2];
+            aUniforms[tintAt + 3u] = 0.0f;
+        }
+
+        const render::TextureHandle scene = stdRenderBabylon_SceneSource();
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ stdRenderBabylon_state.flareColorTarget,
+            0, render::LoadOp::DontCare, render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(stdRenderBabylon_state.flarePipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, scene,
+            stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 1,
+            stdRenderBabylon_state.shaftCentroidTarget, stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 2,
+            stdRenderBabylon_state.shaftStrengthTarget, stdRenderBabylon_state.presentSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(aUniforms,
+                (size_t)4 * (1u + (size_t)2 * (size_t)stdRenderBabylon_kNumFlareGhosts))));
+        list.draw(3);
+        if ( !list.endPass() )
+        {
+            return false;
+        }
+
+        stdRenderBabylon_state.bFlareRan = true;
         return true;
     }
 
@@ -2096,6 +2499,12 @@ namespace
     // light-shaft stage, which bloom then reads.
     render::TextureHandle stdRenderBabylon_SceneSource()
     {
+        if ( stdRenderBabylon_state.bFlareRan
+            && !stdRenderBabylon_state.flareColorTarget.isNull() )
+        {
+            return stdRenderBabylon_state.flareColorTarget;
+        }
+
         if ( stdRenderBabylon_state.bShaftsRan
             && !stdRenderBabylon_state.shaftColorTarget.isNull() )
         {
@@ -2735,6 +3144,15 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         stdRenderBabylon_state.lightShaftStrength =
             stdRenderBabylon_aLightShaftStrength[stdRenderBabylon_state.lightShafts];
 
+        // Added: M9.18. Lens flare is on by default in Enhanced builds and off without QOL; the
+        // vignette and film grain are off in every build. All are read when the display opens.
+        stdRenderBabylon_state.bLensFlare =
+            stdConfig_GetBool(stdRenderBabylon_kLensFlareKey, J3D_QOL_VALUE(1, 0) != 0);
+        stdRenderBabylon_state.bVignette =
+            stdConfig_GetBool(stdRenderBabylon_kVignetteKey, false);
+        stdRenderBabylon_state.bFilmGrain =
+            stdConfig_GetBool(stdRenderBabylon_kFilmGrainKey, false);
+
         // Added: water ripples are on by default in Enhanced builds and off in Retail/QOL-off ones.
         stdRenderBabylon_state.bWaterRipples =
             stdConfig_GetBool(stdRenderBabylon_kWaterRipplesKey, J3D_QOL_VALUE(1, 0) != 0);
@@ -2832,6 +3250,10 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftStrengthPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftBlurPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftCompositePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.flarePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxCapturePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxToneMapPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.waterRipplesPipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
@@ -2866,6 +3288,8 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_FreeDoFTargets();
     stdRenderBabylon_FreeWaterTargets();
     stdRenderBabylon_FreeShaftTargets();
+    stdRenderBabylon_FreeFlareTargets();
+    stdRenderBabylon_FreeFxTarget();
     stdRenderBabylon_state.colorTarget     = {};
     stdRenderBabylon_state.depthTarget     = {};
     stdRenderBabylon_state.normalTarget    = {};
@@ -3307,6 +3731,62 @@ int stdRenderBabylon_GetLightShafts()
     return stdRenderBabylon_state.lightShafts;
 }
 
+bool stdRenderBabylon_SetLensFlare(bool bEnabled)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetLensFlare: not open.\n");
+        return false;
+    }
+
+    stdRenderBabylon_state.bLensFlare        = bEnabled;
+    stdRenderBabylon_state.bFlareSetupFailed = false;
+    stdRenderBabylon_state.bFlareRan         = false;
+    stdRenderBabylon_state.bFlareLogged      = false;
+    return true;
+}
+
+bool stdRenderBabylon_GetLensFlare()
+{
+    return stdRenderBabylon_state.bLensFlare;
+}
+
+bool stdRenderBabylon_SetVignette(bool bEnabled)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetVignette: not open.\n");
+        return false;
+    }
+
+    stdRenderBabylon_state.bVignette     = bEnabled;
+    stdRenderBabylon_state.bFxSetupFailed = false;
+    return true;
+}
+
+bool stdRenderBabylon_GetVignette()
+{
+    return stdRenderBabylon_state.bVignette;
+}
+
+bool stdRenderBabylon_SetFilmGrain(bool bEnabled)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetFilmGrain: not open.\n");
+        return false;
+    }
+
+    stdRenderBabylon_state.bFilmGrain    = bEnabled;
+    stdRenderBabylon_state.bFxSetupFailed = false;
+    return true;
+}
+
+bool stdRenderBabylon_GetFilmGrain()
+{
+    return stdRenderBabylon_state.bFilmGrain;
+}
+
 bool stdRenderBabylon_SetWaterRipples(bool bEnabled)
 {
     if ( !stdRenderBabylon_state.pDevice )
@@ -3332,15 +3812,16 @@ namespace
 {
     // One channel of a light-shaft target texel at index i, decoded from its format.
     float stdRenderBabylon_ReadShaftTexel(const std::vector<std::byte>& texels,
-        render::TextureFormat format, size_t index)
+        render::TextureFormat format, size_t index, size_t channel = 0)
     {
         const uint8_t* pBytes = reinterpret_cast<const uint8_t*>(texels.data());
         if ( format == render::TextureFormat::Rgba16F )
         {
-            const uint16_t half = (uint16_t)(pBytes[index * 8u] | ((uint16_t)pBytes[index * 8u + 1u] << 8));
+            const uint16_t half = (uint16_t)(pBytes[index * 8u + channel * 2u]
+                | ((uint16_t)pBytes[index * 8u + channel * 2u + 1u] << 8));
             return stdRenderBabylon_HalfToFloat(half);
         }
-        return (float)pBytes[index * 4u] / 255.0f;
+        return (float)pBytes[index * 4u + channel] / 255.0f;
     }
 }
 
@@ -3408,7 +3889,8 @@ bool stdRenderBabylon_GetLightShaftCentroidForTest(float* pU, float* pV, float* 
     if ( pV ) { *pV = 0.0f; }
     if ( pWeight ) { *pWeight = 0.0f; }
 
-    if ( !stdRenderBabylon_state.pDevice || !stdRenderBabylon_state.bShaftsRan
+    if ( !stdRenderBabylon_state.pDevice
+        || ( !stdRenderBabylon_state.bShaftsRan && !stdRenderBabylon_state.bFlareRan )
         || stdRenderBabylon_state.shaftMaskTarget.isNull() )
     {
         return false;
@@ -3454,6 +3936,47 @@ bool stdRenderBabylon_GetLightShaftCentroidForTest(float* pU, float* pV, float* 
     }
     return true;
 }
+
+bool stdRenderBabylon_GetLensFlareStateForTest(float* pU, float* pV, float* pStrength)
+{
+    if ( pU ) { *pU = 0.0f; }
+    if ( pV ) { *pV = 0.0f; }
+    if ( pStrength ) { *pStrength = 0.0f; }
+
+    if ( !stdRenderBabylon_state.pDevice || !stdRenderBabylon_state.bFlareRan
+        || stdRenderBabylon_state.shaftCentroidTarget.isNull()
+        || stdRenderBabylon_state.shaftStrengthTarget.isNull() )
+    {
+        return false;
+    }
+
+    const std::vector<std::byte> centroid = stdRenderBabylon_state.pDevice->readTexture(
+        stdRenderBabylon_state.shaftCentroidTarget, 0);
+    const std::vector<std::byte> strength = stdRenderBabylon_state.pDevice->readTexture(
+        stdRenderBabylon_state.shaftStrengthTarget, 0);
+    const size_t texelBytes = stdRenderBabylon_state.shaftFormat == render::TextureFormat::Rgba16F
+        ? 8u : 4u;
+    if ( centroid.size() < texelBytes || strength.size() < texelBytes )
+    {
+        return false;
+    }
+
+    const float weight = stdRenderBabylon_ReadShaftTexel(centroid,
+        stdRenderBabylon_state.shaftFormat, 0);
+    if ( pStrength )
+    {
+        *pStrength = stdRenderBabylon_ReadShaftTexel(strength,
+            stdRenderBabylon_state.shaftFormat, 0);
+    }
+    if ( weight > 1.0e-6f )
+    {
+        if ( pU ) { *pU = stdRenderBabylon_ReadShaftTexel(centroid,
+            stdRenderBabylon_state.shaftFormat, 0, 1u) / weight; }
+        if ( pV ) { *pV = stdRenderBabylon_ReadShaftTexel(centroid,
+            stdRenderBabylon_state.shaftFormat, 0, 2u) / weight; }
+    }
+    return true;
+}
 #endif
 
 void stdRenderBabylon_SetFrameTime(float deltaTime)
@@ -3475,6 +3998,13 @@ void stdRenderBabylon_SetFrameTime(float deltaTime)
     if ( stdRenderBabylon_state.waterTime > 1000.0f )
     {
         stdRenderBabylon_state.waterTime = std::fmod(stdRenderBabylon_state.waterTime, 1000.0f);
+    }
+
+    // Added: the film grain's frame counter follows game time, so a paused game holds the grain
+    // still and the same counter always produces the same noise.
+    if ( step > 0.0f )
+    {
+        ++stdRenderBabylon_state.grainFrame;
     }
 }
 
@@ -3631,15 +4161,49 @@ namespace
                     stdRenderBabylon_state.bDofSetupFailed = true;
                 }
 
-                // Added: the built-in light-shaft stage after depth of field and before bloom. Off,
-                // or a failure, skips it so the image is byte-identical to the path without it.
+                // Added: the built-in light-shaft stage after depth of field and before bloom, and
+                // the lens-flare stage after it. The flare reuses the shaft stage's mask, centroid
+                // and smoothed strength, so those run when either option needs them; only the
+                // shaft blur and composite are skipped when light shafts are off. Off, or a
+                // failure, skips the rest so the image is byte-identical to the path without it.
                 stdRenderBabylon_state.bShaftsRan = false;
-                if ( stdRenderBabylon_state.lightShaftStrength > 0.0f
-                    && !stdRenderBabylon_state.bShaftsSetupFailed
-                    && !stdRenderBabylon_RecordLightShafts(list) )
+                stdRenderBabylon_state.bFlareRan  = false;
+                const bool bShaftsNeeded = stdRenderBabylon_state.lightShaftStrength > 0.0f
+                    && !stdRenderBabylon_state.bShaftsSetupFailed;
+                const bool bFlareNeeded = stdRenderBabylon_state.bLensFlare
+                    && !stdRenderBabylon_state.bFlareSetupFailed;
+                if ( bShaftsNeeded || bFlareNeeded )
                 {
-                    STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the light-shaft stage; presenting without it.\n");
-                    stdRenderBabylon_state.bShaftsSetupFailed = true;
+                    const bool bShaftLight = !stdRenderBabylon_state.bShaftsSetupFailed
+                        && stdRenderBabylon_RecordShaftMaskCentroid(list);
+                    if ( !bShaftLight )
+                    {
+                        if ( bShaftsNeeded )
+                        {
+                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the light-shaft stage; presenting without it.\n");
+                            stdRenderBabylon_state.bShaftsSetupFailed = true;
+                        }
+                        if ( bFlareNeeded )
+                        {
+                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the lens-flare stage; presenting without it.\n");
+                            stdRenderBabylon_state.bFlareSetupFailed = true;
+                        }
+                    }
+                    else
+                    {
+                        if ( bShaftsNeeded
+                            && !stdRenderBabylon_RecordShaftComposite(list) )
+                        {
+                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the light-shaft stage; presenting without it.\n");
+                            stdRenderBabylon_state.bShaftsSetupFailed = true;
+                        }
+                        if ( bFlareNeeded
+                            && !stdRenderBabylon_RecordLensFlare(list) )
+                        {
+                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the lens-flare stage; presenting without it.\n");
+                            stdRenderBabylon_state.bFlareSetupFailed = true;
+                        }
+                    }
                 }
 
                 // Added: the built-in bloom stage before the tone map. When its resources or passes
@@ -3676,12 +4240,34 @@ namespace
                         bSharpen = false;
                     }
 
+                    // Added: the vignette and film grain write after SMAA and sharpening, into their
+                    // own Bgra8 source, and the effect pass then writes the swapchain. Both off skip
+                    // the target and pass, so the existing path is byte-identical.
+                    bool bFx = ( stdRenderBabylon_state.bVignette
+                            || stdRenderBabylon_state.bFilmGrain )
+                        && !stdRenderBabylon_state.bFxSetupFailed;
+                    if ( bFx
+                        && ( !stdRenderBabylon_EnsureFxTarget(width, height)
+                            || !stdRenderBabylon_EnsureFxToneMapPipeline()
+                            || !stdRenderBabylon_EnsureFxPipeline(true, swapchainFormat)
+                            || !stdRenderBabylon_EnsurePresentSampler() ) )
+                    {
+                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not set up the camera effects; presenting without them.\n");
+                        stdRenderBabylon_state.bFxSetupFailed = true;
+                        bFx = false;
+                    }
+
+                    const render::TextureHandle chainTarget =
+                        bFx ? stdRenderBabylon_state.fxSourceTarget : render::TextureHandle{};
+                    const render::TextureFormat chainFormat =
+                        bFx ? render::TextureFormat::Bgra8 : swapchainFormat;
+
                     bool bPresented = false;
                     if ( stdRenderBabylon_state.bAntiAliasing )
                     {
                         bPresented = stdRenderBabylon_RecordSmaa(list,
-                            bSharpen ? stdRenderBabylon_state.casSourceTarget : render::TextureHandle{},
-                            bSharpen ? render::TextureFormat::Rgba8 : swapchainFormat,
+                            bSharpen ? stdRenderBabylon_state.casSourceTarget : chainTarget,
+                            bSharpen ? render::TextureFormat::Rgba8 : chainFormat,
                             width, height, bSharpen);
                         if ( !bPresented )
                         {
@@ -3689,39 +4275,69 @@ namespace
                         }
                     }
 
+                    bool bChainWritten = bPresented;
                     if ( !bPresented )
                     {
                         if ( bSharpen )
                         {
-                            bPresented = stdRenderBabylon_RecordFinalPass(list,
+                            bChainWritten = stdRenderBabylon_RecordFinalPass(list,
                                 stdRenderBabylon_state.casToneMapPipeline,
                                 stdRenderBabylon_state.casSourceTarget)
                                 && stdRenderBabylon_RecordSharpening(list,
-                                    stdRenderBabylon_state.casSourceTarget, render::TextureHandle{},
-                                    swapchainFormat, width, height);
-                            if ( !bPresented )
+                                    stdRenderBabylon_state.casSourceTarget, chainTarget,
+                                    chainFormat, width, height);
+                            if ( !bChainWritten )
                             {
                                 STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the sharpening pass; presenting without it.\n");
                             }
                         }
 
-                        if ( !bPresented && !stdRenderBabylon_RecordFinalPass(list,
-                            stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
+                        if ( !bChainWritten && bSharpen )
                         {
-                            STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                            // Sharpening failed, so present the scene without it.
+                            bChainWritten = stdRenderBabylon_RecordFinalPass(list,
+                                bFx ? stdRenderBabylon_state.fxToneMapPipeline
+                                    : stdRenderBabylon_state.presentPipeline,
+                                chainTarget);
+                            if ( !bChainWritten )
+                            {
+                                STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                            }
+                        }
+                        else if ( !bChainWritten && !bSharpen )
+                        {
+                            bChainWritten = stdRenderBabylon_RecordFinalPass(list,
+                                bFx ? stdRenderBabylon_state.fxToneMapPipeline
+                                    : stdRenderBabylon_state.presentPipeline,
+                                chainTarget);
+                            if ( !bChainWritten )
+                            {
+                                STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
+                            }
                         }
                     }
                     else if ( bSharpen
                         && !stdRenderBabylon_RecordSharpening(list,
-                            stdRenderBabylon_state.casSourceTarget, render::TextureHandle{},
-                            swapchainFormat, width, height) )
+                            stdRenderBabylon_state.casSourceTarget, chainTarget,
+                            chainFormat, width, height) )
                     {
                         STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the sharpening pass; presenting without it.\n");
-                        if ( !stdRenderBabylon_RecordFinalPass(list,
-                            stdRenderBabylon_state.presentPipeline, render::TextureHandle{}) )
+                        bChainWritten = stdRenderBabylon_RecordFinalPass(list,
+                            bFx ? stdRenderBabylon_state.fxToneMapPipeline
+                                : stdRenderBabylon_state.presentPipeline,
+                            chainTarget);
+                        if ( !bChainWritten )
                         {
                             STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the final pass.\n");
                         }
+                    }
+
+                    if ( bFx && bChainWritten
+                        && !stdRenderBabylon_RecordCameraFx(list,
+                            stdRenderBabylon_state.fxSourceTarget, render::TextureHandle{},
+                            swapchainFormat, width, height) )
+                    {
+                        STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the camera effects.\n");
                     }
 
                     // Added: composite the HUD layer over the tone-mapped scene, after the scene's
@@ -3884,11 +4500,30 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
         bSharpen = false;
     }
 
+    // Added: the vignette and film grain write after SMAA and sharpening, into their own Bgra8
+    // source, and the effect pass then writes the capture target. Both off skip the target and
+    // pass, so the existing capture path is byte-identical.
+    bool bFx = ( stdRenderBabylon_state.bVignette || stdRenderBabylon_state.bFilmGrain )
+        && !stdRenderBabylon_state.bFxSetupFailed;
+    if ( bFx
+        && ( !stdRenderBabylon_EnsureFxTarget(width, height)
+            || !stdRenderBabylon_EnsureFxToneMapPipeline()
+            || !stdRenderBabylon_EnsureFxPipeline(false, render::TextureFormat::Bgra8)
+            || !stdRenderBabylon_EnsurePresentSampler() ) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not set up the camera effects; capturing without them.\n");
+        stdRenderBabylon_state.bFxSetupFailed = true;
+        bFx = false;
+    }
+
+    const render::TextureHandle chainTarget =
+        bFx ? stdRenderBabylon_state.fxSourceTarget : target;
+
     bool bPresented = false;
     if ( stdRenderBabylon_state.bAntiAliasing )
     {
         bPresented = stdRenderBabylon_RecordSmaa(list,
-            bSharpen ? stdRenderBabylon_state.casSourceTarget : target,
+            bSharpen ? stdRenderBabylon_state.casSourceTarget : chainTarget,
             bSharpen ? render::TextureFormat::Rgba8 : render::TextureFormat::Bgra8,
             width, height, bSharpen);
         if ( !bPresented )
@@ -3897,40 +4532,56 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
         }
     }
 
+    bool bChainWritten = bPresented;
     if ( !bPresented )
     {
         if ( bSharpen )
         {
-            bPresented = stdRenderBabylon_RecordFinalPass(list,
+            bChainWritten = stdRenderBabylon_RecordFinalPass(list,
                 stdRenderBabylon_state.casToneMapPipeline,
                 stdRenderBabylon_state.casSourceTarget)
                 && stdRenderBabylon_RecordSharpening(list,
-                    stdRenderBabylon_state.casSourceTarget, target,
+                    stdRenderBabylon_state.casSourceTarget, chainTarget,
                     render::TextureFormat::Bgra8, width, height);
-            if ( !bPresented )
+            if ( !bChainWritten )
             {
                 STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the sharpening pass; capturing without it.\n");
             }
         }
 
-        if ( !bPresented && !stdRenderBabylon_RecordFinalPass(list,
-            stdRenderBabylon_state.capturePipeline, target) )
+        if ( !bChainWritten )
+        {
+            bChainWritten = stdRenderBabylon_RecordFinalPass(list,
+                bFx ? stdRenderBabylon_state.fxToneMapPipeline
+                    : stdRenderBabylon_state.capturePipeline,
+                chainTarget);
+            if ( !bChainWritten )
+            {
+                STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
+                return false;
+            }
+        }
+    }
+    else if ( bSharpen
+        && !stdRenderBabylon_RecordSharpening(list, stdRenderBabylon_state.casSourceTarget,
+            chainTarget, render::TextureFormat::Bgra8, width, height) )
+    {
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the sharpening pass; capturing without it.\n");
+        if ( !stdRenderBabylon_RecordFinalPass(list,
+            bFx ? stdRenderBabylon_state.fxToneMapPipeline
+                : stdRenderBabylon_state.capturePipeline, chainTarget) )
         {
             STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
             return false;
         }
     }
-    else if ( bSharpen
-        && !stdRenderBabylon_RecordSharpening(list, stdRenderBabylon_state.casSourceTarget,
-            target, render::TextureFormat::Bgra8, width, height) )
+
+    if ( bFx && !stdRenderBabylon_RecordCameraFx(list,
+            stdRenderBabylon_state.fxSourceTarget, target,
+            render::TextureFormat::Bgra8, width, height) )
     {
-        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the sharpening pass; capturing without it.\n");
-        if ( !stdRenderBabylon_RecordFinalPass(list,
-            stdRenderBabylon_state.capturePipeline, target) )
-        {
-            STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: the target refused the final pass.\n");
-            return false;
-        }
+        STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the camera effects.\n");
+        return false;
     }
 
     // Added: the captured presented frame includes the HUD layer, before the prompt and menu

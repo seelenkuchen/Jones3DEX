@@ -81,6 +81,8 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_blur.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lightshaft_composite.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/water_ripples.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lens_flare.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/camera_fx.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()

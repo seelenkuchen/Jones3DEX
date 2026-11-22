@@ -43,6 +43,20 @@
     Off skips the stage and presents exactly the previous image. Applies when the display reopens.
     Screen-space reflections are not built: translucent water does not write depth, so the depth
     target holds the scene behind it rather than the water plane.
+  - **Options > Display** has a **Lens flare** row (`engine.renderer.lensFlare`; on by default in
+    Enhanced and off in Retail). A stage after light shafts and before bloom reuses the shaft
+    stage's GPU-reduced sky centroid and smoothed strength (without the shaft blur when shafts are
+    off) and adds tinted ghosts along the light-to-centre line plus a soft halo, scaled by the
+    visible-sky strength. No sky visible or an off-screen light adds nothing, the HUD and menus are
+    untouched, and Off skips the pass so the image is exactly the previous one. Applies when the
+    display reopens.
+  - **Options > Display** has **Vignette** and **Film grain** rows (`engine.renderer.vignette` and
+    `engine.renderer.filmGrain`; both off in every build). They run on the presented-size 3D image
+    after SMAA and sharpening and before the HUD composite. The vignette darkens the corners with an
+    aspect-corrected radial falloff and leaves the centre unchanged. The grain is deterministic
+    luminance noise from a hash of the pixel and a game-time frame counter, weaker in the highlights
+    and with zero mean. Neither touches the HUD, 2D layer, menus or prompts; with both off the pass
+    is skipped and the image is exactly the previous one. Applies when the display reopens.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring

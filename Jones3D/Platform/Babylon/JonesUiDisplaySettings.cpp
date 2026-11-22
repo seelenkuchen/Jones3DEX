@@ -87,6 +87,9 @@ namespace
     constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayBloomText = "Bloom"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLightShaftsText = "Light shafts"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayLensFlareText = "Lens flare"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayVignetteText = "Vignette"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayFilmGrainText = "Film grain"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayWaterRipplesText = "Water ripples"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofCutscenesText = "Depth of field (cutscenes)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofGameplayText = "Depth of field (gameplay)"; // TODO: [COMPAT]
@@ -120,6 +123,12 @@ namespace
     constexpr int kJonesDisplayLightShaftsValues[] = { 0, 1, 2, 3 };
     constexpr const char* kJonesDisplayLightShaftsLabels[] = { "Off", "Low", "Medium", "High" };
     constexpr std::size_t kJonesDisplayLightShaftsDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.18 lens flare; on in Enhanced builds and off in Retail/QOL-off ones. The vignette
+    // and film grain are off in every build.
+    constexpr bool kJonesDisplayLensFlareDefault = J3D_QOL_VALUE(1, 0) != 0;
+    constexpr bool kJonesDisplayVignetteDefault  = false;
+    constexpr bool kJonesDisplayFilmGrainDefault = false;
 
     // Added: M9.17 water ripples; on in Enhanced builds and off in Retail/QOL-off ones.
     constexpr bool kJonesDisplayWaterRipplesDefault = J3D_QOL_VALUE(1, 0) != 0;
@@ -577,6 +586,25 @@ namespace
             values.lightShafts < STD_ARRAYLEN(kJonesDisplayLightShaftsValues)
                 ? values.lightShafts : kJonesDisplayLightShaftsDefault });
 
+        // Added: M9.18. Lens flare adds tinted ghosts and a halo from the visible sky; the HUD,
+        // menus and prompts are never touched.
+        layout.lensFlare = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayLensFlareText), std::string(), true,
+            values.bLensFlare });
+
+        // Added: M9.18. The vignette darkens the corners of the 3D scene.
+        layout.vignette = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayVignetteText), std::string(), true,
+            values.bVignette });
+
+        // Added: M9.18. Film grain adds deterministic luminance noise to the 3D scene.
+        layout.filmGrain = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayFilmGrainText), std::string(), true,
+            values.bFilmGrain });
+
         // Added: M9.17. Water ripples animate water-tagged pixels; the HUD, menus and prompts are
         // never touched.
         layout.waterRipples = screen.widgets.size();
@@ -813,6 +841,12 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.lightShafts = std::clamp(JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, J3D_QOL_VALUE(1, 0)), 0,
         (int)STD_ARRAYLEN(kJonesDisplayLightShaftsValues) - 1);
+    model.bLensFlare = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE,
+        kJonesDisplayLensFlareDefault);
+    model.bVignette = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE,
+        kJonesDisplayVignetteDefault);
+    model.bFilmGrain = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN,
+        kJonesDisplayFilmGrainDefault);
     model.bWaterRipples = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
         kJonesDisplayWaterRipplesDefault);
     model.bDofCutscenes = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
@@ -848,6 +882,9 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
     values.bloom = JonesUiDisplay_BloomIndex(model.bloom);
     values.lightShafts = JonesUiDisplay_LightShaftsIndex(model.lightShafts);
+    values.bLensFlare = model.bLensFlare;
+    values.bVignette = model.bVignette;
+    values.bFilmGrain = model.bFilmGrain;
     values.bWaterRipples = model.bWaterRipples;
     values.bDofCutscenes = model.bDofCutscenes;
     values.bDofGameplay = model.bDofGameplay;
@@ -906,6 +943,12 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.bloom));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.lightShafts,
         values.lightShafts));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.lensFlare,
+        values.bLensFlare));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.vignette,
+        values.bVignette));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.filmGrain,
+        values.bFilmGrain));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.waterRipples,
         values.bWaterRipples));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofCutscenes,
@@ -1129,6 +1172,14 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplayLightShaftsValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS,
         kJonesDisplayLightShaftsValues[lightShafts]);
+
+    // Added: M9.18. Read when the frame owner opens, like bloom.
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE,
+        values.bLensFlare);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE,
+        values.bVignette);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN,
+        values.bFilmGrain);
 
     // Added: M9.17. Read when the frame owner opens, like bloom.
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,

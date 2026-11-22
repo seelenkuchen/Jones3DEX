@@ -4924,6 +4924,284 @@ TEST(std3DBabylonGpu, LightShaftsLeaveTheHudLayerPixelExact)
     }
 }
 
+TEST(std3DBabylonGpu, CameraEffectsOffLeaveTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f, 0.95f, 0xFF101010u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+    };
+
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    // Each option on, then off again: the image must be the same bytes as the first capture.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    RenderScene(drawScene);
+    const std::vector<std::byte> vignette = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != vignette);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> vignetteOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), vignetteOff.data(), off.size());
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(true));
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> grain = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != grain);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> grainOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), grainOff.data(), off.size());
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(true));
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> flare = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != flare);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> flareOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), flareOff.data(), off.size());
+}
+
+TEST(std3DBabylonGpu, VignetteDarkensTheCornersAndLeavesTheCentre)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+
+    const auto drawFlat = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF808080u);
+    };
+    const auto red = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+    RenderScene(drawFlat);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    RenderScene(drawFlat);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    // The centre is untouched, within one 8-bit step, and the corner is clearly darker.
+    TEST_ASSERT_INT_WITHIN(1, red(off, 32u, 32u), red(on, 32u, 32u));
+    TEST_ASSERT_TRUE(red(on, 63u, 63u) < red(off, 63u, 63u) - 20);
+    TEST_ASSERT_TRUE(red(on, 0u, 0u) < red(off, 0u, 0u) - 20);
+}
+
+TEST(std3DBabylonGpu, FilmGrainIsDeterministicAndFollowsTheFrameCounter)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+
+    const auto drawFlat = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF808080u);
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+    RenderScene(drawFlat);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(true));
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawFlat);
+    const std::vector<std::byte> first = CapturePresented(64u, 64u);
+
+    // No game time passes: the same frame counter gives exactly the same noise.
+    RenderScene(drawFlat);
+    const std::vector<std::byte> same = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(first.data(), same.data(), first.size());
+
+    // A later game-time frame changes the grain.
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawFlat);
+    const std::vector<std::byte> later = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(first != later);
+
+    // The noise changes pixels but stays zero-mean within about one 8-bit step per channel.
+    TEST_ASSERT_TRUE(off != first);
+    double offSum = 0.0;
+    double onSum = 0.0;
+    for ( uint32_t y = 0; y < 64u; ++y )
+    {
+        for ( uint32_t x = 0; x < 64u; ++x )
+        {
+            const size_t at = ((size_t)y * 64u + x) * 4u;
+            offSum += (double)off[at + 2u];
+            onSum += (double)first[at + 2u];
+        }
+    }
+    const double offMean = offSum / (64.0 * 64.0);
+    const double onMean  = onSum / (64.0 * 64.0);
+    std::printf("M9.18 film grain: mean red %.3f off, %.3f on\n", offMean, onMean);
+    TEST_ASSERT_TRUE(std::fabs(offMean - onMean) <= 1.0);
+}
+
+TEST(std3DBabylonGpu, LensFlareAddsLightAlongTheGhostLine)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+
+    const auto drawSky = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f, 0.95f, 0xFF101010u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 32.0f, 0.9f, 0xFFFFFFFFu);
+    };
+    const auto red = [](const std::vector<std::byte>& pixels, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * 64u + x) * 4u + 2u];
+    };
+
+    // With the bright sky, flare adds light on the dark geometry on the light-to-centre line.
+    // The 1.4 ghost of a light at (0.25, 0.25) lands at (0.6, 0.6), pixel (38, 38). This is the
+    // first flare frame, so the smoothed strength snaps to the visible-sky value.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    RenderScene(drawSky);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(true));
+    RenderScene(drawSky);
+    float flareU = -1.0f;
+    float flareV = -1.0f;
+    float flareStrength = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLensFlareStateForTest(&flareU, &flareV, &flareStrength));
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.25f, flareU);
+    TEST_ASSERT_FLOAT_WITHIN(0.03f, 0.25f, flareV);
+    TEST_ASSERT_TRUE(flareStrength > 0.9f);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    const int added = red(on, 38u, 38u) - red(off, 38u, 38u);
+    std::printf("M9.18 lens flare: light (%.3f, %.3f) strength %.3f, added %d/255 on the ghost line\n",
+        (double)flareU, (double)flareV, (double)flareStrength, added);
+    TEST_ASSERT_TRUE(added >= 3);
+}
+
+TEST(std3DBabylonGpu, LensFlareAddsNothingWithoutASky)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+
+    const auto drawNoSky = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFFFFFFFFu);
+    };
+
+    // Bright geometry that is not tagged sky contributes no mask, so the first flare frame has
+    // zero strength and must be byte-identical to the path without flare.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    RenderScene(drawNoSky);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(true));
+    RenderScene(drawNoSky);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), on.data(), off.size());
+}
+
+TEST(std3DBabylonGpu, CameraEffectsLeaveTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 32.0f, 16.0f, 0.9f, 0xFFFFFFFFu);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(32u, 16u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(true));
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(32u, 16u);
+
+    const size_t hud = ((size_t)8u * 32u + 16u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 0u], (int)on[hud + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 1u], (int)on[hud + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 2u], (int)on[hud + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hud + 3u], (int)on[hud + 3u]);
+}
+
 TEST_GROUP_RUNNER(std3DBabylonGpu)
 {
     RUN_TEST_CASE(std3DBabylonGpu, TexturesReadBackByteExactPerFormat);
@@ -4950,6 +5228,12 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsLeaveTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, CameraEffectsOffLeaveTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, VignetteDarkensTheCornersAndLeavesTheCentre);
+    RUN_TEST_CASE(std3DBabylonGpu, FilmGrainIsDeterministicAndFollowsTheFrameCounter);
+    RUN_TEST_CASE(std3DBabylonGpu, LensFlareAddsLightAlongTheGhostLine);
+    RUN_TEST_CASE(std3DBabylonGpu, LensFlareAddsNothingWithoutASky);
+    RUN_TEST_CASE(std3DBabylonGpu, CameraEffectsLeaveTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
     RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
     RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);
