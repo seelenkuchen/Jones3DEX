@@ -4785,18 +4785,33 @@ namespace
         return count > 0u ? (float)(sum / (double)count) : 0.0f;
     }
 
-    // The ambient-occlusion test scene: a floor below a box corner, the near left wall at eye depth
-    // 1.8, the far right wall at 2.4 and the floor at 3.2, converted to rdCamera's scene depth. The
-    // creases at x = 32 and y = 32 occlude each other inside the Low level's 0.25-unit radius.
+    // The ambient-occlusion test scene: a floor below a box corner at the game's own scale, so the
+    // world-space radii (0.02, 0.035, 0.05) cover a few half-res pixels. Indy is about 0.2 units tall
+    // and the gameplay camera sits about 0.21 behind him, so the near left wall is at eye depth 0.20,
+    // the far right wall at 0.22 and the floor at 0.24, converted to rdCamera's scene depth. The
+    // creases at x = 32 and y = 32 are one radius deep, which the range falloff still darkens.
     void DrawSsaoCreaseSceneWithProjection(float nearPlane, float farPlane)
     {
         const uint32_t grey = 0xFF808080u;
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 32.0f,
-            SceneDepthForEyeDepth(1.8f, nearPlane, farPlane), grey);
+            SceneDepthForEyeDepth(0.20f, nearPlane, farPlane), grey);
         DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 32.0f,
-            SceneDepthForEyeDepth(2.4f, nearPlane, farPlane), grey);
+            SceneDepthForEyeDepth(0.22f, nearPlane, farPlane), grey);
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f,
-            SceneDepthForEyeDepth(3.2f, nearPlane, farPlane), grey);
+            SceneDepthForEyeDepth(0.24f, nearPlane, farPlane), grey);
+    }
+
+    // An Indy-sized near object (at the camera-to-Indy distance) against a far flat wall. On High the
+    // background ring around it must stay within a small tolerance of Off: the range falloff has to
+    // reach zero well before the 1.8-unit depth step, so the near object does not push a dark box
+    // into the wall behind it.
+    void DrawSsaoNearObjectScene()
+    {
+        const uint32_t grey = 0xFF808080u;
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f,
+            SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), grey);
+        DrawQuad(nullptr, (Std3DRenderState)0, 27.0f, 11.0f, 37.0f, 53.0f,
+            SceneDepthForEyeDepth(0.20f, 0.1f, 100.0f), 0xFFB0B0B0u);
     }
 
     void DrawSsaoCreaseScene()
@@ -4885,6 +4900,66 @@ TEST(std3DBabylonGpu, SsaoDarkensACreaseAndLeavesOpenFlatAreas)
     const float offOpen = SsaoMeanBrightness(off, 64u, 4u, 4u, 12u, 18u);
     const float onOpen  = SsaoMeanBrightness(on, 64u, 4u, 4u, 12u, 18u);
     TEST_ASSERT_FLOAT_WITHIN(1.0f, offOpen, onOpen);
+}
+
+TEST(std3DBabylonGpu, SsaoNearObjectLeavesTheBackgroundRingAlone)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    RenderScene(DrawSsaoNearObjectScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(3));
+    RenderScene(DrawSsaoNearObjectScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    // The ring 3 to 12 pixels outside the 27..37 x 11..53 object: a nearer object this far in front
+    // of the wall must not darken it on High.
+    const uint32_t x0 = 27u;
+    const uint32_t x1 = 37u;
+    const uint32_t y0 = 11u;
+    const uint32_t y1 = 53u;
+    double offSum = 0.0;
+    double onSum  = 0.0;
+    size_t count  = 0u;
+    for ( int y = (int)y0 - 12; y < (int)y1 + 12; ++y )
+    {
+        for ( int x = (int)x0 - 12; x < (int)x1 + 12; ++x )
+        {
+            if ( x < 0 || x >= 64 || y < 0 || y >= 64 )
+            {
+                continue;
+            }
+            if ( x >= (int)x0 - 3 && x < (int)x1 + 3 && y >= (int)y0 - 3 && y < (int)y1 + 3 )
+            {
+                continue;
+            }
+
+            const size_t at = ((size_t)y * 64u + (size_t)x) * 4u;
+            offSum += (double)off[at + 0u] + (double)off[at + 1u] + (double)off[at + 2u];
+            onSum  += (double)on[at + 0u] + (double)on[at + 1u] + (double)on[at + 2u];
+            count  += 3u;
+        }
+    }
+
+    TEST_ASSERT_TRUE(count > 0u);
+    const float offRing = (float)(offSum / (double)count);
+    const float onRing  = (float)(onSum / (double)count);
+    std::printf("M9.17b SSAO near-object ring: %.2f off, %.2f on\n",
+        (double)offRing, (double)onRing);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, offRing, onRing);
 }
 
 TEST(std3DBabylonGpu, SsaoLeavesSkyAndTheHudLayerPixelExact)
@@ -5795,6 +5870,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoDarkensACreaseAndLeavesOpenFlatAreas);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoNearObjectLeavesTheBackgroundRingAlone);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoLeavesSkyAndTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoLevelsDarkenMonotonically);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoProjectionIsAspectCorrect);
