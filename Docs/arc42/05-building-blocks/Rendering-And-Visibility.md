@@ -779,8 +779,40 @@ The frame is a sequence of passes over offscreen targets, ready for per-pixel li
 - **Vignette and film grain** (M9.18) are two independent toggles on the presented-size LDR image (`engine.renderer.vignette` and `engine.renderer.filmGrain`, both off in every build). They run after SMAA and CAS and before the HUD composite, so neither the edge detection nor the HUD is affected. The vignette applies a smooth, aspect-corrected radial darkening to the corners and leaves the centre unchanged. The film grain is deterministic luminance noise from a 32-bit hash of the pixel position and a frame counter that advances with the game time received through `std3D_SetFrameTime` (never wall-clock time or `rand()`), weaker in the highlights and with zero mean. They share one Bgra8 source target and one pass (`camera_fx.frag.hlsl`, written for this project); each effect is skipped in the shader at zero, and when both are off the target and pass are not recorded, so the image is byte-identical to the path without them.
 - **Render scale** (M9.4) makes the scene color, depth and normal targets a multiple of the video mode (`engine.renderer.renderScale`, 0.5..2.0, default 1). The game keeps its display size: the canvas, every screen coordinate, the HUD's layout and the read-back image stay in display pixels, and `std3D`'s pre-transformed screen vertices still map over the same display-sized viewport, so a larger target supersamples and a smaller one undersamples the scene. The final pass resolves the result to the presented size, linearly when the scale is not 1. The scene source, the presentation size and the display coordinates are independent of the scale; a scaled target above the device's texture limit is clamped down with one log line.
 - **The gameplay HUD layer** (M9.4b) draws after the scene's post chain and tone map. `std3D_BeginHudLayer` records the scene draws collected so far and sends the following draws to a display-sized color target with its own depth; `std3D_EndHudLayer` records that pass. The color target has the scene color format and is cleared transparent each frame; the HUD draws blend color with `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` and the alpha channel with `ONE, ONE_MINUS_SRC_ALPHA`, so the layer holds premultiplied color and coverage alpha. The presenter composites it over the tone-mapped frame with `ONE, ONE_MINUS_SRC_ALPHA` before the prompt and menu overlays. The layer never enters the scene targets, so it keeps the render scale's sharpness and no scene effect touches it; at render scale 1 with no post passes the presented image matches the old single-pass result within 1/255 per color channel. `JonesHud_Process` marks its drawing with the pair, and the Null backend accepts both as no-ops.
-- **Pass order** is now scene passes, the post-processing chain, the water-ripple stage when it is on, the ambient-occlusion stage when it is on, the motion-blur stage when it is on and the camera moved, the depth-of-field stage when it is on, the light-shaft stage when it is on and a sky is visible, the lens-flare stage when it is on, the bloom stage when it is on, the final tone-map pass (exposure, operator, colour grading when not Neutral, brightness), the SMAA anti-aliasing stage when it is on, the CAS sharpening pass when it is on, the vignette and film-grain pass when either is on, the HUD layer composite, then the interaction-prompt and menu present overlays.
+- **Pass order** is scene passes, the post-processing chain, the water-ripple stage when it is on, the ambient-occlusion stage when it is on, the motion-blur stage when it is on and the camera moved, the depth-of-field stage when it is on, the light-shaft stage when it is on and a sky is visible, the lens-flare stage when it is on, the bloom stage when it is on, the final tone-map pass (exposure, operator, colour grading when not Neutral, brightness), the SMAA anti-aliasing stage when it is on, the CAS sharpening pass when it is on, the vignette and film-grain pass when either is on, the HUD layer composite, then the interaction-prompt and menu present overlays. Earlier slice notes describe the stage they added relative to this order; this sentence is the current one.
 - **What the game reads stays what the game drew.** The chain and the final pass never write the back buffer, so `stdDisplay`'s back-buffer lock, `stdRenderBabylon_ReadBackBuffer`, savegame thumbnails, `stdDisplay_SaveScreen` and the replay's frame output read the scene before post-processing. `ReadBackBuffer` and `WriteBackBuffer` translate between the scene color target and the `Bgra8` bytes the game works with (half floats to 8-bit unorm and back on an `Rgba16F` target), so the lock, thumbnails, intro movie and 2D layer keep their contract. At a render scale other than 1 they resample on the CPU between the scaled target and the display-sized image (box filtering down, bilinear up); at 1 they copy as before. The game reads and writes its back buffer as the surface it drew (the intro movie writes it, the 2D layer draws over it), and feeding a post-processed image back would apply the chain again each frame and make the replay frames depend on presentation settings. With an empty chain the presented image and the back buffer are the same up to the final pass's clamp.
+
+### M9 Presentation Options
+
+Every M9 presentation option, with its values, defaults and Options row, matching [Jones.cfg](../../Jones.cfg.md).
+A QOL-off build uses the Retail column. Options that are not simulation settings keep the same values in both
+profiles; turning one off is what makes its part of the image byte-identical to the path without it.
+
+| Key | Values | Enhanced default | Retail default | Options row |
+| --- | --- | --- | --- | --- |
+| `engine.renderer.renderScale` | `0.5`..`2.0` (50, 67, 75, 100, 125, 150 or 200%) | `1.0` | `1.0` | Display: Render scale |
+| `engine.renderer.antiAliasing` | `0` Off, `1` SMAA | `1` | `0` | Display: Anti-aliasing |
+| `engine.renderer.sharpening` | `0`..`1` (Off, Low, Medium or High = `0`, `0.3`, `0.5`, `0.8`) | `0.3` | `0` | Display: Sharpening |
+| `engine.renderer.toneMapping` | `0` Clamp, `1` Neutral, `2` Filmic | `1` | `0` | Display: Tone mapping |
+| `engine.renderer.exposure` | `0.5`..`2.0`, step `0.1` | `1.0` | `1.0` | Display: Exposure |
+| `engine.renderer.colorGrading` | `0`..`5` (Neutral, Warm, Cool, Adventure, Vivid, Muted) | `0` | `0` | Display: Colour grading |
+| `engine.renderer.brightness` | `0.6`..`1.8`, step `0.05` | `1.0` | `1.0` | Display: Brightness... |
+| `engine.renderer.bloom` | `0`..`3` (Off, Low, Medium, High; strengths `0`, `0.15`, `0.3`, `0.5`) | `1` | `0` | Display: Bloom |
+| `engine.renderer.water.ripples` | bool | `true` | `false` | Display: Water ripples |
+| `engine.renderer.ssao` | `0`..`3` (Off, Low, Medium, High) | `1` | `0` | Display: Ambient occlusion |
+| `engine.renderer.motionBlur` | `0`..`3` (Off, Low, Medium, High) | `1` | `0` | Display: Motion blur |
+| `engine.renderer.dof.cutscenes` | bool | `true` | `false` | Display: Depth of field (cutscenes) |
+| `engine.renderer.dof.gameplay` | bool | `true` | `false` | Display: Depth of field (gameplay) |
+| `engine.renderer.dof.strength` | `0.5`..`2.0` | `1.0` | `1.0` | none |
+| `engine.renderer.lightShafts` | `0`..`3` (Off, Low, Medium, High; strengths `0`, `0.25`, `0.5`, `0.8`) | `1` | `0` | Display: Light shafts |
+| `engine.renderer.lensFlare` | bool | `true` | `false` | Display: Lens flare |
+| `engine.renderer.vignette` | bool | `false` | `false` | Display: Vignette |
+| `engine.renderer.filmGrain` | bool | `false` | `false` | Display: Film grain |
+| `engine.renderer.frameLimit` | `0` V-Sync, `30`, `60`, `120`, `144` or `240` Hz cap, `-1` Unlimited | `0` V-Sync | `0` V-Sync | Display: Frame rate limit |
+| `engine.sim.fixedTick` | `0`, `30`, `50`, `60` or `120` Hz | `0` Off | `0` (ignored) | Gameplay: Simulation tick |
+| `engine.renderer.texturePixelated` | bool | `false` | `false` | Display: Crisp pixels |
+| `graphics.anisotropicFilter` | `1`, `2`, `4`, `8` or `16` | `8` | `1` | Display: Anisotropic filtering |
+| `engine.renderer.fov` | `60`..`110`, horizontal degrees at 4:3 | `90` | `90` | Display: Field of view |
 
 ### Lit Vertices (M6.9b)
 

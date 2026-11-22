@@ -77,8 +77,17 @@ stopping/restarting/releasing channels or changing channel flags) and a render-t
 underwater wobble. Page-flip cels, cel
 animation, vertex counts and particle cels stay on the tick. Everything is applied in
 `JonesFixedTick_BeginDraw` and restored in `JonesFixedTick_EndDraw`; the headless key proof and the
-v6/Retail traces are unchanged. The render-rate UI is M9.23. The status stays Proposed until the owner
-play-tests the cadence and decides the Enhanced default.
+v6/Retail traces are unchanged.
+
+M9.23 adds frame pacing and the option's Options row. `engine.renderer.frameLimit` selects V-Sync (the
+default), a numeric cap or no cap; the Babylon render device exposes V-Sync, immediate and mailbox present
+modes, and a cap presents immediately and waits on a drift-free `time::FrameLimiter` without touching game
+time. The Options > Gameplay **Simulation tick** row (Off, 30, 50, 60 or 120 Hz) writes `engine.sim.fixedTick`;
+it applies on the next game start. Headless runs drive the same option with `--fixed-tick` and `--draw-step`.
+
+The status stays Proposed. The owner must play-test the cadence on real hardware at 120+ Hz and decide
+whether the Enhanced default changes from `0` (measured frame time) to a fixed rate, and if so which one.
+The gameplay-feel retuning in the Consequences above is part of that decision.
 
 ## What must be interpolated
 

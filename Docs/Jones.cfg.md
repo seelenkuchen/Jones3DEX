@@ -171,6 +171,72 @@ The player's Field of view, in horizontal degrees at 4:3, the same unit as the c
 
 This is presentation only. The renderer keeps drawing at the chosen FOV, but the simulation's visibility marks (`SITH_TF_SEEN`, `SITH_SECTOR_SEEN` and `renderFrame`, which feed `SIGHTED` COG messages, AI wake and visibility queries) come from a separate pass at the default FOV, so changing the option does not change the game.
 
+### `engine.renderer.renderScale`
+
+The internal resolution of the 3D scene as a multiple of the game's video mode, clamped to `0.5`..`2.0` and
+to the device's texture limit. Values above 100% supersample the scene; the final tone-map pass resolves it
+to the presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer's image
+and save thumbnails stay display-sized, and menus stay at the window's native resolution. Default `1.0`
+(100%). Read when the display opens, so a changed value applies on the next display restart.
+
+### `engine.renderer.antiAliasing`
+
+`1` runs SMAA 1x on the tone-mapped 3D scene at the presented resolution; `0` presents the plain tone-mapped
+image, byte-identical to before the option existed. Default `1` in Enhanced builds and `0` in Retail and
+QOL-off builds. The HUD, 2D layer, menus and prompts are unchanged. Read when the display opens.
+
+### `engine.renderer.sharpening`
+
+One contrast-adaptive sharpening pass (AMD FidelityFX CAS, sharpen-only) on the presented-size 3D image,
+after SMAA or the tone map and before the HUD layer composite, clamped to `0`..`1`. The Options row offers
+Off, Low, Medium or High = `0`, `0.3`, `0.5`, `0.8`. Default `0.3` in Enhanced builds and `0` in Retail and
+QOL-off builds; `0` skips the pass. Read when the display opens.
+
+### `engine.renderer.texturePixelated`
+
+`true` uses nearest minification and magnification for world and model textures, for the original sharp,
+blocky look; the mip filter still follows `graphics.mipmapFilter`. `false` uses linear filtering where the
+game asks for it. Default `false` in every build. The HUD, 2D layer and menus are unchanged. Read when the
+display opens.
+
+### `engine.renderer.bloom`
+
+A built-in stage before the tone map: a half-size soft-knee luminance prefilter (threshold `0.6`, knee
+`0.3`), a downsample chain to 1/32 of the scene, additive tent upsamples back to 1/2, and a composite that
+adds the result times the strength to the scene. Off, Low, Medium or High = `0`, `1`, `2`, `3`, with
+strengths `0`, `0.15`, `0.3`, `0.5`; the default is `1` (Low) in Enhanced builds and `0` in Retail and
+QOL-off builds. The scene is display-referred, so the soft knee lets bright values below 1.0 glow. The HUD
+layer, 2D layer, menus and prompts come after and are unchanged. `0` skips the stage. Read when the display
+opens.
+
+### `engine.renderer.toneMapping`
+
+The curve the final pass applies after multiplying exposure: `0` clamps each channel to `0`..`1`
+(byte-identical to the pre-M9.10 defaults), `1` is Khronos PBR Neutral, and `2` is the Narkowicz 2015 ACES
+fitted curve. Default `1` in Enhanced builds and `0` in Retail and QOL-off builds. There is no transfer
+function, so the output gamma is unchanged. Read when the display opens.
+
+### `engine.renderer.exposure`
+
+Multiplies the scene colour before the tone-map operator, clamped to `0.5`..`2.0`; `1.0` leaves it
+unchanged and is the default in every build. Read when the display opens.
+
+### `engine.renderer.brightness`
+
+The calibration gamma the final tone-map pass applies after the operator:
+`pow(saturate(x), 1 / brightness)`, clamped to `0.6`..`1.8`; `1.0` is the identity and skips the pow, and is
+the default. On the first windowed start, when the key is missing, the brightness calibration screen runs
+after the setup wizard and before the main menu; later, Options > Display > "Brightness..." opens it. Read
+when the display opens, and the calibration screen also applies it to the open frame owner at once.
+
+### `engine.renderer.colorGrading`
+
+A subtle colour preset applied in the final tone-map pass after the operator and before brightness, from a
+32^3 lookup table generated in code at startup and stored as a 1024 x 32 `Rgba8` strip of 32 slices:
+Neutral, Warm, Cool, Adventure, Vivid or Muted = `0`..`5`. Neutral (`0`) skips the lookup, so the presented
+image is byte-identical to before the option existed, and is the default in every build and both profiles.
+The HUD, 2D layer, menus and prompts come after the pass and are unchanged. Read when the display opens.
+
 ### `engine.renderer.dof.cutscenes`, `engine.renderer.dof.gameplay` and `engine.renderer.dof.strength`
 
 Depth of field softens the 3D scene away from the camera's focus, as a presentation stage after the post-processing chain and before bloom. Both toggles are on by default in Enhanced builds and off in Retail and QOL-off builds. `engine.renderer.dof.cutscenes` applies it to cutscene cameras, where geometry both nearer and farther than the focus softens; `engine.renderer.dof.gameplay` applies it to the normal gameplay cameras, where only the far background softens, and starts at six times the focus distance and at least 1.5 world units away (the gameplay focus, camera to Indy, is about 0.2 units), and is full after another twenty-four times the focus or at least 6 units, so Indy, the foreground and nearby level geometry stay sharp. The focus is the camera's focus thing, read each frame from the camera without touching the simulation. `strength` is `0.5`..`2.0` (default `1.0`) and scales the gather radius. Both options off, or no focus input, skip the stage and the image is byte-identical to the path without it. The HUD, 2D layer, menus and prompts are composited after and are never softened.
@@ -204,6 +270,25 @@ The vignette smoothly darkens the corners of the 3D scene, as a presentation sta
 ### `engine.renderer.filmGrain`
 
 Film grain adds subtle luminance noise to the 3D scene, as a presentation stage on the presented-size image after SMAA and sharpening and before the HUD layer composite. It is a toggle, off in every build. The noise is a deterministic hash of the pixel position and a frame counter that advances on game-time frames (never wall-clock time or `rand()`), so a paused game holds the grain still and the same frame produces the same noise. The amplitude is small and weaker in the highlights, and the noise has zero mean. Off skips its work, so the image is byte-identical to the path without the option; with the vignette also off the effect pass is skipped entirely. The HUD, 2D layer, menus and prompts are never grained. Read when the display opens.
+
+### `engine.renderer.frameLimit`
+
+Presentation only, with the values V-Sync, 30, 60, 120, 144, 240 or Unlimited = `0`, `30`, `60`, `120`,
+`144`, `240` or `-1`; `0` (V-Sync) is the default. A positive value presents immediately with V-Sync off and
+waits after each present until the next frame's wall-clock deadline, so the rate is capped without affecting
+game time or the simulation. `-1` turns V-Sync off with no cap. The wait is off in headless runs and while a
+level loads. The Display row applies at once; any other value falls back to `0`.
+
+### `engine.sim.fixedTick`
+
+The fixed simulation tick rate in Hz: `0`, `30`, `50`, `60` or `120`; `0` keeps the measured frame time and
+is the default in every build, and any other value snaps to the nearest rate. Enhanced/QOL builds only:
+QOL-off/Retail builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate`
+at the fixed step and draws extra frames by interpolating thing positions/orientations, the camera, puppet
+animation and the sound listener, while the simulation-facing draw work moves onto the tick. Options >
+Gameplay has a **Simulation tick** row (Off, 30, 50, 60 or 120 Hz) in Enhanced builds; the value is read at
+startup, so it applies when the game restarts. The headless `--fixed-tick <hz>` option overrides it for a
+run.
 
 ### `engine.renderer.culling.culledSectorTraversal.mode`
 
