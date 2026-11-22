@@ -163,6 +163,12 @@ namespace
     // sample count, world-space radius, self-occlusion bias and intensity live here in one table;
     // the pass runs at half the scene size, is blurred by a 4 x 4 depth-aware bilateral filter and
     // composited at the scene size. Values are presentation only.
+    //
+    // The radii are on the game's own scale, not a metre-scale scene: Indy is about 0.2 world units
+    // tall (model radius 0.092, collision height 0.08) and the gameplay camera sits about 0.21 units
+    // behind him, so a metre-scale radius would darken several of his own heights of the scene around
+    // him. These values keep one level's kernel within a hand-sized crease and let the range check
+    // fade an occluder out long before another character's depth.
     constexpr const char* stdRenderBabylon_kSsaoKey = "engine.renderer.ssao";
     struct StdRenderBabylonSsaoLevel
     {
@@ -172,10 +178,10 @@ namespace
         float intensity; // 0 = no darkening, 1 = fully dark where occluded
     };
     constexpr StdRenderBabylonSsaoLevel stdRenderBabylon_aSsaoLevels[] = {
-        {  0, 0.00f, 0.000f, 0.00f },
-        {  8, 0.25f, 0.015f, 0.65f },
-        { 12, 0.40f, 0.020f, 0.80f },
-        { 16, 0.60f, 0.025f, 1.00f },
+        {  0, 0.000f, 0.0000f, 0.00f },
+        {  8, 0.020f, 0.0012f, 0.65f },
+        { 12, 0.035f, 0.0018f, 0.80f },
+        { 16, 0.050f, 0.0025f, 1.00f },
     };
     constexpr int stdRenderBabylon_kSsaoMaxLevel =
         (int)(sizeof(stdRenderBabylon_aSsaoLevels) / sizeof(stdRenderBabylon_aSsaoLevels[0])) - 1;
@@ -1988,6 +1994,8 @@ namespace
 
         const float aBlur[4] = { 1.0f / (float)halfWidth, 1.0f / (float)halfHeight,
             nearPlane, farPlane };
+        // The blur's depth weight follows the level's radius, so its reach stays the same fraction of
+        // the occlusion kernel and it does not bleed across a nearer silhouette.
         const float aBlurDepth[4] = { 1.0f / std::max(level.radius * 4.0f, 1.0e-4f), 0.0f, 0.0f, 0.0f };
         render::PassDesc blurPass;
         blurPass.colorTargets.push_back(render::ColorAttachment{
