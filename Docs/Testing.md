@@ -388,11 +388,15 @@ Three developer options exercise the fixed tick: `--fixed-tick <hz>` selects the
 simulation rate, `--draw-step <ms>` sets the virtual time per drawn frame, and
 `--draw-trace <file>` writes one line per drawn frame after the scene draw (tick,
 alpha, player and camera pose, three player joint positions, their previous- and
-current-tick endpoint positions and the active puppet tracks) for presentation
-analysis. The trace option is inert unless given and also
-works with the fixed tick off. On a fixed-tick run with `--input` and no explicit
-`--draw-step`, the runner clamps the draw step to the tick step so every tick sees
-the same scripted key state; an explicit `--draw-step` wins. See
+current-tick endpoint positions and the active puppet tracks) for presentation analysis. The trace option is inert unless given and also
+works with the fixed tick off. A headless run stays off unless `--fixed-tick` is
+given, whatever the cfg default, so the trace references and existing headless
+scripts keep the measured-frame loop. The option itself offers Off and On at 50 Hz;
+`--fixed-tick` also accepts 30, 60 and 120 for dev comparisons (other values clamp
+to the nearest of 0/30/50/60/120), and QOL-off/Retail builds ignore it. On a
+fixed-tick run with `--input` and no explicit `--draw-step`, the runner clamps the
+draw step to the tick step so every tick sees the same scripted key state; an
+explicit `--draw-step` wins. See
 [Frame-Time.md](arc42/08-crosscutting/Frame-Time.md#m924-jumpfall-jitter-findings).
 
 The state file starts with one `cvar <name> <value>` line per simulation cvar (today

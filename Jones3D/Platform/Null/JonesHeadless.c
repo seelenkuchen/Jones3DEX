@@ -21,8 +21,10 @@
 //   --draw-step (dev) with a fixed tick, milliseconds the virtual clock advances per drawn frame;
 //            default is --step, clamped to the tick step when --input is given so each tick sees
 //            its own key state. Smaller values produce draw-only frames between simulation ticks.
-//   --fixed-tick (dev) override engine.sim.fixedTick for this run: the simulation tick rate in Hz
-//            (0, 30, 50, 60 or 120; other values clamp). QOL-off/Retail builds ignore it.
+//   --fixed-tick (dev) override engine.sim.fixedTick for this run: the simulation tick rate in Hz.
+//            Without it the run stays off, even though the Enhanced build defaults the option on.
+//            50 is the option's rate; 30, 60 and 120 are kept for dev comparisons, and other
+//            values clamp to the nearest of those. QOL-off/Retail builds ignore it.
 //   --state  writes the final state block, plus one line per active thing, to a file. It starts
 //            with one "cvar <name> <value>" line per simulation cvar of the run (ADR-0020), so a
 //            trace says which profile produced it; everything after those lines is as it was.
@@ -115,7 +117,7 @@ typedef struct HeadlessInputEvent
 
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--draw-step <msec, default step>] [--fixed-tick <hz, default cfg>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
+    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--draw-step <msec, default step>] [--fixed-tick <hz, default off>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
         pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP, HEADLESS_DEFAULT_RUNS, HEADLESS_MAX_RUNS);
 }
 
@@ -872,10 +874,9 @@ int JonesHeadless_Run(int argc, char** argv)
 
     // Added: M9.20 --fixed-tick overrides engine.sim.fixedTick for this run. The override survives
     // the per-run global reset; JonesMain_Startup reads it through JonesFixedTick_Configure.
-    if ( fixedTickHz >= 0 )
-    {
-        JonesFixedTick_SetRateOverride(fixedTickHz);
-    }
+    // Added: the headless runner must stay off unless asked, even though Enhanced now defaults the
+    // option on, so the trace references and headless scripts keep the measured-frame-time loop.
+    JonesFixedTick_SetRateOverride(fixedTickHz >= 0 ? fixedTickHz : 0);
 
     // Added: --input: parse the whole script up front. A malformed script exits 1 before any
     // engine code runs, so a run never starts on a script it cannot honor.

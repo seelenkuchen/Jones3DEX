@@ -55,7 +55,7 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
   },
   "engine": {
     "sim": {
-      "fixedTick": 0
+      "fixedTick": 50
     },
     "renderer": {
       "hipoly": true,
@@ -281,14 +281,15 @@ level loads. The Display row applies at once; any other value falls back to `0`.
 
 ### `engine.sim.fixedTick`
 
-The fixed simulation tick rate in Hz: `0`, `30`, `50`, `60` or `120`; `0` keeps the measured frame time and
-is the default in every build, and any other value snaps to the nearest rate. Enhanced/QOL builds only:
-QOL-off/Retail builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate`
-at the fixed step and draws extra frames by interpolating thing positions/orientations, the camera, puppet
-animation and the sound listener, while the simulation-facing draw work moves onto the tick. Options >
-Gameplay has a **Simulation tick** row (Off, 30, 50, 60 or 120 Hz) in Enhanced builds; the value is read at
-startup, so it applies when the game restarts. The headless `--fixed-tick <hz>` option overrides it for a
-run.
+The fixed simulation tick: `0` (Off) keeps the measured frame time, and `50` (On) runs the simulation at
+50 Hz, matching the game's 20 ms physics step. On is the default in Enhanced builds; Retail and QOL-off
+builds ignore the key and always use the measured frame time. For compatibility, any other positive value
+(an old `30`, `60` or `120`) maps to `50`, and a negative value keeps the build's default. On, the game runs
+`sithUpdate` at the fixed step and draws extra frames by interpolating thing positions/orientations, the
+camera, puppet animation and the sound listener, while the simulation-facing draw work moves onto the tick.
+Options > Gameplay has an Enhanced-only **Simulation tick** toggle (Off/On at 50 Hz); the value is read at
+startup, so it applies when the game restarts. A headless `--fixed-tick <hz>` overrides it for a run, and a
+headless run stays off when the option is not given.
 
 ### `engine.renderer.culling.culledSectorTraversal.mode`
 
@@ -373,7 +374,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.geometry` | int | `4` | Uses the `engine.renderer.geometry` enum above. |
 | `engine.renderer.lighting` | int | `3` | Uses the `engine.renderer.lighting` enum above. |
 | `engine.renderer.fov` | float | `90` | Player Field of view, horizontal degrees at 4:3, `60` to `110` (Options > Display, "Field of view"). `0` or missing keeps the default. Presentation only; the simulation keeps the default visibility frustum. |
-| `engine.sim.fixedTick` | int | `0` | Simulation tick rate in Hz: `0`, `30`, `50`, `60` or `120`. `0` keeps the measured frame time and is the default in every build; any other value snaps to the nearest rate. Enhanced/QOL builds only: QOL-off/Retail builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate` at the fixed step, draws extra frames by interpolating thing positions/orientations and the camera, and moves the simulation-facing draw work (visibility marks, AI waypoint lasers, polyline updates) onto the tick. Options > Gameplay has a **Simulation tick** row (Off, 30, 50, 60 or 120 Hz) in Enhanced builds; the value is read at startup, so it applies when the game restarts, not on the next level load. The headless `--fixed-tick <hz>` option overrides it for a run. |
+| `engine.sim.fixedTick` | int | `50` (Enhanced), `0` (Retail and QOL-off) | Fixed simulation tick: `0` Off keeps the measured frame time, `50` On runs the simulation at 50 Hz, matching the game's 20 ms physics step. Any other positive value (an old `30`/`60`/`120`) maps to `50`, and a negative value keeps the build's default. Enhanced/QOL builds only: Retail and QOL-off builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate` at the fixed step, draws extra frames by interpolating thing positions/orientations and the camera, and moves the simulation-facing draw work (visibility marks, AI waypoint lasers, polyline updates) onto the tick. Options > Gameplay has an Enhanced-only **Simulation tick** toggle (Off/On at 50 Hz); the value is read at startup, so it applies when the game restarts, not on the next level load. The headless `--fixed-tick <hz>` option overrides it for a run; a headless run without it stays off. |
 | `engine.renderer.frameLimit` | int | `0` | Presentation only (Options > Display, "Frame rate limit": V-Sync, 30, 60, 120, 144, 240 or Unlimited = `0`, `30`, `60`, `120`, `144`, `240` or `-1`). `0` presents with V-Sync. A positive value presents immediately (V-Sync off) and waits after each present until the next frame's wall-clock deadline, so the rate is capped without affecting game time or the simulation. `-1` turns V-Sync off with no cap. The wait is off in headless runs and while a level loads, which keeps its fast path. The Display row applies at once; any other value falls back to `0`. |
 | `engine.renderer.fog.enabled` | bool | `true` | Global fog toggle. |
 | `engine.renderer.fog.density` | float | `1.0` | Global fog density multiplier. |

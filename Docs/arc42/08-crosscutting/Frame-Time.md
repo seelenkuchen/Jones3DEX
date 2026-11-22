@@ -469,9 +469,14 @@ tick rendered at 120 Hz costs roughly 8.9 ms of CPU geometry per tick, before an
 
 ## M9.20 implementation
 
-M9.20 ships the first slice behind `engine.sim.fixedTick` (int Hz, default `0`; QOL-off/Retail builds ignore
-it and keep the measured frame time). With `0` the frame loop is the old one and the v6/Retail traces are
-identical. With a rate (30, 50, 60 or 120 Hz; other values clamp to the nearest) the following move.
+M9.20 ships the first slice behind `engine.sim.fixedTick` (int Hz, default `J3D_QOL_VALUE(50, 0)`: on at
+50 Hz in Enhanced, off in Retail and QOL-off builds, which ignore it and keep the measured frame time).
+Valid values are `0` (Off) and `50`; any other positive value, such as an old 30/60/120 from an earlier test
+build, maps to 50, and a negative value keeps the build's default. With `0` the frame loop is the old one and
+the v6/Retail traces are identical. With the tick on (50 Hz; the headless dev override also accepts 30, 60 and
+120 for comparisons) the following move. The owner chose the default on 2026-11-22, because ADR-0030 makes the
+game's physics step 20 ms, so only 50 Hz gives every tick a physics step; at 60 Hz every sixth tick has none and
+airborne motion stutters.
 
 **Tick loop.** `JonesMain_ProcessGame` feeds a game-time accumulator from the measured `stdPlatform_GetTimeMsec`
 delta, clamped to `sithTime`'s 1..200 ms, and runs zero or more ticks, at most 5 catch-up ticks per drawn
@@ -498,12 +503,13 @@ the marks, the waypoint creation, the polyline update and the sprite destruction
 draw-only frame cannot change the simulation or the RNG. The render cache tick keeps advancing per draw;
 it is presentation only. With the option off all of these stay exactly where they are today.
 
-**Headless.** `--fixed-tick <hz>` overrides the cfg and `--draw-step <ms>` (default `--step`, except that an
-input-script run clamps it to the tick step; see M9.24) makes the virtual clock advance by the draw step, so
-draw-only frames happen without a display. With a fixed tick `--frames` and
-the state file's `frame` line count ticks and the run log ends with
-`fixed tick: N rendered frames for M ticks`. From `game/native/ref/run/Resource`, `--step 33 --fixed-tick 60`
-against the same run with `--draw-step 8`, `16` or `7` produced identical state files, with and without the
+**Headless.** A headless run stays off unless `--fixed-tick <hz>` is given, whatever the cfg default, so the
+trace references and existing headless scripts keep the measured-frame loop; `--fixed-tick` overrides the cfg
+and `--draw-step <ms>` (default `--step`, except that an input-script run clamps it to the tick step; see
+M9.24) makes the virtual clock advance by the draw step, so draw-only frames happen without a display. With a
+fixed tick `--frames` and the state file's `frame` line count ticks and the run log ends with
+`fixed tick: N rendered frames for M ticks`. From `game/native/ref/run/Resource`, `--step 33 --fixed-tick 50`
+against the same run with `--draw-step 8`, `16` or `5` produced identical state files, with and without the
 wander input.
 
 ## M9.22 implementation

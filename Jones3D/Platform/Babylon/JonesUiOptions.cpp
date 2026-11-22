@@ -251,8 +251,8 @@ namespace
         screen.help[layout.externalKeyframes] =
             "Load animation keyframes from external CND files.";
         screen.help[layout.fixedTick] =
-            "Run the simulation at a fixed rate and smooth motion between ticks; it changes game "
-            "timing slightly. Applies when the game restarts.";
+            "Smooth motion above 50 fps by matching the game's 50 Hz physics. Applies when the "
+            "game restarts.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }

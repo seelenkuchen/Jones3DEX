@@ -32,7 +32,7 @@ struct JonesUiGameplayValues
     bool bFireFlash = false;
     bool bExternalMaterials = false;
     bool bExternalKeyframes = false;
-    std::size_t fixedTick = 0; // Added: index into Off, 30, 50, 60, 120 Hz
+    bool bFixedTick = false; // Added: simulation tick, on = 50 Hz (ADR-0039)
 };
 
 struct JonesUiGameplayLayout
