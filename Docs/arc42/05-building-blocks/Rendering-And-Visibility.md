@@ -809,7 +809,7 @@ profiles; turning one off is what makes its part of the image byte-identical to 
 | `engine.renderer.vignette` | bool | `false` | `false` | Display: Vignette |
 | `engine.renderer.filmGrain` | bool | `false` | `false` | Display: Film grain |
 | `engine.renderer.frameLimit` | `0` V-Sync, `30`, `60`, `120`, `144` or `240` Hz cap, `-1` Unlimited | `0` V-Sync | `0` V-Sync | Display: Frame rate limit |
-| `engine.sim.fixedTick` | `0`, `30`, `50`, `60` or `120` Hz | `0` Off | `0` (ignored) | Gameplay: Simulation tick |
+| `engine.sim.fixedTick` | `0` Off or `50` On (old positive values map to `50`) | `50` On | `0` (ignored) | Gameplay: Simulation tick |
 | `engine.renderer.texturePixelated` | bool | `false` | `false` | Display: Crisp pixels |
 | `graphics.anisotropicFilter` | `1`, `2`, `4`, `8` or `16` | `8` | `1` | Display: Anisotropic filtering |
 | `engine.renderer.fov` | `60`..`110`, horizontal degrees at 4:3 | `90` | `90` | Display: Field of view |

@@ -42,23 +42,32 @@ static rdMatrix34 JonesFixedTickTest_RotateZ90(void)
     return mat;
 }
 
-TEST(JonesFixedTick, RateClampsToTheAllowedSet)
+TEST(JonesFixedTick, RateMapsToOffOrFifty)
 {
-    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(-5));
+    // The option is Off (0) or On at the game's 50 Hz physics rate. Any positive value, including
+    // a rate an earlier test build wrote, means On at 50.
     TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(0));
-    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(1));
-    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(15));  // tie between 0 and 30 snaps down
-    TEST_ASSERT_EQUAL_INT(30, JonesFixedTick_ClampRate(29));
-    TEST_ASSERT_EQUAL_INT(30, JonesFixedTick_ClampRate(30));
-    TEST_ASSERT_EQUAL_INT(30, JonesFixedTick_ClampRate(40)); // tie between 30 and 50 snaps down
-    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(45));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(1));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(30));
     TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(50));
-    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(55)); // tie between 50 and 60 snaps down
-    TEST_ASSERT_EQUAL_INT(60, JonesFixedTick_ClampRate(60));
-    TEST_ASSERT_EQUAL_INT(60, JonesFixedTick_ClampRate(90)); // tie between 60 and 120 snaps down
-    TEST_ASSERT_EQUAL_INT(120, JonesFixedTick_ClampRate(100));
-    TEST_ASSERT_EQUAL_INT(120, JonesFixedTick_ClampRate(120));
-    TEST_ASSERT_EQUAL_INT(120, JonesFixedTick_ClampRate(1000));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(60));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(120));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(1000));
+}
+
+TEST(JonesFixedTick, ConfigRateKeepsTheBuildDefaultForGarbage)
+{
+    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ResolveConfigRate(0));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(50));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(30));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(60));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(120));
+
+    // A missing key and a hand-edited negative value both use the build's default: on in Enhanced,
+    // off in Retail and QOL-off builds.
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(50, 0), JonesFixedTick_DefaultRate());
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(50, 0), JonesFixedTick_ResolveConfigRate(-1));
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(50, 0), JonesFixedTick_ResolveConfigRate(-999));
 }
 
 TEST(JonesFixedTick, RateToStepUsesIntegerMilliseconds)
@@ -327,6 +336,23 @@ TEST(JonesFixedTick, ConfigureAcceptsZeroAsOff)
     TEST_ASSERT_EQUAL_INT(0, sithTime_g_bFixedStep);
 }
 
+TEST(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates)
+{
+    // Added: the headless dev override is not part of the cfg mapping; 60 Hz stays 60 Hz so two
+    // builds can still be compared at a rate other than the option's 50 Hz.
+    JonesFixedTick_SetRateOverride(60);
+    JonesFixedTick_Configure();
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+    TEST_ASSERT_EQUAL_INT(60, JonesFixedTick_GetRateHz());
+    TEST_ASSERT_EQUAL_UINT32(16, JonesFixedTick_GetStepMsec());
+#else
+    TEST_ASSERT_FALSE(JonesFixedTick_IsEnabled());
+    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_GetRateHz());
+#endif
+}
+
 
 TEST(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores)
 {
@@ -381,8 +407,40 @@ TEST(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores)
     TEST_ASSERT_EQUAL_FLOAT(0.75f, puppet.aTracks[0].blendWeight);
 }
 
-TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksCrossfadesAndRestores)
+static JonesFixedTickPuppetState JonesFixedTickTest_MakePuppetState(rdPuppet* pPuppet,
+    rdKeyframe* pTrack0, float frame0, float blend0)
 {
+    JonesFixedTickPuppetState state;
+    memset(&state, 0, sizeof(state));
+    state.valid   = true;
+    state.pPuppet = pPuppet;
+    state.aTracks[0].valid       = pTrack0 != NULL;
+    state.aTracks[0].pKFTrack    = pTrack0;
+    state.aTracks[0].curFrame    = frame0;
+    state.aTracks[0].blendWeight = blend0;
+    return state;
+}
+
+TEST(JonesFixedTick, PuppetSameTrackContinuesWithoutPoseCrossfade)
+{
+    rdKeyframe keyframe;
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+
+    JonesFixedTickPuppetState prev = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 10.0f, 1.0f);
+    JonesFixedTickPuppetState cur  = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 14.0f, 1.0f);
+
+    TEST_ASSERT_FALSE(JonesFixedTick_PuppetNeedsPoseCrossfade(&prev, &cur));
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetCanPoseCrossfade(&prev, &cur));
+}
+
+TEST(JonesFixedTick, PuppetReplacedTrackNeedsPoseCrossfade)
+{
+    // A replaced keyframe has no relationship between its node poses and the old one, so the old
+    // keyframe must never be sampled at the new track's frame. The complete tick poses crossfade.
     rdKeyframe keyframeA;
     rdKeyframe keyframeB;
     memset(&keyframeA, 0, sizeof(keyframeA));
@@ -390,110 +448,144 @@ TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksCrossfadesAndRestores)
     keyframeA.numFrames = 100;
     keyframeB.numFrames = 100;
 
-    rdThing renderData;
-    memset(&renderData, 0, sizeof(renderData));
     rdPuppet puppet;
     memset(&puppet, 0, sizeof(puppet));
-    puppet.pThing = &renderData;
-    renderData.pPuppet = &puppet;
 
-    puppet.aTracks[0].pKFTrack    = &keyframeA;
-    puppet.aTracks[0].curFrame    = 1.0f;
-    puppet.aTracks[0].blendWeight = 1.0f;
-    puppet.aTracks[0].guid        = 0x00010001;
+    JonesFixedTickPuppetState prev = JonesFixedTickTest_MakePuppetState(&puppet, &keyframeA, 1.0f, 1.0f);
+    JonesFixedTickPuppetState cur  = JonesFixedTickTest_MakePuppetState(&puppet, &keyframeB, 9.0f, 1.0f);
 
-    SithThing thing;
-    memset(&thing, 0, sizeof(thing));
-    thing.type               = SITH_THING_ACTOR;
-    thing.signature          = 3;
-    thing.renderData.pPuppet = &puppet;
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetNeedsPoseCrossfade(&prev, &cur));
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetCanPoseCrossfade(&prev, &cur));
 
-    JonesFixedTickThingState prev;
-    JonesFixedTick_CaptureThing(&prev, &thing);
-
-    puppet.aTracks[0].pKFTrack    = &keyframeB;
-    puppet.aTracks[0].curFrame    = 9.0f;
-    puppet.aTracks[0].blendWeight = 1.0f;
-    JonesFixedTickThingState cur;
-    JonesFixedTick_CaptureThing(&cur, &thing);
-
-    // The replaced track crossfades inside itself: the new pose stays at its full tick weight
-    // while the previous keyframe supplies the pose the other side of the blend.
-    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
+    // The normal per-track sampler only ever uses the new tick's own frame.
+    puppet.aTracks[0].pKFTrack = &keyframeB;
+    JonesFixedTick_BlendPuppet(&prev, &cur, &puppet, 0.5f);
     TEST_ASSERT_EQUAL_FLOAT(9.0f, puppet.aTracks[0].curFrame);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
-    TEST_ASSERT_TRUE(puppet.aTracks[0].bDrawCrossfade);
-    TEST_ASSERT_EQUAL_PTR(&keyframeA, puppet.aTracks[0].pDrawCrossfadeKFTrack);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].drawCrossfadeFrame);
-    TEST_ASSERT_EQUAL_FLOAT(0.5f, puppet.aTracks[0].drawCrossfadeFactor);
-    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
-
-    // Restoring the tick pose clears the draw-only crossfade.
-    JonesFixedTick_RestoreThing(&cur, &thing);
-    TEST_ASSERT_EQUAL_FLOAT(9.0f, puppet.aTracks[0].curFrame);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
-    TEST_ASSERT_FALSE(puppet.aTracks[0].bDrawCrossfade);
-    TEST_ASSERT_NULL(puppet.aTracks[0].pDrawCrossfadeKFTrack);
-
-    // At alpha 0 the previous pose is drawn, at alpha 1 the new one; neither adds a track.
-    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.0f));
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, puppet.aTracks[0].drawCrossfadeFactor);
-    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
-    JonesFixedTick_RestoreThing(&cur, &thing);
-
-    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 1.0f));
-    TEST_ASSERT_FALSE(puppet.aTracks[0].bDrawCrossfade);
-    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
-    JonesFixedTick_RestoreThing(&cur, &thing);
 }
 
-TEST(JonesFixedTick, PuppetTrackLoopCrossfadesAndRestores)
+TEST(JonesFixedTick, PuppetLoopNeedsPoseCrossfade)
+{
+    // A loop reset must blend the end pose to the start pose, never run the whole track backwards.
+    rdKeyframe keyframe;
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+
+    JonesFixedTickPuppetState prev = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 90.0f, 1.0f);
+    JonesFixedTickPuppetState cur  = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 5.0f, 1.0f);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetNeedsPoseCrossfade(&prev, &cur));
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetCanPoseCrossfade(&prev, &cur));
+}
+
+TEST(JonesFixedTick, PuppetAppearedOrRemovedTrackNeedsPoseCrossfade)
 {
     rdKeyframe keyframe;
     memset(&keyframe, 0, sizeof(keyframe));
     keyframe.numFrames = 100;
 
-    rdThing renderData;
-    memset(&renderData, 0, sizeof(renderData));
     rdPuppet puppet;
     memset(&puppet, 0, sizeof(puppet));
-    puppet.pThing = &renderData;
-    renderData.pPuppet = &puppet;
 
-    puppet.aTracks[0].pKFTrack    = &keyframe;
-    puppet.aTracks[0].curFrame    = 90.0f;
-    puppet.aTracks[0].blendWeight = 1.0f;
-    puppet.aTracks[0].guid        = 0x00010001;
+    JonesFixedTickPuppetState none = JonesFixedTickTest_MakePuppetState(&puppet, NULL, 0.0f, 0.0f);
+    JonesFixedTickPuppetState one  = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 5.0f, 1.0f);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetNeedsPoseCrossfade(&none, &one));
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetNeedsPoseCrossfade(&one, &none));
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetCanPoseCrossfade(&none, &one));
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetCanPoseCrossfade(&one, &none));
+}
+
+TEST(JonesFixedTick, PuppetUnknownOldFrameSnaps)
+{
+    // An out-of-range old frame cannot be sampled; the caller must snap to the current tick.
+    rdKeyframe keyframe;
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+
+    JonesFixedTickPuppetState prev = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 101.0f, 1.0f);
+    JonesFixedTickPuppetState cur  = JonesFixedTickTest_MakePuppetState(&puppet, &keyframe, 5.0f, 1.0f);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetNeedsPoseCrossfade(&prev, &cur));
+    TEST_ASSERT_FALSE(JonesFixedTick_PuppetCanPoseCrossfade(&prev, &cur));
+
+    prev.aTracks[0].curFrame = 100.0f;
+    TEST_ASSERT_TRUE(JonesFixedTick_PuppetCanPoseCrossfade(&prev, &cur)); // the last frame is valid
+}
+
+TEST(JonesFixedTick, PuppetModelSwapSnaps)
+{
+    rdKeyframe keyframe;
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
 
     SithThing thing;
     memset(&thing, 0, sizeof(thing));
     thing.type               = SITH_THING_ACTOR;
-    thing.signature          = 4;
+    thing.signature          = 11;
     thing.renderData.pPuppet = &puppet;
 
     JonesFixedTickThingState prev;
-    JonesFixedTick_CaptureThing(&prev, &thing);
-
-    puppet.aTracks[0].curFrame = 5.0f;
     JonesFixedTickThingState cur;
-    JonesFixedTick_CaptureThing(&cur, &thing);
+    memset(&prev, 0, sizeof(prev));
+    memset(&cur, 0, sizeof(cur));
+    prev.valid = true;
+    cur.valid  = true;
+    prev.type  = cur.type      = SITH_THING_ACTOR;
+    prev.signature = cur.signature = 11;
+    prev.pos = cur.pos;
+    prev.orient = cur.orient = JonesFixedTickTest_Identity();
+    prev.pModel3 = (const rdModel3*)0x1000;
+    cur.pModel3  = (const rdModel3*)0x2000;
+    JonesFixedTick_CapturePuppet(&prev.puppet, &puppet);
+    cur.puppet = prev.puppet;
+    cur.puppet.aTracks[0].valid       = true;
+    cur.puppet.aTracks[0].pKFTrack    = &keyframe;
+    cur.puppet.aTracks[0].curFrame    = 5.0f;
+    cur.puppet.aTracks[0].blendWeight = 1.0f;
+    prev.puppet.aTracks[0] = cur.puppet.aTracks[0];
 
-    // A loop reset is a discontinuity too: the old end pose crossfades to the new start pose
-    // instead of drawing the whole track backwards or snapping.
-    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.25f));
+    puppet.aTracks[0].pKFTrack    = &keyframe;
+    puppet.aTracks[0].curFrame    = 5.0f;
+    puppet.aTracks[0].blendWeight = 1.0f;
+
+    // A different model cannot be pose-blended; the current tick's pose is drawn unchanged.
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
     TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
-    TEST_ASSERT_TRUE(puppet.aTracks[0].bDrawCrossfade);
-    TEST_ASSERT_EQUAL_PTR(&keyframe, puppet.aTracks[0].pDrawCrossfadeKFTrack);
-    TEST_ASSERT_EQUAL_FLOAT(90.0f, puppet.aTracks[0].drawCrossfadeFrame);
-    TEST_ASSERT_EQUAL_FLOAT(0.25f, puppet.aTracks[0].drawCrossfadeFactor);
-    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
-
     JonesFixedTick_RestoreThing(&cur, &thing);
-    TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
-    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
-    TEST_ASSERT_FALSE(puppet.aTracks[0].bDrawCrossfade);
-    TEST_ASSERT_NULL(puppet.aTracks[0].pDrawCrossfadeKFTrack);
+}
+
+TEST(JonesFixedTick, JointMatrixBlendStaysOnTheTranslationSegment)
+{
+    rdMatrix34 prev = JonesFixedTickTest_Identity();
+    rdMatrix34 cur  = JonesFixedTickTest_Identity();
+    prev.dvec.x = 1.0f;
+    prev.dvec.y = 2.0f;
+    prev.dvec.z = 3.0f;
+    cur.dvec.x = 5.0f;
+    cur.dvec.y = 6.0f;
+    cur.dvec.z = 7.0f;
+
+    rdMatrix34 out;
+    JonesFixedTick_BlendJointMatrix(&out, &prev, &cur, 0.25f);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, out.dvec.x);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, out.dvec.y);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, out.dvec.z);
+
+    JonesFixedTick_BlendJointMatrix(&out, &prev, &cur, 0.0f);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, out.dvec.x);
+    JonesFixedTick_BlendJointMatrix(&out, &prev, &cur, 1.0f);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, out.dvec.x);
 }
 
 TEST(JonesFixedTick, SurfaceOffsetsAndLightBlendAndRestore)
@@ -672,7 +764,8 @@ TEST(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended)
 
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
-    RUN_TEST_CASE(JonesFixedTick, RateClampsToTheAllowedSet);
+    RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
+    RUN_TEST_CASE(JonesFixedTick, ConfigRateKeepsTheBuildDefaultForGarbage);
     RUN_TEST_CASE(JonesFixedTick, RateToStepUsesIntegerMilliseconds);
     RUN_TEST_CASE(JonesFixedTick, AccumulatorRunsATickPerElapsedStep);
     RUN_TEST_CASE(JonesFixedTick, AccumulatorCapsCatchUpAndDropsTheBacklog);
@@ -685,9 +778,15 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
+    RUN_TEST_CASE(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates);
     RUN_TEST_CASE(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores);
-    RUN_TEST_CASE(JonesFixedTick, PuppetTrackReplacedBetweenTicksCrossfadesAndRestores);
-    RUN_TEST_CASE(JonesFixedTick, PuppetTrackLoopCrossfadesAndRestores);
+    RUN_TEST_CASE(JonesFixedTick, PuppetSameTrackContinuesWithoutPoseCrossfade);
+    RUN_TEST_CASE(JonesFixedTick, PuppetReplacedTrackNeedsPoseCrossfade);
+    RUN_TEST_CASE(JonesFixedTick, PuppetLoopNeedsPoseCrossfade);
+    RUN_TEST_CASE(JonesFixedTick, PuppetAppearedOrRemovedTrackNeedsPoseCrossfade);
+    RUN_TEST_CASE(JonesFixedTick, PuppetUnknownOldFrameSnaps);
+    RUN_TEST_CASE(JonesFixedTick, PuppetModelSwapSnaps);
+    RUN_TEST_CASE(JonesFixedTick, JointMatrixBlendStaysOnTheTranslationSegment);
     RUN_TEST_CASE(JonesFixedTick, SurfaceOffsetsAndLightBlendAndRestore);
     RUN_TEST_CASE(JonesFixedTick, ScrollWrapBlendsTheShortWay);
     RUN_TEST_CASE(JonesFixedTick, SkyOffsetsBlendAndRestore);

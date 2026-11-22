@@ -11,11 +11,6 @@
 
 #include <math.h>
 
-// Added: M9.24 separate forward-only cache for the previous pose of a draw crossfade. The main
-// cache is per track; this one only lives for one rdPuppet_BuildJointMatrices call and is reset
-// there, so no puppet state grows.
-static size_t rdPuppet_aDrawCrossfadeKfNodeEntryNums[RDPUPPET_MAX_TRACKS][RDPUPPET_MAX_KFNODES];
-
 void rdPuppet_ResetGlobals(void)
 {}
 
@@ -379,12 +374,6 @@ void J3DAPI rdPuppet_SetTrackDrawSample(rdPuppet* pPuppet, int32_t track, float 
     pTrack->curFrame    = frame;
     pTrack->blendWeight = blendWeight;
 
-    // Added: M9.24 a fresh sample supersedes any crossfade from an earlier drawn frame.
-    pTrack->bDrawCrossfade      = false;
-    pTrack->pDrawCrossfadeKFTrack = NULL;
-    pTrack->drawCrossfadeFrame  = 0.0f;
-    pTrack->drawCrossfadeFactor = 0.0f;
-
     if ( pPuppet->pThing && pPuppet->pThing->data.pModel3
         && pPuppet->pThing->data.pModel3->numHNodes < STD_ARRAYLEN(pTrack->aCurKfNodeEntryNums) )
     {
@@ -395,32 +384,6 @@ void J3DAPI rdPuppet_SetTrackDrawSample(rdPuppet* pPuppet, int32_t track, float 
     {
         STD_ZEROMEM(pTrack->aCurKfNodeEntryNums, sizeof(pTrack->aCurKfNodeEntryNums));
     }
-}
-
-void J3DAPI rdPuppet_SetTrackDrawCrossfade(rdPuppet* pPuppet, int32_t track,
-    const rdKeyframe* pPrevKFTrack, float prevFrame, float factor)
-{
-    // Added: M9.24. The next build samples this track's current draw frame and the previous
-    // keyframe at prevFrame, then blends the two node poses by factor. Simulation untouched.
-    RD_ASSERTREL(pPuppet != NULL);
-    RD_ASSERTREL((track >= 0) && (track < STD_ARRAYLEN(pPuppet->aTracks)));
-
-    rdPuppetTrack* pTrack = &pPuppet->aTracks[track];
-    if ( !pPrevKFTrack || factor >= 1.0f )
-    {
-        pTrack->bDrawCrossfade = false;
-        return;
-    }
-
-    if ( factor < 0.0f )
-    {
-        factor = 0.0f;
-    }
-
-    pTrack->bDrawCrossfade        = true;
-    pTrack->pDrawCrossfadeKFTrack = pPrevKFTrack;
-    pTrack->drawCrossfadeFrame    = prevFrame;
-    pTrack->drawCrossfadeFactor   = factor;
 }
 
 int J3DAPI rdPuppet_UpdateTracks(rdPuppet* pPuppet, float secDeltaTime)
@@ -499,8 +462,7 @@ void J3DAPI rdPuppet_ResetTrack(rdPuppet* pPuppet, int32_t track)
     pPuppet->aTracks[track].status        = RDPUPPET_TRACK_PLAYING | RDPUPPET_TRACK_UNKNOWN_1;
 }
 
-// Added: M9.24. Advance one keyframe's forward-only node cache to the requested frame. Shared by
-// the track's current sample and a draw crossfade's previous sample.
+// Added: M9.24. Advance one keyframe's forward-only node cache to the requested drawn frame.
 static void rdPuppet_AdvanceKfNodeCache(const rdKeyframe* pKFTrack, size_t* aNodeEntryNums, float curFrame)
 {
     for ( size_t jointNum = 0; jointNum < pKFTrack->numJoints; jointNum++ )
@@ -563,15 +525,6 @@ void J3DAPI rdPuppet_BuildJointMatrices(rdThing* prdThing, const rdMatrix34* pPl
         if ( pTrack->status )
         {
             rdPuppet_AdvanceKfNodeCache(pTrack->pKFTrack, pTrack->aCurKfNodeEntryNums, pTrack->curFrame);
-
-            // Added: M9.24 the previous pose of a draw crossfade gets its own fresh cache.
-            if ( pTrack->bDrawCrossfade && pTrack->pDrawCrossfadeKFTrack )
-            {
-                STD_ZEROMEM(rdPuppet_aDrawCrossfadeKfNodeEntryNums[trackNum],
-                    sizeof(rdPuppet_aDrawCrossfadeKfNodeEntryNums[trackNum]));
-                rdPuppet_AdvanceKfNodeCache(pTrack->pDrawCrossfadeKFTrack,
-                    rdPuppet_aDrawCrossfadeKfNodeEntryNums[trackNum], pTrack->drawCrossfadeFrame);
-            }
         }
     }
 
@@ -630,63 +583,6 @@ void J3DAPI rdPuppet_BuildJointMatrices(rdThing* prdThing, const rdMatrix34* pPl
                     else
                     {
                         dkfrot = pKfFrame->rot;
-                    }
-
-                    // Added: M9.24 blend the previous pose of a replaced/looped track into this
-                    // one before the priority layers combine it, so the crossfade stays a convex
-                    // blend regardless of the two tracks' priorities.
-                    if ( pTrack->bDrawCrossfade && pTrack->pDrawCrossfadeKFTrack
-                        && pNode->num < pTrack->pDrawCrossfadeKFTrack->numJoints )
-                    {
-                        const rdKeyframeNode* pOldNode = &pTrack->pDrawCrossfadeKFTrack->aNodes[pNode->num];
-                        if ( pOldNode->numEntries )
-                        {
-                            const rdKeyframeNodeEntry* pOldFrame = &pOldNode->aEntries[
-                                rdPuppet_aDrawCrossfadeKfNodeEntryNums[trackNum][pNode->num]];
-                            float oldDeltaFrames = pTrack->drawCrossfadeFrame - pOldFrame->frame;
-                            if ( oldDeltaFrames < 0.0f )
-                            {
-                                oldDeltaFrames = 0.0f;
-                            }
-
-                            rdVector3 oldPos;
-                            if ( (pOldFrame->flags & 1) != 0 )
-                            {
-                                oldPos.x = pOldFrame->dpos.x * oldDeltaFrames + pOldFrame->pos.x;
-                                oldPos.y = pOldFrame->dpos.y * oldDeltaFrames + pOldFrame->pos.y;
-                                oldPos.z = pOldFrame->dpos.z * oldDeltaFrames + pOldFrame->pos.z;
-                            }
-                            else
-                            {
-                                oldPos = pOldFrame->pos;
-                            }
-
-                            rdVector3 oldRot;
-                            if ( (pOldFrame->flags & 2) != 0 )
-                            {
-                                oldRot.x = pOldFrame->drot.x * oldDeltaFrames + pOldFrame->rot.x;
-                                oldRot.y = pOldFrame->drot.y * oldDeltaFrames + pOldFrame->rot.y;
-                                oldRot.z = pOldFrame->drot.z * oldDeltaFrames + pOldFrame->rot.z;
-                            }
-                            else
-                            {
-                                oldRot = pOldFrame->rot;
-                            }
-
-                            // factor 0 = previous pose, 1 = current pose.
-                            const float factor = pTrack->drawCrossfadeFactor;
-                            dkfpos.x = oldPos.x + (dkfpos.x - oldPos.x) * factor;
-                            dkfpos.y = oldPos.y + (dkfpos.y - oldPos.y) * factor;
-                            dkfpos.z = oldPos.z + (dkfpos.z - oldPos.z) * factor;
-
-                            // Take the short way around for each angle.
-                            const float dPitch = stdMath_NormalizeAngleAcute(oldRot.x - dkfrot.x);
-                            const float dYaw   = stdMath_NormalizeAngleAcute(oldRot.y - dkfrot.y);
-                            const float dRoll  = stdMath_NormalizeAngleAcute(oldRot.z - dkfrot.z);
-                            dkfrot.x += dPitch * (1.0f - factor);
-                            dkfrot.y += dYaw * (1.0f - factor);
-                            dkfrot.z += dRoll * (1.0f - factor);
-                        }
                     }
 
                     rdVector_Sub3Acc(&dkfpos, &pNode->pos);

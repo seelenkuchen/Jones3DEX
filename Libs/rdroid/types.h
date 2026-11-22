@@ -548,16 +548,8 @@ typedef struct srdPuppetTrack
     rdKeyframe* pKFTrack;
     rdPuppetTrackCallback pfCallback;
     uint32_t guid;
-
-    // Added: M9.24 draw-only crossfade. When a drawn frame finds this track's keyframe changed,
-    // it samples pDrawCrossfadeKFTrack at drawCrossfadeFrame instead for a blend of
-    // drawCrossfadeFactor (0 = previous pose, 1 = this track). Simulation state is never touched.
-    bool              bDrawCrossfade;
-    const rdKeyframe* pDrawCrossfadeKFTrack;
-    float             drawCrossfadeFrame;
-    float             drawCrossfadeFactor;
 } rdPuppetTrack;
-J3D_ASSERT_SIZE32(sizeof(rdPuppetTrack) == 324, "sizeof(rdPuppetTrack) == 324");
+J3D_ASSERT_SIZE32(sizeof(rdPuppetTrack) == 308, "sizeof(rdPuppetTrack) == 308");
 
 typedef struct srdPuppet
 {
