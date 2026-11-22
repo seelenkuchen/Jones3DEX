@@ -22,6 +22,7 @@
 #include <sith/Engine/sithPuppet.h>
 #include <sith/Engine/sithRenderSky.h>
 #include <sith/Engine/sithShadow.h>
+#include <sith/Gameplay/sithFX.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithMaterial.h>
 #include <sith/World/sithModel.h>
@@ -485,8 +486,10 @@ void sithRender_Draw(void)
 
     // Altered: with the Field of view option active, the draw keeps its chosen FOV but the
     // simulation-facing marks come from a pass pinned to the default FOV, so SIGHTED messages,
-    // AI wake and renderFrame behave exactly as they do at the default.
-    bool bDecoupleFOV = sithCamera_IsGameplayFOV(sithCamera_g_pCurCamera)
+    // AI wake and renderFrame behave exactly as they do at the default. On a fixed tick the marks
+    // are already owned by sithRender_UpdateSimulationTick, so the draw must not run them again.
+    bool bDecoupleFOV = !sithTime_g_bFixedStep
+        && sithCamera_IsGameplayFOV(sithCamera_g_pCurCamera)
         && sithCamera_g_pCurCamera->fov != SITHCAMERA_FOVDEFAULT;
 
     if ( bDecoupleFOV )
@@ -527,8 +530,9 @@ void sithRender_Draw(void)
 
     sithRender_BeginFrame();
 
+    // Altered: M9.20. On a fixed tick the draw only samples the marks the tick already applied.
     bool bSavedSuppressMarks = sithRender_bSuppressSimulationMarks;
-    sithRender_bSuppressSimulationMarks = bDecoupleFOV;
+    sithRender_bSuppressSimulationMarks = bDecoupleFOV || sithTime_g_bFixedStep;
 
     // Collect sector and things to draw
     if ( sithRender_bPVSCull && sithWorld_g_pCurrentWorld->aPVS )
@@ -613,9 +617,46 @@ void sithRender_Draw(void)
         sithRender_RenderAlphaAdjoins();
     }
 
-    sithAIUtil_RenderAIWaypoints();
+    // Altered: M9.20. The waypoint renderer creates laser things, a simulation mutation. On a
+    // fixed tick it runs once per tick (sithRender_UpdateSimulationTick) instead of per draw.
+    if ( !sithTime_g_bFixedStep )
+    {
+        sithAIUtil_RenderAIWaypoints();
+    }
 
     sithRender_bSuppressSimulationMarks = bSavedSuppressMarks;
+}
+
+// Added: M9.20 fixed simulation tick (ADR-0039). This is the draw's simulation-facing work moved
+// onto the tick. It points the camera at the default FOV for the marks (as the Field of view
+// decoupling does), runs the mark-only visibility pass, advances the render cache tick so the draw
+// rebuilds at its own projection, creates the AI waypoint lasers and updates the polyline things.
+// The caller runs it after sithUpdate and the camera update, once per simulation tick.
+void sithRender_UpdateSimulationTick(void)
+{
+    SithCamera* pCamera = sithCamera_g_pCurCamera;
+    if ( !pCamera || !sithWorld_g_pCurrentWorld )
+    {
+        return;
+    }
+
+    rdCamera_SetCurrent(&pCamera->rdCamera);
+
+    // Altered: the marks are pinned to the default FOV so a chosen Field of view never changes
+    // what the simulation sees, matching the existing decoupled-FOV pass.
+    sithRender_SetCameraProjection(SITHCAMERA_FOVDEFAULT);
+    rdCamera_Update(&pCamera->orient);
+    sithRender_MarkSimulationVisibility();
+
+    // The mark pass stamped the sector and vertex caches at the default FOV; advance so the draw
+    // pass rebuilds its own at the chosen projection.
+    sithAdvanceRenderTick();
+
+    sithAIUtil_RenderAIWaypoints();
+
+    // Restore the camera's authored projection for the draws between this tick and the next.
+    sithRender_SetCameraProjection(pCamera->fov);
+    rdCamera_Update(&pCamera->orient);
 }
 
 void J3DAPI sithRender_BuildVisibleSectorList(SithSector* pSector, rdClipFrustum* pFrustrum)
@@ -1565,6 +1606,25 @@ int J3DAPI sithRender_RenderThing(SithThing* pThing)
     if ( sithRender_bMarkSimulationOnly )
     {
         sithRender_MarkThingSeen(pThing);
+
+        // Added: M9.20. The draw used to destroy an out-of-water air-destroyed sprite; on a fixed
+        // tick the mark pass owns that check so draw-only frames cannot destroy things.
+        if ( sithTime_g_bFixedStep && pThing->type == SITH_THING_SPRITE
+            && sithSprite_DestroyIfAirDestroyed(pThing) )
+        {
+            return 0;
+        }
+
+        // Added: M9.20. The polyline update used to run in sithThing_Draw; it consumes SITH_RAND
+        // and can destroy things, so on a fixed tick the mark pass owns it and draw-only frames
+        // leave it alone. Reset first so the tick's jitter replaces the previous tick's instead of
+        // accumulating; the draws between ticks then sample one tick-owned offset.
+        if ( sithTime_g_bFixedStep && pThing->type == SITH_THING_POLYLINE )
+        {
+            sithFX_ResetPolylineTexVertOffset(pThing);
+            sithFX_UpdatePolyline(pThing);
+        }
+
         return 1;
     }
 

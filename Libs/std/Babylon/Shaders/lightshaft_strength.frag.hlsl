@@ -22,6 +22,9 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
     const float coverage = gCentroid.SampleLevel(gCentroidSampler, uv, 0).x;
     const float target = smoothstep(gStrength.y, max(gStrength.z, gStrength.y + 1.0e-6), coverage);
     const float previous = gPrevious.SampleLevel(gPreviousSampler, uv, 0).x;
-    const float smoothed = lerp(previous, target, saturate(gStrength.x));
+    // The first frame's previous target is uninitialised; a lerp could carry its bytes into the
+    // result as NaN even at blend 1, so snap explicitly when the blend is at or past one.
+    const float blend = saturate(gStrength.x);
+    const float smoothed = blend >= 1.0 ? target : lerp(previous, target, blend);
     return float4(smoothed, 0.0, 0.0, 1.0);
 }

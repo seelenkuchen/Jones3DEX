@@ -9,8 +9,9 @@
 // stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
 // chain, an ordered list of full-screen passes that is empty by default, then the built-in
 // depth-of-field stage when its cutscene or gameplay option is on and the game set a focus, then
-// the built-in light-shaft stage when it is on, then the built-in bloom stage when it is on, and
-// then, on a device with a swapchain, runs the built-in final tone-map pass
+// the built-in light-shaft stage when it is on, the built-in lens-flare stage when it is on, then the
+// built-in bloom stage when it is on, and then, on a device with a swapchain, runs the built-in final
+// tone-map pass
 // over that output (the back buffer color when the chain is empty and the later stages are off) and writes it
 // to the swapchain at the presented size, sampling with linear filtering when the render scale is
 // not 1 so supersampled scenes resolve cleanly. When the
@@ -19,8 +20,9 @@
 // writes the swapchain; with it off the image is byte-identical to the plain tone-map present.
 // Added: the sharpening option (AMD FidelityFX CAS, engine.renderer.sharpening) then runs one
 // contrast-adaptive sharpening pass on that presented-size LDR image, after SMAA or after the tone
-// map when anti-aliasing is off; at 0 it is skipped and the image is byte-identical. It then
-// composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
+// map when anti-aliasing is off; at 0 it is skipped and the image is byte-identical. The vignette and
+// film-grain option then runs one presented-size pass after it when either is on; both off skip it and
+// leave the image byte-identical. It then composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
 // image, so no anti-aliasing, sharpening or other scene effect touches the HUD, before the prompt
 // and menu present overlays. std3D records its scenes and HUD layer into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
 // translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
@@ -240,6 +242,32 @@ float stdRenderBabylon_GetBloom();
 // targets and pipelines.
 bool stdRenderBabylon_SetLightShafts(int level);
 int stdRenderBabylon_GetLightShafts();
+
+// Added: the built-in lens-flare stage over the HDR scene, after the light-shaft stage and before
+// bloom, so the flare blooms with the rest of the bright image. It reuses the light-shaft stage's
+// GPU-reduced 1 x 1 sky centroid and its smoothed visible-sky strength (no readback): a few tinted
+// ghosts sit along the line from the light through the screen centre and a soft halo surrounds the
+// light, both scaled by the strength. With light shafts off, only the mask and centroid reduction
+// needed for the centroid run, not the shaft blur. No sky visible, or a centroid off screen, adds
+// nothing. Off, or a failure, records no pass and the image is byte-identical to the path without
+// it. The HUD layer, menus and prompts come after and are untouched. Opening reads
+// engine.renderer.lensFlare (default on in Enhanced builds, off without QOL); this setter changes
+// it until the next open. Closing frees the stage's target and pipeline.
+bool stdRenderBabylon_SetLensFlare(bool bEnabled);
+bool stdRenderBabylon_GetLensFlare();
+
+// Added: the vignette and film-grain stage on the presented-size LDR image, after SMAA and
+// sharpening and before the HUD layer composite, so the HUD, menus and prompts are untouched. The
+// vignette smoothly darkens the corners, aspect-corrected, with the centre unchanged. The film
+// grain is deterministic luminance noise from a hash of the pixel and a game-time frame counter,
+// weaker in the highlights, with zero mean. Each on its own is byte-identical to the path without
+// it; both off skip the pass and the image is byte-identical to today. Opening reads
+// engine.renderer.vignette and engine.renderer.filmGrain (both off in every build by default);
+// these setters change them until the next open. Closing frees the stage's target and pipelines.
+bool stdRenderBabylon_SetVignette(bool bEnabled);
+bool stdRenderBabylon_GetVignette();
+bool stdRenderBabylon_SetFilmGrain(bool bEnabled);
+bool stdRenderBabylon_GetFilmGrain();
 
 // Added: the built-in water-ripple stage, after the post-processing chain and before depth of field.
 // On pixels whose normal target's alpha carries the water surface tag (1/3), the scene is sampled at
@@ -471,7 +499,7 @@ void stdRenderBabylon_ForceLegacyPresentationForTest(bool bLegacy);
 
 // Added: test-only. Reads the 1 x 1 light-shaft centroid after a presenting submit and writes its
 // mask weight in 0..1 and the sky position in image uv (0, 0 top left; 1, 1 bottom right). Returns
-// false without a presented light-shaft frame. Production builds don't compile it.
+// false without a presented light-shaft or lens-flare frame. Production builds don't compile it.
 bool stdRenderBabylon_GetLightShaftCentroidForTest(float* pU, float* pV, float* pWeight);
 
 // Added: test-only. Reads the half-res light-shaft blur at a full-res pixel centre (the linear
@@ -481,6 +509,10 @@ bool stdRenderBabylon_GetLightShaftValueForTest(std::uint32_t x, std::uint32_t y
 // Added: test-only. Writes the ambient-occlusion reconstruction's horizontal and vertical tangent
 // scales for the current scene size and projection. Returns false when not open.
 bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalfY);
+// Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
+// whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
+// Returns false without such a submit. Production builds don't compile it.
+bool stdRenderBabylon_GetLensFlareStateForTest(float* pU, float* pV, float* pStrength);
 #endif
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame

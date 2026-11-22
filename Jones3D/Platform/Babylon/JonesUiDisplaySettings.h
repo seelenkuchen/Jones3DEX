@@ -80,6 +80,11 @@ struct JonesUiDisplayValues
     // Added: index into the camera motion-blur choices (Off, Low, Medium, High; Low at index 1 in
     // Enhanced).
     std::size_t motionBlur = 1;
+    // Added: lens flare, a toggle (on in Enhanced, off in Retail/QOL-off).
+    bool bLensFlare = true;
+    // Added: vignette and film grain, toggles (off in every build).
+    bool bVignette = false;
+    bool bFilmGrain = false;
     // Added: water ripples, a toggle (on in Enhanced, off in Retail/QOL-off).
     bool bWaterRipples = true;
     // Added: depth of field, a toggle for cutscene cameras and one for gameplay cameras.
@@ -119,6 +124,9 @@ struct JonesUiDisplayLayout
     std::size_t lightShafts = 0; // Added: M9.16 light-shaft level
     std::size_t ssao = 0; // Added: M9.17b ambient-occlusion level
     std::size_t motionBlur = 0; // Added: M9.19 camera motion-blur level
+    std::size_t lensFlare = 0; // Added: M9.18 lens flare toggle
+    std::size_t vignette = 0; // Added: M9.18 vignette toggle
+    std::size_t filmGrain = 0; // Added: M9.18 film grain toggle
     std::size_t waterRipples = 0; // Added: M9.17 water ripples toggle
     std::size_t dofCutscenes = 0; // Added: M9.14 depth of field in cutscenes
     std::size_t dofGameplay = 0; // Added: M9.14 depth of field in gameplay
@@ -156,6 +164,9 @@ struct JonesUiDisplayModel
     int lightShafts = 1;        // Added: engine.renderer.lightShafts, 0 off / 1 low / 2 medium / 3 high
     int ssao = 1;               // Added: engine.renderer.ssao, 0 off / 1 low / 2 medium / 3 high
     int motionBlur = 1;         // Added: engine.renderer.motionBlur, 0 off / 1 low / 2 medium / 3 high
+    bool bLensFlare = true;     // Added: engine.renderer.lensFlare
+    bool bVignette = false;     // Added: engine.renderer.vignette
+    bool bFilmGrain = false;    // Added: engine.renderer.filmGrain
     bool bWaterRipples = true;  // Added: engine.renderer.water.ripples
     bool bDofCutscenes = true;  // Added: engine.renderer.dof.cutscenes
     bool bDofGameplay = true;   // Added: engine.renderer.dof.gameplay

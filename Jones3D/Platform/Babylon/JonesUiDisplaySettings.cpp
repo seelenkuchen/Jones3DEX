@@ -89,6 +89,9 @@ namespace
     constexpr const char* kJonesDisplayLightShaftsText = "Light shafts"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplaySsaoText = "Ambient occlusion"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayMotionBlurText = "Motion blur"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayLensFlareText = "Lens flare"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayVignetteText = "Vignette"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayFilmGrainText = "Film grain"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayWaterRipplesText = "Water ripples"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofCutscenesText = "Depth of field (cutscenes)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofGameplayText = "Depth of field (gameplay)"; // TODO: [COMPAT]
@@ -128,6 +131,11 @@ namespace
     constexpr int kJonesDisplaySsaoValues[] = { 0, 1, 2, 3 };
     constexpr const char* kJonesDisplaySsaoLabels[] = { "Off", "Low", "Medium", "High" };
     constexpr std::size_t kJonesDisplaySsaoDefault = J3D_QOL_VALUE(1, 0);
+    // Added: M9.18 lens flare; on in Enhanced builds and off in Retail/QOL-off ones. The vignette
+    // and film grain are off in every build.
+    constexpr bool kJonesDisplayLensFlareDefault = J3D_QOL_VALUE(1, 0) != 0;
+    constexpr bool kJonesDisplayVignetteDefault  = false;
+    constexpr bool kJonesDisplayFilmGrainDefault = false;
 
     // Added: M9.19 camera motion-blur choices; Low (1) is the Enhanced default, off in
     // Retail/QOL-off builds.
@@ -647,6 +655,25 @@ namespace
             values.motionBlur < STD_ARRAYLEN(kJonesDisplayMotionBlurValues)
                 ? values.motionBlur : kJonesDisplayMotionBlurDefault });
 
+        // Added: M9.18. Lens flare adds tinted ghosts and a halo from the visible sky; the HUD,
+        // menus and prompts are never touched.
+        layout.lensFlare = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayLensFlareText), std::string(), true,
+            values.bLensFlare });
+
+        // Added: M9.18. The vignette darkens the corners of the 3D scene.
+        layout.vignette = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayVignetteText), std::string(), true,
+            values.bVignette });
+
+        // Added: M9.18. Film grain adds deterministic luminance noise to the 3D scene.
+        layout.filmGrain = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayFilmGrainText), std::string(), true,
+            values.bFilmGrain });
+
         // Added: M9.17. Water ripples animate water-tagged pixels; the HUD, menus and prompts are
         // never touched.
         layout.waterRipples = screen.widgets.size();
@@ -889,6 +916,12 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.motionBlur = std::clamp(JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR, J3D_QOL_VALUE(1, 0)), 0,
         (int)STD_ARRAYLEN(kJonesDisplayMotionBlurValues) - 1);
+    model.bLensFlare = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE,
+        kJonesDisplayLensFlareDefault);
+    model.bVignette = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE,
+        kJonesDisplayVignetteDefault);
+    model.bFilmGrain = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN,
+        kJonesDisplayFilmGrainDefault);
     model.bWaterRipples = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
         kJonesDisplayWaterRipplesDefault);
     model.bDofCutscenes = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
@@ -926,6 +959,9 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.lightShafts = JonesUiDisplay_LightShaftsIndex(model.lightShafts);
     values.ssao = JonesUiDisplay_SsaoIndex(model.ssao);
     values.motionBlur = JonesUiDisplay_MotionBlurIndex(model.motionBlur);
+    values.bLensFlare = model.bLensFlare;
+    values.bVignette = model.bVignette;
+    values.bFilmGrain = model.bFilmGrain;
     values.bWaterRipples = model.bWaterRipples;
     values.bDofCutscenes = model.bDofCutscenes;
     values.bDofGameplay = model.bDofGameplay;
@@ -988,6 +1024,12 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.ssao));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.motionBlur,
         values.motionBlur));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.lensFlare,
+        values.bLensFlare));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.vignette,
+        values.bVignette));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.filmGrain,
+        values.bFilmGrain));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.waterRipples,
         values.bWaterRipples));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofCutscenes,
@@ -1217,6 +1259,13 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO,
         kJonesDisplaySsaoValues[ssao]);
+    // Added: M9.18. Read when the frame owner opens, like bloom.
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE,
+        values.bLensFlare);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE,
+        values.bVignette);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN,
+        values.bFilmGrain);
 
     // Added: M9.19. Read when the frame owner opens, like bloom.
     const std::size_t motionBlur = std::min(values.motionBlur,

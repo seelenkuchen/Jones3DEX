@@ -360,6 +360,15 @@ namespace
         screen.help[layout.motionBlur] =
             "Smear the 3D scene along the camera's motion; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
+        screen.help[layout.lensFlare] =
+            "Add tinted lens-flare ghosts and a halo from the visible sky; the HUD, menus and "
+            "prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.vignette] =
+            "Darken the corners of the 3D scene slightly; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.filmGrain] =
+            "Add subtle film grain to the 3D scene; the HUD, menus and prompts are unchanged. "
+            "Applies when the display reopens.";
         screen.help[layout.waterRipples] =
             "Animate water surfaces with small ripples and a faint highlight; the HUD, menus and "
             "prompts are unchanged. Applies when the display reopens.";

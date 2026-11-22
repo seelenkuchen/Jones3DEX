@@ -33,6 +33,7 @@
 #include <sith/Gameplay/sithFX.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithPlayerControls.h>
+#include <sith/Gameplay/sithTime.h>
 #include <sith/Gameplay/sithVehicleControls.h>
 #include <sith/Gameplay/sithWhip.h>
 #include <sith/World/sithActor.h>
@@ -1546,9 +1547,19 @@ int J3DAPI sithThing_Draw(SithThing* pThing)
                 break;
 
             case SITH_THING_POLYLINE:
-                sithFX_UpdatePolyline(pThing);
+                // Altered: M9.20. On a fixed tick the tick's mark pass owns the polyline update,
+                // which consumes SITH_RAND and can destroy things; the draw only samples the
+                // tick-owned offset and reset it there too, so every draw in the tick sees it.
+                if ( !sithTime_g_bFixedStep )
+                {
+                    sithFX_UpdatePolyline(pThing);
+                }
+
                 drawRes = rdThing_Draw(&pThing->renderData, &pThing->orient);
-                sithFX_ResetPolylineTexVertOffset(pThing);
+                if ( !sithTime_g_bFixedStep )
+                {
+                    sithFX_ResetPolylineTexVertOffset(pThing);
+                }
                 break;
 
             default:

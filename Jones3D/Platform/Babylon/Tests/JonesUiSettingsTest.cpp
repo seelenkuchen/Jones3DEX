@@ -532,10 +532,10 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 light shafts, 14 ambient occlusion, 15 motion blur, 16 water ripples,
-    // 17 depth of field (cutscenes), 18 depth of field (gameplay), 19 sharpening, 20 tone mapping,
-    // 21 exposure, 22 colour grading, 23 anisotropic filtering, 24 crisp pixels, 25 Brightness...,
-    // 26 OK, 27 back.
+    // 13 light shafts, 14 ambient occlusion, 15 motion blur, 16 lens flare, 17 vignette,
+    // 18 film grain, 19 water ripples, 20 depth of field (cutscenes), 21 depth of field (gameplay),
+    // 22 sharpening, 23 tone mapping, 24 exposure, 25 colour grading, 26 anisotropic filtering,
+    // 27 crisp pixels, 28 Brightness..., 29 OK, 30 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -567,6 +567,12 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // motion blur
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // lens flare
+    testContext.platform.PushKey(platform::Key::Enter); // on -> off in Enhanced, off -> on without QOL
+    testContext.platform.PushKey(platform::Key::Down);  // vignette
+    testContext.platform.PushKey(platform::Key::Enter); // off -> on
+    testContext.platform.PushKey(platform::Key::Down);  // film grain
+    testContext.platform.PushKey(platform::Key::Enter); // off -> on
     testContext.platform.PushKey(platform::Key::Down);  // water ripples
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Down);  // depth of field (cutscenes)
@@ -622,6 +628,16 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR, -1) == 0);
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Enhanced starts lens flare on, so Enter turns it off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE, true));
+#else
+    // Without QOL it starts off, so Enter turns it on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE, false));
+#endif
+    // The vignette and film grain start off in every build, so Enter turns them on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE, false));
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN, false));
 #ifdef J3D_QOL_IMPROVEMENTS
     // Enhanced starts water ripples on, so Enter turns them off.
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, true));
@@ -1739,10 +1755,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 24).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 27).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 24; ++row )
+    for ( int row = 0; row < 27; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }
