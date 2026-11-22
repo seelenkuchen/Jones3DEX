@@ -1,10 +1,12 @@
 ## Jones3D EX (unreleased)
 ### M9: Presentation
 #### Gameplay
-  - **Quick whip** on the Modern gamepad's LB now works wherever the whip can be used: with no target it
-    draws the whip, cracks it through the normal fire path, and switches back to the previous weapon or empty
-    hands. At a whip target it still swings or climbs and switches back, and the keyboard whip-select key
-    still quick-whips only at a target before selecting the whip. The prompt is unchanged (ADR-0038).
+  - **Quick whip** on the Modern gamepad's LB now works wherever the whip can be used and is instant: the
+    whip is in hand on the press, so there is no draw or mount wait before the crack, and the previous
+    weapon or empty hands are back as soon as the attack ends, with no holster or draw animation. At a whip
+    target it still swings or climbs and switches back, and the keyboard whip-select key still quick-whips
+    only at a target before selecting the whip. Normal weapon selection and changes keep their animations,
+    and the prompt is unchanged (ADR-0038).
 #### Image quality
   - **Options > Display** has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
     50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample
