@@ -1313,6 +1313,11 @@ int JonesMain_ProcessGame(void)
             JonesFixedTick_BeginDraw();
 
             sithDrawScene();
+
+            // Added: dev-only --draw-trace samples the interpolated pose and the joints the scene
+            // draw just built, while the blended values are still in place. Inert without a trace.
+            JonesFixedTick_TraceDraw();
+
             sithOverlayMap_Draw();
             JonesMain_PrintQuickSave();
             JonesHud_Process();

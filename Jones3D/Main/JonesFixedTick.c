@@ -7,9 +7,11 @@
 
 #include <rdroid/Engine/rdCamera.h>
 #include <rdroid/Engine/rdPuppet.h>
+#include <rdroid/Primitives/rdModel3.h>
 
 #include <sith/Devices/sithSoundMixer.h>
 #include <sith/Engine/sithCamera.h>
+#include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithWorld.h>
 
@@ -18,7 +20,9 @@
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
 
+#include <ctype.h>
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #define JONESFIXEDTICK_MAXTHINGS 0x40000
@@ -44,6 +48,15 @@ static size_t                    jonesFixedTick_curNumThings;
 static JonesFixedTickCameraState jonesFixedTick_prevCamera;
 static JonesFixedTickCameraState jonesFixedTick_curCamera;
 static bool                      jonesFixedTick_bDrawing;
+
+// Added: dev-only --draw-trace state. The file stays NULL (and every trace call inert) unless the
+// headless runner opens it. The joint indices are resolved once from the player model's node names.
+static FILE*  jonesFixedTick_pDrawTraceFile;
+static size_t jonesFixedTick_drawTraceCount;
+static int    jonesFixedTick_drawTraceHeadJoint = -1;
+static int    jonesFixedTick_drawTraceHandJoint = -1;
+static int    jonesFixedTick_drawTraceFootJoint = -1;
+static bool   jonesFixedTick_bDrawTraceJointsResolved;
 
 // Added: M9.22 interpolated animation. The world's scroll and light state follows the same
 // previous/current tick pair as the things and camera.
@@ -438,6 +451,13 @@ void JonesFixedTick_CaptureCamera(JonesFixedTickCameraState* pDst, const SithCam
     pDst->orient      = pCamera->orient;
     pDst->fov         = pCamera->fov;
     pDst->aspectRatio = pCamera->aspectRatio;
+
+    // Added: M9.24. Presentation values the scene draw reads from the camera, blended with the
+    // pose so the sky, culling and focus distance do not snap at tick boundaries.
+    pDst->lookPos     = pCamera->lookPos;
+    pDst->focusPos    = pCamera->focusPos;
+    pDst->camSpot     = sithCamera_g_camSpot;
+    pDst->camLookSpot = sithCamera_g_camLookSpot;
 }
 
 void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppet* pPuppet)
@@ -456,6 +476,7 @@ void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppe
 
     pDst->valid   = true;
     pDst->pPuppet = (rdPuppet*)pPuppet;
+    pDst->numTempTracks = 0;
 
     for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
     {
@@ -466,11 +487,76 @@ void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppe
         pState->pKFTrack    = pTrack->pKFTrack;
         pState->curFrame    = pTrack->curFrame;
         pState->blendWeight = pTrack->blendWeight;
+        pState->lowPriority  = pTrack->lowPriority;
+        pState->highPriority = pTrack->highPriority;
     }
 }
 
+// Added: reserve a free puppet slot for the previous pose of a track that was replaced, looped or
+// removed between ticks. A removed track's own slot is free and preferred; otherwise the slot must
+// be free in both snapshots so a later track in this loop still finds its own previous pose.
+static int JonesFixedTick_AllocPuppetTempTrack(const JonesFixedTickPuppetState* pPrev,
+    const JonesFixedTickPuppetState* pCur, const rdPuppet* pPuppet, int preferred)
+{
+    if ( preferred >= 0 && preferred < (int)RDPUPPET_MAX_TRACKS
+        && !pCur->aTracks[preferred].valid && !pPuppet->aTracks[preferred].status )
+    {
+        return preferred;
+    }
+
+    for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+    {
+        if ( (int)trackNum == preferred )
+        {
+            continue;
+        }
+
+        const bool bFreeInPrev = !pPrev || !pPrev->valid || !pPrev->aTracks[trackNum].valid;
+        if ( !pCur->aTracks[trackNum].valid && bFreeInPrev && !pPuppet->aTracks[trackNum].status )
+        {
+            return (int)trackNum;
+        }
+    }
+
+    return -1;
+}
+
+// Added: fade out a removed track's previous pose in a free slot. Used when there is no current
+// track to carry the crossfade. guid 0 marks a draw-only track: the simulation never sees it and
+// the trace ignores it. RestorePuppet clears the slot after the draw.
+static void JonesFixedTick_AddPuppetTempTrack(const JonesFixedTickPuppetState* pPrev,
+    JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet,
+    const JonesFixedTickPuppetTrackState* pPrevTrack, int preferredTrack, float blendWeight)
+{
+    if ( !pPrevTrack->valid || !pPrevTrack->pKFTrack || blendWeight <= 0.0f
+        || pCur->numTempTracks >= RDPUPPET_MAX_TRACKS )
+    {
+        return;
+    }
+
+    const int tempTrack = JonesFixedTick_AllocPuppetTempTrack(pPrev, pCur, pPuppet, preferredTrack);
+    if ( tempTrack < 0 )
+    {
+        // Added: no free slot (many simultaneous tracks); fall back to the tick pose.
+        return;
+    }
+
+    rdPuppetTrack* pTemp = &pPuppet->aTracks[tempTrack];
+    pTemp->status        = RDPUPPET_TRACK_PLAYING | RDPUPPET_TRACK_UNKNOWN_1;
+    pTemp->pKFTrack      = (rdKeyframe*)pPrevTrack->pKFTrack;
+    pTemp->pfCallback    = NULL;
+    pTemp->guid          = 0;
+    pTemp->playbackSpeed = 1.0f;
+    pTemp->fps           = pPrevTrack->pKFTrack->fps;
+    pTemp->lowPriority   = pPrevTrack->lowPriority;
+    pTemp->highPriority  = pPrevTrack->highPriority;
+
+    rdPuppet_SetTrackDrawSample(pPuppet, tempTrack, pPrevTrack->curFrame, blendWeight);
+    pCur->aTempTrackNums[pCur->numTempTracks++] = tempTrack;
+}
+
 void JonesFixedTick_BlendPuppet(const JonesFixedTickPuppetState* pPrev,
-    const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet, float alpha)
+    JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet, float alpha)
 {
     if ( !pCur || !pCur->valid || !pPuppet || pPuppet != pCur->pPuppet )
     {
@@ -486,40 +572,119 @@ void JonesFixedTick_BlendPuppet(const JonesFixedTickPuppetState* pPrev,
         alpha = 1.0f;
     }
 
+    pCur->numTempTracks = 0;
+
+    const bool bHavePrev = pPrev && pPrev->valid && pPrev->pPuppet == pCur->pPuppet;
+
+    bool aPrevMatched[RDPUPPET_MAX_TRACKS] = { false };
+    bool aCurMatched[RDPUPPET_MAX_TRACKS]  = { false };
+
+    // First pass: tracks that exist on both sides. Blend the frame normally; if the frame went
+    // backwards the track looped, so crossfade the end pose into the start pose instead of
+    // running the whole track backwards.
     for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
     {
         const JonesFixedTickPuppetTrackState* pCurTrack = &pCur->aTracks[trackNum];
-        if ( !pCurTrack->valid )
-        {
-            continue;
-        }
-
-        rdPuppetTrack* pTrack = &pPuppet->aTracks[trackNum];
-        if ( pTrack->pKFTrack != pCurTrack->pKFTrack )
-        {
-            // Added: the track was replaced between the two ticks; draw its current state.
-            continue;
-        }
-
-        float frame       = pCurTrack->curFrame;
-        float blendWeight = pCurTrack->blendWeight;
-
-        const JonesFixedTickPuppetTrackState* pPrevTrack = pPrev && pPrev->valid
-            && pPrev->pPuppet == pCur->pPuppet
+        const JonesFixedTickPuppetTrackState* pPrevTrack = bHavePrev
             ? &pPrev->aTracks[trackNum]
             : NULL;
 
-        // Added: a loop resets curFrame behind the previous tick; blending across it would run
-        // the whole track backwards, so the loop point snaps to the current tick.
-        if ( pPrevTrack && pPrevTrack->valid && pPrevTrack->pKFTrack == pCurTrack->pKFTrack
-            && pCurTrack->curFrame >= pPrevTrack->curFrame )
+        if ( !pCurTrack->valid || !pPrevTrack || !pPrevTrack->valid
+            || pPrevTrack->pKFTrack != pCurTrack->pKFTrack )
         {
-            frame = pPrevTrack->curFrame + (pCurTrack->curFrame - pPrevTrack->curFrame) * alpha;
-            blendWeight = pPrevTrack->blendWeight
-                + (pCurTrack->blendWeight - pPrevTrack->blendWeight) * alpha;
+            continue;
         }
 
-        rdPuppet_SetTrackDrawSample(pPuppet, (int32_t)trackNum, frame, blendWeight);
+        if ( pPuppet->aTracks[trackNum].pKFTrack != pCurTrack->pKFTrack )
+        {
+            // The live slot no longer matches the snapshot. The simulation owns it.
+            continue;
+        }
+
+        aPrevMatched[trackNum] = true;
+        aCurMatched[trackNum]  = true;
+
+        if ( pCurTrack->curFrame >= pPrevTrack->curFrame )
+        {
+            const float frame = pPrevTrack->curFrame
+                + (pCurTrack->curFrame - pPrevTrack->curFrame) * alpha;
+            const float blendWeight = pPrevTrack->blendWeight
+                + (pCurTrack->blendWeight - pPrevTrack->blendWeight) * alpha;
+            rdPuppet_SetTrackDrawSample(pPuppet, (int32_t)trackNum, frame, blendWeight);
+        }
+        else
+        {
+            // Looped track: crossfade from the previous end pose to the new start pose.
+            rdPuppet_SetTrackDrawSample(pPuppet, (int32_t)trackNum, pCurTrack->curFrame,
+                pCurTrack->blendWeight);
+            rdPuppet_SetTrackDrawCrossfade(pPuppet, (int32_t)trackNum, pPrevTrack->pKFTrack,
+                pPrevTrack->curFrame, alpha);
+        }
+    }
+
+    // Collect the tracks that appeared or disappeared between the two ticks. A one-for-one change
+    // is the normal locomotion/jump transition: carry the previous pose in the new track, so the
+    // crossfade is exact no matter how the two tracks' priorities compare.
+    int aPrevUnmatched[RDPUPPET_MAX_TRACKS];
+    int aCurUnmatched[RDPUPPET_MAX_TRACKS];
+    size_t numPrevUnmatched = 0;
+    size_t numCurUnmatched  = 0;
+
+    for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+    {
+        if ( bHavePrev && !aPrevMatched[trackNum] && pPrev->aTracks[trackNum].valid )
+        {
+            aPrevUnmatched[numPrevUnmatched++] = (int)trackNum;
+        }
+
+        if ( !aCurMatched[trackNum] && pCur->aTracks[trackNum].valid )
+        {
+            aCurUnmatched[numCurUnmatched++] = (int)trackNum;
+        }
+    }
+
+    if ( numPrevUnmatched == numCurUnmatched )
+    {
+        for ( size_t pairNum = 0; pairNum < numCurUnmatched; ++pairNum )
+        {
+            const int prevTrackNum = aPrevUnmatched[pairNum];
+            const int curTrackNum  = aCurUnmatched[pairNum];
+            const JonesFixedTickPuppetTrackState* pPrevTrack = &pPrev->aTracks[prevTrackNum];
+            const JonesFixedTickPuppetTrackState* pCurTrack  = &pCur->aTracks[curTrackNum];
+
+            if ( pPuppet->aTracks[curTrackNum].pKFTrack != pCurTrack->pKFTrack )
+            {
+                continue;
+            }
+
+            rdPuppet_SetTrackDrawSample(pPuppet, curTrackNum, pCurTrack->curFrame,
+                pCurTrack->blendWeight);
+            rdPuppet_SetTrackDrawCrossfade(pPuppet, curTrackNum, pPrevTrack->pKFTrack,
+                pPrevTrack->curFrame, alpha);
+        }
+    }
+    else
+    {
+        // Not a simple one-for-one change. Draw the new tracks at their tick state and fade any
+        // leftover previous poses out over this tick.
+        for ( size_t i = 0; i < numCurUnmatched; ++i )
+        {
+            const int curTrackNum = aCurUnmatched[i];
+            const JonesFixedTickPuppetTrackState* pCurTrack = &pCur->aTracks[curTrackNum];
+            if ( pPuppet->aTracks[curTrackNum].pKFTrack == pCurTrack->pKFTrack )
+            {
+                rdPuppet_SetTrackDrawSample(pPuppet, curTrackNum, pCurTrack->curFrame,
+                    pCurTrack->blendWeight);
+            }
+        }
+
+        for ( size_t i = 0; i < numPrevUnmatched; ++i )
+        {
+            const int prevTrackNum = aPrevUnmatched[i];
+            JonesFixedTick_AddPuppetTempTrack(pPrev, pCur, pPuppet,
+                &pPrev->aTracks[prevTrackNum], prevTrackNum,
+                pPrev->aTracks[prevTrackNum].blendWeight * (1.0f - alpha));
+        }
     }
 }
 
@@ -544,6 +709,31 @@ void JonesFixedTick_RestorePuppet(const JonesFixedTickPuppetState* pCur, rdPuppe
         }
 
         rdPuppet_SetTrackDrawSample(pPuppet, (int32_t)trackNum, pCurTrack->curFrame, pCurTrack->blendWeight);
+    }
+
+    // Added: clear the draw-only crossfade tracks; the simulation's track slots stay as the tick
+    // left them. A temp slot was free before the draw, so clearing it restores that state.
+    for ( size_t tempNum = 0; tempNum < pCur->numTempTracks; ++tempNum )
+    {
+        const int tempTrack = pCur->aTempTrackNums[tempNum];
+        if ( tempTrack < 0 || tempTrack >= (int)RDPUPPET_MAX_TRACKS )
+        {
+            continue;
+        }
+
+        rdPuppetTrack* pTemp = &pPuppet->aTracks[tempTrack];
+        pTemp->status     = 0;
+        pTemp->pKFTrack   = NULL;
+        pTemp->pfCallback = NULL;
+        pTemp->guid       = 0;
+    }
+
+    // Added: a draw must never leave a crossfade behind for the next tick, even on a slot whose
+    // live keyframe no longer matched the snapshot above.
+    for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+    {
+        pPuppet->aTracks[trackNum].bDrawCrossfade        = false;
+        pPuppet->aTracks[trackNum].pDrawCrossfadeKFTrack = NULL;
     }
 }
 
@@ -897,7 +1087,7 @@ static bool JonesFixedTick_IsTeleport(const rdVector3* pPrev, const rdVector3* p
 }
 
 bool JonesFixedTick_BlendThing(const JonesFixedTickThingState* pPrev,
-    const JonesFixedTickThingState* pCur, SithThing* pThing, float alpha)
+    JonesFixedTickThingState* pCur, SithThing* pThing, float alpha)
 {
     if ( !pCur || !pCur->valid || !pThing || pThing->type == SITH_THING_FREE )
     {
@@ -1009,6 +1199,10 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
         pCamera->orient      = pCur->orient;
         pCamera->fov         = pCur->fov;
         pCamera->aspectRatio = pCur->aspectRatio;
+        pCamera->lookPos     = pCur->lookPos;
+        pCamera->focusPos    = pCur->focusPos;
+        sithCamera_g_camSpot     = pCur->camSpot;
+        sithCamera_g_camLookSpot = pCur->camLookSpot;
     }
     else
     {
@@ -1025,6 +1219,13 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
         JonesFixedTick_LerpOrient(&pCamera->orient, &pPrev->orient, &pCur->orient, alpha);
         pCamera->fov         = pPrev->fov + (pCur->fov - pPrev->fov) * alpha;
         pCamera->aspectRatio = pPrev->aspectRatio + (pCur->aspectRatio - pPrev->aspectRatio) * alpha;
+
+        // Added: M9.24. The scene draw reads lookPos (sky, culling, DoF distance) and the camera
+        // spot globals; blend them with the pose instead of leaving the post-tick values in place.
+        JonesFixedTick_LerpVector(&pCamera->lookPos, &pPrev->lookPos, &pCur->lookPos, alpha);
+        JonesFixedTick_LerpVector(&pCamera->focusPos, &pPrev->focusPos, &pCur->focusPos, alpha);
+        JonesFixedTick_LerpVector(&sithCamera_g_camSpot, &pPrev->camSpot, &pCur->camSpot, alpha);
+        JonesFixedTick_LerpVector(&sithCamera_g_camLookSpot, &pPrev->camLookSpot, &pCur->camLookSpot, alpha);
     }
 
     // Added: the draw's projection comes from the camera's rdCamera, so apply the interpolated
@@ -1044,6 +1245,10 @@ void JonesFixedTick_RestoreCamera(const JonesFixedTickCameraState* pCur, SithCam
     pCamera->orient      = pCur->orient;
     pCamera->fov         = pCur->fov;
     pCamera->aspectRatio = pCur->aspectRatio;
+    pCamera->lookPos     = pCur->lookPos;
+    pCamera->focusPos    = pCur->focusPos;
+    sithCamera_g_camSpot     = pCur->camSpot;
+    sithCamera_g_camLookSpot = pCur->camLookSpot;
 
     rdCamera_SetFOV(&pCamera->rdCamera, pCamera->fov);
     rdCamera_SetAspectRatio(&pCamera->rdCamera, pCamera->aspectRatio);
@@ -1088,7 +1293,7 @@ void JonesFixedTick_BeginDraw(void)
 
         for ( size_t i = 0; i < numThings; ++i )
         {
-            const JonesFixedTickThingState* pCur = &jonesFixedTick_pCurThings[i];
+            JonesFixedTickThingState* pCur = &jonesFixedTick_pCurThings[i];
             if ( !pCur->valid )
             {
                 continue;
@@ -1216,6 +1421,204 @@ void JonesFixedTick_EndDraw(void)
     jonesFixedTick_bDrawing = false;
 }
 
+bool JonesFixedTick_OpenDrawTrace(const char* pPath)
+{
+    JonesFixedTick_CloseDrawTrace();
+
+    if ( !pPath )
+    {
+        return false;
+    }
+
+    FILE* pFile = NULL;
+    if ( fopen_s(&pFile, pPath, "wb") != 0 || !pFile )
+    {
+        fprintf(stderr, "ERROR: JonesFixedTick: cannot open draw trace '%s' for writing!\n", pPath);
+        return false;
+    }
+
+    jonesFixedTick_pDrawTraceFile             = pFile;
+    jonesFixedTick_drawTraceCount             = 0;
+    jonesFixedTick_drawTraceHeadJoint         = -1;
+    jonesFixedTick_drawTraceHandJoint         = -1;
+    jonesFixedTick_drawTraceFootJoint         = -1;
+    jonesFixedTick_bDrawTraceJointsResolved   = false;
+    return true;
+}
+
+void JonesFixedTick_CloseDrawTrace(void)
+{
+    if ( jonesFixedTick_pDrawTraceFile )
+    {
+        fclose(jonesFixedTick_pDrawTraceFile);
+        jonesFixedTick_pDrawTraceFile = NULL;
+    }
+
+    jonesFixedTick_drawTraceCount           = 0;
+    jonesFixedTick_drawTraceHeadJoint       = -1;
+    jonesFixedTick_drawTraceHandJoint       = -1;
+    jonesFixedTick_drawTraceFootJoint       = -1;
+    jonesFixedTick_bDrawTraceJointsResolved = false;
+}
+
+// Added: case-insensitive substring test for the joint-name lookup below.
+static bool JonesFixedTick_NameContains(const char* pName, const char* pNeedle)
+{
+    if ( !pName || !pNeedle )
+    {
+        return false;
+    }
+
+    for ( const char* pCur = pName; *pCur; ++pCur )
+    {
+        const char* pA = pCur;
+        const char* pB = pNeedle;
+        while ( *pA && *pB && tolower((unsigned char)*pA) == tolower((unsigned char)*pB) )
+        {
+            ++pA;
+            ++pB;
+        }
+
+        if ( *pB == '\0' )
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Added: find the first model node whose name contains one of the preferred tokens, in order, so
+// "lhand" wins over a later "rhand" when both exist.
+static int JonesFixedTick_FindJointByName(const rdModel3* pModel3, const char* const* apTokens,
+    size_t numTokens)
+{
+    if ( !pModel3 || !pModel3->aHierarchyNodes )
+    {
+        return -1;
+    }
+
+    for ( size_t tokenNum = 0; tokenNum < numTokens; ++tokenNum )
+    {
+        for ( size_t nodeNum = 0; nodeNum < pModel3->numHNodes; ++nodeNum )
+        {
+            if ( JonesFixedTick_NameContains(pModel3->aHierarchyNodes[nodeNum].aName, apTokens[tokenNum]) )
+            {
+                return (int)nodeNum;
+            }
+        }
+    }
+
+    return -1;
+}
+
+// Added: resolve Indy's head/hand/foot model nodes once per trace. The name order prefers the left
+// limb when the model carries both sides.
+static void JonesFixedTick_ResolveDrawTraceJoints(const SithThing* pPlayer)
+{
+    // Indy's gen_in_shirt.3do names the three sample joints inhead (8), inlhand (12) and inlshoe
+    // (25). The name tokens keep the trace working with the other Indy costumes.
+    static const char* const aHeadTokens[] = { "head", "neck" };
+    static const char* const aHandTokens[] = { "lhand", "rhand", "hand" };
+    static const char* const aFootTokens[] = { "lshoe", "rshoe", "shoe", "lfoot", "rfoot", "foot" };
+
+    jonesFixedTick_bDrawTraceJointsResolved = true;
+
+    if ( !pPlayer || pPlayer->renderData.type != RD_THING_MODEL3 )
+    {
+        return;
+    }
+
+    const rdModel3* pModel3 = pPlayer->renderData.data.pModel3;
+    jonesFixedTick_drawTraceHeadJoint = JonesFixedTick_FindJointByName(pModel3, aHeadTokens, STD_ARRAYLEN(aHeadTokens));
+    jonesFixedTick_drawTraceHandJoint = JonesFixedTick_FindJointByName(pModel3, aHandTokens, STD_ARRAYLEN(aHandTokens));
+    jonesFixedTick_drawTraceFootJoint = JonesFixedTick_FindJointByName(pModel3, aFootTokens, STD_ARRAYLEN(aFootTokens));
+}
+
+static void JonesFixedTick_TraceJoint(FILE* pFile, const char* pLabel, int jointNum,
+    const SithThing* pPlayer)
+{
+    if ( jointNum < 0 || !pPlayer || pPlayer->renderData.type != RD_THING_MODEL3
+        || !pPlayer->renderData.paJointMatrices )
+    {
+        fprintf(pFile, " joint %s -1 0.000000 0.000000 0.000000", pLabel);
+        return;
+    }
+
+    const rdVector3* pPos = &pPlayer->renderData.paJointMatrices[jointNum].dvec;
+    fprintf(pFile, " joint %s %d %.6f %.6f %.6f", pLabel, jointNum,
+        (double)pPos->x, (double)pPos->y, (double)pPos->z);
+}
+
+void JonesFixedTick_TraceDraw(void)
+{
+    FILE* pFile = jonesFixedTick_pDrawTraceFile;
+    if ( !pFile )
+    {
+        return;
+    }
+
+    const SithThing*  pPlayer = sithPlayer_g_pLocalPlayerThing;
+    const SithCamera* pCamera = sithCamera_g_pCurCamera;
+
+    if ( !jonesFixedTick_bDrawTraceJointsResolved )
+    {
+        JonesFixedTick_ResolveDrawTraceJoints(pPlayer);
+    }
+
+    rdVector3 playerPos  = { 0.0f, 0.0f, 0.0f };
+    rdVector3 playerLVec = { 0.0f, 0.0f, 0.0f };
+    if ( pPlayer )
+    {
+        playerPos  = pPlayer->pos;
+        playerLVec = pPlayer->orient.lvec;
+    }
+
+    rdVector3 cameraPos  = { 0.0f, 0.0f, 0.0f };
+    rdVector3 cameraLook = { 0.0f, 0.0f, 0.0f };
+    if ( pCamera )
+    {
+        cameraPos  = pCamera->pos;
+        cameraLook = pCamera->lookPos;
+    }
+
+    fprintf(pFile, "draw %zu tick=%zu alpha=%.6f"
+        " ppos %.6f %.6f %.6f plvec %.6f %.6f %.6f"
+        " cpos %.6f %.6f %.6f clook %.6f %.6f %.6f ctarget %.6f %.6f %.6f",
+        jonesFixedTick_drawTraceCount,
+        jonesFixedTick_tickCount,
+        (double)jonesFixedTick_alpha,
+        (double)playerPos.x, (double)playerPos.y, (double)playerPos.z,
+        (double)playerLVec.x, (double)playerLVec.y, (double)playerLVec.z,
+        (double)cameraPos.x, (double)cameraPos.y, (double)cameraPos.z,
+        (double)cameraLook.x, (double)cameraLook.y, (double)cameraLook.z,
+        (double)sithCamera_g_camLookSpot.x, (double)sithCamera_g_camLookSpot.y,
+        (double)sithCamera_g_camLookSpot.z);
+
+    JonesFixedTick_TraceJoint(pFile, "head", jonesFixedTick_drawTraceHeadJoint, pPlayer);
+    JonesFixedTick_TraceJoint(pFile, "hand", jonesFixedTick_drawTraceHandJoint, pPlayer);
+    JonesFixedTick_TraceJoint(pFile, "foot", jonesFixedTick_drawTraceFootJoint, pPlayer);
+
+    if ( pPlayer && pPlayer->renderData.pPuppet )
+    {
+        const rdPuppet* pPuppet = pPlayer->renderData.pPuppet;
+        for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+        {
+            const rdPuppetTrack* pTrack = &pPuppet->aTracks[trackNum];
+            // guid 0 marks a draw-only crossfade track; the trace reports the simulation's tracks.
+            if ( pTrack->status && pTrack->pKFTrack && pTrack->guid != 0 )
+            {
+                fprintf(pFile, " track %zu %s %.6f %.6f 0x%x", trackNum,
+                    pTrack->pKFTrack->aName, (double)pTrack->curFrame,
+                    (double)pTrack->blendWeight, (unsigned int)pTrack->status);
+            }
+        }
+    }
+
+    fprintf(pFile, "\n");
+    ++jonesFixedTick_drawTraceCount;
+}
+
 void JonesFixedTick_ResetGlobals(void)
 {
     if ( jonesFixedTick_pPrevThings )
@@ -1289,6 +1692,13 @@ void JonesFixedTick_ResetGlobals(void)
     memset(&jonesFixedTick_curCamera, 0, sizeof(jonesFixedTick_curCamera));
 
     JonesFixedTick_AccumReset(&jonesFixedTick_accumulator);
+
+    // Added: a global reset starts a fresh trace sequence but keeps the file the runner opened.
+    jonesFixedTick_drawTraceCount           = 0;
+    jonesFixedTick_drawTraceHeadJoint       = -1;
+    jonesFixedTick_drawTraceHandJoint       = -1;
+    jonesFixedTick_drawTraceFootJoint       = -1;
+    jonesFixedTick_bDrawTraceJointsResolved = false;
 
     // Added: the override is deliberately kept, so the headless runner can set it once for all runs.
     sithTime_SetFixedStep(0);
