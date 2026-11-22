@@ -563,22 +563,61 @@ changes, and 3 camera/joint mixed. Two causes were real presentation snaps:
   focus distance, so those moved in tick-sized steps. `JonesFixedTickCameraState` now captures all three and
   `BlendCamera`/`RestoreCamera` blend and restore them with the pose.
 - **Replaced, looped and removed tracks.** A track slot replaced in place (stand to walk, walk to jump
-  anticipation, jump forward to fall, fall to land) and a loop reset were drawn at the new tick's keyframe, so
-  the pose snapped between two drawn frames. `rdPuppetTrack` now has draw-only crossfade fields: the next
-  `rdPuppet_BuildJointMatrices` samples the old keyframe at its previous frame into the same track and blends
-  the old and new node poses by alpha, before the priority layers combine. A one-for-one track change carries
-  the old pose in the new track, so the crossfade stays a convex blend regardless of the two tracks'
-  priorities. `rdPuppet_SetTrackDrawSample` clears the crossfade, and `JonesFixedTick_EndDraw` clears every
-  crossfade and every draw-only fade-out slot. Simulation state, callbacks, markers and loop bookkeeping stay
-  on the tick.
+  anticipation, jump forward to fall, fall to land), a loop reset, or a track appearing or disappearing was
+  drawn at the new tick's keyframe, so the pose snapped between two drawn frames. The first fix crossfaded
+  the old keyframe into the new track's local node transforms. It removed the take-off foot jump but could
+  still sample an old keyframe with a different node mapping and left joints outside the segment between the
+  two tick poses; the owner now saw wrong frames. It was replaced by a complete-pose crossfade, described in
+  M9.24b below.
 
-After the fix the same trace flags 15 of 713 drawn frames. The remaining flags are the crossfade moving a
-fast limb, the real vertical velocity change at landing, and the camera accelerating as the player lands; the
-large 0.08-unit foot jump at the take-off track change is gone. With the fixed tick off at `--step 8` and the
-same script scaled to 8 ms frames, the draw path takes every frame's tick state directly and has no track or
-look/focus snap. The off path is byte-identical: `--draw-step 8`, `16` and `5` produce identical state files
-to `--step 33`, plain and with the wander input, and the v6/Retail traces and the full native and retail unit
-suites are unchanged.
+The camera/look/focus fix remains. The first track fix flagged 15 of 713 drawn frames, including the
+take-off foot jump's disappearance; M9.24b supersedes its track part and leaves only the real landing and
+camera accelerations. With the fixed tick off at `--step 8` and the same script scaled to 8 ms frames, the
+draw path takes every frame's tick state directly and has no track or look/focus snap. The off path is
+byte-identical: `--draw-step 8`, `16` and `5` produce identical state files to `--step 33`, plain and with
+the wander input.
+
+## M9.24b complete-pose crossfade and the matching 50 Hz tick
+
+The local-keyframe crossfade could put a joint outside the segment between its previous-tick and
+current-tick positions. For example, at the fall-to-land change the left hand was 1.13 cm off the segment,
+because the old keyframe's node mapping can differ and because interpolating local bone transforms does not
+interpolate world joint positions linearly. It also carried draw-only crossfade state in `rdPuppetTrack`,
+which could outlive a tick.
+
+The replacement builds the complete previous- and current-tick skeletons, then linearly blends their world
+joint matrices by the draw alpha. The translation is linear, so every drawn joint lies exactly on the tick
+segment; the rotation is re-orthonormalised after the row blend. It is used only on a discontinuity, when a
+track was replaced, appeared, was removed, or looped (`curFrame` went backwards). The normal same-track frame
+interpolation is unchanged. If the old frame is unknown or out of range, the model changed between ticks, the
+node count exceeds the puppet cache, or the model skips building joints, the case snaps to the current tick
+pose instead. The world-space crossfade touches presentation only: simulation state, callbacks, markers and
+loop bookkeeping stay on the tick, and the live puppet is copied for the two builds.
+
+The trace was extended with the previous- and current-tick positions of the three sample joints, so the
+analyser can check each drawn sample joint against the segment. "Wrong frame" means a joint farther than a
+small tolerance from that segment. With 1 mm tolerance the jump/fall script had 11 joint-draws on 10 frames before
+the fix (maximum 11.3 mm) and has 2 joint-draws on 2 frames after it (maximum 1.57 mm). Those two are ordinary
+same-track frame interpolation during a fast foot swing, not a track change; with 2 mm tolerance the count is
+5 frames before and 0 after. The displacement table below uses the same per-draw median test as M9.24, and a
+track change is categorised per tick rather than per draw, so both draws of a transition tick are attributed
+to the transition:
+
+| fixed tick | drawn frames | flagged | track change | tick boundary | camera only | mixed | joint only | sample joints >2 mm off |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 60 Hz | 713 | 15 | 8 | 4 | 2 | 1 | 0 | 0 |
+| 50 Hz | 890 | 11 | 6 | 3 | 2 | 0 | 0 | 0 |
+| off, `--step 8` | 800 | 92 | 0 | 0 | 1 | 85 | 6 | n/a |
+
+The 60 Hz and 50 Hz runs used `--step 33 --draw-step 8` and the tick-scaled jump script; the off run used
+`--step 8` and the 8 ms-scaled script. The 85 mixed off-path flags are the physics substep beat, not
+animation: player physics integrates in fixed 20 ms (50 Hz) substeps, so an 8 ms or 60 Hz frame sometimes has
+no substep and the player stalls for one frame. The fixed-tick interpolation cannot remove that, because the
+tick pose itself is the stalled one. At a 50 Hz tick the substep is exactly one tick, the beat disappears,
+and the table drops from 92 flagged frames to 11; the remaining flags are track changes and real camera
+accelerations. That makes 50 Hz the tick rate that matches the simulation's physics step. Key proof: at both
+60 and 50 Hz, `--step 33` against `--draw-step 8`, `16` and `5` produces identical state files, plain and with
+the wander input.
 
 One runner detail surfaced while checking the key proof: with `--step` larger than the tick step, one headless
 process call runs several ticks, but `--input` was sampled once per call. A jump key held for a few ticks

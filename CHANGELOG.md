@@ -151,6 +151,12 @@
     lasers and polyline updates move onto the tick, so draw-only frames change nothing. The value is read at
     startup, so it applies when the game restarts, and the help text says so. QOL-off/Retail builds ignore
     the key. The headless `--fixed-tick` and `--draw-step` options drive it for tests.
+  - **Smooth jumps and falls** on the fixed tick. Camera look, focus and camera-spot values now interpolate
+    with the camera pose, and a track replaced, removed, appeared or looped between ticks crossfades the
+    complete previous and current tick skeletons in world space, so every drawn joint stays between the two
+    tick poses and no old keyframe supplies a wrong frame. A track change that cannot be blended safely snaps.
+    Physics still integrates in 20 ms substeps, so a 50 Hz simulation tick matches it and removes the airborne
+    one-frame stall that 60 Hz produces.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
