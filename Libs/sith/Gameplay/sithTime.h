@@ -23,6 +23,11 @@ extern uint32_t sithTime_g_msecGameTime;
 extern float sithTime_g_secGameTime;
 // extern float sithTime_g_secGameTime;
 
+// Added: M9.22 interpolated animation. Game time used by render-only animation (the underwater
+// wobble). During a fixed-tick drawn frame it is prevTick + alpha * step; otherwise it follows
+// sithTime_g_secGameTime.
+extern float sithTime_g_secRenderGameTime;
+
 extern uint32_t sithTime_g_clockTime;
 // extern unsigned int sithTime_g_clockTime;
 
@@ -43,6 +48,9 @@ void J3DAPI sithTime_SetFrameTime(uint32_t frameTime); //Added
 void sithTime_Reset(void);
 void J3DAPI sithTime_SetGameTime(uint32_t msecTime);
 int sithTime_IsPaused(void);
+
+void sithTime_SetRenderGameTime(float secTime); // Added: M9.22, fixed-tick draw only
+float sithTime_GetRenderGameTime(void);        // Added: M9.22, render-time game time
 
 void sithTime_ResetGlobals(void);
 

@@ -328,6 +328,26 @@ int J3DAPI SoundDriver_Update3DSound(tSysSoundBuffer** ppDSBuf, float x, float y
     return 1;
 }
 
+void J3DAPI SoundDriver_Update3DSoundListener(tSysSoundBuffer* pDSBuf, float x, float y, float z, float volume, float pitch, float minRadius, float maxRadius, SoundEnvFlags envflags)
+{
+    // Added: M9.22. Apply only the listener-relative mix parameters for a drawn frame. No stop,
+    // restart, release or channel-flag change is possible here.
+    float newVolume = volume;
+    float pan       = 0.0f;
+    float newPitch  = pitch;
+
+    SoundDriver_CalcListeneSoundMix(x, y, z, volume, pitch, &newVolume, &pan, &newPitch, minRadius, maxRadius, envflags);
+
+    SoundDriver_SetVolume(pDSBuf, newVolume * SoundDriver_maxVolume);
+    SoundDriver_SetPan(pDSBuf, pan);
+    if ( newPitch != 1.0f )
+    {
+        float freq = SoundDriver_GetFrequency(pDSBuf);
+        freq *= newPitch / pitch;
+        SoundDriver_SetFrequency(pDSBuf, freq);
+    }
+}
+
 void J3DAPI SoundDriver_SetGlobals(float distanceFactor, float minDistance, float maxDistance, float rolloffFactor, float dopplerFactor)
 {
     J3D_UNUSED(distanceFactor);

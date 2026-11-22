@@ -304,6 +304,271 @@ TEST(JonesFixedTick, ConfigureAcceptsZeroAsOff)
     TEST_ASSERT_EQUAL_INT(0, sithTime_g_bFixedStep);
 }
 
+
+TEST(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores)
+{
+    rdKeyframe keyframe;
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+
+    rdThing renderData;
+    memset(&renderData, 0, sizeof(renderData));
+
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+    puppet.pThing = &renderData;
+    renderData.pPuppet = &puppet;
+
+    puppet.aTracks[0].pKFTrack    = &keyframe;
+    puppet.aTracks[0].playbackSpeed = 1.0f;
+
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    thing.type               = SITH_THING_ACTOR;
+    thing.signature          = 9;
+    thing.renderData.pPuppet = &puppet;
+
+    puppet.aTracks[0].curFrame    = 1.0f;
+    puppet.aTracks[0].blendWeight = 0.25f;
+    JonesFixedTickThingState prev;
+    JonesFixedTick_CaptureThing(&prev, &thing);
+
+    puppet.aTracks[0].curFrame    = 5.0f;
+    puppet.aTracks[0].blendWeight = 0.75f;
+    JonesFixedTickThingState cur;
+    JonesFixedTick_CaptureThing(&cur, &thing);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.0f));
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.25f, puppet.aTracks[0].blendWeight);
+    JonesFixedTick_RestoreThing(&cur, &thing);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.75f, puppet.aTracks[0].blendWeight);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 1.0f));
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.75f, puppet.aTracks[0].blendWeight);
+    JonesFixedTick_RestoreThing(&cur, &thing);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, puppet.aTracks[0].blendWeight);
+    JonesFixedTick_RestoreThing(&cur, &thing);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.75f, puppet.aTracks[0].blendWeight);
+}
+
+TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksIsNotBlended)
+{
+    rdKeyframe keyframeA;
+    rdKeyframe keyframeB;
+    memset(&keyframeA, 0, sizeof(keyframeA));
+    memset(&keyframeB, 0, sizeof(keyframeB));
+    keyframeA.numFrames = 100;
+    keyframeB.numFrames = 100;
+
+    rdThing renderData;
+    memset(&renderData, 0, sizeof(renderData));
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+    puppet.pThing = &renderData;
+    renderData.pPuppet = &puppet;
+
+    puppet.aTracks[0].pKFTrack = &keyframeA;
+    puppet.aTracks[0].curFrame = 1.0f;
+
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    thing.type               = SITH_THING_ACTOR;
+    thing.signature          = 3;
+    thing.renderData.pPuppet = &puppet;
+
+    JonesFixedTickThingState prev;
+    JonesFixedTick_CaptureThing(&prev, &thing);
+
+    puppet.aTracks[0].pKFTrack = &keyframeB;
+    puppet.aTracks[0].curFrame = 9.0f;
+    JonesFixedTickThingState cur;
+    JonesFixedTick_CaptureThing(&cur, &thing);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(9.0f, puppet.aTracks[0].curFrame);
+}
+
+TEST(JonesFixedTick, SurfaceOffsetsAndLightBlendAndRestore)
+{
+    SithSurface surface;
+    memset(&surface, 0, sizeof(surface));
+    surface.flags = SITH_SURFACE_SCROLLING;
+
+    JonesFixedTickSurfaceState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid            = true;
+    prev.scrolling        = true;
+    prev.texVertOffset.x  = 10.0f;
+    prev.texVertOffset.y  = -20.0f;
+    prev.extraLight.red   = 1.0f;
+    prev.extraLight.green = 2.0f;
+    prev.extraLight.blue  = 3.0f;
+    prev.extraLight.alpha = 4.0f;
+
+    JonesFixedTickSurfaceState cur;
+    memset(&cur, 0, sizeof(cur));
+    cur.valid            = true;
+    cur.scrolling        = true;
+    cur.texVertOffset.x  = 14.0f;
+    cur.texVertOffset.y  = -24.0f;
+    cur.extraLight.red   = 3.0f;
+    cur.extraLight.green = 4.0f;
+    cur.extraLight.blue  = 5.0f;
+    cur.extraLight.alpha = 6.0f;
+
+    JonesFixedTick_BlendSurface(&prev, &cur, &surface, 0.5f);
+    TEST_ASSERT_EQUAL_FLOAT(12.0f, surface.face.texVertOffset.x);
+    TEST_ASSERT_EQUAL_FLOAT(-22.0f, surface.face.texVertOffset.y);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, surface.face.extraLight.red);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, surface.face.extraLight.green);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, surface.face.extraLight.blue);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, surface.face.extraLight.alpha);
+
+    JonesFixedTick_RestoreSurface(&cur, &surface);
+    TEST_ASSERT_EQUAL_FLOAT(14.0f, surface.face.texVertOffset.x);
+    TEST_ASSERT_EQUAL_FLOAT(-24.0f, surface.face.texVertOffset.y);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, surface.face.extraLight.red);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, surface.face.extraLight.green);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, surface.face.extraLight.blue);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, surface.face.extraLight.alpha);
+}
+
+TEST(JonesFixedTick, ScrollWrapBlendsTheShortWay)
+{
+    // 1020 -> 20 wrapped forward; the long way would pass through the middle at 520.
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 8.0f,
+        JonesFixedTick_LerpWrapped(1020.0f, 20.0f, 0.5f, JONESFIXEDTICK_SCROLL_PERIOD));
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 8.0f,
+        JonesFixedTick_LerpWrapped(20.0f, 1020.0f, 0.5f, JONESFIXEDTICK_SCROLL_PERIOD));
+}
+
+TEST(JonesFixedTick, SkyOffsetsBlendAndRestore)
+{
+    SithWorld world;
+    memset(&world, 0, sizeof(world));
+
+    JonesFixedTickSkyState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid              = true;
+    prev.horizonOffset.x    = 10.0f;
+    prev.horizonOffset.y    = 20.0f;
+    prev.ceilingOffset.x    = 30.0f;
+    prev.ceilingOffset.y    = 40.0f;
+
+    JonesFixedTickSkyState cur;
+    memset(&cur, 0, sizeof(cur));
+    cur.valid              = true;
+    cur.horizonOffset.x    = 14.0f;
+    cur.horizonOffset.y    = 24.0f;
+    cur.ceilingOffset.x    = 34.0f;
+    cur.ceilingOffset.y    = 44.0f;
+
+    JonesFixedTick_BlendSky(&prev, &cur, &world, 0.5f);
+    TEST_ASSERT_EQUAL_FLOAT(12.0f, world.horizonSkyOffset.x);
+    TEST_ASSERT_EQUAL_FLOAT(22.0f, world.horizonSkyOffset.y);
+    TEST_ASSERT_EQUAL_FLOAT(32.0f, world.ceilingSkyOffset.x);
+    TEST_ASSERT_EQUAL_FLOAT(42.0f, world.ceilingSkyOffset.y);
+
+    JonesFixedTick_RestoreSky(&cur, &world);
+    TEST_ASSERT_EQUAL_FLOAT(14.0f, world.horizonSkyOffset.x);
+    TEST_ASSERT_EQUAL_FLOAT(24.0f, world.horizonSkyOffset.y);
+    TEST_ASSERT_EQUAL_FLOAT(34.0f, world.ceilingSkyOffset.x);
+    TEST_ASSERT_EQUAL_FLOAT(44.0f, world.ceilingSkyOffset.y);
+}
+
+TEST(JonesFixedTick, SectorLightBlendsAndRestores)
+{
+    SithSector sector;
+    memset(&sector, 0, sizeof(sector));
+
+    JonesFixedTickSectorState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid            = true;
+    prev.extraLight.red   = 1.0f;
+    prev.extraLight.green = 2.0f;
+    prev.extraLight.blue  = 3.0f;
+    prev.extraLight.alpha = 4.0f;
+
+    JonesFixedTickSectorState cur;
+    memset(&cur, 0, sizeof(cur));
+    cur.valid            = true;
+    cur.extraLight.red   = 3.0f;
+    cur.extraLight.green = 4.0f;
+    cur.extraLight.blue  = 5.0f;
+    cur.extraLight.alpha = 6.0f;
+
+    JonesFixedTick_BlendSector(&prev, &cur, &sector, 0.5f);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, sector.extraLight.red);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, sector.extraLight.green);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, sector.extraLight.blue);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, sector.extraLight.alpha);
+
+    JonesFixedTick_RestoreSector(&cur, &sector);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, sector.extraLight.red);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, sector.extraLight.green);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, sector.extraLight.blue);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, sector.extraLight.alpha);
+}
+
+TEST(JonesFixedTick, ParticleSizeBlendsAndRestores)
+{
+    rdParticle particle;
+    memset(&particle, 0, sizeof(particle));
+
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    thing.type                        = SITH_THING_PARTICLE;
+    thing.signature                   = 5;
+    thing.renderData.data.pParticle   = &particle;
+
+    particle.radius = 10.0f;
+    JonesFixedTickThingState prev;
+    JonesFixedTick_CaptureThing(&prev, &thing);
+
+    particle.radius = 14.0f;
+    JonesFixedTickThingState cur;
+    JonesFixedTick_CaptureThing(&cur, &thing);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(12.0f, particle.radius);
+
+    JonesFixedTick_RestoreThing(&cur, &thing);
+    TEST_ASSERT_EQUAL_FLOAT(14.0f, particle.radius);
+}
+
+TEST(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended)
+{
+    rdParticle particle;
+    memset(&particle, 0, sizeof(particle));
+    particle.radius = 14.0f;
+
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    thing.type                      = SITH_THING_PARTICLE;
+    thing.signature                 = 5;
+    thing.renderData.data.pParticle = &particle;
+
+    JonesFixedTickThingState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid     = true;
+    prev.type      = SITH_THING_PARTICLE;
+    prev.signature = 5;
+    prev.bParticle = false;
+
+    JonesFixedTickThingState cur;
+    JonesFixedTick_CaptureThing(&cur, &thing);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
+    TEST_ASSERT_EQUAL_FLOAT(14.0f, particle.radius);
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateClampsToTheAllowedSet);
@@ -319,4 +584,12 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAndAspect);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
+    RUN_TEST_CASE(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores);
+    RUN_TEST_CASE(JonesFixedTick, PuppetTrackReplacedBetweenTicksIsNotBlended);
+    RUN_TEST_CASE(JonesFixedTick, SurfaceOffsetsAndLightBlendAndRestore);
+    RUN_TEST_CASE(JonesFixedTick, ScrollWrapBlendsTheShortWay);
+    RUN_TEST_CASE(JonesFixedTick, SkyOffsetsBlendAndRestore);
+    RUN_TEST_CASE(JonesFixedTick, SectorLightBlendsAndRestores);
+    RUN_TEST_CASE(JonesFixedTick, ParticleSizeBlendsAndRestores);
+    RUN_TEST_CASE(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended);
 }

@@ -54,6 +54,12 @@ bool J3DAPI sithSoundMixer_IsThingFadingPitch(SithThing* pThing, tSoundHandleTyp
 
 void sithSoundMixer_Update(void);
 
+// Added: M9.22. Refreshes only the listener and presentational 3D mix from the current camera.
+// The fixed tick calls this on a drawn frame after the camera has been interpolated; it never
+// runs fades, stops/restarts/releases channels or changes channel flags, and sector/ambient
+// changes stay on the tick in sithSoundMixer_Update.
+void sithSoundMixer_UpdateListener(void);
+
 int J3DAPI sithSoundMixer_GetThingInfo(int thingId, SoundThingInfo* pThingInfo);
 void J3DAPI sithSoundMixer_CalcCameraRelativeSoundMix(const SoundSpatialInfo* pSpatialInfo, float* volume, float* pan, float* pitch);
 

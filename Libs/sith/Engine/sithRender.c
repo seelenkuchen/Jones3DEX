@@ -406,12 +406,12 @@ static void sithRender_SetCameraProjection(float baseFov)
     {
         // Little underwater effect
         float sin, cos;
-        float angle = sithTime_g_secGameTime * 70.0f;
+        float angle = sithTime_GetRenderGameTime() * 70.0f; // Altered: M9.22 interpolated render time
         stdMath_SinCos(angle, &sin, &cos);
 
         rdCamera_SetFOV(&pCamera->rdCamera, sin * 1.0f + baseFov);
 
-        angle = sithTime_g_secGameTime * 100.0f;
+        angle = sithTime_GetRenderGameTime() * 100.0f; // Altered: M9.22 interpolated render time
         stdMath_SinCos(angle, &sin, &cos);
 
         float aspect = sin / 30.0f + pCamera->aspectRatio;
@@ -507,13 +507,13 @@ void sithRender_Draw(void)
     {
         // Little underwater effect
         float sin, cos;
-        float angle = sithTime_g_secGameTime * 70.0f;
+        float angle = sithTime_GetRenderGameTime() * 70.0f; // Altered: M9.22 interpolated render time
         stdMath_SinCos(angle, &sin, &cos);
 
         float fov = sin * 1.0f + sithCamera_g_pCurCamera->fov;
         rdCamera_SetFOV(&sithCamera_g_pCurCamera->rdCamera, fov);
 
-        angle = sithTime_g_secGameTime * 100.0f;
+        angle = sithTime_GetRenderGameTime() * 100.0f; // Altered: M9.22 interpolated render time
         stdMath_SinCos(angle, &sin, &cos);
 
         float aspect = sin / 30.0f + sithCamera_g_pCurCamera->aspectRatio;

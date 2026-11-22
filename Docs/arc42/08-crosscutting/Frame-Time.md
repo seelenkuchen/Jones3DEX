@@ -505,7 +505,37 @@ the state file's `frame` line count ticks and the run log ends with
 against the same run with `--draw-step 8`, `16` or `7` produced identical state files, with and without the
 wander input.
 
-**Still per tick, M9.22.** Puppet/keyframe joint poses, surface and sky texture scroll, particles and the sound
-listener are not interpolated yet; the underwater FOV/aspect wobble still follows tick game time. They step at
-the tick rate until M9.22. The `sithTime_g_fps` retuning and physics-step policy from section 6 are also not in
-this slice.
+## M9.22 implementation
+
+M9.22 interpolates the remaining presentation state on a fixed tick. Everything below is applied in
+`JonesFixedTick_BeginDraw` after the thing/camera blend and restored exactly in `JonesFixedTick_EndDraw`;
+with the option off these paths do not run and the measured-frame loop is unchanged.
+
+- **Puppet poses.** Before and after each tick every thing's puppet tracks are snapshotted (`curFrame`,
+  `blendWeight`, keyframe pointer). A drawn frame samples each track at
+  `prevFrame + alpha * (curFrame - prevFrame)` and blends the fade weight. `rdPuppet_SetTrackDrawSample`
+  resets the keyframe node cache so `rdPuppet_BuildJointMatrices` finds the right segment for the sampled
+  frame. Markers, callbacks, status changes and loop resets stay on the tick. A loop (curFrame behind the
+  previous tick), a replaced track, or a recreated thing snaps to the current tick instead of blending.
+- **Surface and sky scroll.** Every surface's `texVertOffset`/`extraLight`, the world horizon/ceiling sky
+  offsets and every sector's `extraLight` are snapshotted per tick. Scrolling offsets and sky offsets blend
+  with a 1024-unit wrap that takes the short path across a boundary; light ramps blend linearly. Page-flip
+  cels, cel animation and `matCelNum` changes stay on the tick because a cel cannot be blended.
+- **Particles.** Position and orientation come from the thing blend; the particle cloud radius (growth) is
+  blended too. A particle created between ticks is drawn at its current size. Vertex cels and the vertex
+  count stay on the tick.
+- **Sound listener.** `sithSoundMixer_UpdateListener` now runs on each drawn frame after the camera blend and
+  calls the new `Sound_SetListener` path, which moves the driver listener and refreshes only the
+  listener-relative volume/pan/pitch of active 3D channels. It never runs fades, advances play clocks,
+  reads thing positions, stops/restarts/releases channels or changes channel flags or handles. The full
+  `Sound_Update` and the sector/ambient switch stay in `sithSoundMixer_Update` on the tick, so sound state
+  cannot feed the simulation on a draw-only frame.
+- **Underwater wobble.** `sithRender_Draw` reads `sithTime_GetRenderGameTime()`, which is
+  `prevSecGameTime + alpha * step` during a fixed-tick draw and `sithTime_g_secGameTime` otherwise.
+
+Unit tests cover puppet sampling at alpha 0/1 and restore, a replaced puppet track, surface and sky offset
+blend/restore, the short-path scroll wrap, sector and surface light blends, and particle size blend/restore
+including a particle created between ticks. The headless key proof (`--fixed-tick 60 --step 33` against
+`--draw-step 8`, `16` and `5`, with and without the wander input) produces identical state files, and the
+v6/Retail traces are unchanged. `sithTime_g_fps` retuning and the physics-step policy from section 6 are
+still open.

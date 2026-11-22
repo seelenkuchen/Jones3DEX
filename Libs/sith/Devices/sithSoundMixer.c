@@ -285,6 +285,21 @@ void sithSoundMixer_Update(void)
     Sound_Update(&sithCamera_g_pCurCamera->lookPos, NULL, &sithCamera_g_pCurCamera->orient.uvec, &fwdDir);
 }
 
+void sithSoundMixer_UpdateListener(void)
+{
+    // Added: M9.22. Split out of sithSoundMixer_Update so the fixed tick can move the listener to
+    // the drawn frame's interpolated camera without repeating the tick-owned sector/ambient work
+    // or the full Sound_Update stop/restart/fade/channel-clock logic.
+    if ( !sithCamera_g_pCurCamera || !sithCamera_g_pCurCamera->pSector )
+    {
+        return;
+    }
+
+    rdVector3 fwdDir;
+    rdVector_Neg3(&fwdDir, &sithCamera_g_pCurCamera->orient.lvec);
+    Sound_SetListener(&sithCamera_g_pCurCamera->lookPos, &sithCamera_g_pCurCamera->orient.uvec, &fwdDir);
+}
+
 int J3DAPI sithSoundMixer_GetThingInfo(int thingId, SoundThingInfo* pThingInfo)
 {
     int thidx = sithSoundMixer_GetThingIndex(thingId);

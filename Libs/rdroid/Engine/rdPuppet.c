@@ -362,6 +362,30 @@ void J3DAPI rdPuppet_AdvanceTrack(rdPuppet* pPuppet, int32_t track, float frames
     }
 }
 
+void J3DAPI rdPuppet_SetTrackDrawSample(rdPuppet* pPuppet, int32_t track, float frame, float blendWeight)
+{
+    // Added: M9.22. A drawn frame may sample between the last two ticks. BuildJointMatrices only
+    // advances its keyframe node cache forward, so reset the cache here; the next build walks it
+    // to the requested frame exactly as a fresh track does when it loops.
+    RD_ASSERTREL(pPuppet != NULL);
+    RD_ASSERTREL((track >= 0) && (track < STD_ARRAYLEN(pPuppet->aTracks)));
+
+    rdPuppetTrack* pTrack = &pPuppet->aTracks[track];
+    pTrack->curFrame    = frame;
+    pTrack->blendWeight = blendWeight;
+
+    if ( pPuppet->pThing && pPuppet->pThing->data.pModel3
+        && pPuppet->pThing->data.pModel3->numHNodes < STD_ARRAYLEN(pTrack->aCurKfNodeEntryNums) )
+    {
+        STD_ZEROMEM(pTrack->aCurKfNodeEntryNums,
+            sizeof(pTrack->aCurKfNodeEntryNums[0]) * pPuppet->pThing->data.pModel3->numHNodes);
+    }
+    else
+    {
+        STD_ZEROMEM(pTrack->aCurKfNodeEntryNums, sizeof(pTrack->aCurKfNodeEntryNums));
+    }
+}
+
 int J3DAPI rdPuppet_UpdateTracks(rdPuppet* pPuppet, float secDeltaTime)
 {
     RD_ASSERTREL(pPuppet != NULL);

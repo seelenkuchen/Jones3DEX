@@ -36,19 +36,67 @@ typedef struct sJonesFixedTickAccumulator
     double   accumMsec;
 } JonesFixedTickAccumulator;
 
+// Added: M9.22. One track's tick state for draw-time pose interpolation. The keyframe pointer
+// identifies the track so a replaced track is never blended with its predecessor.
+typedef struct sJonesFixedTickPuppetTrackState
+{
+    bool              valid;
+    const rdKeyframe* pKFTrack;
+    float             curFrame;
+    float             blendWeight;
+} JonesFixedTickPuppetTrackState;
+
+typedef struct sJonesFixedTickPuppetState
+{
+    bool                           valid;
+    rdPuppet*                      pPuppet;
+    JonesFixedTickPuppetTrackState aTracks[RDPUPPET_MAX_TRACKS];
+} JonesFixedTickPuppetState;
+
 // Added: one active thing's previous or current tick state. renderFrame and flags are included
 // because the draw used to write them; the draw now only reads them, but restoring them keeps a
 // drawn frame from leaking any future draw-side change into the simulation.
 typedef struct sJonesFixedTickThingState
 {
-    bool          valid;
-    SithThingType type;
-    uint32_t      signature;
-    SithThingFlag flags;
-    size_t        renderFrame;
-    rdVector3     pos;
-    rdMatrix34    orient;
+    bool                        valid;
+    SithThingType               type;
+    uint32_t                    signature;
+    SithThingFlag               flags;
+    size_t                      renderFrame;
+    rdVector3                   pos;
+    rdMatrix34                  orient;
+    JonesFixedTickPuppetState   puppet;
+    bool                        bParticle;
+    float                       particleRadius;
+    rdVector4                   lightColor;
+    float                       lightMinRadius;
+    float                       lightMaxRadius;
 } JonesFixedTickThingState;
+
+// Added: M9.22 surface, sky and sector light scroll values captured at the tick.
+typedef struct sJonesFixedTickSurfaceState
+{
+    bool       valid;
+    bool       scrolling;
+    rdVector2  texVertOffset;
+    rdVector4  extraLight;
+} JonesFixedTickSurfaceState;
+
+typedef struct sJonesFixedTickSkyState
+{
+    bool      valid;
+    rdVector2 horizonOffset;
+    rdVector2 ceilingOffset;
+} JonesFixedTickSkyState;
+
+typedef struct sJonesFixedTickSectorState
+{
+    bool      valid;
+    rdVector4 extraLight;
+} JonesFixedTickSectorState;
+
+// Added: M9.22. The scroll offsets wrap at this period (sithAnimate uses fmodf 1024).
+#define JONESFIXEDTICK_SCROLL_PERIOD 1024.0f
 
 typedef struct sJonesFixedTickCameraState
 {
@@ -102,6 +150,30 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
 void JonesFixedTick_RestoreCamera(const JonesFixedTickCameraState* pCur, SithCamera* pCamera);
 void JonesFixedTick_LerpVector(rdVector3* pOut, const rdVector3* pA, const rdVector3* pB, float alpha);
 void JonesFixedTick_LerpOrient(rdMatrix34* pOut, const rdMatrix34* pA, const rdMatrix34* pB, float alpha);
+
+// Added: M9.22 interpolated animation helpers (also used by the unit tests).
+void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppet* pPuppet);
+void JonesFixedTick_BlendPuppet(const JonesFixedTickPuppetState* pPrev,
+    const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet, float alpha);
+void JonesFixedTick_RestorePuppet(const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet);
+
+void JonesFixedTick_CaptureSurface(JonesFixedTickSurfaceState* pDst, const SithSurface* pSurface);
+void JonesFixedTick_BlendSurface(const JonesFixedTickSurfaceState* pPrev,
+    const JonesFixedTickSurfaceState* pCur, SithSurface* pSurface, float alpha);
+void JonesFixedTick_RestoreSurface(const JonesFixedTickSurfaceState* pCur, SithSurface* pSurface);
+
+void JonesFixedTick_CaptureSky(JonesFixedTickSkyState* pDst, const SithWorld* pWorld);
+void JonesFixedTick_BlendSky(const JonesFixedTickSkyState* pPrev,
+    const JonesFixedTickSkyState* pCur, SithWorld* pWorld, float alpha);
+void JonesFixedTick_RestoreSky(const JonesFixedTickSkyState* pCur, SithWorld* pWorld);
+
+void JonesFixedTick_CaptureSector(JonesFixedTickSectorState* pDst, const SithSector* pSector);
+void JonesFixedTick_BlendSector(const JonesFixedTickSectorState* pPrev,
+    const JonesFixedTickSectorState* pCur, SithSector* pSector, float alpha);
+void JonesFixedTick_RestoreSector(const JonesFixedTickSectorState* pCur, SithSector* pSector);
+
+// Added: blends a value that wraps at period, choosing the short path across a wrap.
+float JonesFixedTick_LerpWrapped(float prev, float cur, float alpha, float period);
 
 void JonesFixedTick_ResetGlobals(void);
 

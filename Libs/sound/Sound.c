@@ -2719,6 +2719,53 @@ void J3DAPI Sound_Update(const rdVector3* pPos, const rdVector3* pVelocity, cons
     }
 }
 
+void J3DAPI Sound_SetListener(const rdVector3* pPos, const rdVector3* pTopOrient, const rdVector3* pFrontOrient)
+{
+    // Added: M9.22. Draw-frame listener refresh. This moves the driver listener and recomputes only
+    // the listener-relative volume/pan/pitch of active 3D channels. It deliberately does not run
+    // fades, advance play clocks, read thing positions, stop/restart/release channels or change any
+    // channel flag or handle, so a draw-only frame cannot change simulation-visible sound state.
+    rdVector3 topOrient;
+    if ( pTopOrient && !Sound_bReverseSound )
+    {
+        rdVector_Neg3(&topOrient, pTopOrient);
+        pTopOrient = &topOrient;
+    }
+
+    rdVector3 frontOrient;
+    if ( pFrontOrient && !Sound_bReverseSound )
+    {
+        rdVector_Neg3(&frontOrient, pFrontOrient);
+        pFrontOrient = &frontOrient;
+    }
+
+    SoundDriver_SetListenerPosition(pPos, NULL, pTopOrient, pFrontOrient);
+
+    if ( !Sound_apChannels )
+    {
+        return;
+    }
+
+    for ( size_t i = 0; i < Sound_numChannels; ++i )
+    {
+        tSoundChannel* pChannel = &Sound_apChannels[i];
+        if ( pChannel->handle != SOUND_INVALIDHANDLE && (pChannel->flags & SOUND_CHANNEL_3DSOUND) != 0 )
+        {
+            SoundDriver_Update3DSoundListener(
+                pChannel->pDSoundBuffer,
+                pChannel->playPos.x,
+                pChannel->playPos.y,
+                pChannel->playPos.z,
+                pChannel->volume,
+                pChannel->pitch,
+                pChannel->minRadius,
+                pChannel->maxRadius,
+                pChannel->envflags
+            );
+        }
+    }
+}
+
 // Added: Build and commit cached lip-sync data only after every allocation and generation step succeeds.
 static int Sound_CacheLipSyncData(SoundInfo* pSndInfo, uint8_t* pSoundCache, size_t soundCacheCapacity, const char* pFilename)
 {

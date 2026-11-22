@@ -66,15 +66,25 @@ draw work moved onto the tick: the default-FOV visibility marks (`SITH_TF_SEEN`,
 `renderFrame`), the AI waypoint lasers, `sithFX_UpdatePolyline` and the out-of-water
 air-destroyed sprite check. `sithTime` stops reading the wall clock while the tick is on and `sithTime_g_clockTime` follows game time. The headless runner has
 `--fixed-tick` and `--draw-step`, and `--frames` counts ticks. With the option off the measured-frame
-loop and the v6/Retail traces are unchanged. Puppet poses, surface/sky scroll, particles and the sound
-listener interpolation are M9.22; the render-rate UI is M9.23. The status stays Proposed until the
-owner play-tests the cadence and decides the Enhanced default.
+loop and the v6/Retail traces are unchanged.
+
+M9.22 adds the remaining presentation interpolation: puppet track frames and fade weights (sampled at
+`prev + alpha * step`, with the keyframe node cache reset for the sampled frame; markers and loop resets
+stay on the tick), surface texture scroll and surface/sector/sky light ramps, horizon/ceiling sky scroll
+(offset wraps take the short path), particle growth radius, the sound listener (a draw-frame
+listener-only refresh that moves the driver listener and mix parameters without running fades,
+stopping/restarting/releasing channels or changing channel flags) and a render-time game time for the
+underwater wobble. Page-flip cels, cel
+animation, vertex counts and particle cels stay on the tick. Everything is applied in
+`JonesFixedTick_BeginDraw` and restored in `JonesFixedTick_EndDraw`; the headless key proof and the
+v6/Retail traces are unchanged. The render-rate UI is M9.23. The status stays Proposed until the owner
+play-tests the cadence and decides the Enhanced default.
 
 ## What must be interpolated
 
 - Thing position and orientation, including attached, path-moved and vehicle things.
 - Camera position, orientation, FOV and aspect ratio, including the underwater wobble.
 - Puppet/keyframe joint poses and blend weights; keyframe markers remain on the tick.
-- Surface texture scroll, sky-horizon and ceiling scroll, and page-flip selection.
-- Particles: position, size and current cel.
+- Surface texture scroll and sky-horizon/ceiling scroll; page-flip cels stay on the tick.
+- Particles: position and size; the current cel stays on the tick.
 - Sound listener position and orientation.

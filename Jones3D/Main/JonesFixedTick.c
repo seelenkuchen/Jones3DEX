@@ -6,7 +6,9 @@
 #include "JonesFixedTick.h"
 
 #include <rdroid/Engine/rdCamera.h>
+#include <rdroid/Engine/rdPuppet.h>
 
+#include <sith/Devices/sithSoundMixer.h>
 #include <sith/Engine/sithCamera.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithWorld.h>
@@ -16,6 +18,7 @@
 #include <std/General/stdPlatform.h>
 #include <std/General/stdUtil.h>
 
+#include <math.h>
 #include <string.h>
 
 #define JONESFIXEDTICK_MAXTHINGS 0x40000
@@ -41,6 +44,33 @@ static size_t                    jonesFixedTick_curNumThings;
 static JonesFixedTickCameraState jonesFixedTick_prevCamera;
 static JonesFixedTickCameraState jonesFixedTick_curCamera;
 static bool                      jonesFixedTick_bDrawing;
+
+// Added: M9.22 interpolated animation. The world's scroll and light state follows the same
+// previous/current tick pair as the things and camera.
+static JonesFixedTickSurfaceState* jonesFixedTick_pPrevSurfaces;
+static JonesFixedTickSurfaceState* jonesFixedTick_pCurSurfaces;
+static size_t                      jonesFixedTick_surfaceCapacity;
+static size_t                      jonesFixedTick_prevNumSurfaces;
+static size_t                      jonesFixedTick_curNumSurfaces;
+static const SithWorld*            jonesFixedTick_prevSurfaceWorld;
+static const SithWorld*            jonesFixedTick_curSurfaceWorld;
+
+static JonesFixedTickSectorState*  jonesFixedTick_pPrevSectors;
+static JonesFixedTickSectorState*  jonesFixedTick_pCurSectors;
+static size_t                      jonesFixedTick_sectorCapacity;
+static size_t                      jonesFixedTick_prevNumSectors;
+static size_t                      jonesFixedTick_curNumSectors;
+static const SithWorld*            jonesFixedTick_prevSectorWorld;
+static const SithWorld*            jonesFixedTick_curSectorWorld;
+
+static JonesFixedTickSkyState      jonesFixedTick_prevSky;
+static JonesFixedTickSkyState      jonesFixedTick_curSky;
+static const SithWorld*            jonesFixedTick_prevSkyWorld;
+static const SithWorld*            jonesFixedTick_curSkyWorld;
+
+static float                       jonesFixedTick_prevSecGameTime;
+static float                       jonesFixedTick_curSecGameTime;
+static bool                        jonesFixedTick_bHaveGameTime;
 
 int JonesFixedTick_ClampRate(int rateHz)
 {
@@ -296,6 +326,72 @@ static bool JonesFixedTick_EnsureCapacity(size_t numThings)
     return true;
 }
 
+static bool JonesFixedTick_EnsureSurfaceCapacity(size_t numSurfaces)
+{
+    if ( numSurfaces <= jonesFixedTick_surfaceCapacity )
+    {
+        return true;
+    }
+
+    size_t newCapacity = jonesFixedTick_surfaceCapacity ? jonesFixedTick_surfaceCapacity : 64;
+    while ( newCapacity < numSurfaces )
+    {
+        newCapacity *= 2;
+    }
+
+    JonesFixedTickSurfaceState* pPrev = (JonesFixedTickSurfaceState*)STDREALLOC(
+        jonesFixedTick_pPrevSurfaces, newCapacity * sizeof(*pPrev));
+    if ( !pPrev )
+    {
+        return false;
+    }
+    jonesFixedTick_pPrevSurfaces = pPrev;
+
+    JonesFixedTickSurfaceState* pCur = (JonesFixedTickSurfaceState*)STDREALLOC(
+        jonesFixedTick_pCurSurfaces, newCapacity * sizeof(*pCur));
+    if ( !pCur )
+    {
+        return false;
+    }
+    jonesFixedTick_pCurSurfaces = pCur;
+
+    jonesFixedTick_surfaceCapacity = newCapacity;
+    return true;
+}
+
+static bool JonesFixedTick_EnsureSectorCapacity(size_t numSectors)
+{
+    if ( numSectors <= jonesFixedTick_sectorCapacity )
+    {
+        return true;
+    }
+
+    size_t newCapacity = jonesFixedTick_sectorCapacity ? jonesFixedTick_sectorCapacity : 64;
+    while ( newCapacity < numSectors )
+    {
+        newCapacity *= 2;
+    }
+
+    JonesFixedTickSectorState* pPrev = (JonesFixedTickSectorState*)STDREALLOC(
+        jonesFixedTick_pPrevSectors, newCapacity * sizeof(*pPrev));
+    if ( !pPrev )
+    {
+        return false;
+    }
+    jonesFixedTick_pPrevSectors = pPrev;
+
+    JonesFixedTickSectorState* pCur = (JonesFixedTickSectorState*)STDREALLOC(
+        jonesFixedTick_pCurSectors, newCapacity * sizeof(*pCur));
+    if ( !pCur )
+    {
+        return false;
+    }
+    jonesFixedTick_pCurSectors = pCur;
+
+    jonesFixedTick_sectorCapacity = newCapacity;
+    return true;
+}
+
 void JonesFixedTick_CaptureThing(JonesFixedTickThingState* pDst, const SithThing* pThing)
 {
     if ( !pDst || !pThing || pThing->type == SITH_THING_FREE )
@@ -314,6 +410,16 @@ void JonesFixedTick_CaptureThing(JonesFixedTickThingState* pDst, const SithThing
     pDst->renderFrame = pThing->renderFrame;
     pDst->pos         = pThing->pos;
     pDst->orient      = pThing->orient;
+
+    // Added: M9.22. Puppet pose, particle size and thing light for a drawn frame.
+    JonesFixedTick_CapturePuppet(&pDst->puppet, pThing->renderData.pPuppet);
+
+    pDst->bParticle = pThing->type == SITH_THING_PARTICLE && pThing->renderData.data.pParticle != NULL;
+    pDst->particleRadius = pDst->bParticle ? pThing->renderData.data.pParticle->radius : 0.0f;
+
+    pDst->lightColor     = pThing->light.color;
+    pDst->lightMinRadius = pThing->light.minRadius;
+    pDst->lightMaxRadius = pThing->light.maxRadius;
 }
 
 void JonesFixedTick_CaptureCamera(JonesFixedTickCameraState* pDst, const SithCamera* pCamera)
@@ -332,6 +438,325 @@ void JonesFixedTick_CaptureCamera(JonesFixedTickCameraState* pDst, const SithCam
     pDst->orient      = pCamera->orient;
     pDst->fov         = pCamera->fov;
     pDst->aspectRatio = pCamera->aspectRatio;
+}
+
+void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppet* pPuppet)
+{
+    if ( !pDst )
+    {
+        return;
+    }
+
+    if ( !pPuppet )
+    {
+        pDst->valid   = false;
+        pDst->pPuppet = NULL;
+        return;
+    }
+
+    pDst->valid   = true;
+    pDst->pPuppet = (rdPuppet*)pPuppet;
+
+    for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+    {
+        const rdPuppetTrack* pTrack = &pPuppet->aTracks[trackNum];
+        JonesFixedTickPuppetTrackState* pState = &pDst->aTracks[trackNum];
+
+        pState->valid       = pTrack->pKFTrack != NULL;
+        pState->pKFTrack    = pTrack->pKFTrack;
+        pState->curFrame    = pTrack->curFrame;
+        pState->blendWeight = pTrack->blendWeight;
+    }
+}
+
+void JonesFixedTick_BlendPuppet(const JonesFixedTickPuppetState* pPrev,
+    const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet, float alpha)
+{
+    if ( !pCur || !pCur->valid || !pPuppet || pPuppet != pCur->pPuppet )
+    {
+        return;
+    }
+
+    if ( alpha < 0.0f )
+    {
+        alpha = 0.0f;
+    }
+    else if ( alpha > 1.0f )
+    {
+        alpha = 1.0f;
+    }
+
+    for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+    {
+        const JonesFixedTickPuppetTrackState* pCurTrack = &pCur->aTracks[trackNum];
+        if ( !pCurTrack->valid )
+        {
+            continue;
+        }
+
+        rdPuppetTrack* pTrack = &pPuppet->aTracks[trackNum];
+        if ( pTrack->pKFTrack != pCurTrack->pKFTrack )
+        {
+            // Added: the track was replaced between the two ticks; draw its current state.
+            continue;
+        }
+
+        float frame       = pCurTrack->curFrame;
+        float blendWeight = pCurTrack->blendWeight;
+
+        const JonesFixedTickPuppetTrackState* pPrevTrack = pPrev && pPrev->valid
+            && pPrev->pPuppet == pCur->pPuppet
+            ? &pPrev->aTracks[trackNum]
+            : NULL;
+
+        // Added: a loop resets curFrame behind the previous tick; blending across it would run
+        // the whole track backwards, so the loop point snaps to the current tick.
+        if ( pPrevTrack && pPrevTrack->valid && pPrevTrack->pKFTrack == pCurTrack->pKFTrack
+            && pCurTrack->curFrame >= pPrevTrack->curFrame )
+        {
+            frame = pPrevTrack->curFrame + (pCurTrack->curFrame - pPrevTrack->curFrame) * alpha;
+            blendWeight = pPrevTrack->blendWeight
+                + (pCurTrack->blendWeight - pPrevTrack->blendWeight) * alpha;
+        }
+
+        rdPuppet_SetTrackDrawSample(pPuppet, (int32_t)trackNum, frame, blendWeight);
+    }
+}
+
+void JonesFixedTick_RestorePuppet(const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet)
+{
+    if ( !pCur || !pCur->valid || !pPuppet || pPuppet != pCur->pPuppet )
+    {
+        return;
+    }
+
+    for ( size_t trackNum = 0; trackNum < RDPUPPET_MAX_TRACKS; ++trackNum )
+    {
+        const JonesFixedTickPuppetTrackState* pCurTrack = &pCur->aTracks[trackNum];
+        if ( !pCurTrack->valid )
+        {
+            continue;
+        }
+
+        if ( pPuppet->aTracks[trackNum].pKFTrack != pCurTrack->pKFTrack )
+        {
+            continue;
+        }
+
+        rdPuppet_SetTrackDrawSample(pPuppet, (int32_t)trackNum, pCurTrack->curFrame, pCurTrack->blendWeight);
+    }
+}
+
+void JonesFixedTick_CaptureSurface(JonesFixedTickSurfaceState* pDst, const SithSurface* pSurface)
+{
+    if ( !pDst || !pSurface )
+    {
+        if ( pDst )
+        {
+            pDst->valid = false;
+        }
+        return;
+    }
+
+    pDst->valid         = true;
+    pDst->scrolling     = (pSurface->flags & SITH_SURFACE_SCROLLING) != 0;
+    pDst->texVertOffset = pSurface->face.texVertOffset;
+    pDst->extraLight    = pSurface->face.extraLight;
+}
+
+float JonesFixedTick_LerpWrapped(float prev, float cur, float alpha, float period)
+{
+    // Added: choose the representative of cur nearest prev, so a scroll that wrapped between
+    // ticks animates through the boundary instead of the whole period backwards.
+    float delta = cur - prev;
+    if ( delta > period * 0.5f )
+    {
+        delta -= period;
+    }
+    else if ( delta < -period * 0.5f )
+    {
+        delta += period;
+    }
+
+    float value = prev + delta * alpha;
+    return fmodf(value, period);
+}
+
+void JonesFixedTick_BlendSurface(const JonesFixedTickSurfaceState* pPrev,
+    const JonesFixedTickSurfaceState* pCur, SithSurface* pSurface, float alpha)
+{
+    if ( !pCur || !pCur->valid || !pSurface )
+    {
+        return;
+    }
+
+    if ( !pPrev || !pPrev->valid )
+    {
+        pSurface->face.texVertOffset = pCur->texVertOffset;
+        pSurface->face.extraLight    = pCur->extraLight;
+        return;
+    }
+
+    if ( alpha < 0.0f )
+    {
+        alpha = 0.0f;
+    }
+    else if ( alpha > 1.0f )
+    {
+        alpha = 1.0f;
+    }
+
+    if ( pPrev->scrolling || pCur->scrolling )
+    {
+        pSurface->face.texVertOffset.x = JonesFixedTick_LerpWrapped(
+            pPrev->texVertOffset.x, pCur->texVertOffset.x, alpha, JONESFIXEDTICK_SCROLL_PERIOD);
+        pSurface->face.texVertOffset.y = JonesFixedTick_LerpWrapped(
+            pPrev->texVertOffset.y, pCur->texVertOffset.y, alpha, JONESFIXEDTICK_SCROLL_PERIOD);
+    }
+    else
+    {
+        pSurface->face.texVertOffset = pCur->texVertOffset;
+    }
+
+    // Added: light animation intensity is a scalar ramp, so it blends directly.
+    pSurface->face.extraLight.red   = pPrev->extraLight.red
+        + (pCur->extraLight.red - pPrev->extraLight.red) * alpha;
+    pSurface->face.extraLight.green = pPrev->extraLight.green
+        + (pCur->extraLight.green - pPrev->extraLight.green) * alpha;
+    pSurface->face.extraLight.blue  = pPrev->extraLight.blue
+        + (pCur->extraLight.blue - pPrev->extraLight.blue) * alpha;
+    pSurface->face.extraLight.alpha = pPrev->extraLight.alpha
+        + (pCur->extraLight.alpha - pPrev->extraLight.alpha) * alpha;
+}
+
+void JonesFixedTick_RestoreSurface(const JonesFixedTickSurfaceState* pCur, SithSurface* pSurface)
+{
+    if ( !pCur || !pCur->valid || !pSurface )
+    {
+        return;
+    }
+
+    pSurface->face.texVertOffset = pCur->texVertOffset;
+    pSurface->face.extraLight    = pCur->extraLight;
+}
+
+void JonesFixedTick_CaptureSky(JonesFixedTickSkyState* pDst, const SithWorld* pWorld)
+{
+    if ( !pDst || !pWorld )
+    {
+        if ( pDst )
+        {
+            pDst->valid = false;
+        }
+        return;
+    }
+
+    pDst->valid         = true;
+    pDst->horizonOffset = pWorld->horizonSkyOffset;
+    pDst->ceilingOffset = pWorld->ceilingSkyOffset;
+}
+
+void JonesFixedTick_BlendSky(const JonesFixedTickSkyState* pPrev,
+    const JonesFixedTickSkyState* pCur, SithWorld* pWorld, float alpha)
+{
+    if ( !pCur || !pCur->valid || !pWorld )
+    {
+        return;
+    }
+
+    if ( !pPrev || !pPrev->valid )
+    {
+        pWorld->horizonSkyOffset = pCur->horizonOffset;
+        pWorld->ceilingSkyOffset = pCur->ceilingOffset;
+        return;
+    }
+
+    if ( alpha < 0.0f )
+    {
+        alpha = 0.0f;
+    }
+    else if ( alpha > 1.0f )
+    {
+        alpha = 1.0f;
+    }
+
+    pWorld->horizonSkyOffset.x = JonesFixedTick_LerpWrapped(
+        pPrev->horizonOffset.x, pCur->horizonOffset.x, alpha, JONESFIXEDTICK_SCROLL_PERIOD);
+    pWorld->horizonSkyOffset.y = JonesFixedTick_LerpWrapped(
+        pPrev->horizonOffset.y, pCur->horizonOffset.y, alpha, JONESFIXEDTICK_SCROLL_PERIOD);
+    pWorld->ceilingSkyOffset.x = JonesFixedTick_LerpWrapped(
+        pPrev->ceilingOffset.x, pCur->ceilingOffset.x, alpha, JONESFIXEDTICK_SCROLL_PERIOD);
+    pWorld->ceilingSkyOffset.y = JonesFixedTick_LerpWrapped(
+        pPrev->ceilingOffset.y, pCur->ceilingOffset.y, alpha, JONESFIXEDTICK_SCROLL_PERIOD);
+}
+
+void JonesFixedTick_RestoreSky(const JonesFixedTickSkyState* pCur, SithWorld* pWorld)
+{
+    if ( !pCur || !pCur->valid || !pWorld )
+    {
+        return;
+    }
+
+    pWorld->horizonSkyOffset = pCur->horizonOffset;
+    pWorld->ceilingSkyOffset = pCur->ceilingOffset;
+}
+
+void JonesFixedTick_CaptureSector(JonesFixedTickSectorState* pDst, const SithSector* pSector)
+{
+    if ( !pDst || !pSector )
+    {
+        if ( pDst )
+        {
+            pDst->valid = false;
+        }
+        return;
+    }
+
+    pDst->valid      = true;
+    pDst->extraLight = pSector->extraLight;
+}
+
+void JonesFixedTick_BlendSector(const JonesFixedTickSectorState* pPrev,
+    const JonesFixedTickSectorState* pCur, SithSector* pSector, float alpha)
+{
+    if ( !pCur || !pCur->valid || !pSector )
+    {
+        return;
+    }
+
+    if ( !pPrev || !pPrev->valid )
+    {
+        pSector->extraLight = pCur->extraLight;
+        return;
+    }
+
+    if ( alpha < 0.0f )
+    {
+        alpha = 0.0f;
+    }
+    else if ( alpha > 1.0f )
+    {
+        alpha = 1.0f;
+    }
+
+    pSector->extraLight.red   = pPrev->extraLight.red
+        + (pCur->extraLight.red - pPrev->extraLight.red) * alpha;
+    pSector->extraLight.green = pPrev->extraLight.green
+        + (pCur->extraLight.green - pPrev->extraLight.green) * alpha;
+    pSector->extraLight.blue  = pPrev->extraLight.blue
+        + (pCur->extraLight.blue - pPrev->extraLight.blue) * alpha;
+    pSector->extraLight.alpha = pPrev->extraLight.alpha
+        + (pCur->extraLight.alpha - pPrev->extraLight.alpha) * alpha;
+}
+
+void JonesFixedTick_RestoreSector(const JonesFixedTickSectorState* pCur, SithSector* pSector)
+{
+    if ( !pCur || !pCur->valid || !pSector )
+    {
+        return;
+    }
+
+    pSector->extraLight = pCur->extraLight;
 }
 
 static void JonesFixedTick_CaptureThings(JonesFixedTickThingState** ppDst, size_t* pNumThings)
@@ -360,6 +785,50 @@ static void JonesFixedTick_CaptureThings(JonesFixedTickThingState** ppDst, size_
     *pNumThings = numThings;
 }
 
+static void JonesFixedTick_CaptureSurfaces(JonesFixedTickSurfaceState** ppDst, size_t* pNumSurfaces,
+    const SithWorld** ppWorld)
+{
+    *pNumSurfaces = 0;
+    *ppWorld      = NULL;
+
+    SithWorld* pWorld = sithWorld_g_pCurrentWorld;
+    if ( !pWorld || !pWorld->aSurfaces || !JonesFixedTick_EnsureSurfaceCapacity(pWorld->numSurfaces) )
+    {
+        return;
+    }
+
+    JonesFixedTickSurfaceState* pDst = *ppDst;
+    for ( size_t i = 0; i < pWorld->numSurfaces; ++i )
+    {
+        JonesFixedTick_CaptureSurface(&pDst[i], &pWorld->aSurfaces[i]);
+    }
+
+    *pNumSurfaces = pWorld->numSurfaces;
+    *ppWorld      = pWorld;
+}
+
+static void JonesFixedTick_CaptureSectors(JonesFixedTickSectorState** ppDst, size_t* pNumSectors,
+    const SithWorld** ppWorld)
+{
+    *pNumSectors = 0;
+    *ppWorld     = NULL;
+
+    SithWorld* pWorld = sithWorld_g_pCurrentWorld;
+    if ( !pWorld || !pWorld->aSectors || !JonesFixedTick_EnsureSectorCapacity(pWorld->numSectors) )
+    {
+        return;
+    }
+
+    JonesFixedTickSectorState* pDst = *ppDst;
+    for ( size_t i = 0; i < pWorld->numSectors; ++i )
+    {
+        JonesFixedTick_CaptureSector(&pDst[i], &pWorld->aSectors[i]);
+    }
+
+    *pNumSectors = pWorld->numSectors;
+    *ppWorld     = pWorld;
+}
+
 void JonesFixedTick_BeforeTick(void)
 {
     if ( !jonesFixedTick_bEnabled )
@@ -369,6 +838,15 @@ void JonesFixedTick_BeforeTick(void)
 
     JonesFixedTick_CaptureThings(&jonesFixedTick_pPrevThings, &jonesFixedTick_prevNumThings);
     JonesFixedTick_CaptureCamera(&jonesFixedTick_prevCamera, sithCamera_g_pCurCamera);
+    JonesFixedTick_CaptureSurfaces(&jonesFixedTick_pPrevSurfaces, &jonesFixedTick_prevNumSurfaces,
+        &jonesFixedTick_prevSurfaceWorld);
+    JonesFixedTick_CaptureSectors(&jonesFixedTick_pPrevSectors, &jonesFixedTick_prevNumSectors,
+        &jonesFixedTick_prevSectorWorld);
+    JonesFixedTick_CaptureSky(&jonesFixedTick_prevSky, sithWorld_g_pCurrentWorld);
+    jonesFixedTick_prevSkyWorld = jonesFixedTick_prevSky.valid ? sithWorld_g_pCurrentWorld : NULL;
+
+    jonesFixedTick_prevSecGameTime = sithTime_g_secGameTime;
+    jonesFixedTick_bHaveGameTime   = true;
 }
 
 void JonesFixedTick_AfterTick(void)
@@ -380,6 +858,14 @@ void JonesFixedTick_AfterTick(void)
 
     JonesFixedTick_CaptureThings(&jonesFixedTick_pCurThings, &jonesFixedTick_curNumThings);
     JonesFixedTick_CaptureCamera(&jonesFixedTick_curCamera, sithCamera_g_pCurCamera);
+    JonesFixedTick_CaptureSurfaces(&jonesFixedTick_pCurSurfaces, &jonesFixedTick_curNumSurfaces,
+        &jonesFixedTick_curSurfaceWorld);
+    JonesFixedTick_CaptureSectors(&jonesFixedTick_pCurSectors, &jonesFixedTick_curNumSectors,
+        &jonesFixedTick_curSectorWorld);
+    JonesFixedTick_CaptureSky(&jonesFixedTick_curSky, sithWorld_g_pCurrentWorld);
+    jonesFixedTick_curSkyWorld = jonesFixedTick_curSky.valid ? sithWorld_g_pCurrentWorld : NULL;
+
+    jonesFixedTick_curSecGameTime = sithTime_g_secGameTime;
     ++jonesFixedTick_tickCount;
 }
 
@@ -430,6 +916,15 @@ bool JonesFixedTick_BlendThing(const JonesFixedTickThingState* pPrev,
         // Added: created between ticks, or a teleport: draw the exact post-tick state.
         pThing->pos    = pCur->pos;
         pThing->orient = pCur->orient;
+
+        JonesFixedTick_RestorePuppet(&pCur->puppet, pThing->renderData.pPuppet);
+        if ( pCur->bParticle && pThing->type == SITH_THING_PARTICLE && pThing->renderData.data.pParticle )
+        {
+            pThing->renderData.data.pParticle->radius = pCur->particleRadius;
+        }
+        pThing->light.color     = pCur->lightColor;
+        pThing->light.minRadius = pCur->lightMinRadius;
+        pThing->light.maxRadius = pCur->lightMaxRadius;
         return true;
     }
 
@@ -444,6 +939,34 @@ bool JonesFixedTick_BlendThing(const JonesFixedTickThingState* pPrev,
 
     JonesFixedTick_LerpVector(&pThing->pos, &pPrev->pos, &pCur->pos, alpha);
     JonesFixedTick_LerpOrient(&pThing->orient, &pPrev->orient, &pCur->orient, alpha);
+
+    JonesFixedTick_BlendPuppet(&pPrev->puppet, &pCur->puppet, pThing->renderData.pPuppet, alpha);
+
+    if ( pPrev->bParticle && pCur->bParticle && pThing->type == SITH_THING_PARTICLE
+        && pThing->renderData.data.pParticle )
+    {
+        pThing->renderData.data.pParticle->radius = pPrev->particleRadius
+            + (pCur->particleRadius - pPrev->particleRadius) * alpha;
+    }
+    else if ( pCur->bParticle && pThing->type == SITH_THING_PARTICLE
+        && pThing->renderData.data.pParticle )
+    {
+        // Added: a particle created this tick is drawn at its current size.
+        pThing->renderData.data.pParticle->radius = pCur->particleRadius;
+    }
+
+    pThing->light.color.red   = pPrev->lightColor.red
+        + (pCur->lightColor.red - pPrev->lightColor.red) * alpha;
+    pThing->light.color.green = pPrev->lightColor.green
+        + (pCur->lightColor.green - pPrev->lightColor.green) * alpha;
+    pThing->light.color.blue  = pPrev->lightColor.blue
+        + (pCur->lightColor.blue - pPrev->lightColor.blue) * alpha;
+    pThing->light.color.alpha = pPrev->lightColor.alpha
+        + (pCur->lightColor.alpha - pPrev->lightColor.alpha) * alpha;
+    pThing->light.minRadius = pPrev->lightMinRadius
+        + (pCur->lightMinRadius - pPrev->lightMinRadius) * alpha;
+    pThing->light.maxRadius = pPrev->lightMaxRadius
+        + (pCur->lightMaxRadius - pPrev->lightMaxRadius) * alpha;
     return true;
 }
 
@@ -459,6 +982,17 @@ void JonesFixedTick_RestoreThing(const JonesFixedTickThingState* pCur, SithThing
     pThing->orient      = pCur->orient;
     pThing->flags       = pCur->flags;
     pThing->renderFrame = pCur->renderFrame;
+
+    JonesFixedTick_RestorePuppet(&pCur->puppet, pThing->renderData.pPuppet);
+
+    if ( pCur->bParticle && pThing->type == SITH_THING_PARTICLE && pThing->renderData.data.pParticle )
+    {
+        pThing->renderData.data.pParticle->radius = pCur->particleRadius;
+    }
+
+    pThing->light.color     = pCur->lightColor;
+    pThing->light.minRadius = pCur->lightMinRadius;
+    pThing->light.maxRadius = pCur->lightMaxRadius;
 }
 
 void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
@@ -534,6 +1068,17 @@ void JonesFixedTick_BeginDraw(void)
         alpha = 1.0f;
     }
 
+    // Added: M9.22. The underwater wobble runs on render-time game time rather than the tick.
+    if ( jonesFixedTick_bHaveGameTime )
+    {
+        sithTime_SetRenderGameTime(jonesFixedTick_prevSecGameTime
+            + (jonesFixedTick_curSecGameTime - jonesFixedTick_prevSecGameTime) * alpha);
+    }
+    else
+    {
+        sithTime_SetRenderGameTime(sithTime_g_secGameTime);
+    }
+
     SithWorld* pWorld = sithWorld_g_pCurrentWorld;
     if ( pWorld && pWorld->aThings && jonesFixedTick_capacity >= pWorld->numThings )
     {
@@ -563,6 +1108,50 @@ void JonesFixedTick_BeginDraw(void)
             : NULL;
         JonesFixedTick_BlendCamera(pPrev, &jonesFixedTick_curCamera, sithCamera_g_pCurCamera, alpha);
     }
+
+    // Added: M9.22 surface/sky scroll and light animation for the drawn frame.
+    if ( pWorld && pWorld->aSurfaces && jonesFixedTick_curSurfaceWorld == pWorld )
+    {
+        const size_t numSurfaces = pWorld->numSurfaces < jonesFixedTick_curNumSurfaces
+            ? pWorld->numSurfaces
+            : jonesFixedTick_curNumSurfaces;
+        const bool bHavePrev = jonesFixedTick_prevSurfaceWorld == pWorld;
+
+        for ( size_t i = 0; i < numSurfaces; ++i )
+        {
+            const JonesFixedTickSurfaceState* pPrev = bHavePrev && i < jonesFixedTick_prevNumSurfaces
+                ? &jonesFixedTick_pPrevSurfaces[i]
+                : NULL;
+            JonesFixedTick_BlendSurface(pPrev, &jonesFixedTick_pCurSurfaces[i], &pWorld->aSurfaces[i], alpha);
+        }
+    }
+
+    if ( pWorld && pWorld->aSectors && jonesFixedTick_curSectorWorld == pWorld )
+    {
+        const size_t numSectors = pWorld->numSectors < jonesFixedTick_curNumSectors
+            ? pWorld->numSectors
+            : jonesFixedTick_curNumSectors;
+        const bool bHavePrev = jonesFixedTick_prevSectorWorld == pWorld;
+
+        for ( size_t i = 0; i < numSectors; ++i )
+        {
+            const JonesFixedTickSectorState* pPrev = bHavePrev && i < jonesFixedTick_prevNumSectors
+                ? &jonesFixedTick_pPrevSectors[i]
+                : NULL;
+            JonesFixedTick_BlendSector(pPrev, &jonesFixedTick_pCurSectors[i], &pWorld->aSectors[i], alpha);
+        }
+    }
+
+    if ( pWorld && jonesFixedTick_curSkyWorld == pWorld && jonesFixedTick_curSky.valid )
+    {
+        const JonesFixedTickSkyState* pPrev = jonesFixedTick_prevSkyWorld == pWorld && jonesFixedTick_prevSky.valid
+            ? &jonesFixedTick_prevSky
+            : NULL;
+        JonesFixedTick_BlendSky(pPrev, &jonesFixedTick_curSky, pWorld, alpha);
+    }
+
+    // Added: M9.22. The listener follows the drawn camera; the sector/ambient switch stays on the tick.
+    sithSoundMixer_UpdateListener();
 }
 
 void JonesFixedTick_EndDraw(void)
@@ -594,6 +1183,36 @@ void JonesFixedTick_EndDraw(void)
         JonesFixedTick_RestoreCamera(&jonesFixedTick_curCamera, sithCamera_g_pCurCamera);
     }
 
+    // Added: M9.22 restore the tick values of animation state after the drawn frame.
+    if ( pWorld && pWorld->aSurfaces && jonesFixedTick_curSurfaceWorld == pWorld )
+    {
+        const size_t numSurfaces = pWorld->numSurfaces < jonesFixedTick_curNumSurfaces
+            ? pWorld->numSurfaces
+            : jonesFixedTick_curNumSurfaces;
+        for ( size_t i = 0; i < numSurfaces; ++i )
+        {
+            JonesFixedTick_RestoreSurface(&jonesFixedTick_pCurSurfaces[i], &pWorld->aSurfaces[i]);
+        }
+    }
+
+    if ( pWorld && pWorld->aSectors && jonesFixedTick_curSectorWorld == pWorld )
+    {
+        const size_t numSectors = pWorld->numSectors < jonesFixedTick_curNumSectors
+            ? pWorld->numSectors
+            : jonesFixedTick_curNumSectors;
+        for ( size_t i = 0; i < numSectors; ++i )
+        {
+            JonesFixedTick_RestoreSector(&jonesFixedTick_pCurSectors[i], &pWorld->aSectors[i]);
+        }
+    }
+
+    if ( pWorld && jonesFixedTick_curSkyWorld == pWorld )
+    {
+        JonesFixedTick_RestoreSky(&jonesFixedTick_curSky, pWorld);
+    }
+
+    sithTime_SetRenderGameTime(sithTime_g_secGameTime);
+
     jonesFixedTick_bDrawing = false;
 }
 
@@ -609,6 +1228,26 @@ void JonesFixedTick_ResetGlobals(void)
         STDFREE(jonesFixedTick_pCurThings);
     }
 
+    if ( jonesFixedTick_pPrevSurfaces )
+    {
+        STDFREE(jonesFixedTick_pPrevSurfaces);
+    }
+
+    if ( jonesFixedTick_pCurSurfaces )
+    {
+        STDFREE(jonesFixedTick_pCurSurfaces);
+    }
+
+    if ( jonesFixedTick_pPrevSectors )
+    {
+        STDFREE(jonesFixedTick_pPrevSectors);
+    }
+
+    if ( jonesFixedTick_pCurSectors )
+    {
+        STDFREE(jonesFixedTick_pCurSectors);
+    }
+
     jonesFixedTick_rateHz        = 0;
     jonesFixedTick_stepMsec      = 0;
     jonesFixedTick_bEnabled      = false;
@@ -622,6 +1261,30 @@ void JonesFixedTick_ResetGlobals(void)
     jonesFixedTick_curNumThings  = 0;
     jonesFixedTick_bDrawing      = false;
 
+    jonesFixedTick_pPrevSurfaces   = NULL;
+    jonesFixedTick_pCurSurfaces    = NULL;
+    jonesFixedTick_surfaceCapacity = 0;
+    jonesFixedTick_prevNumSurfaces = 0;
+    jonesFixedTick_curNumSurfaces  = 0;
+    jonesFixedTick_prevSurfaceWorld = NULL;
+    jonesFixedTick_curSurfaceWorld  = NULL;
+    jonesFixedTick_prevSkyWorld     = NULL;
+    jonesFixedTick_curSkyWorld      = NULL;
+
+    jonesFixedTick_pPrevSectors   = NULL;
+    jonesFixedTick_pCurSectors    = NULL;
+    jonesFixedTick_sectorCapacity = 0;
+    jonesFixedTick_prevNumSectors = 0;
+    jonesFixedTick_curNumSectors  = 0;
+    jonesFixedTick_prevSectorWorld = NULL;
+    jonesFixedTick_curSectorWorld  = NULL;
+
+    jonesFixedTick_prevSecGameTime = 0.0f;
+    jonesFixedTick_curSecGameTime  = 0.0f;
+    jonesFixedTick_bHaveGameTime   = false;
+
+    memset(&jonesFixedTick_prevSky, 0, sizeof(jonesFixedTick_prevSky));
+    memset(&jonesFixedTick_curSky, 0, sizeof(jonesFixedTick_curSky));
     memset(&jonesFixedTick_prevCamera, 0, sizeof(jonesFixedTick_prevCamera));
     memset(&jonesFixedTick_curCamera, 0, sizeof(jonesFixedTick_curCamera));
 

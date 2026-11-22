@@ -36,6 +36,12 @@ void J3DAPI SoundDriver_SetPosAndVelocity(tSysSoundBuffer* pBuffer, float x, flo
 
 int J3DAPI SoundDriver_Update3DSound(tSysSoundBuffer** ppDSBuf, float x, float y, float z, float volume, float pitch, tSoundChannelFlag* pChannelFlags, float minRadius, float maxRadius, SoundEnvFlags envflags);
 
+// Added: M9.22 draw-frame listener refresh. Recomputes and applies only the presentational 3D
+// mix parameters (volume, pan, frequency) for one channel. Unlike SoundDriver_Update3DSound it
+// never stops a far/near-silent channel, never requests a restart, and never changes channel
+// flags or handles; the full update stays on the simulation tick.
+void J3DAPI SoundDriver_Update3DSoundListener(tSysSoundBuffer* pDSBuf, float x, float y, float z, float volume, float pitch, float minRadius, float maxRadius, SoundEnvFlags envflags);
+
 void J3DAPI SoundDriver_SetGlobals(float distanceFactor, float minDistance, float maxDistance, float rolloffFactor, float dopplerFactor);
 
 int SoundDriver_Has3DHW(void);
