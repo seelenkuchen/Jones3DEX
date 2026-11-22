@@ -144,13 +144,17 @@
     Unlimited turns V-Sync off with no cap. The wait is off in headless runs and while a level loads, which
     keeps its fast path. The row applies at once. The Babylon render device now exposes V-Sync, immediate and
     mailbox present modes to its backends.
-  - **Options > Gameplay** has a **Simulation tick** row (`engine.sim.fixedTick`: Off, 30, 50, 60 or 120 Hz;
-    Off by default and disabled in Retail) that selects the fixed simulation tick. On, the Enhanced
-    simulation runs `sithUpdate` at the fixed step and draws extra frames by interpolating thing positions
-    and orientations, the camera, puppet animation and the sound listener. Visibility marks, AI waypoint
-    lasers and polyline updates move onto the tick, so draw-only frames change nothing. The value is read at
-    startup, so it applies when the game restarts, and the help text says so. QOL-off/Retail builds ignore
-    the key. The headless `--fixed-tick` and `--draw-step` options drive it for tests.
+  - **Options > Gameplay** has a **Simulation tick** toggle (`engine.sim.fixedTick`: Off, or On at 50 Hz;
+    on by default in Enhanced and disabled in Retail) that selects the fixed simulation tick. 50 Hz matches
+    the game's original 20 ms physics step, so every tick runs a physics step; at 60 Hz every sixth tick had
+    none and airborne motion stuttered. On, the Enhanced simulation runs `sithUpdate` at the fixed step and
+    draws extra frames by interpolating thing positions and orientations, the camera, puppet animation and
+    the sound listener. Visibility marks, AI waypoint lasers and polyline updates move onto the tick, so
+    draw-only frames change nothing. Old values (`30`, `60`, `120`) map to On at 50 Hz, and a negative value
+    keeps the build's default. The value is read at startup, so it applies when the game restarts, and the
+    help text says so. QOL-off/Retail builds ignore the key. The headless `--fixed-tick` and `--draw-step`
+    options drive it for tests; a headless run without `--fixed-tick` stays off, so the trace references and
+    existing scripts keep the measured-frame loop.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and

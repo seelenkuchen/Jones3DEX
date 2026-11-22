@@ -15,9 +15,18 @@
 J3D_EXTERN_C_START
 
 // Added: M9.20 fixed simulation tick with interpolated things and camera (ADR-0039). The option is
-// the tick rate in Hz; 0 keeps the measured frame time. Allowed rates are 0, 30, 50, 60 and 120,
-// and any other value is clamped to the nearest. QOL-off/Retail builds ignore the option.
+// either off (0, the measured frame time) or on at 50 Hz. The 50 Hz rate matches the game's fixed
+// physics step (ADR-0030). A hand-edited old rate (30, 60 or 120) maps to 50, and a negative value
+// keeps the build's default. QOL-off/Retail builds ignore the option.
 #define JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK "engine.sim.fixedTick"
+
+// Added: the only rate the option runs at. The simulation integrates in 20 ms (50 Hz) physics
+// steps, so any other tick makes some ticks run no physics step (ADR-0030, ADR-0039).
+#define JONESFIXEDTICK_RATE_HZ 50
+
+// Added: the rate a missing engine.sim.fixedTick selects: on in Enhanced, off in Retail and
+// QOL-off builds.
+#define JONESFIXEDTICK_DEFAULT_RATE J3D_QOL_VALUE(JONESFIXEDTICK_RATE_HZ, 0)
 
 // Added: the maximum number of catch-up ticks one rendered frame may run. A longer stall drops the
 // remaining accumulator instead of spiralling.
@@ -122,7 +131,9 @@ typedef struct sJonesFixedTickCameraState
 } JonesFixedTickCameraState;
 
 // Configuration and lifecycle.
-int JonesFixedTick_ClampRate(int rateHz);         // 0, 30, 50, 60 or 120, nearest to rateHz
+int JonesFixedTick_ClampRate(int rateHz);         // 0 stays off, every positive rate is 50
+int JonesFixedTick_ResolveConfigRate(int rateHz); // ClampRate, but a negative value keeps the default
+int JonesFixedTick_DefaultRate(void);             // JONESFIXEDTICK_DEFAULT_RATE
 uint32_t JonesFixedTick_RateToStepMsec(int rateHz); // 1000 / rate, 0 when rate is 0
 void JonesFixedTick_SetRateOverride(int rateHz);  // dev/headless --fixed-tick; -1 keeps the cfg
 void JonesFixedTick_Configure(void);              // read the cfg (or the override) and enable/disable

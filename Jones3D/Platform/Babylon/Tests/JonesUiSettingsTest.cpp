@@ -999,32 +999,48 @@ TEST_CASE("quick whip reads its config key")
     CHECK(sithWeapon_IsQuickWhipEnabled() == (J3D_QOL_VALUE(true, false) != 0));
 }
 
-TEST_CASE("the simulation tick row is an Enhanced choice that starts Off")
+TEST_CASE("the simulation tick row is an Enhanced toggle that starts on")
 {
     SettingsTestContext testContext;
     ConfigTest config;
+
+    // A missing key is on in an Enhanced build (50 Hz) and always off in the Retail profile.
+    // A QOL-off build has no Enhanced default, so the key missing stays Off there too.
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(JonesUiGameplay_LoadValues(true).bFixedTick);
+#else
+    CHECK_FALSE(JonesUiGameplay_LoadValues(true).bFixedTick);
+#endif
+    CHECK_FALSE(JonesUiGameplay_LoadValues(false).bFixedTick);
+
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 0));
+    CHECK_FALSE(JonesUiGameplay_LoadValues(true).bFixedTick);
+
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 50));
+    CHECK(JonesUiGameplay_LoadValues(true).bFixedTick);
+
+    // An old 30/60/120 from an earlier build reads as on.
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 60));
+    CHECK(JonesUiGameplay_LoadValues(true).bFixedTick);
 
     const JonesUiGameplayValues values;
     JonesUiGameplayLayout layout;
     const babylon::ui::Screen screen = JonesUiGameplay_BuildScreen(true, values, layout);
     REQUIRE(layout.fixedTick < screen.widgets.size());
-    const babylon::ui::Choice* pChoice =
-        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.fixedTick]);
-    REQUIRE(pChoice != nullptr);
-    CHECK(pChoice->text == "Simulation tick");
-    CHECK(pChoice->options == std::vector<std::string>{
-        "Off", "30 Hz", "50 Hz", "60 Hz", "120 Hz" });
-    CHECK(pChoice->selected == 0u);
-    CHECK(pChoice->enabled);
+    const babylon::ui::Toggle* pToggle =
+        std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.fixedTick]);
+    REQUIRE(pToggle != nullptr);
+    CHECK(pToggle->text == "Simulation tick");
+    CHECK(pToggle->enabled);
 
     JonesUiGameplayLayout retailLayout;
     const babylon::ui::Screen retail =
         JonesUiGameplay_BuildScreen(false, values, retailLayout);
     REQUIRE(retailLayout.fixedTick < retail.widgets.size());
-    const babylon::ui::Choice* pRetailChoice =
-        std::get_if<babylon::ui::Choice>(&retail.widgets[retailLayout.fixedTick]);
-    REQUIRE(pRetailChoice != nullptr);
-    CHECK_FALSE(pRetailChoice->enabled);
+    const babylon::ui::Toggle* pRetailToggle =
+        std::get_if<babylon::ui::Toggle>(&retail.widgets[retailLayout.fixedTick]);
+    REQUIRE(pRetailToggle != nullptr);
+    CHECK_FALSE(pRetailToggle->enabled);
 }
 
 TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
@@ -1042,10 +1058,9 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     sithWeapon_EnableBloodSplatter(false);
     sithWeapon_SetQuickWhipEnabled(true);
 
-    // The simulation tick row starts Off; the stored 60 Hz (index 3) is read, and Right
-    // selects 120 Hz (index 4).
-    CHECK(JonesUiGameplay_LoadValues(true).fixedTick == 0u);
-    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 60));
+    // The simulation tick row reads the stored Off; Enter turns it on, which writes 50 Hz.
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 0));
+    CHECK_FALSE(JonesUiGameplay_LoadValues(true).bFixedTick);
 
     REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
@@ -1088,7 +1103,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // external keyframes off
     testContext.platform.PushKey(platform::Key::Down);
-    testContext.platform.PushKey(platform::Key::Right); // simulation tick 60 -> 120
+    testContext.platform.PushKey(platform::Key::Enter); // simulation tick off -> on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
 
@@ -1118,7 +1133,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
-    CHECK(stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, -1) == 120);
+    CHECK(stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, -1) == 50);
     // The profile is fixed by the build and written nowhere.
     CHECK_FALSE(stdConfig_Contains("game.profile"));
 }

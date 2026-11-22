@@ -1,8 +1,9 @@
 // Added: M9.20 fixed simulation tick with interpolated things and camera (ADR-0039). JonesMain
 // feeds a game-time accumulator from the measured frame delta, runs zero or more fixed ticks per
 // drawn frame and interpolates the world and camera between the last two ticks for the draw. The
-// option is off unless engine.sim.fixedTick (or the headless --fixed-tick override) selects a rate,
-// so the off path stays the measured-frame-time loop.
+// option is either off or on at 50 Hz, the game's physics step (ADR-0030); Enhanced defaults it
+// on, Retail and QOL-off builds always keep the measured-frame-time loop, and the headless runner
+// stays off unless --fixed-tick asks for a rate.
 #include "JonesFixedTick.h"
 
 #include <rdroid/Engine/rdCamera.h>
@@ -27,9 +28,12 @@
 
 #define JONESFIXEDTICK_MAXTHINGS 0x40000
 
-// Added: the rates a hand-edited cfg may select. Everything else snaps to the nearest; a tie snaps
-// down, so 15 -> 0 and 45 -> 30.
-static const int jonesFixedTick_aAllowedRates[] = { 0, 30, 50, 60, 120 };
+#ifdef J3D_QOL_IMPROVEMENTS
+// Added: the rates the dev-only --fixed-tick override may select for comparisons, nearest with a
+// tie snapping down. The cfg offers only Off and 50 Hz now, but the headless dev path keeps 30,
+// 60 and 120 so two builds can be compared at other rates.
+static const int jonesFixedTick_aDevRates[] = { 0, 30, 50, 60, 120 };
+#endif
 
 static JonesFixedTickAccumulator jonesFixedTick_accumulator;
 static int                       jonesFixedTick_overrideRateHz = -1;
@@ -85,20 +89,50 @@ static float                       jonesFixedTick_prevSecGameTime;
 static float                       jonesFixedTick_curSecGameTime;
 static bool                        jonesFixedTick_bHaveGameTime;
 
+int JonesFixedTick_DefaultRate(void)
+{
+    return JONESFIXEDTICK_DEFAULT_RATE;
+}
+
 int JonesFixedTick_ClampRate(int rateHz)
 {
-    // Added: keep the distance arithmetic small; the cfg value can be any JSON integer.
+    // Added: the option is Off or On at 50 Hz. Any positive value (an old 30/60/120 from an
+    // earlier test build) becomes 50; the same 20 ms step the physics already integrates in.
     if ( rateHz <= 0 )
     {
         return 0;
     }
 
-    int bestRate  = jonesFixedTick_aAllowedRates[0];
+    return JONESFIXEDTICK_RATE_HZ;
+}
+
+int JonesFixedTick_ResolveConfigRate(int rateHz)
+{
+    // Added: a hand-edited negative value is garbage; keep the build's default instead.
+    if ( rateHz < 0 )
+    {
+        return JonesFixedTick_DefaultRate();
+    }
+
+    return JonesFixedTick_ClampRate(rateHz);
+}
+
+#ifdef J3D_QOL_IMPROVEMENTS
+// Added: the dev-only override keeps the old 30/50/60/120 comparison rates instead of collapsing
+// them to 50, so a headless run can still compare two builds at another tick rate.
+static int JonesFixedTick_ClampDevRate(int rateHz)
+{
+    if ( rateHz <= 0 )
+    {
+        return 0;
+    }
+
+    int bestRate  = jonesFixedTick_aDevRates[0];
     int bestDelta = rateHz - bestRate;
 
-    for ( size_t i = 1; i < STD_ARRAYLEN(jonesFixedTick_aAllowedRates); ++i )
+    for ( size_t i = 1; i < STD_ARRAYLEN(jonesFixedTick_aDevRates); ++i )
     {
-        const int rate  = jonesFixedTick_aAllowedRates[i];
+        const int rate  = jonesFixedTick_aDevRates[i];
         const int delta = rateHz >= rate ? rateHz - rate : rate - rateHz;
         if ( delta < bestDelta ) // Added: a tie keeps the lower rate, so the result is deterministic
         {
@@ -109,6 +143,7 @@ int JonesFixedTick_ClampRate(int rateHz)
 
     return bestRate;
 }
+#endif
 
 uint32_t JonesFixedTick_RateToStepMsec(int rateHz)
 {
@@ -129,17 +164,21 @@ void JonesFixedTick_SetRateOverride(int rateHz)
 void JonesFixedTick_Configure(void)
 {
     // Added: QOL-off/Retail builds ignore the option and the override, so the measured frame time
-    // stays in use. The Enhanced default is still 0 until the owner approves turning it on.
+    // stays in use. Enhanced runs at 50 Hz by default; the headless runner pins the override to 0
+    // unless --fixed-tick asks for a rate, so the trace references stay on the measured loop.
     int rate = 0;
 #ifdef J3D_QOL_IMPROVEMENTS
-    rate = jonesFixedTick_overrideRateHz;
-    if ( rate < 0 )
+    if ( jonesFixedTick_overrideRateHz >= 0 )
     {
-        rate = stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 0);
+        // Added: dev/headless override, clamped to the dev comparison rates.
+        rate = JonesFixedTick_ClampDevRate(jonesFixedTick_overrideRateHz);
+    }
+    else
+    {
+        rate = JonesFixedTick_ResolveConfigRate(stdConfig_GetInt(
+            JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, JonesFixedTick_DefaultRate()));
     }
 #endif
-
-    rate = JonesFixedTick_ClampRate(rate);
 
     jonesFixedTick_rateHz   = rate;
     jonesFixedTick_stepMsec = JonesFixedTick_RateToStepMsec(rate);

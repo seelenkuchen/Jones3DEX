@@ -42,23 +42,32 @@ static rdMatrix34 JonesFixedTickTest_RotateZ90(void)
     return mat;
 }
 
-TEST(JonesFixedTick, RateClampsToTheAllowedSet)
+TEST(JonesFixedTick, RateMapsToOffOrFifty)
 {
-    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(-5));
+    // The option is Off (0) or On at the game's 50 Hz physics rate. Any positive value, including
+    // a rate an earlier test build wrote, means On at 50.
     TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(0));
-    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(1));
-    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ClampRate(15));  // tie between 0 and 30 snaps down
-    TEST_ASSERT_EQUAL_INT(30, JonesFixedTick_ClampRate(29));
-    TEST_ASSERT_EQUAL_INT(30, JonesFixedTick_ClampRate(30));
-    TEST_ASSERT_EQUAL_INT(30, JonesFixedTick_ClampRate(40)); // tie between 30 and 50 snaps down
-    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(45));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(1));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(30));
     TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(50));
-    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(55)); // tie between 50 and 60 snaps down
-    TEST_ASSERT_EQUAL_INT(60, JonesFixedTick_ClampRate(60));
-    TEST_ASSERT_EQUAL_INT(60, JonesFixedTick_ClampRate(90)); // tie between 60 and 120 snaps down
-    TEST_ASSERT_EQUAL_INT(120, JonesFixedTick_ClampRate(100));
-    TEST_ASSERT_EQUAL_INT(120, JonesFixedTick_ClampRate(120));
-    TEST_ASSERT_EQUAL_INT(120, JonesFixedTick_ClampRate(1000));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(60));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(120));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ClampRate(1000));
+}
+
+TEST(JonesFixedTick, ConfigRateKeepsTheBuildDefaultForGarbage)
+{
+    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_ResolveConfigRate(0));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(50));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(30));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(60));
+    TEST_ASSERT_EQUAL_INT(50, JonesFixedTick_ResolveConfigRate(120));
+
+    // A missing key and a hand-edited negative value both use the build's default: on in Enhanced,
+    // off in Retail and QOL-off builds.
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(50, 0), JonesFixedTick_DefaultRate());
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(50, 0), JonesFixedTick_ResolveConfigRate(-1));
+    TEST_ASSERT_EQUAL_INT(J3D_QOL_VALUE(50, 0), JonesFixedTick_ResolveConfigRate(-999));
 }
 
 TEST(JonesFixedTick, RateToStepUsesIntegerMilliseconds)
@@ -325,6 +334,23 @@ TEST(JonesFixedTick, ConfigureAcceptsZeroAsOff)
     TEST_ASSERT_FALSE(JonesFixedTick_IsEnabled());
     TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_GetRateHz());
     TEST_ASSERT_EQUAL_INT(0, sithTime_g_bFixedStep);
+}
+
+TEST(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates)
+{
+    // Added: the headless dev override is not part of the cfg mapping; 60 Hz stays 60 Hz so two
+    // builds can still be compared at a rate other than the option's 50 Hz.
+    JonesFixedTick_SetRateOverride(60);
+    JonesFixedTick_Configure();
+
+#ifdef J3D_QOL_IMPROVEMENTS
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+    TEST_ASSERT_EQUAL_INT(60, JonesFixedTick_GetRateHz());
+    TEST_ASSERT_EQUAL_UINT32(16, JonesFixedTick_GetStepMsec());
+#else
+    TEST_ASSERT_FALSE(JonesFixedTick_IsEnabled());
+    TEST_ASSERT_EQUAL_INT(0, JonesFixedTick_GetRateHz());
+#endif
 }
 
 
@@ -672,7 +698,8 @@ TEST(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended)
 
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
-    RUN_TEST_CASE(JonesFixedTick, RateClampsToTheAllowedSet);
+    RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
+    RUN_TEST_CASE(JonesFixedTick, ConfigRateKeepsTheBuildDefaultForGarbage);
     RUN_TEST_CASE(JonesFixedTick, RateToStepUsesIntegerMilliseconds);
     RUN_TEST_CASE(JonesFixedTick, AccumulatorRunsATickPerElapsedStep);
     RUN_TEST_CASE(JonesFixedTick, AccumulatorCapsCatchUpAndDropsTheBacklog);
@@ -685,6 +712,7 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
+    RUN_TEST_CASE(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates);
     RUN_TEST_CASE(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores);
     RUN_TEST_CASE(JonesFixedTick, PuppetTrackReplacedBetweenTicksCrossfadesAndRestores);
     RUN_TEST_CASE(JonesFixedTick, PuppetTrackLoopCrossfadesAndRestores);
