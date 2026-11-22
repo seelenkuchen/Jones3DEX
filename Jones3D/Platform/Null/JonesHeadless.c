@@ -8,7 +8,7 @@
 // behind: the retail mutex, the Win32 signal handler, window creation and the
 // stdWin95 window/instance/Guid registration.
 //
-// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--draw-step <msec>] [--fixed-tick <hz>] [--state <file>] [--input <file>] [--capture <file>] [--runs <n>]
+// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--draw-step <msec>] [--fixed-tick <hz>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n>]
 //   --user-dir writes Jones.cfg, logs and savegames in the given directory, created when missing.
 //            The default is "" (the working directory), so headless traces keep today's paths.
 //   --load   answers the load-game dialog once with the given path; needs the
@@ -19,7 +19,8 @@
 //   --step   milliseconds of virtual time each JonesMain_Process call advances the clock by
 //            (default 33). 0 keeps the real clock and makes the run nondeterministic again.
 //   --draw-step (dev) with a fixed tick, milliseconds the virtual clock advances per drawn frame;
-//            default is --step. Smaller values produce draw-only frames between simulation ticks.
+//            default is --step, clamped to the tick step when --input is given so each tick sees
+//            its own key state. Smaller values produce draw-only frames between simulation ticks.
 //   --fixed-tick (dev) override engine.sim.fixedTick for this run: the simulation tick rate in Hz
 //            (0, 30, 50, 60 or 120; other values clamp). QOL-off/Retail builds ignore it.
 //   --state  writes the final state block, plus one line per active thing, to a file. It starts
@@ -38,6 +39,9 @@
 //            The game opens it during JonesMain_Startup (once the host services exist) and closes
 //            it during JonesMain_Shutdown. The column named in its header is "babylon" for the
 //            Babylon column and "null" otherwise.
+//   --draw-trace (dev) writes one line per drawn frame after the scene draw: tick, interpolation
+//            alpha, player and camera pose, three player joint world positions and the active
+//            puppet tracks. Works with the fixed tick on or off; inert without the option.
 //   --render (Babylon column only) the render device std3D draws with: "null" (the default) records
 //            the frames and draws nothing; "gpu" is the SDL GPU device without a window (set
 //            SDL_VIDEO_DRIVER=offscreen where there is no display). The Babylon main() takes it out
@@ -111,7 +115,7 @@ typedef struct HeadlessInputEvent
 
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--draw-step <msec, default step>] [--fixed-tick <hz, default cfg>] [--state <file>] [--input <file>] [--capture <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
+    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--draw-step <msec, default step>] [--fixed-tick <hz, default cfg>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
         pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP, HEADLESS_DEFAULT_RUNS, HEADLESS_MAX_RUNS);
 }
 
@@ -734,6 +738,7 @@ int JonesHeadless_Run(int argc, char** argv)
     const char* pStatePath    = NULL;
     const char* pInputPath    = NULL;
     const char* pCapturePath  = NULL;
+    const char* pDrawTracePath = NULL;     // Added: dev-only --draw-trace
     size_t frameLimit         = HEADLESS_DEFAULT_FRAMES;
     unsigned long step        = HEADLESS_DEFAULT_STEP;
     unsigned long drawStep    = 0;         // Added: M9.20 --draw-step, 0 = same as --step
@@ -748,6 +753,7 @@ int JonesHeadless_Run(int argc, char** argv)
             || !strcmp(argv[i], "--draw-step") || !strcmp(argv[i], "--fixed-tick")
             || !strcmp(argv[i], "--state")
             || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--capture")
+            || !strcmp(argv[i], "--draw-trace")
             || !strcmp(argv[i], "--runs") )
         {
             if ( i + 1 >= argc )
@@ -846,6 +852,10 @@ int JonesHeadless_Run(int argc, char** argv)
             else if ( !strcmp(argv[i], "--capture") )
             {
                 pCapturePath = argv[++i];
+            }
+            else if ( !strcmp(argv[i], "--draw-trace") )
+            {
+                pDrawTracePath = argv[++i];
             }
             else
             {
@@ -965,12 +975,37 @@ int JonesHeadless_Run(int argc, char** argv)
             return 1;
         }
 
+        // Added: dev-only --draw-trace. Open it after startup so the path is final, and reopen it
+        // for each run so a multi-run trace only describes the last run.
+        if ( pDrawTracePath && !JonesFixedTick_OpenDrawTrace(pDrawTracePath) )
+        {
+            JonesMain_Shutdown();
+            Headless_InputFree();
+            return 1;
+        }
+
         // Added: M9.20. With a fixed tick the run is bounded by simulation ticks, so --frames and
         // the state-file frame line count ticks and the same --frames gives the same game time
         // however many draw-only frames fit between ticks. The virtual clock advances by the draw
         // step; without a fixed tick this is exactly --step.
         const bool bFixedTick  = JonesFixedTick_IsEnabled();
-        const unsigned long renderStep = (bFixedTick && step && drawStep) ? drawStep : step;
+        unsigned long renderStep = step;
+        if ( bFixedTick && step )
+        {
+            if ( drawStep )
+            {
+                renderStep = drawStep;
+            }
+            else if ( numInputEvents && step > JonesFixedTick_GetStepMsec() )
+            {
+                // Added: a scripted-input run must see the same key state on every tick however
+                // the draw step is chosen. With --step larger than the tick, one process call
+                // would run several ticks with one input snapshot; clamp the implicit draw step
+                // to the tick so each tick samples the script at its own frame. An explicit
+                // --draw-step still wins, as the key proof's draw-step variants require.
+                renderStep = JonesFixedTick_GetStepMsec();
+            }
+        }
         if ( bFixedTick )
         {
             JonesFixedTick_SetTickLimit(frameLimit);
@@ -1071,6 +1106,9 @@ int JonesHeadless_Run(int argc, char** argv)
         }
 
         JonesMain_Shutdown();
+
+        // Added: close the dev trace before the next run reopens it.
+        JonesFixedTick_CloseDrawTrace();
 
         printf("stopped: %s (frames=%zu)\n", pStopReason ? pStopReason : "unknown reason", frameCount);
         if ( bFixedTick )

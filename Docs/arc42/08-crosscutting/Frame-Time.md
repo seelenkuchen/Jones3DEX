@@ -498,8 +498,9 @@ the marks, the waypoint creation, the polyline update and the sprite destruction
 draw-only frame cannot change the simulation or the RNG. The render cache tick keeps advancing per draw;
 it is presentation only. With the option off all of these stay exactly where they are today.
 
-**Headless.** `--fixed-tick <hz>` overrides the cfg and `--draw-step <ms>` (default `--step`) makes the virtual
-clock advance by the draw step, so draw-only frames happen without a display. With a fixed tick `--frames` and
+**Headless.** `--fixed-tick <hz>` overrides the cfg and `--draw-step <ms>` (default `--step`, except that an
+input-script run clamps it to the tick step; see M9.24) makes the virtual clock advance by the draw step, so
+draw-only frames happen without a display. With a fixed tick `--frames` and
 the state file's `frame` line count ticks and the run log ends with
 `fixed tick: N rendered frames for M ticks`. From `game/native/ref/run/Resource`, `--step 33 --fixed-tick 60`
 against the same run with `--draw-step 8`, `16` or `7` produced identical state files, with and without the
@@ -539,3 +540,49 @@ including a particle created between ticks. The headless key proof (`--fixed-tic
 `--draw-step 8`, `16` and `5`, with and without the wander input) produces identical state files, and the
 v6/Retail traces are unchanged. `sithTime_g_fps` retuning and the physics-step policy from section 6 are
 still open.
+
+## M9.24 jump/fall jitter findings
+
+The owner still saw jitter in jump and fall animation on a fixed tick. A dev-only headless trace measured it:
+`--draw-trace <file>` writes one line per drawn frame after the scene draw, while the interpolated values are
+still in place. A line carries the tick count, alpha, the player position and left vector, the camera position,
+`lookPos`, and the `sithCamera_g_camSpot`/`camLookSpot` globals, the world positions of Indy's head, left hand
+and left shoe (`inhead`, `inlhand`, `inlshoe` in `gen_in_shirt.3do`, nodes 8, 12 and 25, found by name so the
+other costumes work), and every active puppet track's keyframe name, frame and blend weight. The option is
+compiled into every build and is inert unless the file is opened; it works with the fixed tick on or off.
+Trace, `--input` and analysis scripts are run artifacts, not part of the repository.
+
+The measurement used `regress.nds` and a script that walks, jumps forward three times and finishes with a
+controlled fall, at `--fixed-tick 60 --step 33 --draw-step 8`. The analyser took each point's per-draw
+displacement, compared it with the local median and flagged a frame when the displacement was more than twice
+the median. Before the fix it flagged 104 of 713 drawn frames: 95 at tick boundaries, 6 at puppet track
+changes, and 3 camera/joint mixed. Two causes were real presentation snaps:
+
+- **Camera look/focus.** `JonesFixedTick` blended the camera's `pos` and `orient` but not `lookPos`, `focusPos`
+  or the camera-spot globals. The scene draw reads `lookPos` for the sky, backface culling and the depth-of-field
+  focus distance, so those moved in tick-sized steps. `JonesFixedTickCameraState` now captures all three and
+  `BlendCamera`/`RestoreCamera` blend and restore them with the pose.
+- **Replaced, looped and removed tracks.** A track slot replaced in place (stand to walk, walk to jump
+  anticipation, jump forward to fall, fall to land) and a loop reset were drawn at the new tick's keyframe, so
+  the pose snapped between two drawn frames. `rdPuppetTrack` now has draw-only crossfade fields: the next
+  `rdPuppet_BuildJointMatrices` samples the old keyframe at its previous frame into the same track and blends
+  the old and new node poses by alpha, before the priority layers combine. A one-for-one track change carries
+  the old pose in the new track, so the crossfade stays a convex blend regardless of the two tracks'
+  priorities. `rdPuppet_SetTrackDrawSample` clears the crossfade, and `JonesFixedTick_EndDraw` clears every
+  crossfade and every draw-only fade-out slot. Simulation state, callbacks, markers and loop bookkeeping stay
+  on the tick.
+
+After the fix the same trace flags 15 of 713 drawn frames. The remaining flags are the crossfade moving a
+fast limb, the real vertical velocity change at landing, and the camera accelerating as the player lands; the
+large 0.08-unit foot jump at the take-off track change is gone. With the fixed tick off at `--step 8` and the
+same script scaled to 8 ms frames, the draw path takes every frame's tick state directly and has no track or
+look/focus snap. The off path is byte-identical: `--draw-step 8`, `16` and `5` produce identical state files
+to `--step 33`, plain and with the wander input, and the v6/Retail traces and the full native and retail unit
+suites are unchanged.
+
+One runner detail surfaced while checking the key proof: with `--step` larger than the tick step, one headless
+process call runs several ticks, but `--input` was sampled once per call. A jump key held for a few ticks
+therefore behaved differently at 33 ms frames than at 8 ms frames. When a fixed-tick run has an input script
+and no explicit `--draw-step`, the runner now clamps the implicit draw step to the tick step, so every tick
+samples the script at its own frame and the state files match across draw steps. An explicit `--draw-step`
+still wins, and runs without an input script keep the old default.

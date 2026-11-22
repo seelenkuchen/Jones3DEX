@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <Jones3D/Main/JonesFixedTick.h>
+#include <sith/Engine/sithCamera.h>
 #include <sith/Gameplay/sithTime.h>
 
 TEST_GROUP(JonesFixedTick);
@@ -242,37 +243,59 @@ TEST(JonesFixedTick, BlendThingSnapsACreatedThingAndATeleport)
     TEST_ASSERT_EQUAL_FLOAT(10.0f, thing.pos.x);
 }
 
-TEST(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAndAspect)
+TEST(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook)
 {
     SithCamera camera;
     memset(&camera, 0, sizeof(camera));
-    camera.pos.x         = 1.0f;
+
+    // The previous tick.
+    camera.pos.x         = -1.0f;
     camera.orient        = JonesFixedTickTest_Identity();
+    camera.orient.dvec.x = -1.0f;
+    camera.fov           = 70.0f;
+    camera.aspectRatio   = 1.0f;
+    camera.lookPos       = (rdVector3){ -1.0f, -2.0f, -3.0f };
+    camera.focusPos      = (rdVector3){ -4.0f, -5.0f, -6.0f };
+    sithCamera_g_camSpot     = (rdVector3){ -7.0f, -8.0f, -9.0f };
+    sithCamera_g_camLookSpot = (rdVector3){ -10.0f, -11.0f, -12.0f };
+
+    JonesFixedTickCameraState prev;
+    JonesFixedTick_CaptureCamera(&prev, &camera);
+
+    // The current tick.
+    camera.pos.x         = 1.0f;
     camera.orient.dvec.x = 1.0f;
     camera.fov           = 90.0f;
     camera.aspectRatio   = 1.3333333f;
+    camera.lookPos       = (rdVector3){ 1.0f, 2.0f, 3.0f };
+    camera.focusPos      = (rdVector3){ 4.0f, 5.0f, 6.0f };
+    sithCamera_g_camSpot     = (rdVector3){ 7.0f, 8.0f, 9.0f };
+    sithCamera_g_camLookSpot = (rdVector3){ 10.0f, 11.0f, 12.0f };
 
     JonesFixedTickCameraState cur;
     JonesFixedTick_CaptureCamera(&cur, &camera);
-
-    JonesFixedTickCameraState prev;
-    memset(&prev, 0, sizeof(prev));
-    prev.valid       = true;
-    prev.pos.x       = -1.0f;
-    prev.orient      = JonesFixedTickTest_Identity();
-    prev.orient.dvec.x = -1.0f;
-    prev.fov         = 70.0f;
-    prev.aspectRatio = 1.0f;
 
     JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.pos.x);
     TEST_ASSERT_EQUAL_FLOAT(80.0f, camera.fov);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.1666666f, camera.aspectRatio);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.lookPos.x);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.lookPos.y);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.lookPos.z);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.focusPos.x);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.focusPos.y);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, camera.focusPos.z);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithCamera_g_camSpot.x);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, sithCamera_g_camLookSpot.z);
 
     JonesFixedTick_RestoreCamera(&cur, &camera);
     TEST_ASSERT_EQUAL_FLOAT(1.0f, camera.pos.x);
     TEST_ASSERT_EQUAL_FLOAT(90.0f, camera.fov);
     TEST_ASSERT_EQUAL_FLOAT(1.3333333f, camera.aspectRatio);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, camera.lookPos.x);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, camera.focusPos.z);
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, sithCamera_g_camSpot.x);
+    TEST_ASSERT_EQUAL_FLOAT(12.0f, sithCamera_g_camLookSpot.z);
     TEST_ASSERT_EQUAL_MEMORY(&cur.orient, &camera.orient, sizeof(camera.orient));
 }
 
@@ -358,7 +381,7 @@ TEST(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores)
     TEST_ASSERT_EQUAL_FLOAT(0.75f, puppet.aTracks[0].blendWeight);
 }
 
-TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksIsNotBlended)
+TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksCrossfadesAndRestores)
 {
     rdKeyframe keyframeA;
     rdKeyframe keyframeB;
@@ -374,8 +397,10 @@ TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksIsNotBlended)
     puppet.pThing = &renderData;
     renderData.pPuppet = &puppet;
 
-    puppet.aTracks[0].pKFTrack = &keyframeA;
-    puppet.aTracks[0].curFrame = 1.0f;
+    puppet.aTracks[0].pKFTrack    = &keyframeA;
+    puppet.aTracks[0].curFrame    = 1.0f;
+    puppet.aTracks[0].blendWeight = 1.0f;
+    puppet.aTracks[0].guid        = 0x00010001;
 
     SithThing thing;
     memset(&thing, 0, sizeof(thing));
@@ -386,13 +411,89 @@ TEST(JonesFixedTick, PuppetTrackReplacedBetweenTicksIsNotBlended)
     JonesFixedTickThingState prev;
     JonesFixedTick_CaptureThing(&prev, &thing);
 
-    puppet.aTracks[0].pKFTrack = &keyframeB;
-    puppet.aTracks[0].curFrame = 9.0f;
+    puppet.aTracks[0].pKFTrack    = &keyframeB;
+    puppet.aTracks[0].curFrame    = 9.0f;
+    puppet.aTracks[0].blendWeight = 1.0f;
     JonesFixedTickThingState cur;
     JonesFixedTick_CaptureThing(&cur, &thing);
 
+    // The replaced track crossfades inside itself: the new pose stays at its full tick weight
+    // while the previous keyframe supplies the pose the other side of the blend.
     TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.5f));
     TEST_ASSERT_EQUAL_FLOAT(9.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
+    TEST_ASSERT_TRUE(puppet.aTracks[0].bDrawCrossfade);
+    TEST_ASSERT_EQUAL_PTR(&keyframeA, puppet.aTracks[0].pDrawCrossfadeKFTrack);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].drawCrossfadeFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, puppet.aTracks[0].drawCrossfadeFactor);
+    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
+
+    // Restoring the tick pose clears the draw-only crossfade.
+    JonesFixedTick_RestoreThing(&cur, &thing);
+    TEST_ASSERT_EQUAL_FLOAT(9.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
+    TEST_ASSERT_FALSE(puppet.aTracks[0].bDrawCrossfade);
+    TEST_ASSERT_NULL(puppet.aTracks[0].pDrawCrossfadeKFTrack);
+
+    // At alpha 0 the previous pose is drawn, at alpha 1 the new one; neither adds a track.
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.0f));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, puppet.aTracks[0].drawCrossfadeFactor);
+    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
+    JonesFixedTick_RestoreThing(&cur, &thing);
+
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 1.0f));
+    TEST_ASSERT_FALSE(puppet.aTracks[0].bDrawCrossfade);
+    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
+    JonesFixedTick_RestoreThing(&cur, &thing);
+}
+
+TEST(JonesFixedTick, PuppetTrackLoopCrossfadesAndRestores)
+{
+    rdKeyframe keyframe;
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+
+    rdThing renderData;
+    memset(&renderData, 0, sizeof(renderData));
+    rdPuppet puppet;
+    memset(&puppet, 0, sizeof(puppet));
+    puppet.pThing = &renderData;
+    renderData.pPuppet = &puppet;
+
+    puppet.aTracks[0].pKFTrack    = &keyframe;
+    puppet.aTracks[0].curFrame    = 90.0f;
+    puppet.aTracks[0].blendWeight = 1.0f;
+    puppet.aTracks[0].guid        = 0x00010001;
+
+    SithThing thing;
+    memset(&thing, 0, sizeof(thing));
+    thing.type               = SITH_THING_ACTOR;
+    thing.signature          = 4;
+    thing.renderData.pPuppet = &puppet;
+
+    JonesFixedTickThingState prev;
+    JonesFixedTick_CaptureThing(&prev, &thing);
+
+    puppet.aTracks[0].curFrame = 5.0f;
+    JonesFixedTickThingState cur;
+    JonesFixedTick_CaptureThing(&cur, &thing);
+
+    // A loop reset is a discontinuity too: the old end pose crossfades to the new start pose
+    // instead of drawing the whole track backwards or snapping.
+    TEST_ASSERT_TRUE(JonesFixedTick_BlendThing(&prev, &cur, &thing, 0.25f));
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
+    TEST_ASSERT_TRUE(puppet.aTracks[0].bDrawCrossfade);
+    TEST_ASSERT_EQUAL_PTR(&keyframe, puppet.aTracks[0].pDrawCrossfadeKFTrack);
+    TEST_ASSERT_EQUAL_FLOAT(90.0f, puppet.aTracks[0].drawCrossfadeFrame);
+    TEST_ASSERT_EQUAL_FLOAT(0.25f, puppet.aTracks[0].drawCrossfadeFactor);
+    TEST_ASSERT_NULL(puppet.aTracks[1].pKFTrack);
+
+    JonesFixedTick_RestoreThing(&cur, &thing);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, puppet.aTracks[0].curFrame);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, puppet.aTracks[0].blendWeight);
+    TEST_ASSERT_FALSE(puppet.aTracks[0].bDrawCrossfade);
+    TEST_ASSERT_NULL(puppet.aTracks[0].pDrawCrossfadeKFTrack);
 }
 
 TEST(JonesFixedTick, SurfaceOffsetsAndLightBlendAndRestore)
@@ -581,11 +682,12 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, BlendThingInterpolatesAndRestoresExactPostTickValues);
     RUN_TEST_CASE(JonesFixedTick, BlendThingNeverBlendsAcrossASignatureChange);
     RUN_TEST_CASE(JonesFixedTick, BlendThingSnapsACreatedThingAndATeleport);
-    RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAndAspect);
+    RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
     RUN_TEST_CASE(JonesFixedTick, PuppetPoseSamplesBetweenTicksAndRestores);
-    RUN_TEST_CASE(JonesFixedTick, PuppetTrackReplacedBetweenTicksIsNotBlended);
+    RUN_TEST_CASE(JonesFixedTick, PuppetTrackReplacedBetweenTicksCrossfadesAndRestores);
+    RUN_TEST_CASE(JonesFixedTick, PuppetTrackLoopCrossfadesAndRestores);
     RUN_TEST_CASE(JonesFixedTick, SurfaceOffsetsAndLightBlendAndRestore);
     RUN_TEST_CASE(JonesFixedTick, ScrollWrapBlendsTheShortWay);
     RUN_TEST_CASE(JonesFixedTick, SkyOffsetsBlendAndRestore);

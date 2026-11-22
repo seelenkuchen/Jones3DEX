@@ -90,8 +90,10 @@
     depth of field reconstructs view-space positions and normals from the depth target, gathers 8, 12 or 16
     hemisphere samples at half resolution in a fixed 4 x 4 rotation pattern, blurs them depth-aware and
     multiplies the HDR scene by the occlusion term. Wall corners, creases and contact areas darken; the sky,
-    translucent water, HUD, 2D layer, menus and prompts are left unchanged. Off skips every pass and presents
-    exactly the previous image. Applies when the display reopens.
+    translucent water, HUD, 2D layer, menus and prompts are left unchanged. The radius follows the game's
+    world scale (Indy is about 0.2 units tall) and the range falloff reaches zero by twice the radius, so a
+    nearby character no longer darkens the scene behind him. Off skips every pass and presents exactly the
+    previous image. Applies when the display reopens.
   - **Options > Display** has a **Light shafts** row (`engine.renderer.lightShafts`: Off, Low, Medium or High
     = 0, 1, 2, 3, with strengths 0, 0.25, 0.5, 0.8; Low by default in Enhanced and off in Retail). A
     screen-space stage after depth of field and before bloom masks the bright sky, finds its

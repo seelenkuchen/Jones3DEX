@@ -140,8 +140,11 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
         }
 
         const float sceneZ = ViewDistance(sampleUv);
-        // Only geometry in front of the sampled point occludes it, and only within the radius.
-        const float range = saturate(gSsao.z / max(abs(centerZ - sceneZ), 1.0e-5));
+        // Only geometry in front of the sampled point occludes it, and the weight must fade to zero
+        // by twice the radius: a much nearer surface (a character behind the shaded one) is outside
+        // the kernel's reach and must not darken it, unlike saturate(radius / |dz|), which never
+        // reaches zero.
+        const float range = saturate(1.0 - abs(centerZ - sceneZ) / max(2.0 * gSsao.z, 1.0e-5));
         if ( sceneZ < samplePosition.z - gSsao.w )
         {
             occlusion += range * range;

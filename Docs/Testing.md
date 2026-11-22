@@ -384,6 +384,16 @@ keys take effect at the next `stdControl_ReadControls`, as device input does, wh
 control is bound to a developer key and pressed through that same key path (`quickwhip` is the
 Modern quick whip, which the headless run has no default pad binding for).
 
+Three developer options exercise the fixed tick: `--fixed-tick <hz>` selects the
+simulation rate, `--draw-step <ms>` sets the virtual time per drawn frame, and
+`--draw-trace <file>` writes one line per drawn frame after the scene draw (tick,
+alpha, player and camera pose, three player joint positions and the active puppet
+tracks) for presentation analysis. The trace option is inert unless given and also
+works with the fixed tick off. On a fixed-tick run with `--input` and no explicit
+`--draw-step`, the runner clamps the draw step to the tick step so every tick sees
+the same scripted key state; an explicit `--draw-step` wins. See
+[Frame-Time.md](arc42/08-crosscutting/Frame-Time.md#m924-jumpfall-jitter-findings).
+
 The state file starts with one `cvar <name> <value>` line per simulation cvar (today
 `cvar game.profile enhanced` or `retail`), followed by the frame, game time, player state and one line per
 active thing.

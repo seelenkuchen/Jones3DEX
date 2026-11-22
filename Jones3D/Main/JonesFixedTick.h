@@ -44,6 +44,8 @@ typedef struct sJonesFixedTickPuppetTrackState
     const rdKeyframe* pKFTrack;
     float             curFrame;
     float             blendWeight;
+    int               lowPriority;  // Added: needed to place the previous pose of a replaced track
+    int               highPriority;
 } JonesFixedTickPuppetTrackState;
 
 typedef struct sJonesFixedTickPuppetState
@@ -51,6 +53,11 @@ typedef struct sJonesFixedTickPuppetState
     bool                           valid;
     rdPuppet*                      pPuppet;
     JonesFixedTickPuppetTrackState aTracks[RDPUPPET_MAX_TRACKS];
+
+    // Added: draw-only crossfade bookkeeping. On the tick a track is replaced, looped or removed,
+    // the previous pose goes into a free puppet slot for this drawn frame; EndDraw clears it.
+    int    aTempTrackNums[RDPUPPET_MAX_TRACKS];
+    size_t numTempTracks;
 } JonesFixedTickPuppetState;
 
 // Added: one active thing's previous or current tick state. renderFrame and flags are included
@@ -105,6 +112,13 @@ typedef struct sJonesFixedTickCameraState
     rdMatrix34 orient;
     float      fov;
     float      aspectRatio;
+
+    // Added: M9.24 (jitter). The draw reads lookPos for the sky, backface culling and the DoF
+    // focus distance, and camSpot/camLookSpot are exposed to the frame. Blend them with the pose.
+    rdVector3  lookPos;
+    rdVector3  focusPos;
+    rdVector3  camSpot;
+    rdVector3  camLookSpot;
 } JonesFixedTickCameraState;
 
 // Configuration and lifecycle.
@@ -139,11 +153,18 @@ void JonesFixedTick_AfterTick(void);
 void JonesFixedTick_BeginDraw(void);
 void JonesFixedTick_EndDraw(void);
 
+// Added: dev-only --draw-trace (Frame-Time.md). Opens a trace file every drawn frame writes one
+// line into after the scene draw: tick, alpha, player and camera pose, three player joints and the
+// active tracks. Inert unless a path was opened; works with the fixed tick off too.
+bool JonesFixedTick_OpenDrawTrace(const char* pPath);
+void JonesFixedTick_CloseDrawTrace(void);
+void JonesFixedTick_TraceDraw(void);
+
 // Snapshot and interpolation helpers (also used by the unit tests).
 void JonesFixedTick_CaptureThing(JonesFixedTickThingState* pDst, const SithThing* pThing);
 void JonesFixedTick_CaptureCamera(JonesFixedTickCameraState* pDst, const SithCamera* pCamera);
 bool JonesFixedTick_BlendThing(const JonesFixedTickThingState* pPrev,
-    const JonesFixedTickThingState* pCur, SithThing* pThing, float alpha);
+    JonesFixedTickThingState* pCur, SithThing* pThing, float alpha);
 void JonesFixedTick_RestoreThing(const JonesFixedTickThingState* pCur, SithThing* pThing);
 void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
     const JonesFixedTickCameraState* pCur, SithCamera* pCamera, float alpha);
@@ -154,7 +175,7 @@ void JonesFixedTick_LerpOrient(rdMatrix34* pOut, const rdMatrix34* pA, const rdM
 // Added: M9.22 interpolated animation helpers (also used by the unit tests).
 void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppet* pPuppet);
 void JonesFixedTick_BlendPuppet(const JonesFixedTickPuppetState* pPrev,
-    const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet, float alpha);
+    JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet, float alpha);
 void JonesFixedTick_RestorePuppet(const JonesFixedTickPuppetState* pCur, rdPuppet* pPuppet);
 
 void JonesFixedTick_CaptureSurface(JonesFixedTickSurfaceState* pDst, const SithSurface* pSurface);

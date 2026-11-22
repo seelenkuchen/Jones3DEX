@@ -36,8 +36,14 @@ void J3DAPI rdPuppet_BuildJointMatrices(rdThing* prdThing, const rdMatrix34* pPl
 // Added: M9.22 interpolated animation. Sample a track at an arbitrary frame for a drawn frame.
 // The keyframe node cache is reset so the next rdPuppet_BuildJointMatrices finds the segment for
 // this frame instead of keeping the tick's forward-only cache. Markers, callbacks, playback
-// status and prevFrame stay tick-owned.
+// status and prevFrame stay tick-owned. Clears any draw crossfade set by the function below.
 void J3DAPI rdPuppet_SetTrackDrawSample(rdPuppet* pPuppet, int32_t track, float frame, float blendWeight);
+
+// Added: M9.24. Crossfade this track's drawn pose from a previous keyframe/frame toward its
+// current draw sample. factor 0 draws the previous pose, 1 the current one. Applied by the next
+// rdPuppet_BuildJointMatrices; rdPuppet_SetTrackDrawSample clears it.
+void J3DAPI rdPuppet_SetTrackDrawCrossfade(rdPuppet* pPuppet, int32_t track,
+    const rdKeyframe* pPrevKFTrack, float prevFrame, float factor);
 
 void rdPuppet_ResetGlobals(void);
 
