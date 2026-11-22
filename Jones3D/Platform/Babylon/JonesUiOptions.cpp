@@ -354,6 +354,9 @@ namespace
         screen.help[layout.lightShafts] =
             "Add screen-space light shafts from the visible sky; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
+        screen.help[layout.ssao] =
+            "Darken the creases where geometry meets itself with screen-space ambient occlusion; "
+            "the HUD, menus and prompts are unchanged. Applies when the display reopens.";
         screen.help[layout.lensFlare] =
             "Add tinted lens-flare ghosts and a halo from the visible sky; the HUD, menus and "
             "prompts are unchanged. Applies when the display reopens.";

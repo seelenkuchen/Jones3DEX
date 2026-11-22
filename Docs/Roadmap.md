@@ -33,8 +33,8 @@ Where Jones3D EX stands and what comes next. The reasons behind the order are in
 | M7. Playable | The Babylon build plays with sound, saving and in-game menus; the owner's play-test on real hardware remains | In progress |
 | M7.7 Modern controls | Before M8: camera-relative movement, free camera, quick-step, target lock and quick-select as the Enhanced Control style; Classic and the Retail profile keep the original controls ([ADR-0029](arc42/09-decisions/ADR-0029-modern-controls.md)) | Done (2026-11-14) |
 | M8. Release | Packages (Linux as AppImage or Flatpak, so nothing is installed into the system), game data installation with the setup wizard and `GameData`, first Jones3D EX release. macOS is deferred (2026-11-08): no macOS work or CI for now, the code stays portable, signing comes later. Install guide: [Install.md](Install.md) | Done (2026-11-21): setup wizard, play-test fixes, interaction prompts, quick whip; first release `v0.5.0-alpha` |
-| M9. Presentation | Widescreen and high-resolution output; bloom and depth of field as post-processing; high frame rates, which first needs an answer to how much of the simulation depends on frame time | |
-| M10. Modern lighting | Per-pixel dynamic lighting and screen-space ambient occlusion, with the original vertex lighting kept as the classic mode | |
+| M9. Presentation | Widescreen and high-resolution output; bloom, water ripples, screen-space ambient occlusion and depth of field as post-processing; high frame rates, which first needs an answer to how much of the simulation depends on frame time | |
+| M10. Modern lighting | Per-pixel dynamic lighting, with the original vertex lighting kept as the classic mode | |
 | M11 and later. Babylon extras | Visible console; modding (loose-file overrides, mod folders, COG); threading last. Open idea: shadows and geometry on the GPU | |
 
 The enhancements planned so far, and what each needs from Babylon, are listed in [Enhancements.md](Enhancements.md).

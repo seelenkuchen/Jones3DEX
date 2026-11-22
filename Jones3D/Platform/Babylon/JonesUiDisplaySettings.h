@@ -74,6 +74,9 @@ struct JonesUiDisplayValues
     // Added: index into the light-shaft choices (Off, Low, Medium, High; Low at index 1 in
     // Enhanced).
     std::size_t lightShafts = 1;
+    // Added: index into the ambient-occlusion choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t ssao = 1;
     // Added: lens flare, a toggle (on in Enhanced, off in Retail/QOL-off).
     bool bLensFlare = true;
     // Added: vignette and film grain, toggles (off in every build).
@@ -116,6 +119,7 @@ struct JonesUiDisplayLayout
     std::size_t antiAliasing = 0; // Added
     std::size_t bloom = 0; // Added
     std::size_t lightShafts = 0; // Added: M9.16 light-shaft level
+    std::size_t ssao = 0; // Added: M9.17b ambient-occlusion level
     std::size_t lensFlare = 0; // Added: M9.18 lens flare toggle
     std::size_t vignette = 0; // Added: M9.18 vignette toggle
     std::size_t filmGrain = 0; // Added: M9.18 film grain toggle
@@ -154,6 +158,7 @@ struct JonesUiDisplayModel
     int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA
     int bloom = 1;              // Added: engine.renderer.bloom, 0 off / 1 low / 2 medium / 3 high
     int lightShafts = 1;        // Added: engine.renderer.lightShafts, 0 off / 1 low / 2 medium / 3 high
+    int ssao = 1;               // Added: engine.renderer.ssao, 0 off / 1 low / 2 medium / 3 high
     bool bLensFlare = true;     // Added: engine.renderer.lensFlare
     bool bVignette = false;     // Added: engine.renderer.vignette
     bool bFilmGrain = false;    // Added: engine.renderer.filmGrain

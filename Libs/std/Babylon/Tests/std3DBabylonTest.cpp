@@ -2978,6 +2978,14 @@ namespace
     {
         return bits ? (int)std::lround(value * 255.0 / MaxOf(bits)) : 255;
     }
+
+    // rdCamera's scene depth: 0.1 at the near plane, 1.0 at the far plane, 1/z-linear in between.
+    float SceneDepthForEyeDepth(float eyeDepth, float nearPlane, float farPlane)
+    {
+        const float linear = (farPlane - nearPlane * farPlane / eyeDepth)
+            / (farPlane - nearPlane);
+        return 0.1f + 0.9f * linear;
+    }
 }
 
 TEST(std3DBabylonGpu, AVertexColoredTriangleInterpolatesItsColors)
@@ -4337,12 +4345,8 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
     // far plane to keep spreading; the near sample sits 5 px from its spot and the far one 6 px.
     const float nearPlane = 0.25f;
     const float farPlane  = 100.0f;
-    const auto zForDepth = [nearPlane, farPlane](float depth)
-    {
-        return (farPlane - nearPlane * farPlane / depth) / (farPlane - nearPlane);
-    };
-    const float zNear = zForDepth(0.5f);
-    const float zFar  = zForDepth(99.0f);
+    const float zNear = SceneDepthForEyeDepth(0.5f, nearPlane, farPlane);
+    const float zFar  = SceneDepthForEyeDepth(99.0f, nearPlane, farPlane);
     const auto drawScene = [zNear, zFar]
     {
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, zFar, 0xFF000000u);
@@ -4384,6 +4388,30 @@ TEST(std3DBabylonGpu, DepthOfFieldBlursTheFarOnlyInGameplayAndBothInCutscenes)
         cutsceneNear, cutsceneFar);
     TEST_ASSERT_TRUE(cutsceneNear > 0);
     TEST_ASSERT_TRUE(cutsceneFar > 0);
+
+    // A surface just inside the gameplay sharp zone must stay sharp. With the focus at 5 the blur
+    // starts at max(6 * 5, 1.5) = 30 and ramps over max(24 * 5, 6) = 120, so an eye depth of 29.5
+    // has a circle of confusion of 0. The old shader read the scene depth as 0..1 instead of the
+    // game's 0.1..1.0, which linearised this surface (sz 0.994609) to about 31.7, past the 30
+    // start, so it would have blurred. Everything is at the same depth, so with the correct
+    // mapping the depth-of-field stage leaves the whole frame byte-identical to the stage off.
+    const float sharpZ = SceneDepthForEyeDepth(29.5f, nearPlane, farPlane);
+    const auto drawSharpScene = [sharpZ]
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, sharpZ, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, 30.0f, 30.0f, 34.0f, 34.0f, sharpZ, 0xFFFFFFFFu);
+    };
+
+    std3D_SetFocus(5.0f, false, 0.0f);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    RenderScene(drawSharpScene);
+    const std::vector<std::byte> sharpOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(redChannel(sharpOff, 32u, 32u) > 0);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, true, 1.0f));
+    RenderScene(drawSharpScene);
+    const std::vector<std::byte> sharpGameplay = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(sharpOff.data(), sharpGameplay.data(), sharpOff.size());
 }
 
 TEST(std3DBabylonGpu, DepthOfFieldOffIsByteIdentical)
@@ -4735,6 +4763,274 @@ TEST(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact)
     TEST_ASSERT_EQUAL_INT((int)off[hud + 1u], (int)on[hud + 1u]);
     TEST_ASSERT_EQUAL_INT((int)off[hud + 2u], (int)on[hud + 2u]);
     TEST_ASSERT_EQUAL_INT((int)off[hud + 3u], (int)on[hud + 3u]);
+}
+
+namespace
+{
+    // The mean of the red, green and blue bytes of a rectangle of a Bgra8 capture, rows top first.
+    float SsaoMeanBrightness(const std::vector<std::byte>& pixels, uint32_t width,
+        uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1)
+    {
+        double sum = 0.0;
+        size_t count = 0;
+        for ( uint32_t y = y0; y < y1; ++y )
+        {
+            for ( uint32_t x = x0; x < x1; ++x )
+            {
+                const size_t at = ((size_t)y * width + x) * 4u;
+                sum += (double)pixels[at + 0u] + (double)pixels[at + 1u] + (double)pixels[at + 2u];
+                count += 3u;
+            }
+        }
+        return count > 0u ? (float)(sum / (double)count) : 0.0f;
+    }
+
+    // The ambient-occlusion test scene: a floor below a box corner, the near left wall at eye depth
+    // 1.8, the far right wall at 2.4 and the floor at 3.2, converted to rdCamera's scene depth. The
+    // creases at x = 32 and y = 32 occlude each other inside the Low level's 0.25-unit radius.
+    void DrawSsaoCreaseSceneWithProjection(float nearPlane, float farPlane)
+    {
+        const uint32_t grey = 0xFF808080u;
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 32.0f,
+            SceneDepthForEyeDepth(1.8f, nearPlane, farPlane), grey);
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 64.0f, 32.0f,
+            SceneDepthForEyeDepth(2.4f, nearPlane, farPlane), grey);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 32.0f, 64.0f, 64.0f,
+            SceneDepthForEyeDepth(3.2f, nearPlane, farPlane), grey);
+    }
+
+    void DrawSsaoCreaseScene()
+    {
+        DrawSsaoCreaseSceneWithProjection(0.1f, 100.0f);
+    }
+}
+
+TEST(std3DBabylonGpu, SsaoOffLeavesTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    TEST_ASSERT_EQUAL_INT(0, stdRenderBabylon_GetSsao());
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+
+    RenderScene(DrawSsaoCreaseScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+    RenderScene(DrawSsaoCreaseScene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+
+    // On with only a sky surface and with no geometry at all: every pixel is left unchanged.
+    const auto drawSky = []
+    {
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF204060u);
+    };
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(1));
+    RenderScene(drawSky);
+    const std::vector<std::byte> skyOn = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    RenderScene(drawSky);
+    const std::vector<std::byte> skyOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(skyOff.data(), skyOn.data(), skyOn.size());
+
+    const auto drawNothing = [] {};
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(1));
+    RenderScene(drawNothing);
+    const std::vector<std::byte> emptyOn = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    RenderScene(drawNothing);
+    const std::vector<std::byte> emptyOff = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_MEMORY(emptyOff.data(), emptyOn.data(), emptyOn.size());
+}
+
+TEST(std3DBabylonGpu, SsaoDarkensACreaseAndLeavesOpenFlatAreas)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    RenderScene(DrawSsaoCreaseScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(1));
+    RenderScene(DrawSsaoCreaseScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    // Near the vertical crease on the far wall the picture darkens.
+    const float offCrease = SsaoMeanBrightness(off, 64u, 33u, 4u, 38u, 18u);
+    const float onCrease  = SsaoMeanBrightness(on, 64u, 33u, 4u, 38u, 18u);
+    std::printf("M9.17b SSAO: crease mean %.2f off, %.2f on\n",
+        (double)offCrease, (double)onCrease);
+    TEST_ASSERT_TRUE(onCrease < offCrease - 1.0f);
+
+    // A flat area away from every crease is unchanged within the capture's rounding.
+    const float offOpen = SsaoMeanBrightness(off, 64u, 4u, 4u, 12u, 18u);
+    const float onOpen  = SsaoMeanBrightness(on, 64u, 4u, 4u, 12u, 18u);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, offOpen, onOpen);
+}
+
+TEST(std3DBabylonGpu, SsaoLeavesSkyAndTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+
+    const auto drawScene = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.97f, 0xFF808080u);
+        DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 2.0f, 2.0f, 28.0f, 30.0f, 0.95f, 0xFF204060u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 0.0f, 35.0f, 64.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(3));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    const size_t skyPixel = ((size_t)10u * 64u + 10u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)off[skyPixel + 0u], (int)on[skyPixel + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)off[skyPixel + 1u], (int)on[skyPixel + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)off[skyPixel + 2u], (int)on[skyPixel + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)off[skyPixel + 3u], (int)on[skyPixel + 3u]);
+
+    const size_t hudPixel = ((size_t)10u * 64u + 33u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 0u], (int)on[hudPixel + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 1u], (int)on[hudPixel + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 2u], (int)on[hudPixel + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 3u], (int)on[hudPixel + 3u]);
+}
+
+TEST(std3DBabylonGpu, SsaoLevelsDarkenMonotonically)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+
+    auto capture = [](int level)
+    {
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(level));
+        RenderScene(DrawSsaoCreaseScene);
+        return CapturePresented(64u, 64u);
+    };
+
+    const std::vector<std::byte> off  = capture(0);
+    const std::vector<std::byte> low  = capture(1);
+    const std::vector<std::byte> medium = capture(2);
+    const std::vector<std::byte> high = capture(3);
+
+    const float offMean    = SsaoMeanBrightness(off, 64u, 32u, 2u, 44u, 30u);
+    const float lowMean    = SsaoMeanBrightness(low, 64u, 32u, 2u, 44u, 30u);
+    const float mediumMean = SsaoMeanBrightness(medium, 64u, 32u, 2u, 44u, 30u);
+    const float highMean   = SsaoMeanBrightness(high, 64u, 32u, 2u, 44u, 30u);
+    std::printf("M9.17b SSAO levels: %.2f %.2f %.2f %.2f\n",
+        (double)offMean, (double)lowMean, (double)mediumMean, (double)highMean);
+    TEST_ASSERT_TRUE(lowMean < offMean);
+    TEST_ASSERT_TRUE(mediumMean < lowMean);
+    TEST_ASSERT_TRUE(highMean < mediumMean);
+}
+
+TEST(std3DBabylonGpu, SsaoProjectionIsAspectCorrect)
+{
+    if ( !OpenGpuStd3D(64u, 48u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // rdCamera's fov is the horizontal fov at 4:3; at 90 degrees the vertical tangent is 0.75 and
+    // the horizontal one is 1.0 at 4:3.
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+    float tanHalfX = 0.0f;
+    float tanHalfY = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetSsaoProjectionForTest(&tanHalfX, &tanHalfY));
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, 0.75f, tanHalfY);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, 1.0f, tanHalfX);
+
+    // At 16:9 the vertical field stays the same and the horizontal one widens (Hor+).
+    bool bRecreated = false;
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBackBufferSize(64u, 36u, &bRecreated));
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetSsaoProjectionForTest(&tanHalfX, &tanHalfY));
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, 0.75f, tanHalfY);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, 4.0f / 3.0f, tanHalfX);
+}
+
+TEST(std3DBabylonGpu, SsaoLeavesTheFirstPersonOverlayAlone)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+
+    // The crease scene fills the frame, then a small ordinary quad at sz = 0.05 stands in for the
+    // first-person overlay range (0..0.1). Its depth neighbours are geometry, so a blur that used
+    // them would darken it.
+    const auto drawScene = []
+    {
+        DrawSsaoCreaseScene();
+        DrawQuad(nullptr, (Std3DRenderState)0, 30.0f, 30.0f, 34.0f, 34.0f, 0.05f, 0xFFE0E0E0u);
+    };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+    RenderScene(drawScene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(3));
+    RenderScene(drawScene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+
+    const size_t overlayPixel = ((size_t)32u * 64u + 32u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)off[overlayPixel + 0u], (int)on[overlayPixel + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)off[overlayPixel + 1u], (int)on[overlayPixel + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)off[overlayPixel + 2u], (int)on[overlayPixel + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)off[overlayPixel + 3u], (int)on[overlayPixel + 3u]);
 }
 
 TEST(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical)
@@ -5224,6 +5520,12 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesChangeOnlyWaterPixelsAndFollowGameTime);
     RUN_TEST_CASE(std3DBabylonGpu, WaterRipplesLeaveTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoDarkensACreaseAndLeavesOpenFlatAreas);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoLeavesSkyAndTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoLevelsDarkenMonotonically);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoProjectionIsAspectCorrect);
+    RUN_TEST_CASE(std3DBabylonGpu, SsaoLeavesTheFirstPersonOverlayAlone);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry);

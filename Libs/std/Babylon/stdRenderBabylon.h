@@ -284,6 +284,29 @@ bool stdRenderBabylon_GetFilmGrain();
 bool stdRenderBabylon_SetWaterRipples(bool bEnabled);
 bool stdRenderBabylon_GetWaterRipples();
 
+// Added: the built-in screen-space ambient occlusion stage over the HDR scene, after the water
+// ripples and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the sample
+// count, world-space radius, bias and intensity of each level live with the stage's other constants
+// in stdRenderBabylon.cpp. On: view-space positions and normals are reconstructed from the depth
+// target (the classic draws write a constant normal), an 8, 12 or 16 sample normal-oriented
+// hemisphere kernel is gathered at half the scene size in a fixed 4 x 4 interleaved rotation
+// pattern, a depth-aware 4 x 4 blur removes the pattern, and a scene-sized composite multiplies the
+// HDR colour by the result. Pixels tagged sky or water, and pixels with nothing drawn, are left
+// unchanged. Off, or a failure, skips every pass and the image is byte-identical to the path
+// without the option. The HUD layer, menus and prompts come after and are untouched. A level
+// outside 0..3 is clamped. Opening reads engine.renderer.ssao (default 1 Low in Enhanced builds, 0
+// in Retail/QOL-off ones); this setter changes it until the next open. Closing frees the stage's
+// targets and pipelines.
+bool stdRenderBabylon_SetSsao(int level);
+int stdRenderBabylon_GetSsao();
+
+// Added: the frame's projection for the ambient-occlusion reconstruction. fovDegrees is the
+// horizontal fov at the 4:3 reference aspect, in degrees, as rdCamera's fov is; the stage derives
+// the vertical tangent from it and the horizontal tangent from the real aspect (Hor+). nearPlane
+// and farPlane are the frame's planes. The values are presentation state only; invalid ones are
+// ignored.
+void stdRenderBabylon_SetProjection(float fovDegrees, float nearPlane, float farPlane);
+
 // Added: the frame's game time in seconds, used by the light-shaft fade and the water ripple phase.
 // Presentation state only; a non-finite value is ignored and the step is clamped to 0.25 s.
 void stdRenderBabylon_SetFrameTime(float deltaTime);
@@ -460,6 +483,9 @@ bool stdRenderBabylon_GetLightShaftCentroidForTest(float* pU, float* pV, float* 
 // sample the composite uses) and writes it in red. Returns false without a presented shaft frame.
 bool stdRenderBabylon_GetLightShaftValueForTest(std::uint32_t x, std::uint32_t y, float* pValue);
 
+// Added: test-only. Writes the ambient-occlusion reconstruction's horizontal and vertical tangent
+// scales for the current scene size and projection. Returns false when not open.
+bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalfY);
 // Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
 // whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
 // Returns false without such a submit. Production builds don't compile it.

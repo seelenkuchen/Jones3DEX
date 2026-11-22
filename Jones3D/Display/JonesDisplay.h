@@ -40,6 +40,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS                "engine.renderer.brightness" // Added: M9.11 calibration gamma after the tone map
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM                     "engine.renderer.bloom" // Added: M9.12 bloom level
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS               "engine.renderer.lightShafts" // Added: M9.16 light-shaft level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_SSAO                      "engine.renderer.ssao" // Added: M9.17b ambient-occlusion level
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE                 "engine.renderer.lensFlare" // Added: M9.18 lens flare
 #define JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE                  "engine.renderer.vignette" // Added: M9.18 vignette
 #define JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN                 "engine.renderer.filmGrain" // Added: M9.18 film grain
