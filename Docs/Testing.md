@@ -378,9 +378,11 @@ is no display). The option does not change the state trace. The same run must gi
 state file, byte for byte, in all of them; the
 runner writes the state file in binary mode so Windows line endings do not differ. On
 Linux the Windows build runs under wine (`wine <build>/Jones3D/Jones3D-headless.exe ...`).
-`--input <file>` feeds a scripted-input file of `frame <n>: cmd <command>` and
-`frame <n>: key <name|number> down|up` lines; scripted keys take effect at the next
-`stdControl_ReadControls`, as device input does.
+`--input <file>` feeds a scripted-input file of `frame <n>: cmd <command>`,
+`frame <n>: key <name|number> down|up` and `frame <n>: control <name> down|up` lines; scripted
+keys take effect at the next `stdControl_ReadControls`, as device input does, while a named
+control is bound to a developer key and pressed through that same key path (`quickwhip` is the
+Modern quick whip, which the headless run has no default pad binding for).
 
 The state file starts with one `cvar <name> <value>` line per simulation cvar (today
 `cvar game.profile enhanced` or `retail`), followed by the frame, game time, player state and one line per

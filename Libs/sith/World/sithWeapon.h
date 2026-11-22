@@ -103,9 +103,9 @@ int J3DAPI sithWeapon_QueryWhipPress(const SithThing* pThing, int* pbSwing);
 void J3DAPI sithWeapon_SetQuickWhipEnabled(int bEnabled);
 int sithWeapon_IsQuickWhipEnabled(void);
 
-// Added: all the quick whip availability conditions, including the read-only target query.
-// Returns 1 when a quick whip press would act and reports the target and kind it would use. It
-// changes no state. The outputs are cleared first, so they are always set.
+// Added: all the quick whip availability conditions. Returns 1 when the quick whip binding would
+// act, wherever the whip can be used normally, with or without a target. The optional outputs
+// report the target and kind at a whip-aim point and stay empty elsewhere. It changes no state.
 int J3DAPI sithWeapon_CanQuickWhip(SithThing* pThing, SithThing** ppTarget, int* pbSwing);
 
 void sithWeapon_ResetGlobals(void);

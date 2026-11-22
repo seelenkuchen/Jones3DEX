@@ -1,5 +1,10 @@
 ## Jones3D EX (unreleased)
 ### M9: Presentation
+#### Gameplay
+  - **Quick whip** on the Modern gamepad's LB now works wherever the whip can be used: with no target it
+    draws the whip, cracks it through the normal fire path, and switches back to the previous weapon or empty
+    hands. At a whip target it still swings or climbs and switches back, and the keyboard whip-select key
+    still quick-whips only at a target before selecting the whip. The prompt is unchanged (ADR-0038).
 #### Image quality
   - **Options > Display** has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
     50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample
@@ -179,10 +184,11 @@
     rebinding. Options > Gameplay has an **Interaction prompts** row (`ui.hud.interactionPrompts`), on by
     default in Enhanced and locked off in Retail. It draws at the window's native resolution and never changes
     the simulation. The developer log records each prompt change with the target and the handler COG names.
-  - **Quick whip** swings or climbs the whip at a target without drawing it first, then switches back to the
-    previous weapon or empty hands. LB does it in the Modern gamepad style (the step-left row, now named
-    **Quick whip** in Button Layout) and the whip select key, 1 by default, does it on the keyboard; the prompt
-    shows **Swing** or **Climb** with that device's binding. Options > Gameplay has a **Quick whip** row
+  - **Quick whip** draws the whip, uses it, and switches back to the previous weapon or empty hands. LB
+    cracks the whip anywhere it can be used normally and swings or climbs at a whip target; the whip select
+    key, 1 by default, keeps its target-only quick whip and otherwise selects the whip. LB is the Modern
+    gamepad style's step-left row (now named **Quick whip** in Button Layout), and the prompt shows **Swing**
+    or **Climb** with that device's binding. Options > Gameplay has a **Quick whip** row
     (`gameplay.quickWhip`), on by default in Enhanced and locked off in Retail (ADR-0038).
   - Options > Controls opens separate **Controller** and **Keyboard & Mouse** Button Layout screens: one
     framed row per action with its input icon, a scrolling list and a pad diagram with action callouts.

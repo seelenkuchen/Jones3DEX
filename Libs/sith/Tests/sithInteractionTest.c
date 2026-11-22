@@ -340,6 +340,62 @@ static void sithInteractionTest_SetUpQuickWhipScene(void)
     sithInteractionTest_player.aItems[SITHWEAPON_WHIP].status = SITHINVENTORY_ITEM_AVAILABLE;
 }
 
+// Added: the quick whip anywhere scene: the whip in the inventory and a previous weapon drawn,
+// but no whip-aim point and no target, so the quick whip fires the whip normally.
+static void sithInteractionTest_SetUpQuickWhipAnywhereScene(SithWeaponId previousWeaponID)
+{
+    sithInteractionTest_SetUpQuickWhipScene();
+    sithWhip_SetTargetsForTest(NULL, NULL);
+    sithInteractionTest_sector.pFirstThingInSector = NULL;
+    PLAYER->attach.flags = 0;
+    sithInteractionTest_surface.flags &= ~SITH_SURFACE_WHIPAIM;
+
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = previousWeaponID;
+    sithInteractionTest_player.curWeaponID = previousWeaponID;
+    if ( previousWeaponID != SITHWEAPON_NO_WEAPON )
+    {
+        sithInventory_SetInventoryFlags(PLAYER, previousWeaponID,
+            (SithInventoryTypeFlag)(SITHINVENTORY_TYPE_REGISTERED | SITHINVENTORY_TYPE_WEAPON | SITHINVENTORY_TYPE_PLAYERWEAPON));
+        sithInteractionTest_player.aItems[previousWeaponID].amount = 1.0f;
+        sithInteractionTest_player.aItems[previousWeaponID].status = SITHINVENTORY_ITEM_AVAILABLE;
+    }
+
+    sithInventory_SetInventoryFlags(PLAYER, SITHWEAPON_WHIP,
+        SITHINVENTORY_TYPE_WEAPON);
+    // The fixture has no whip COG, so this scene takes the plain fire branch instead of the
+    // swing/climb pre-check, exactly as the press does when the whip has no target.
+    sithInventory_g_aTypes[SITHWEAPON_WHIP].flags &= ~SITHINVENTORY_TYPE_UNKNOWN_200;
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 1.0f;
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].status = SITHINVENTORY_ITEM_AVAILABLE;
+}
+
+// Added: completes the draw a previous weapon's selection started, so the whip is current.
+static void sithInteractionTest_CompleteWhipDraw(void)
+{
+    PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID   = SITHWEAPON_NOWEAPONSELECTED;
+    PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+    PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID        = SITHWEAPON_WHIP;
+    sithInteractionTest_player.curWeaponID                    = SITHWEAPON_WHIP;
+}
+
+// Added: the game registers every weapon key at startup; a test that reaches the ordinary weapon
+// control loop must register them too, because sithControl_GetKey asserts on an unregistered one.
+static void sithInteractionTest_RegisterWeaponKeys(void)
+{
+    sithControl_RegisterKeyFunction(SITHCONTROL_QUICKWHIP);
+    for ( SithControlFunction keyId = SITHCONTROL_WSELECT0; (unsigned int)keyId <= SITHCONTROL_WSELECT16; ++keyId )
+    {
+        sithControl_RegisterKeyFunction(keyId);
+    }
+
+    sithControl_RegisterKeyFunction(SITHCONTROL_ACT2);
+    sithControl_RegisterKeyFunction(SITHCONTROL_WEAPONTOGGLE);
+    sithControl_RegisterKeyFunction(SITHCONTROL_LIGHTERTOGGLE);
+    sithControl_RegisterKeyFunction(SITHCONTROL_NEXTWEAPON);
+    sithControl_RegisterKeyFunction(SITHCONTROL_PREVWEAPON);
+    sithControl_RegisterKeyFunction(SITHCONTROL_CHALK);
+}
+
 TEST(sithInteraction, QueryAndActivateAgreeOnCogSurface)
 {
     sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COGLINKED | SITH_SURFACE_COLLISION);
@@ -994,6 +1050,8 @@ TEST(sithInteraction, CanQuickWhipRejectsEachUnavailableCondition)
     SithThing* pTarget = NULL;
     int bSwing = -1;
     TEST_ASSERT_EQUAL_INT(1, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    TEST_ASSERT_EQUAL_PTR(COG, pTarget);
+    TEST_ASSERT_EQUAL_INT(1, bSwing);
 
     sithWeapon_SetQuickWhipEnabled(0);
     TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
@@ -1003,11 +1061,6 @@ TEST(sithInteraction, CanQuickWhipRejectsEachUnavailableCondition)
     TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
     PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID = SITHWEAPON_NO_WEAPON;
 
-    PLAYER->attach.flags = 0;
-    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
-    PLAYER->attach.flags = SITH_ATTACH_SURFACE;
-    PLAYER->attach.attachedToStructure.pSurfaceAttached = &sithInteractionTest_surface;
-
     PLAYER->thingInfo.actorInfo.bControlsDisabled = 1;
     TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
     PLAYER->thingInfo.actorInfo.bControlsDisabled = 0;
@@ -1016,12 +1069,31 @@ TEST(sithInteraction, CanQuickWhipRejectsEachUnavailableCondition)
     TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
     PLAYER->moveStatus = SITHPLAYERMOVE_STILL;
 
+    sithPlayerControls_g_bCutsceneMode = 1;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    sithPlayerControls_g_bCutsceneMode = 0;
+
+    PLAYER->flags |= SITH_TF_DYING;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    PLAYER->flags &= ~SITH_TF_DYING;
+
     sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 0.0f;
     TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
     sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 1.0f;
 
+    // Altered: away from a whip-aim point there is no target, but the quick whip binding still
+    // works and fires the whip normally. Only the prompt and the whip's select key need a target.
+    PLAYER->attach.flags = 0;
+    pTarget = COG;
+    bSwing = 1;
+    TEST_ASSERT_EQUAL_INT(1, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    TEST_ASSERT_NULL(pTarget);
+    TEST_ASSERT_EQUAL_INT(0, bSwing);
+
     sithInteractionTest_sector.pFirstThingInSector = NULL;
-    TEST_ASSERT_EQUAL_INT(0, sithWeapon_CanQuickWhip(PLAYER, &pTarget, &bSwing));
+    sithInteractionTest_KeepOnlySurface(SITH_SURFACE_COLLISION);
+    SithPlayerInteraction interaction;
+    TEST_ASSERT_FALSE(sithPlayerControls_QueryInteraction(PLAYER, &interaction));
 }
 
 TEST(sithInteraction, QuickWhipSwitchDefaultsAndRoundTrips)
@@ -1099,6 +1171,130 @@ TEST(sithInteraction, QuickWhipRestoresAfterTheWhipMoveEnds)
     TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
 }
 
+// Added: the quick whip binding without a target performs one normal whip attack and only then
+// restores the previous weapon. The attack is held for the whip's fire wait, so the restore cannot
+// run before the attack has finished.
+TEST(sithInteraction, QuickWhipPadWithoutTargetFiresThenRestoresThePistol)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipAnywhereScene(SITHWEAPON_PISTOL);
+    PLAYER->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime = (float)sithTime_g_secGameTime;
+    PLAYER->thingInfo.actorInfo.weaponInfo.secActivationWaitTime = 0.2f;
+
+    sithInteractionTest_RegisterWeaponKeys();
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 0, 0.0f);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 1, 1.0f);
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+
+    sithInteractionTest_CompleteWhipDraw();
+
+    // The drawn whip has no target, so the press fires it and changes no weapon yet.
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONSELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONDESELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+
+    // The attack is still running: no restore while the fire wait is in the future.
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONSELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+
+    // Once the fire wait is over the previous weapon is selected again.
+    sithTime_g_secGameTime += 0.3;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_PISTOL, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+
+    sithWeapon_UpdateActorWeapon(PLAYER);
+    sithWeapon_UpdateActorWeapon(PLAYER);
+    sithWeapon_UpdateActorWeapon(PLAYER);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_PISTOL, PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_PISTOL, sithInteractionTest_player.curWeaponID);
+}
+
+// Added: with empty hands before the press, the quick whip puts them away again afterwards.
+TEST(sithInteraction, QuickWhipPadWithoutTargetRestoresEmptyHands)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipAnywhereScene(SITHWEAPON_NO_WEAPON);
+    PLAYER->thingInfo.actorInfo.weaponInfo.secActivationWaitTime = 0.2f;
+
+    sithInteractionTest_RegisterWeaponKeys();
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 0, 0.0f);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 1, 1.0f);
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    sithInteractionTest_CompleteWhipDraw();
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    sithTime_g_secGameTime += 0.3;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NO_WEAPON, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+}
+
+// Added: the whip's own select key keeps its old meaning. Without a target it only selects the
+// whip; it does not arm the quick whip follow-up.
+TEST(sithInteraction, QuickWhipKeyboardWithoutTargetOnlySelectsTheWhip)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipAnywhereScene(SITHWEAPON_PISTOL);
+
+    sithInteractionTest_RegisterWeaponKeys();
+    sithControl_SetKeyOverride(SITHCONTROL_WSELECT1, 0, 0.0f);
+    sithControl_SetKeyOverride(SITHCONTROL_WSELECT1, 1, 1.0f);
+
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+
+    sithInteractionTest_CompleteWhipDraw();
+
+    // A plain select stays on the whip: no fire and no restore.
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_WHIP, PLAYER->thingInfo.actorInfo.weaponInfo.curWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONSELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONDESELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.deselectedWeaponID);
+}
+
+// Added: the quick whip binding does nothing when the option is off, the whip is missing, or the
+// player cannot use a weapon.
+TEST(sithInteraction, QuickWhipPadDoesNothingWhenUnavailable)
+{
+#ifndef J3D_QOL_IMPROVEMENTS
+    TEST_IGNORE_MESSAGE("quick whip is always off in a non-QOL build");
+#endif
+
+    sithInteractionTest_SetUpQuickWhipAnywhereScene(SITHWEAPON_PISTOL);
+
+    sithInteractionTest_RegisterWeaponKeys();
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 0, 0.0f);
+    sithControl_SetKeyOverride(SITHCONTROL_QUICKWHIP, 1, 1.0f);
+
+    sithWeapon_SetQuickWhipEnabled(0);
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONSELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+    sithWeapon_SetQuickWhipEnabled(J3D_QOL_VALUE(1, 0));
+
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 0.0f;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONSELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+    sithInteractionTest_player.aItems[SITHWEAPON_WHIP].amount = 1.0f;
+
+    sithPlayerControls_g_bCutsceneMode = 1;
+    TEST_ASSERT_EQUAL_INT(0, sithWeapon_ProcessWeaponControls(PLAYER, 0.1f));
+    TEST_ASSERT_EQUAL_INT(SITHWEAPON_NOWEAPONSELECTED, PLAYER->thingInfo.actorInfo.weaponInfo.selectedWeaponID);
+}
+
 TEST_GROUP_RUNNER(sithInteraction)
 {
     RUN_TEST_CASE(sithInteraction, QueryAndActivateAgreeOnCogSurface);
@@ -1144,4 +1340,8 @@ TEST_GROUP_RUNNER(sithInteraction)
     RUN_TEST_CASE(sithInteraction, QuickWhipSwitchDefaultsAndRoundTrips);
     RUN_TEST_CASE(sithInteraction, QuickWhipPressSelectsWhipThenDeadlineRestores);
     RUN_TEST_CASE(sithInteraction, QuickWhipRestoresAfterTheWhipMoveEnds);
+    RUN_TEST_CASE(sithInteraction, QuickWhipPadWithoutTargetFiresThenRestoresThePistol);
+    RUN_TEST_CASE(sithInteraction, QuickWhipPadWithoutTargetRestoresEmptyHands);
+    RUN_TEST_CASE(sithInteraction, QuickWhipKeyboardWithoutTargetOnlySelectsTheWhip);
+    RUN_TEST_CASE(sithInteraction, QuickWhipPadDoesNothingWhenUnavailable);
 }

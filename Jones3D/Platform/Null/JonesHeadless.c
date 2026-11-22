@@ -25,8 +25,11 @@
 //   --state  writes the final state block, plus one line per active thing, to a file. It starts
 //            with one "cvar <name> <value>" line per simulation cvar of the run (ADR-0020), so a
 //            trace says which profile produced it; everything after those lines is as it was.
-//   --input  runs a scripted-input file: "frame <n>: cmd <command>" lines run console commands
-//            and "frame <n>: key <name|number> down|up" lines press keys at engine frame <n>.
+//   --input  runs a scripted-input file: "frame <n>: cmd <command>" lines run console commands,
+//            "frame <n>: key <name|number> down|up" lines press keys at engine frame <n>, and
+//            "frame <n>: control <name> down|up" lines press an engine control function through a
+//            developer key (for example the Modern quick whip, which the headless run has no
+//            default pad binding for).
 //            A malformed script aborts the run before startup, so the same script keeps a run
 //            deterministic like every other aspect of the run.
 //   --runs   runs the whole game n times in one process (1 to 3, default 1), resetting every
@@ -51,6 +54,7 @@
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
 #include <sith/Devices/sithConsole.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithSector.h>
@@ -82,6 +86,7 @@ typedef enum HeadlessInputEventType
 {
     HEADLESS_INPUT_EVENT_CMD = 0,
     HEADLESS_INPUT_EVENT_KEY,
+    HEADLESS_INPUT_EVENT_CONTROL,
 } HeadlessInputEventType;
 
 // Added: One parsed "frame <n>: <event>" line. aText keeps the trimmed original text for
@@ -93,7 +98,8 @@ typedef struct HeadlessInputEvent
     char                   aText[HEADLESS_INPUT_MAX_TEXT]; // trimmed original event text
     const char*            pCmdText; // HEADLESS_INPUT_EVENT_CMD: points into aText, the command payload
     int                    keyId;    // HEADLESS_INPUT_EVENT_KEY: raw key id, see stdControl_UpdateKeyState
-    int                    bPressed; // HEADLESS_INPUT_EVENT_KEY: 1 = down, 0 = up
+    SithControlFunction    controlId; // HEADLESS_INPUT_EVENT_CONTROL: engine control function
+    int                    bPressed; // HEADLESS_INPUT_EVENT_KEY/CONTROL: 1 = down, 0 = up
 } HeadlessInputEvent;
 
 // Added: the Babylon column's main() also takes --render (see the usage comment at the top).
@@ -140,6 +146,27 @@ static const HeadlessInputKeyName aInputKeyNames[] =
     { "mouse1", STDCONTROL_KID_MOUSE_LBUTTON },
     { "mouse2", STDCONTROL_KID_MOUSE_RBUTTON },
 };
+
+// Added: Control functions the "control" verb can press. These are actions that have no default
+// keyboard binding in the headless run (which keeps the engine's default bindings); the Modern
+// quick whip is the first. The name is matched case-insensitively.
+typedef struct HeadlessInputControlName
+{
+    const char* pName;
+    SithControlFunction functionId;
+} HeadlessInputControlName;
+
+static const HeadlessInputControlName aInputControlNames[] =
+{
+    { "quickwhip", SITHCONTROL_QUICKWHIP },
+};
+
+// Added: the key a scripted control function is bound to. The headless run keeps the engine's
+// default bindings, so a function the windowed build takes from the pad is bound here once and
+// then pressed through the ordinary key path. F1 is free in the default bindings and mapped by
+// both platform columns.
+#define HEADLESS_INPUT_CONTROLKEY STDKEY_F1
+static int Headless_bInputControlBound = 0;
 
 // True when the token names this key, ignoring case.
 static bool Headless_InputIsKeyName(const char* pToken, const char* pName)
@@ -381,6 +408,54 @@ static bool Headless_InputParseLine(const char* pPath, size_t lineNum, char* aLi
         pEvent->keyId    = (int)keyId;
         pEvent->bPressed = strcmp(pStateToken, "down") == 0;
     }
+    else if ( strcmp(pVerb, "control") == 0 )
+    {
+        char* pControlToken = Headless_InputNextToken(&pEventCursor);
+        if ( !pControlToken )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: missing control name after 'control'!\n", pPath, lineNum);
+            return false;
+        }
+
+        char* pStateToken = Headless_InputNextToken(&pEventCursor);
+        if ( !pStateToken )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: missing 'down' or 'up' after control '%s'!\n", pPath, lineNum, pControlToken);
+            return false;
+        }
+
+        SithControlFunction functionId = (SithControlFunction)-1;
+        for ( size_t i = 0; i < sizeof(aInputControlNames) / sizeof(aInputControlNames[0]); ++i )
+        {
+            if ( Headless_InputIsKeyName(pControlToken, aInputControlNames[i].pName) )
+            {
+                functionId = aInputControlNames[i].functionId;
+                break;
+            }
+        }
+
+        if ( functionId == (SithControlFunction)-1 )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: unknown control '%s'!\n", pPath, lineNum, pControlToken);
+            return false;
+        }
+
+        if ( strcmp(pStateToken, "down") != 0 && strcmp(pStateToken, "up") != 0 )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: expected 'down' or 'up', got '%s'!\n", pPath, lineNum, pStateToken);
+            return false;
+        }
+
+        if ( Headless_InputNextToken(&pEventCursor) )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: unexpected text after control event!\n", pPath, lineNum);
+            return false;
+        }
+
+        pEvent->type      = HEADLESS_INPUT_EVENT_CONTROL;
+        pEvent->controlId = functionId;
+        pEvent->bPressed  = strcmp(pStateToken, "down") == 0;
+    }
     else
     {
         fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: unknown event '%s'!\n", pPath, lineNum, pVerb);
@@ -467,6 +542,24 @@ static void Headless_InputFireDue(size_t frameCount)
         if ( pEvent->type == HEADLESS_INPUT_EVENT_CMD )
         {
             sithConsole_ExeCommand(pEvent->pCmdText);
+        }
+        else if ( pEvent->type == HEADLESS_INPUT_EVENT_CONTROL )
+        {
+            // Added: bind the control function to a free key once, then press that key through the
+            // ordinary device seam. The windowed build binds this function from the pad (LB for
+            // the Modern quick whip); the headless run keeps the engine's default bindings, which
+            // do not include a pad, so this is the dev seam that drives the same action.
+            if ( !Headless_bInputControlBound )
+            {
+                sithControl_BindControl(pEvent->controlId, HEADLESS_INPUT_CONTROLKEY, (SithControlBindFlag)0);
+                Headless_bInputControlBound = 1;
+            }
+
+            if ( !stdControl_QueueKeyEvent(HEADLESS_INPUT_CONTROLKEY, pEvent->bPressed) )
+            {
+                printf("WARNING: Jones3D-headless: input frame=%zu: control key %d can't be delivered on this platform\n",
+                    pEvent->frame, (int)HEADLESS_INPUT_CONTROLKEY);
+            }
         }
         else
         {

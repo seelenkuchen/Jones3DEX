@@ -12,6 +12,9 @@ modifier. The key set files are an original format shipped in `KeySets/`: each l
 actions, so a new action row would break them. The new behavior also changes the simulation, so under
 the fidelity split it is an Enhanced option that the Retail profile turns off.
 
+The first version (2026-11-21) only quick-whipped at a swing or climb target; elsewhere the pad did
+nothing. The owner corrected that: the pad should crack the whip anywhere Indy could use it normally.
+
 ## Decision
 
 1. **Reuse the step-left row instead of adding a 38th action.** The Modern gamepad binder maps that
@@ -23,14 +26,21 @@ the fidelity split it is an Enhanced option that the Retail profile turns off.
    interaction prompt shows **Swing** or **Climb** with the quick-whip binding of the last used device;
    in the Classic style the pad has no quick whip, so it draws no pad binding.
 3. **Draw through the normal selection.** The press remembers the current weapon, selects the whip
-   through `sithWeapon_SelectWeapon` so the draw runs through its COG and waits, and runs the same whip
-   activation as the Activate press once a target is found. A missing target or an interrupted state
-   cancels it; after the swing or climb it switches back to the remembered weapon or empty hands.
+   through `sithWeapon_SelectWeapon` so the draw runs through its COG and waits, and then:
+   - at a swing or climb target, runs the same whip activation as the Activate press and switches
+     back after the swing or climb, as unchanged from the first version;
+   - anywhere else the whip can be used, presses fire once on the drawn whip through the normal fire
+     path (the same COG, damage, sounds and animation a player gets by firing a drawn whip), and
+     switches back to the remembered weapon or empty hands when the weapon's fire wait is over.
+   A missing target is not an error: only losing the conditions before the attack or activation runs
+   cancels and restores. The 2.0 s wait for a target stays for the target case; a normal attack gets
+   the longer draw wait it needs when a weapon change from a gun holsters and draws first.
 4. **Enhanced only and not saved.** `gameplay.quickWhip` is a Gameplay option, on by default in
    Enhanced and locked off in Retail; Options > Gameplay writes it like its neighbours. The pending
    and restore state is not in savegames: a save made during a quick whip loads with the whip drawn.
 5. The presentation query for the prompt stays read-only, as ADR-0037 requires, and shares the target
-   finders and availability checks with the press.
+   finders and availability checks with the press. The prompt itself is unchanged: **Swing** and
+   **Climb** still appear only at a whip point, because a normal attack has no prompt.
 
 ## Consequences
 
