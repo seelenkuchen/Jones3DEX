@@ -54,6 +54,9 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
     }
   },
   "engine": {
+    "sim": {
+      "fixedTick": 0
+    },
     "renderer": {
       "hipoly": true,
       "renderScale": 1.0,
@@ -280,6 +283,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.geometry` | int | `4` | Uses the `engine.renderer.geometry` enum above. |
 | `engine.renderer.lighting` | int | `3` | Uses the `engine.renderer.lighting` enum above. |
 | `engine.renderer.fov` | float | `90` | Player Field of view, horizontal degrees at 4:3, `60` to `110` (Options > Display, "Field of view"). `0` or missing keeps the default. Presentation only; the simulation keeps the default visibility frustum. |
+| `engine.sim.fixedTick` | int | `0` | Simulation tick rate in Hz: `0`, `30`, `50`, `60` or `120`. `0` keeps the measured frame time and is the default in every build; any other value snaps to the nearest rate. Enhanced/QOL builds only: QOL-off/Retail builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate` at the fixed step, draws extra frames by interpolating thing positions/orientations and the camera, and moves the simulation-facing draw work (visibility marks, AI waypoint lasers, polyline updates) onto the tick. This changes Enhanced gameplay cadence, so it stays off until the owner approves it. There is no Options row yet. The headless `--fixed-tick <hz>` option overrides it for a run. |
 | `engine.renderer.fog.enabled` | bool | `true` | Global fog toggle. |
 | `engine.renderer.fog.density` | float | `1.0` | Global fog density multiplier. |
 | `engine.renderer.culling.pvs.enabled` | bool | `true` | Enables PVS sector culling. |

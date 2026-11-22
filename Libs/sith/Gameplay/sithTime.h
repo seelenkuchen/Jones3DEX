@@ -29,6 +29,13 @@ extern uint32_t sithTime_g_clockTime;
 extern int sithTime_g_bPaused;
 // extern int sithTime_g_bPaused;
 
+// Added: M9.20 fixed simulation tick (ADR-0039). When set, sithTime_Advance stops sampling the
+// wall clock and the caller supplies every step through sithTime_SetFrameTime;
+// sithTime_g_clockTime then follows game time so the simulation no longer reads pacing-dependent
+// wall time. Unset keeps the measured-frame-time behaviour exactly.
+extern int sithTime_g_bFixedStep;
+
+void J3DAPI sithTime_SetFixedStep(int bFixedStep); // Added: M9.20
 void sithTime_Advance(void);
 void sithTime_Pause(void);
 void sithTime_Resume(void);

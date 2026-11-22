@@ -112,6 +112,13 @@ void J3DAPI sithRender_SetMaxLightCollectDistance(float distance); // New
 //!< Renders sithWorld_g_pCurrentWorld from position of sithCamera_g_pCurCamera
 void sithRender_RenderScene(void); // Added from debug
 
+// Added: M9.20 fixed simulation tick (ADR-0039). Runs the draw work that mutates simulation-visible
+// state once per tick instead of once per drawn frame: the default-FOV visibility marks (SEEN,
+// SIGHTED, AI wake, renderFrame), the AI waypoint lasers and the polyline updates that consume
+// SITH_RAND and can destroy things. The draw pass then leaves all of them alone. Only called while
+// sithTime_g_bFixedStep is set; with the option off the draw does this work exactly as before.
+void sithRender_UpdateSimulationTick(void);
+
 void J3DAPI sithRender_EnablePVSCull(bool bEnable); // New
 void sithRender_TogglePVSCull(void); // Added from debug
 

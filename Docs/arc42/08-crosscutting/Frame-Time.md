@@ -466,3 +466,46 @@ tick rendered at 120 Hz costs roughly 8.9 ms of CPU geometry per tick, before an
    review the `secDeltaTime > 0.02f` projectile branch, as the audit already calls out.
 6. Ship it as an Enhanced option with a cvar for the rate, off in the Retail profile; re-record Enhanced traces
    only where the owner approves the tick-change effects.
+
+## M9.20 implementation
+
+M9.20 ships the first slice behind `engine.sim.fixedTick` (int Hz, default `0`; QOL-off/Retail builds ignore
+it and keep the measured frame time). With `0` the frame loop is the old one and the v6/Retail traces are
+identical. With a rate (30, 50, 60 or 120 Hz; other values clamp to the nearest) the following move.
+
+**Tick loop.** `JonesMain_ProcessGame` feeds a game-time accumulator from the measured `stdPlatform_GetTimeMsec`
+delta, clamped to `sithTime`'s 1..200 ms, and runs zero or more ticks, at most 5 catch-up ticks per drawn
+frame (a longer stall drops the backlog). Each tick calls `sithTime_SetFrameTime(1000 / Hz)` then `sithUpdate`,
+the camera update (`sithCamera_Update`, which the draw used to own), the tick-owned draw stage below, and the
+interpolation snapshots. Menus, pause, quicksave, save/load transitions, the HUD and the overlay map stay on
+the drawn frame. Paused drawn frames still run the `sithUpdate` pause branch (sound mixer and control update)
+and never tick. `sithTime_Advance` is a no-op while the tick is on and `sithTime_g_clockTime` follows game
+time, so the simulation does not read the wall clock.
+
+**Interpolation.** Before and after every tick `JonesFixedTick` snapshots each active thing (`pos`, `orient`,
+`flags`, `renderFrame`, `signature`) and the camera (`pos`, `orient`, `fov`, `aspectRatio`). A drawn frame sets
+`prev + alpha * (cur - prev)` with `alpha = accumulator / step`, draws, then restores the exact post-tick
+values. Orientations are blended row-wise and re-orthonormalised with `rdMatrix_Normalize34` (not slerp).
+A thing created between ticks, a changed `signature`, or a move beyond the teleport threshold is drawn at its
+current state, so nothing is blended across two different things or across a teleport. The camera FOV/aspect
+are applied to its `rdCamera` for the draw.
+
+**Tick-owned draw work.** The mark-only pass runs once per tick instead of once per drawn frame: `SITH_TF_SEEN`,
+`SIGHTED` COG messages, AI wake and `renderFrame` come from the default-FOV visibility pass. The AI waypoint
+renderer's laser things, `sithFX_UpdatePolyline` (lightning; consumes `SITH_RAND` and can destroy things)
+and the draw's out-of-water air-destroyed sprite check also run in that tick stage. The draw suppresses
+the marks, the waypoint creation, the polyline update and the sprite destruction on a fixed tick, so a
+draw-only frame cannot change the simulation or the RNG. The render cache tick keeps advancing per draw;
+it is presentation only. With the option off all of these stay exactly where they are today.
+
+**Headless.** `--fixed-tick <hz>` overrides the cfg and `--draw-step <ms>` (default `--step`) makes the virtual
+clock advance by the draw step, so draw-only frames happen without a display. With a fixed tick `--frames` and
+the state file's `frame` line count ticks and the run log ends with
+`fixed tick: N rendered frames for M ticks`. From `game/native/ref/run/Resource`, `--step 33 --fixed-tick 60`
+against the same run with `--draw-step 8`, `16` or `7` produced identical state files, with and without the
+wander input.
+
+**Still per tick, M9.22.** Puppet/keyframe joint poses, surface and sky texture scroll, particles and the sound
+listener are not interpolated yet; the underwater FOV/aspect wobble still follows tick game time. They step at
+the tick rate until M9.22. The `sithTime_g_fps` retuning and physics-step policy from section 6 are also not in
+this slice.

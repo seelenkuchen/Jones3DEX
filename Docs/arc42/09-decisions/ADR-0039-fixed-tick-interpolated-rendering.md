@@ -55,6 +55,21 @@ the draw phase. Extra rendered frames must not repeat any of that.
 - Rendering still runs every rendered frame; HUD and subtitle timers that already use wall time stay wall-time
   but run on the drawn frame.
 
+## Implementation status
+
+M9.20 implements the first slice, behind `engine.sim.fixedTick` (int Hz, default `0` in every build;
+QOL-off/Retail builds ignore it). On, `JonesMain` runs `sithUpdate` and the camera update from a
+game-time accumulator at the fixed step, with a catch-up cap. Thing position/orientation and the
+camera position/orientation/FOV/aspect are snapshotted before and after each tick and restored after
+the interpolated draw; teleports and recreated thing slots are never blended. The simulation-facing
+draw work moved onto the tick: the default-FOV visibility marks (`SITH_TF_SEEN`, `SIGHTED`, AI wake,
+`renderFrame`), the AI waypoint lasers, `sithFX_UpdatePolyline` and the out-of-water
+air-destroyed sprite check. `sithTime` stops reading the wall clock while the tick is on and `sithTime_g_clockTime` follows game time. The headless runner has
+`--fixed-tick` and `--draw-step`, and `--frames` counts ticks. With the option off the measured-frame
+loop and the v6/Retail traces are unchanged. Puppet poses, surface/sky scroll, particles and the sound
+listener interpolation are M9.22; the render-rate UI is M9.23. The status stays Proposed until the
+owner play-tests the cadence and decides the Enhanced default.
+
 ## What must be interpolated
 
 - Thing position and orientation, including attached, path-moved and vehicle things.

@@ -118,6 +118,12 @@
     layouts are unchanged. The 3D view and cutscene cameras already widen hor+ at any aspect.
   - The intro movie keeps its 4:3 aspect on a wider screen: it is pillarboxed with black bars instead
     of being stretched to the window, and it still fills a 4:3 window.
+  - `engine.sim.fixedTick` (off by default, int Hz: 0, 30, 50, 60 or 120) runs the Enhanced simulation
+    on a fixed tick and draws extra frames by interpolating thing positions and orientations and the
+    camera. Visibility marks, AI waypoint lasers and polyline updates move onto the tick, so draw-only
+    frames change nothing. `0` keeps the measured frame time and is the default. There is no Options
+    row yet; QOL-off/Retail builds ignore the key. The headless `--fixed-tick` and `--draw-step` options
+    drive it for tests.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
