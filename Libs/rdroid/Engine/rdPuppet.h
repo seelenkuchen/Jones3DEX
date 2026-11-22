@@ -33,6 +33,12 @@ int J3DAPI rdPuppet_UpdateTracks(rdPuppet* pPuppet, float secDeltaTime);
 void J3DAPI rdPuppet_ResetTrack(rdPuppet* pPuppet, int32_t track);
 void J3DAPI rdPuppet_BuildJointMatrices(rdThing* prdThing, const rdMatrix34* pPlacement);
 
+// Added: M9.22 interpolated animation. Sample a track at an arbitrary frame for a drawn frame.
+// The keyframe node cache is reset so the next rdPuppet_BuildJointMatrices finds the segment for
+// this frame instead of keeping the tick's forward-only cache. Markers, callbacks, playback
+// status and prevFrame stay tick-owned.
+void J3DAPI rdPuppet_SetTrackDrawSample(rdPuppet* pPuppet, int32_t track, float frame, float blendWeight);
+
 void rdPuppet_ResetGlobals(void);
 
 J3D_EXTERN_C_END
