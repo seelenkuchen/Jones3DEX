@@ -127,6 +127,13 @@ static size_t sithRender_curCamSectorIdx; // Not used for anything particular
 static bool sithRender_bMarkSimulationOnly;
 static bool sithRender_bSuppressSimulationMarks;
 
+// Added: the motion-blur stage's camera-cut detection (M9.19, presentation only). A level or save
+// load starts with a cut, and so does a different current camera or a cutscene camera switching on
+// or off. These are read-only copies of render-facing state; nothing reaches the simulation.
+static bool sithRender_bMotionBlurCut = true;
+static SithCamera* sithRender_pMotionBlurCamera = NULL;
+static bool sithRender_bMotionBlurCutscene = false;
+
 static size_t sithRender_numRenderedSectors;
 
 static size_t sithRender_numSectorPointLights;
@@ -212,6 +219,11 @@ void sithRender_ResetGlobals(void)
     sithRender_culledSectorTraversalMode = SITHRENDER_CULLEDSECTOR_TRAVERSALMODE_DEFAULT;
     sithRender_maxThingCollectDistance = SITHRENDER_MAXTHINGCOLLECTDISTANCE_DEFAULT;
     sithRender_maxLightCollectDistance = SITHRENDER_MAXLIGHTCOLLECTDISTANCE_DEFAULT;
+
+    // Added: the motion-blur history starts empty, with the first frame treated as a cut.
+    sithRender_bMotionBlurCut      = true;
+    sithRender_pMotionBlurCamera   = NULL;
+    sithRender_bMotionBlurCutscene = false;
 }
 
 int sithRender_Startup(void)
@@ -252,6 +264,11 @@ int sithRender_Open(void)
 
     // Added: the lit path's smooth normals. Presentation only: a failure leaves the face normals.
     sithRender_BuildSmoothNormals();
+
+    // Added: a level or save load is a camera cut for the motion-blur stage (M9.19).
+    sithRender_bMotionBlurCut      = true;
+    sithRender_pMotionBlurCamera   = NULL;
+    sithRender_bMotionBlurCutscene = false;
 
     sithRender_bResetCameraAspect = false;
     return 0;
@@ -548,7 +565,10 @@ void sithRender_Draw(void)
     std3D_SetProjection(sithCamera_g_pCurCamera->rdCamera.fov, sithCamera_g_pCurCamera->rdCamera.pFrustum->nearPlane, sithCamera_g_pCurCamera->rdCamera.pFrustum->farPlane);
 
     // Added: the light-shaft stage's fade needs the frame's game time (M9.16, presentation only).
-    std3D_SetFrameTime(sithTime_g_frameTimeFlex);
+    // Altered: a paused game reports a zero step. The clock is frozen while paused, so the retained
+    // frame time would otherwise keep the light-shaft fade, the water phase and the motion-blur
+    // history advancing behind a paused world or a menu.
+    std3D_SetFrameTime(sithTime_IsPaused() ? 0.0f : sithTime_g_frameTimeFlex);
 
     // Added: the depth-of-field stage's per-frame focus input (presentation only). It reads the
     // current camera and its focus thing, and nothing here marks a thing or sector.
@@ -557,6 +577,27 @@ void sithRender_Draw(void)
     {
         const float focusDistance = rdVector_Dist3(&sithCamera_g_pCurCamera->lookPos, &pFocusThing->pos);
         std3D_SetFocus(focusDistance, sithCamera_IsCutsceneCamera(sithCamera_g_pCurCamera), sithTime_g_frameTimeFlex);
+    }
+
+    // Added: the motion-blur stage's per-frame camera input (M9.19, presentation only). It passes
+    // the camera's world transform read-only and marks a camera cut when the current camera
+    // changed, the cutscene camera switched on or off, or a level or save was just loaded.
+    {
+        const bool bCutscene = sithCamera_IsCutsceneCamera(sithCamera_g_pCurCamera);
+        const bool bCut = sithRender_bMotionBlurCut
+            || sithCamera_g_pCurCamera != sithRender_pMotionBlurCamera
+            || bCutscene != sithRender_bMotionBlurCutscene;
+
+        sithRender_bMotionBlurCut      = false;
+        sithRender_pMotionBlurCamera   = sithCamera_g_pCurCamera;
+        sithRender_bMotionBlurCutscene = bCutscene;
+
+        const float aCameraMatrix[12] = {
+            rdCamera_g_camMatrix.rvec.x, rdCamera_g_camMatrix.rvec.y, rdCamera_g_camMatrix.rvec.z,
+            rdCamera_g_camMatrix.lvec.x, rdCamera_g_camMatrix.lvec.y, rdCamera_g_camMatrix.lvec.z,
+            rdCamera_g_camMatrix.uvec.x, rdCamera_g_camMatrix.uvec.y, rdCamera_g_camMatrix.uvec.z,
+            rdCamera_g_camMatrix.dvec.x, rdCamera_g_camMatrix.dvec.y, rdCamera_g_camMatrix.dvec.z };
+        std3D_SetCameraTransform(aCameraMatrix, bCut);
     }
 
     // Now draw everything

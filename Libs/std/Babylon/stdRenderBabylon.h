@@ -272,6 +272,29 @@ bool stdRenderBabylon_GetWaterRipples();
 bool stdRenderBabylon_SetSsao(int level);
 int stdRenderBabylon_GetSsao();
 
+// Added: the built-in camera motion-blur stage over the HDR scene, after the ambient-occlusion
+// stage and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); each level's
+// tap count, shutter fraction and maximum blur length (a fraction of the output height) live with
+// the stage's other constants in stdRenderBabylon.cpp. The game feeds the camera each frame through
+// std3D_SetCameraTransform; the pass reconstructs each pixel's view position from the depth target
+// exactly as the ambient-occlusion pass does, takes it to the world with the current camera and into
+// the previous frame's camera, projects it with the same tangents and gathers the HDR scene along
+// the resulting screen-space velocity. Sky pixels take part, so a camera rotation blurs the sky;
+// pixels with nothing drawn and the first-person overlay (sz < 0.1) do not move. The blur is
+// skipped after a camera cut, when the frame's game-time step is zero, after a teleport or a large
+// snap, and on the first frame after open. Off, or a failure, skips the pass and the image is
+// byte-identical to the path without the option. The HUD layer, menus and prompts come after and
+// are untouched. A level outside 0..3 is clamped. Opening reads engine.renderer.motionBlur (default
+// 1 Low in Enhanced builds, 0 in Retail/QOL-off ones); this setter changes it until the next open.
+// Closing frees the stage's target and pipeline.
+bool stdRenderBabylon_SetMotionBlur(int level);
+int stdRenderBabylon_GetMotionBlur();
+
+// Added: the current camera's world transform for the motion-blur stage, called by
+// std3D_SetCameraTransform. aMatrix is 12 floats in rdCamera's model-matrix order: right, forward
+// and up basis vectors, then the world position. bCut marks a camera cut. Presentation state only.
+void stdRenderBabylon_SetCameraTransform(const float aMatrix[12], bool bCut);
+
 // Added: the frame's projection for the ambient-occlusion reconstruction. fovDegrees is the
 // horizontal fov at the 4:3 reference aspect, in degrees, as rdCamera's fov is; the stage derives
 // the vertical tangent from it and the horizontal tangent from the real aspect (Hor+). nearPlane

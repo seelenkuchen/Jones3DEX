@@ -84,6 +84,7 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/ssao.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/ssao_blur.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/ssao_composite.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/motion_blur.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()

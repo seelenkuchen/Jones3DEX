@@ -5033,6 +5033,279 @@ TEST(std3DBabylonGpu, SsaoLeavesTheFirstPersonOverlayAlone)
     TEST_ASSERT_EQUAL_INT((int)off[overlayPixel + 3u], (int)on[overlayPixel + 3u]);
 }
 
+namespace
+{
+    constexpr float MotionBlurPi = 3.14159265358979323846f;
+
+    // The rdCamera model matrix of a camera turned yawDegrees about the world's up axis and placed
+    // at (x, y, z): right, forward and up basis vectors, then the position.
+    void SetMotionBlurCamera(float yawDegrees, float x, float y, float z, bool bCut)
+    {
+        const float yaw = yawDegrees * MotionBlurPi / 180.0f;
+        const float c = std::cos(yaw);
+        const float s = std::sin(yaw);
+        const float aMatrix[12] = {
+            c, s, 0.0f,        // right
+            -s, c, 0.0f,       // forward
+            0.0f, 0.0f, 1.0f,  // up
+            x, y, z
+        };
+        stdRenderBabylon_SetCameraTransform(aMatrix, bCut);
+    }
+
+    float MotionBlurSceneDepth()
+    {
+        return SceneDepthForEyeDepth(20.0f, 0.1f, 100.0f);
+    }
+
+    // A black far plane with a white spot at the centre, all at one ordinary depth.
+    void DrawMotionBlurSpotScene(uint32_t size)
+    {
+        const float z = MotionBlurSceneDepth();
+        const float half = (float)size * 0.5f;
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, (float)size, (float)size, z, 0xFF000000u);
+        DrawQuad(nullptr, (Std3DRenderState)0, half - 4.0f, half - 4.0f,
+            half + 4.0f, half + 4.0f, z, 0xFFFFFFFFu);
+    }
+
+    int MotionBlurRedAt(const std::vector<std::byte>& pixels, uint32_t width, uint32_t x, uint32_t y)
+    {
+        return (int)pixels[((size_t)y * width + x) * 4u + 2u];
+    }
+
+    // Everything but the motion-blur stage off, so only it changes the picture.
+    void UseMotionBlurOnly()
+    {
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+        TEST_ASSERT_TRUE(stdRenderBabylon_SetSsao(0));
+        stdRenderBabylon_SetProjection(90.0f, 0.1f, 100.0f);
+    }
+}
+
+TEST(std3DBabylonGpu, MotionBlurOffIsByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseMotionBlurOnly();
+    const auto scene = [] { DrawMotionBlurSpotScene(64u); };
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(0));
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, true);
+    RenderScene(scene);
+    const std::vector<std::byte> off = CapturePresented(64u, 64u);
+
+    // On with a real rotation changes the picture.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(3));
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(10.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> on = CapturePresented(64u, 64u);
+    TEST_ASSERT_TRUE(off != on);
+
+    // Off again skips every pass and is byte-identical to the first Off frame.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(0));
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> offAgain = CapturePresented(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(off.size(), offAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(off.data(), offAgain.data(), off.size());
+}
+
+TEST(std3DBabylonGpu, MotionBlurStaticCameraLeavesTheImageByteIdentical)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseMotionBlurOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(1));
+    const auto scene = [] { DrawMotionBlurSpotScene(64u); };
+
+    // The first frame establishes the previous transform; the second one sees the same camera.
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(23.0f, 1.0f, 2.0f, 3.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> first = CapturePresented(64u, 64u);
+
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(23.0f, 1.0f, 2.0f, 3.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> second = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_EQUAL_size_t(first.size(), second.size());
+    TEST_ASSERT_EQUAL_MEMORY(first.data(), second.data(), first.size());
+}
+
+TEST(std3DBabylonGpu, MotionBlurRotationSmearsHorizontallyOnly)
+{
+    if ( !OpenGpuStd3D(96u, 96u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseMotionBlurOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(3));
+    const auto scene = [] { DrawMotionBlurSpotScene(96u); };
+    const uint32_t centre = 48u;
+
+    // A yaw of 8 degrees is under the snap threshold, so the stage stays active.
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> blurred = CapturePresented(96u, 96u);
+
+    const int centreRed = MotionBlurRedAt(blurred, 96u, centre, centre);
+    const int rightRed  = MotionBlurRedAt(blurred, 96u, centre + 5u, centre);
+    const int aboveRed  = MotionBlurRedAt(blurred, 96u, centre, centre - 5u);
+    std::printf("M9.19 motion blur yaw: centre %d/255, 5 px right %d/255, 5 px above %d/255\n",
+        centreRed, rightRed, aboveRed);
+    TEST_ASSERT_TRUE(centreRed > 250);
+    TEST_ASSERT_TRUE(rightRed > 0);
+    TEST_ASSERT_TRUE(aboveRed <= 1);
+}
+
+TEST(std3DBabylonGpu, MotionBlurCutPauseAndTeleportSkipTheStage)
+{
+    if ( !OpenGpuStd3D(96u, 96u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseMotionBlurOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(3));
+    const auto scene = [] { DrawMotionBlurSpotScene(96u); };
+    const uint32_t centre = 48u;
+
+    // A reference frame with the same rotation, so only the skipped stage differs.
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> crisp = CapturePresented(96u, 96u);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(crisp, 96u, centre + 5u, centre) <= 1);
+
+    // A cut resets the previous transform and records no blur.
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, true);
+    RenderScene(scene);
+    const std::vector<std::byte> cut = CapturePresented(96u, 96u);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(cut, 96u, centre, centre) > 250);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(cut, 96u, centre + 5u, centre) <= 1);
+
+    // A zero game-time step (paused, a menu) resets it too.
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    stdRenderBabylon_SetFrameTime(0.0f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> paused = CapturePresented(96u, 96u);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(paused, 96u, centre, centre) > 250);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(paused, 96u, centre + 5u, centre) <= 1);
+
+    // A jump over the teleport threshold resets it and records no blur.
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 100.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> teleported = CapturePresented(96u, 96u);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(teleported, 96u, centre, centre) > 250);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(teleported, 96u, centre + 5u, centre) <= 1);
+}
+
+TEST(std3DBabylonGpu, MotionBlurLeavesTheFirstPersonOverlayAlone)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseMotionBlurOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(3));
+
+    const auto scene = []
+    {
+        const float z = MotionBlurSceneDepth();
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, z, 0xFF202020u);
+        // The first-person overlay range is 0..0.1 in rdCamera's scene depth.
+        DrawQuad(nullptr, (Std3DRenderState)0, 28.0f, 28.0f, 36.0f, 36.0f, 0.05f, 0xFFE0E0E0u);
+    };
+
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, true);
+    RenderScene(scene);
+    const std::vector<std::byte> crisp = CapturePresented(64u, 64u);
+
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> blurred = CapturePresented(64u, 64u);
+
+    // The overlay is returned unchanged; the pixel just outside it stays background.
+    const size_t overlay = ((size_t)32u * 64u + 32u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)crisp[overlay + 0u], (int)blurred[overlay + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)crisp[overlay + 1u], (int)blurred[overlay + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)crisp[overlay + 2u], (int)blurred[overlay + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)crisp[overlay + 3u], (int)blurred[overlay + 3u]);
+    TEST_ASSERT_TRUE(MotionBlurRedAt(blurred, 64u, 40u, 32u) <= 0x24);
+}
+
+TEST(std3DBabylonGpu, MotionBlurLeavesTheHudLayerPixelExact)
+{
+    if ( !OpenGpuStd3D(32u, 16u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseMotionBlurOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetMotionBlur(3));
+
+    const auto scene = []
+    {
+        const float z = SceneDepthForEyeDepth(20.0f, 0.1f, 100.0f);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 32.0f, 16.0f, z, 0xFF202020u);
+        std3D_BeginHudLayer();
+        DrawQuad(nullptr, (Std3DRenderState)0, 16.0f, 0.0f, 17.0f, 16.0f, 0.25f, 0xFF00FF00u);
+        std3D_EndHudLayer();
+    };
+
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, true);
+    RenderScene(scene);
+    const std::vector<std::byte> crisp = CapturePresented(32u, 16u);
+
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(0.0f, 0.0f, 0.0f, 0.0f, false);
+    stdRenderBabylon_SetFrameTime(0.016f);
+    SetMotionBlurCamera(8.0f, 0.0f, 0.0f, 0.0f, false);
+    RenderScene(scene);
+    const std::vector<std::byte> blurred = CapturePresented(32u, 16u);
+
+    const size_t hud = ((size_t)8u * 32u + 16u) * 4u;
+    TEST_ASSERT_EQUAL_INT((int)crisp[hud + 0u], (int)blurred[hud + 0u]);
+    TEST_ASSERT_EQUAL_INT((int)crisp[hud + 1u], (int)blurred[hud + 1u]);
+    TEST_ASSERT_EQUAL_INT((int)crisp[hud + 2u], (int)blurred[hud + 2u]);
+    TEST_ASSERT_EQUAL_INT((int)crisp[hud + 3u], (int)blurred[hud + 3u]);
+}
+
 TEST(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical)
 {
     if ( !OpenGpuStd3D(64u, 64u) )
@@ -5248,6 +5521,12 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, SsaoLevelsDarkenMonotonically);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoProjectionIsAspectCorrect);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoLeavesTheFirstPersonOverlayAlone);
+    RUN_TEST_CASE(std3DBabylonGpu, MotionBlurOffIsByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, MotionBlurStaticCameraLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, MotionBlurRotationSmearsHorizontallyOnly);
+    RUN_TEST_CASE(std3DBabylonGpu, MotionBlurCutPauseAndTeleportSkipTheStage);
+    RUN_TEST_CASE(std3DBabylonGpu, MotionBlurLeavesTheFirstPersonOverlayAlone);
+    RUN_TEST_CASE(std3DBabylonGpu, MotionBlurLeavesTheHudLayerPixelExact);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsUseTheBrightSkyCentroidAndLeaveOtherScenesAlone);
     RUN_TEST_CASE(std3DBabylonGpu, LightShaftsAddMuchLessToSkyPixelsThanToGeometry);

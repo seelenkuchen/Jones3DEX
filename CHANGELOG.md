@@ -51,6 +51,16 @@
     corners, creases and contact areas darken; the sky, translucent water, HUD, 2D layer, menus and
     prompts are left unchanged. Off skips every pass and presents exactly the previous image.
     Applies when the display reopens.
+  - **Options > Display** has a **Motion blur** row (`engine.renderer.motionBlur`: Off, Low, Medium
+    or High = 0, 1, 2, 3; Low by default in Enhanced and off in Retail). A stage after ambient
+    occlusion and before depth of field reprojects each pixel through the previous frame's camera,
+    using the same depth reconstruction as the ambient-occlusion pass, and gathers the scene along
+    the screen-space velocity; the sky blurs with camera rotation, and nothing drawn or the
+    first-person overlay (scene depth below 0.1) stays still. A camera cut, a paused frame (zero
+    game-time step), a teleport or a large snap resets the history and skips the stage, and so does
+    the first frame after open. The blur length is clamped as a fraction of the output height. The
+    HUD, 2D layer, menus and prompts are never blurred. Off skips the stage and presents exactly the
+    previous image. Applies when the display reopens.
   - **Options > Display** has a **Sharpening** row (`engine.renderer.sharpening`: Off, Low, Medium or
     High = 0, 0.3, 0.5, 0.8; Low by default in Enhanced and off in Retail). One AMD FidelityFX CAS
     sharpen-only pass runs on the presented-size 3D image, after SMAA or the tone map, restoring

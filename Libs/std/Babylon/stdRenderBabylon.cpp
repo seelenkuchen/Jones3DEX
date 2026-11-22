@@ -184,6 +184,31 @@ namespace
     // the SSAO reconstruction derives the vertical tangent first and the horizontal one from it.
     constexpr float stdRenderBabylon_kSsaoReferenceAspect = 640.0f / 480.0f;
 
+    // Added: the built-in camera motion-blur stage (M9.19), after the ambient-occlusion stage and
+    // before depth of field. engine.renderer.motionBlur is 0 off, 1 Low, 2 Medium, 3 High. Each
+    // level's tap count, shutter fraction (how much of the frame's motion the blur covers) and
+    // maximum blur length as a fraction of the output height live here in one table, with the depth
+    // falloff that downweights a much nearer tap. The previous camera is presentation state only; it
+    // is reset at a cut, a pause, a teleport or a large snap, and the first frame after open has none.
+    constexpr const char* stdRenderBabylon_kMotionBlurKey = "engine.renderer.motionBlur";
+    struct StdRenderBabylonMotionBlurLevel
+    {
+        int taps;
+        float shutter;      // fraction of the frame's motion the blur covers
+        float maxLength;    // largest blur length as a fraction of the output height
+        float depthFalloff; // how quickly a much nearer tap loses weight
+    };
+    constexpr StdRenderBabylonMotionBlurLevel stdRenderBabylon_aMotionBlurLevels[] = {
+        {  0, 0.00f, 0.000f, 0.0f },
+        {  8, 0.50f, 0.020f, 2.0f },
+        { 12, 0.65f, 0.030f, 2.0f },
+        { 16, 0.80f, 0.040f, 2.0f },
+    };
+    constexpr int stdRenderBabylon_kMotionBlurMaxLevel =
+        (int)(sizeof(stdRenderBabylon_aMotionBlurLevels) / sizeof(stdRenderBabylon_aMotionBlurLevels[0])) - 1;
+    constexpr float stdRenderBabylon_kMotionBlurTeleportDistance = 16.0f; // world units in one frame
+    constexpr float stdRenderBabylon_kMotionBlurMaxRotation      = 45.0f; // degrees in one frame
+
     // Added: the built-in water-ripple stage (M9.17), after the post chain and before depth of field.
     // engine.renderer.water.ripples is a toggle. On water-tagged pixels the scene is sampled at a small
     // animated offset (a two-layer scrolling sine slope, phase from accumulated game time) and a faint
@@ -348,6 +373,24 @@ namespace
         render::PipelineHandle ssaoPipeline;
         render::PipelineHandle ssaoBlurPipeline;
         render::PipelineHandle ssaoCompositePipeline;
+
+        // Added: the built-in camera motion-blur stage after ambient occlusion and before depth of
+        // field. motionBlur is 0 off, 1 Low, 2 Medium, 3 High. The camera transforms are in the
+        // shader's view convention (x right, y up, z forward), with the position in the w of each
+        // basis float4; aLastCameraMatrix is the previous frame's for the jump and snap checks.
+        int motionBlur = 0;
+        bool bMotionBlurSetupFailed = false;
+        bool bMotionBlurRan         = false;
+        bool bMotionBlurLogged      = false;
+        bool bMotionBlurActive      = false; // this frame may blur (no cut, pause, teleport or snap)
+        bool bHasCameraTransform    = false;
+        float aLastCameraMatrix[12] = {};
+        float aMotionBlurCurrent[12] = {};
+        float aMotionBlurPrevious[12] = {};
+        render::TextureHandle motionBlurColorTarget;
+        uint32_t motionBlurWidth  = 0; // the scene size the target was made for
+        uint32_t motionBlurHeight = 0;
+        render::PipelineHandle motionBlurPipeline;
 
         // Added: the frame's projection for the ambient-occlusion reconstruction, set by
         // stdRenderBabylon_SetProjection from std3D_SetProjection. The fov is in degrees and is the
@@ -1282,10 +1325,12 @@ namespace
             stdRenderBabylon_state.bDofLogged = true;
         }
 
-        const render::TextureHandle scene = stdRenderBabylon_state.bSsaoRan
-            ? stdRenderBabylon_state.ssaoColorTarget
-            : (stdRenderBabylon_state.bWaterRan
-                ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource());
+        const render::TextureHandle scene = stdRenderBabylon_state.bMotionBlurRan
+            ? stdRenderBabylon_state.motionBlurColorTarget
+            : (stdRenderBabylon_state.bSsaoRan
+                ? stdRenderBabylon_state.ssaoColorTarget
+                : (stdRenderBabylon_state.bWaterRan
+                    ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource()));
         const render::TextureHandle blur  = stdRenderBabylon_state.dofBlurTarget;
         const uint32_t blurWidth  = std::max(1u, (stdRenderBabylon_state.width + 1u) / 2u);
         const uint32_t blurHeight = std::max(1u, (stdRenderBabylon_state.height + 1u) / 2u);
@@ -1793,6 +1838,186 @@ namespace
         }
 
         stdRenderBabylon_state.bSsaoRan = true;
+        return true;
+    }
+
+    // Added: frees the motion-blur stage's target. Recreated by the next present with the stage on
+    // after a scene size or render scale change.
+    void stdRenderBabylon_FreeMotionBlurTarget()
+    {
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.motionBlurColorTarget);
+        stdRenderBabylon_state.motionBlurColorTarget = {};
+        stdRenderBabylon_state.motionBlurWidth       = 0;
+        stdRenderBabylon_state.motionBlurHeight      = 0;
+        stdRenderBabylon_state.bMotionBlurRan        = false;
+    }
+
+    // Added: the motion-blur stage's scene-sized target, made when its size changes. False, logging
+    // why, when it can't be created.
+    bool stdRenderBabylon_EnsureMotionBlurTarget(uint32_t width, uint32_t height)
+    {
+        if ( width == 0 || height == 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.motionBlurColorTarget.isNull()
+            && stdRenderBabylon_state.motionBlurWidth == width
+            && stdRenderBabylon_state.motionBlurHeight == height )
+        {
+            return true;
+        }
+
+        stdRenderBabylon_FreeMotionBlurTarget();
+
+        render::TextureDesc desc;
+        desc.width     = width;
+        desc.height    = height;
+        desc.mipLevels = 1;
+        desc.format    = stdRenderBabylon_state.colorFormat;
+        desc.usage     = render::TextureUsage::ColorTarget | render::TextureUsage::Sampled;
+        const render::TextureHandle target = stdRenderBabylon_state.pDevice->createTexture(desc);
+        if ( target.isNull() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the %ux%u motion-blur target.\n",
+                width, height);
+            return false;
+        }
+
+        stdRenderBabylon_state.motionBlurColorTarget = target;
+        stdRenderBabylon_state.motionBlurWidth       = width;
+        stdRenderBabylon_state.motionBlurHeight      = height;
+        return true;
+    }
+
+    // Added: the motion-blur pipeline, made on first use.
+    bool stdRenderBabylon_EnsureMotionBlurResources()
+    {
+        if ( stdRenderBabylon_state.bMotionBlurSetupFailed )
+        {
+            return false;
+        }
+
+        if ( stdRenderBabylon_state.motionBlurPipeline.isNull() )
+        {
+            render::PipelineDesc desc;
+            desc.vertexShader   = stdBabylon::shaders::presentVert();
+            desc.fragmentShader = stdBabylon::shaders::motionBlurFrag();
+            desc.primitive      = render::PrimitiveType::TriangleList;
+            desc.colorTargets   = { render::ColorTargetDesc{
+                stdRenderBabylon_state.colorFormat, {} } };
+            stdRenderBabylon_state.motionBlurPipeline =
+                stdRenderBabylon_state.pDevice->createPipeline(desc);
+        }
+
+        if ( stdRenderBabylon_state.motionBlurPipeline.isNull()
+            || !stdRenderBabylon_EnsurePresentSampler()
+            || !stdRenderBabylon_EnsureFinalSampler() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not create the motion-blur pass.\n");
+            stdRenderBabylon_state.bMotionBlurSetupFailed = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    // Added: the camera motion-blur stage over the scene source (the ambient-occlusion output, or
+    // the water-ripple or post-chain output when those stages did not run). It reconstructs each
+    // pixel's view position, reprojects it through the previous camera and gathers the scene along
+    // the screen-space velocity. bMotionBlurRan is set afterwards so depth of field and the later
+    // stages read the blurred image. False, having logged nothing, when the stage is off, inactive
+    // or a resource fails.
+    bool stdRenderBabylon_RecordMotionBlur(render::CommandList& list)
+    {
+        if ( stdRenderBabylon_state.motionBlur <= 0
+            || !stdRenderBabylon_state.bMotionBlurActive
+            || !stdRenderBabylon_state.bHasCameraTransform
+            || stdRenderBabylon_state.colorTarget.isNull()
+            || stdRenderBabylon_state.depthTarget.isNull()
+            || stdRenderBabylon_state.normalTarget.isNull()
+            || !stdRenderBabylon_state.bDepthSampled )
+        {
+            return false;
+        }
+
+        const uint32_t width  = stdRenderBabylon_state.width;
+        const uint32_t height = stdRenderBabylon_state.height;
+        if ( !stdRenderBabylon_EnsureMotionBlurTarget(width, height)
+            || !stdRenderBabylon_EnsureMotionBlurResources() )
+        {
+            return false;
+        }
+
+        const StdRenderBabylonMotionBlurLevel& level =
+            stdRenderBabylon_aMotionBlurLevels[stdRenderBabylon_state.motionBlur];
+        if ( level.taps <= 0 )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.bMotionBlurLogged )
+        {
+            STDLOG_STATUS("stdRenderBabylon: motion blur on, level %d, %d taps, shutter %g, up to %g px.\n",
+                stdRenderBabylon_state.motionBlur, level.taps, (double)level.shutter,
+                (double)(level.maxLength * (float)height));
+            stdRenderBabylon_state.bMotionBlurLogged = true;
+        }
+
+        const render::TextureHandle scene = stdRenderBabylon_state.bSsaoRan
+            ? stdRenderBabylon_state.ssaoColorTarget
+            : (stdRenderBabylon_state.bWaterRan
+                ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource());
+
+        float tanHalfX = 0.0f;
+        stdRenderBabylon_SsaoProjection(width, height, &tanHalfX, nullptr);
+
+        const float nearPlane = std::max(stdRenderBabylon_state.projectionNearPlane, 1.0e-5f);
+        const float farPlane  = std::max(stdRenderBabylon_state.projectionFarPlane,
+            nearPlane + 1.0e-3f);
+
+        float aCameras[24];
+        std::memcpy(aCameras, stdRenderBabylon_state.aMotionBlurCurrent,
+            sizeof(stdRenderBabylon_state.aMotionBlurCurrent));
+        std::memcpy(aCameras + 12, stdRenderBabylon_state.aMotionBlurPrevious,
+            sizeof(stdRenderBabylon_state.aMotionBlurPrevious));
+
+        const float aParams0[4] = { nearPlane, farPlane, level.shutter,
+            level.maxLength * (float)height };
+        const float aParams1[4] = { (float)width, (float)height, tanHalfX, (float)level.taps };
+        const float aParams2[4] = { level.depthFalloff, 0.0f, 0.0f, 0.0f };
+
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{
+            stdRenderBabylon_state.motionBlurColorTarget, 0, render::LoadOp::DontCare,
+            render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(stdRenderBabylon_state.motionBlurPipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0, scene,
+            stdRenderBabylon_state.finalSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 1, stdRenderBabylon_state.depthTarget,
+            stdRenderBabylon_state.presentSampler);
+        list.bindTexture(render::ShaderStage::Fragment, 2, stdRenderBabylon_state.normalTarget,
+            stdRenderBabylon_state.presentSampler);
+        list.pushUniforms(render::ShaderStage::Fragment, 0,
+            std::as_bytes(std::span<const float>(aCameras, 24u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 1,
+            std::as_bytes(std::span<const float>(aParams0, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 2,
+            std::as_bytes(std::span<const float>(aParams1, 4u)));
+        list.pushUniforms(render::ShaderStage::Fragment, 3,
+            std::as_bytes(std::span<const float>(aParams2, 4u)));
+        list.draw(3);
+        if ( !list.endPass() )
+        {
+            return false;
+        }
+
+        stdRenderBabylon_state.bMotionBlurRan = true;
         return true;
     }
 
@@ -2427,7 +2652,8 @@ namespace
     }
 
     // Added: the scene after the post chain, the water-ripple stage, the ambient-occlusion stage,
-    // the depth-of-field stage and the light-shaft stage, which bloom then reads.
+    // the motion-blur stage, the depth-of-field stage and the light-shaft stage, which bloom then
+    // reads.
     render::TextureHandle stdRenderBabylon_SceneSource()
     {
         if ( stdRenderBabylon_state.bShaftsRan
@@ -2440,6 +2666,12 @@ namespace
             && !stdRenderBabylon_state.dofColorTarget.isNull() )
         {
             return stdRenderBabylon_state.dofColorTarget;
+        }
+
+        if ( stdRenderBabylon_state.bMotionBlurRan
+            && !stdRenderBabylon_state.motionBlurColorTarget.isNull() )
+        {
+            return stdRenderBabylon_state.motionBlurColorTarget;
         }
 
         if ( stdRenderBabylon_state.bSsaoRan
@@ -3084,6 +3316,12 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         stdRenderBabylon_state.ssao = std::clamp(stdConfig_GetInt(
             stdRenderBabylon_kSsaoKey, J3D_QOL_VALUE(1, 0)), 0,
             stdRenderBabylon_kSsaoMaxLevel);
+
+        // Added: camera motion blur is Low (1) by default in Enhanced builds and off in
+        // Retail/QOL-off ones. An unknown level is clamped to the highest one.
+        stdRenderBabylon_state.motionBlur = std::clamp(stdConfig_GetInt(
+            stdRenderBabylon_kMotionBlurKey, J3D_QOL_VALUE(1, 0)), 0,
+            stdRenderBabylon_kMotionBlurMaxLevel);
     }
 #ifdef J3D_TEST
     stdRenderBabylon_state.bToneMap = !stdRenderBabylon_bLegacyPresentationForTest;
@@ -3182,6 +3420,7 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoBlurPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoCompositePipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.motionBlurPipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.colorGradingLut);
@@ -3215,6 +3454,7 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_FreeDoFTargets();
     stdRenderBabylon_FreeWaterTargets();
     stdRenderBabylon_FreeSsaoTargets();
+    stdRenderBabylon_FreeMotionBlurTarget();
     stdRenderBabylon_FreeShaftTargets();
     stdRenderBabylon_state.colorTarget     = {};
     stdRenderBabylon_state.depthTarget     = {};
@@ -3704,6 +3944,125 @@ int stdRenderBabylon_GetSsao()
     return stdRenderBabylon_state.ssao;
 }
 
+bool stdRenderBabylon_SetMotionBlur(int level)
+{
+    if ( !stdRenderBabylon_state.pDevice )
+    {
+        STDLOG_ERROR("stdRenderBabylon_SetMotionBlur: not open.\n");
+        return false;
+    }
+
+    const int clamped = std::clamp(level, 0, stdRenderBabylon_kMotionBlurMaxLevel);
+    if ( clamped != level )
+    {
+        STDLOG_STATUS("stdRenderBabylon: motion-blur level %d is outside 0..%d; using %d.\n",
+            level, stdRenderBabylon_kMotionBlurMaxLevel, clamped);
+    }
+
+    stdRenderBabylon_state.motionBlur             = clamped;
+    stdRenderBabylon_state.bMotionBlurSetupFailed = false;
+    stdRenderBabylon_state.bMotionBlurRan         = false;
+    stdRenderBabylon_state.bMotionBlurLogged      = false;
+    // A new level starts a fresh history, so the first frame after the change has no blur.
+    stdRenderBabylon_state.bMotionBlurActive      = false;
+    stdRenderBabylon_state.bHasCameraTransform    = false;
+    return true;
+}
+
+int stdRenderBabylon_GetMotionBlur()
+{
+    return stdRenderBabylon_state.motionBlur;
+}
+
+// Added: rdCamera's model matrix (right, forward, up, position) to the shader camera convention:
+// x right, y up, z forward, with each basis column carrying its position component in w.
+void stdRenderBabylon_ToShaderCamera(const float aMatrix[12], float* pOut)
+{
+    pOut[0]  = aMatrix[0];  // right x
+    pOut[1]  = aMatrix[1];
+    pOut[2]  = aMatrix[2];
+    pOut[3]  = aMatrix[9];  // position x
+    pOut[4]  = aMatrix[6];  // up x
+    pOut[5]  = aMatrix[7];
+    pOut[6]  = aMatrix[8];
+    pOut[7]  = aMatrix[10]; // position y
+    pOut[8]  = aMatrix[3];  // forward x
+    pOut[9]  = aMatrix[4];
+    pOut[10] = aMatrix[5];
+    pOut[11] = aMatrix[11]; // position z
+}
+
+void stdRenderBabylon_SetCameraTransform(const float aMatrix[12], bool bCut)
+{
+    if ( !stdRenderBabylon_state.pDevice || !aMatrix )
+    {
+        return;
+    }
+
+    for ( int i = 0; i < 12; ++i )
+    {
+        if ( !std::isfinite(aMatrix[i]) )
+        {
+            return;
+        }
+    }
+
+    float aNew[12];
+    stdRenderBabylon_ToShaderCamera(aMatrix, aNew);
+
+    bool bReset = bCut || !stdRenderBabylon_state.bHasCameraTransform
+        || stdRenderBabylon_state.shaftDeltaTime <= 0.0f;
+    if ( !bReset )
+    {
+        const float dx = aNew[3] - stdRenderBabylon_state.aLastCameraMatrix[3];
+        const float dy = aNew[7] - stdRenderBabylon_state.aLastCameraMatrix[7];
+        const float dz = aNew[11] - stdRenderBabylon_state.aLastCameraMatrix[11];
+        if ( dx * dx + dy * dy + dz * dz
+            > stdRenderBabylon_kMotionBlurTeleportDistance * stdRenderBabylon_kMotionBlurTeleportDistance )
+        {
+            bReset = true;
+        }
+        else
+        {
+            // Trace of the previous basis transposed times the current one, clamped for acos.
+            float trace = 0.0f;
+            for ( int column = 0; column < 3; ++column )
+            {
+                const float* pCur = &aNew[column * 4];
+                const float* pLast = &stdRenderBabylon_state.aLastCameraMatrix[column * 4];
+                trace += pCur[0] * pLast[0] + pCur[1] * pLast[1] + pCur[2] * pLast[2];
+            }
+
+            const float cosine = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
+            const float angle = std::acos(cosine) * (180.0f / 3.14159265358979323846f);
+            if ( angle > stdRenderBabylon_kMotionBlurMaxRotation )
+            {
+                bReset = true;
+            }
+        }
+    }
+
+    std::memcpy(stdRenderBabylon_state.aMotionBlurCurrent, aNew,
+        sizeof(stdRenderBabylon_state.aMotionBlurCurrent));
+    if ( bReset )
+    {
+        std::memcpy(stdRenderBabylon_state.aMotionBlurPrevious, aNew,
+            sizeof(stdRenderBabylon_state.aMotionBlurPrevious));
+        stdRenderBabylon_state.bMotionBlurActive = false;
+    }
+    else
+    {
+        std::memcpy(stdRenderBabylon_state.aMotionBlurPrevious,
+            stdRenderBabylon_state.aLastCameraMatrix,
+            sizeof(stdRenderBabylon_state.aMotionBlurPrevious));
+        stdRenderBabylon_state.bMotionBlurActive = true;
+    }
+
+    std::memcpy(stdRenderBabylon_state.aLastCameraMatrix, aNew,
+        sizeof(stdRenderBabylon_state.aLastCameraMatrix));
+    stdRenderBabylon_state.bHasCameraTransform = true;
+}
+
 #ifdef J3D_TEST
 bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalfY)
 {
@@ -4030,6 +4389,20 @@ namespace
                 {
                     STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the ambient-occlusion stage; presenting without it.\n");
                     stdRenderBabylon_state.bSsaoSetupFailed = true;
+                }
+
+                // Added: the camera motion-blur stage after ambient occlusion and before depth of
+                // field. Off, inactive (a cut, a paused frame, a teleport or a snap) or a failure
+                // skips every pass so the image is byte-identical to the path without it.
+                stdRenderBabylon_state.bMotionBlurRan = false;
+                if ( stdRenderBabylon_state.motionBlur > 0
+                    && stdRenderBabylon_state.bMotionBlurActive
+                    && stdRenderBabylon_state.bHasCameraTransform
+                    && !stdRenderBabylon_state.bMotionBlurSetupFailed
+                    && !stdRenderBabylon_RecordMotionBlur(list) )
+                {
+                    STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the motion-blur stage; presenting without it.\n");
+                    stdRenderBabylon_state.bMotionBlurSetupFailed = true;
                 }
 
                 // Added: the depth-of-field stage on the HDR scene, after the post chain and before

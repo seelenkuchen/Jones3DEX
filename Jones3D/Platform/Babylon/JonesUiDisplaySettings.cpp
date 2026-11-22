@@ -88,6 +88,7 @@ namespace
     constexpr const char* kJonesDisplayBloomText = "Bloom"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLightShaftsText = "Light shafts"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplaySsaoText = "Ambient occlusion"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayMotionBlurText = "Motion blur"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayWaterRipplesText = "Water ripples"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofCutscenesText = "Depth of field (cutscenes)"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayDofGameplayText = "Depth of field (gameplay)"; // TODO: [COMPAT]
@@ -127,6 +128,12 @@ namespace
     constexpr int kJonesDisplaySsaoValues[] = { 0, 1, 2, 3 };
     constexpr const char* kJonesDisplaySsaoLabels[] = { "Off", "Low", "Medium", "High" };
     constexpr std::size_t kJonesDisplaySsaoDefault = J3D_QOL_VALUE(1, 0);
+
+    // Added: M9.19 camera motion-blur choices; Low (1) is the Enhanced default, off in
+    // Retail/QOL-off builds.
+    constexpr int kJonesDisplayMotionBlurValues[] = { 0, 1, 2, 3 };
+    constexpr const char* kJonesDisplayMotionBlurLabels[] = { "Off", "Low", "Medium", "High" };
+    constexpr std::size_t kJonesDisplayMotionBlurDefault = J3D_QOL_VALUE(1, 0);
 
     // Added: M9.17 water ripples; on in Enhanced builds and off in Retail/QOL-off ones.
     constexpr bool kJonesDisplayWaterRipplesDefault = J3D_QOL_VALUE(1, 0) != 0;
@@ -338,6 +345,20 @@ namespace
         }
 
         return kJonesDisplaySsaoDefault;
+    }
+
+    // The motion-blur choice of a stored level; Low when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_MotionBlurIndex(int level)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayMotionBlurValues); ++cur )
+        {
+            if ( kJonesDisplayMotionBlurValues[cur] == level )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayMotionBlurDefault;
     }
 
     // The sharpening choice nearest to strength; Low when the value is not finite.
@@ -612,6 +633,20 @@ namespace
             values.ssao < STD_ARRAYLEN(kJonesDisplaySsaoValues)
                 ? values.ssao : kJonesDisplaySsaoDefault });
 
+        // Added: M9.19. Motion blur smears moving parts of the 3D scene along the camera's motion;
+        // the HUD, menus and prompts are never blurred.
+        std::vector<std::string> motionBlurOptions;
+        for ( const char* pLabel : kJonesDisplayMotionBlurLabels )
+        {
+            motionBlurOptions.emplace_back(pLabel);
+        }
+        layout.motionBlur = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayMotionBlurText), std::string(),
+            std::move(motionBlurOptions), true,
+            values.motionBlur < STD_ARRAYLEN(kJonesDisplayMotionBlurValues)
+                ? values.motionBlur : kJonesDisplayMotionBlurDefault });
+
         // Added: M9.17. Water ripples animate water-tagged pixels; the HUD, menus and prompts are
         // never touched.
         layout.waterRipples = screen.widgets.size();
@@ -851,6 +886,9 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.ssao = std::clamp(JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, J3D_QOL_VALUE(1, 0)), 0,
         (int)STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
+    model.motionBlur = std::clamp(JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR, J3D_QOL_VALUE(1, 0)), 0,
+        (int)STD_ARRAYLEN(kJonesDisplayMotionBlurValues) - 1);
     model.bWaterRipples = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,
         kJonesDisplayWaterRipplesDefault);
     model.bDofCutscenes = JonesUiDisplay_ReadConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES,
@@ -887,6 +925,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.bloom = JonesUiDisplay_BloomIndex(model.bloom);
     values.lightShafts = JonesUiDisplay_LightShaftsIndex(model.lightShafts);
     values.ssao = JonesUiDisplay_SsaoIndex(model.ssao);
+    values.motionBlur = JonesUiDisplay_MotionBlurIndex(model.motionBlur);
     values.bWaterRipples = model.bWaterRipples;
     values.bDofCutscenes = model.bDofCutscenes;
     values.bDofGameplay = model.bDofGameplay;
@@ -947,6 +986,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.lightShafts));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.ssao,
         values.ssao));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.motionBlur,
+        values.motionBlur));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.waterRipples,
         values.bWaterRipples));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.dofCutscenes,
@@ -1176,6 +1217,12 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO,
         kJonesDisplaySsaoValues[ssao]);
+
+    // Added: M9.19. Read when the frame owner opens, like bloom.
+    const std::size_t motionBlur = std::min(values.motionBlur,
+        STD_ARRAYLEN(kJonesDisplayMotionBlurValues) - 1);
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR,
+        kJonesDisplayMotionBlurValues[motionBlur]);
 
     // Added: M9.17. Read when the frame owner opens, like bloom.
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES,

@@ -357,6 +357,9 @@ namespace
         screen.help[layout.ssao] =
             "Darken the creases where geometry meets itself with screen-space ambient occlusion; "
             "the HUD, menus and prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.motionBlur] =
+            "Smear the 3D scene along the camera's motion; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
         screen.help[layout.waterRipples] =
             "Animate water surfaces with small ripples and a faint highlight; the HUD, menus and "
             "prompts are unchanged. Applies when the display reopens.";

@@ -2554,6 +2554,18 @@ void J3DAPI std3D_SetFrameTime(float deltaTime)
     stdRenderBabylon_SetFrameTime(deltaTime);
 }
 
+void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut)
+{
+    // Added: the motion-blur stage's per-frame camera input (M9.19); a backend without motion blur
+    // ignores the call.
+    if ( !std3D_pRenderDevice || !stdRenderBabylon_IsOpen() )
+    {
+        return;
+    }
+
+    stdRenderBabylon_SetCameraTransform(aMatrix, bCut);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     // std3DX9.c's shader path: the density is kept only with an open device.
