@@ -186,8 +186,13 @@
     (`gameplay.quickWhip`), on by default in Enhanced and locked off in Retail (ADR-0038).
   - Options > Controls opens separate **Controller** and **Keyboard & Mouse** Button Layout screens: one
     framed row per action with its input icon, a scrolling list and a pad diagram with action callouts.
-    Bind replaces that device's binding, Reset Binds restores its defaults after a question, and Back keeps
-    and applies the changes. This replaces the old one-list rebind editor (ADR-0036).
+    Bind replaces that device's binding, the visible **Reset to defaults** row restores its defaults after a
+    question, and Back keeps and applies the changes. The reset prompt shows the pad's Y/North button or the
+    keyboard's R, and both remain shortcuts. This replaces the old one-list rebind editor (ADR-0036).
+  - **Reset to defaults** now works for every control scheme, including the built-in ones. On a built-in
+    scheme it restores the shipped bindings and, on Apply, removes the player's older saved copy of that
+    scheme instead of writing a new one, so later default changes (such as a new quick whip binding) reach
+    an existing install. Custom schemes reset to the current style's defaults as before (ADR-0036).
   - A new install starts fullscreen at the display's current desktop resolution instead of 640x480. Headless
     runs keep 640x480, and an existing `Jones.cfg` size always wins.
   - In an AppImage, **Next to the game** installs beside the `.AppImage` file instead of into the temporary

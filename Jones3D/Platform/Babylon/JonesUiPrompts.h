@@ -15,7 +15,8 @@
 
 // One device's prompt icons. accept and back are the South and East buttons by position; change
 // and tabs each have a left and a right icon, and the right one is 0 where one icon covers both
-// directions. 0 means the file did not load, and the label is drawn alone.
+// directions. reset is the pad's North button or the keyboard's R. 0 means the file did not load,
+// and the label is drawn alone.
 struct JonesUiPromptIcons
 {
     babylon::ui::ImageId accept = 0;
@@ -24,6 +25,7 @@ struct JonesUiPromptIcons
     babylon::ui::ImageId changeRight = 0;
     babylon::ui::ImageId tabsLeft = 0;
     babylon::ui::ImageId tabsRight = 0;
+    babylon::ui::ImageId reset = 0;
 };
 
 // The icon set of every device class. A gamepad whose family SDL could not tell uses the Xbox

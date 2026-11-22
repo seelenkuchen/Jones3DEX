@@ -70,9 +70,10 @@ struct JonesUiControlsModel
 };
 
 // The widget indices of one Controls layout. kNoWidget means the row is not
-// present. The standalone screen shows the bind list and the Edit and Reset
+// present. The standalone screen shows the bind list plus the Edit and Reset
 // rows; the Options tab shows the Controller and Keyboard & Mouse entry rows
-// instead, and keeps the Mouse camera row plus the two per-device style rows.
+// instead, keeps the Mouse camera row and the two per-device style rows, and
+// also ends with Reset to defaults.
 struct JonesUiControlsLayout
 {
     std::size_t scheme = 0;
@@ -130,6 +131,11 @@ void JonesUiControls_ShowControlMessage(const std::string& text);
 bool JonesUiControls_InsertScheme(JonesControlsConfig& config,
     const JonesControlsScheme& scheme, std::size_t& selected);
 std::size_t JonesUiControls_DefaultSchemeIndex(void);
+
+// Added: true when scheme's bindings are exactly the built-in defaults of defaultIndex. The name
+// and the modified flag are ignored. A built-in scheme equal to its defaults keeps no user copy.
+bool JonesUiControls_SchemeMatchesDefault(const JonesControlsScheme& scheme,
+    std::size_t defaultIndex);
 
 // Runs the main Controls screen through ui. config is the loaded scheme list; the runner works on a
 // copy. On OK it deletes the schemes marked for removal, writes every modified custom scheme, writes

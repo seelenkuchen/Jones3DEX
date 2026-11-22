@@ -312,6 +312,12 @@ namespace
                 "Modern gives you a free camera on the right stick.";
         }
         screen.help[layout.rumble] = "Turn gamepad vibration on or off.";
+        if ( layout.reset < screen.help.size() )
+        {
+            screen.help[layout.reset] =
+                "Restore the selected scheme's default bindings and discard any saved copy of a "
+                "built-in scheme.";
+        }
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }

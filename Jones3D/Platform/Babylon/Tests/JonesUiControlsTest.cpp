@@ -197,16 +197,39 @@ namespace
             m_events.push_back(platform::Event{ platform::TextInput{ 1, text } });
         }
 
+        void PushMouseMove(float x, float y)
+        {
+            m_events.push_back(platform::Event{ platform::MouseMoved{ 1, x, y } });
+        }
+
         void PushMouseButton(platform::MouseButton button)
         {
             m_events.push_back(platform::Event{ platform::MouseButtonChanged{ 1, button, true } });
             m_events.push_back(platform::Event{ platform::MouseButtonChanged{ 1, button, false } });
         }
 
+        void PushGamepadConnected()
+        {
+            m_events.push_back(platform::Event{
+                platform::GamepadConnected{ 1, platform::GamepadType::Xbox } });
+        }
+
         void PushGamepadButton(platform::GamepadButton button)
         {
             m_events.push_back(platform::Event{
                 platform::GamepadButtonChanged{ 1, button, true } });
+            m_events.push_back(platform::Event{
+                platform::GamepadButtonChanged{ 1, button, false } });
+        }
+
+        void PushGamepadButtonDown(platform::GamepadButton button)
+        {
+            m_events.push_back(platform::Event{
+                platform::GamepadButtonChanged{ 1, button, true } });
+        }
+
+        void PushGamepadButtonUp(platform::GamepadButton button)
+        {
             m_events.push_back(platform::Event{
                 platform::GamepadButtonChanged{ 1, button, false } });
         }
@@ -984,11 +1007,11 @@ TEST_CASE("deleting a custom scheme removes its file only on OK")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Choice -> Delete -> the now-disabled Delete moves focus to Mouse. With the remaining
-    // selection a built-in default, Reset is disabled too, so two Down presses reach OK.
+    // Choice -> Delete -> the now-disabled Delete moves focus to Mouse. Reset is now enabled for
+    // the built-in selection too, so it takes one focus slot and four Down presses reach OK.
     testContext.platform.PushKeyRepeated(platform::Key::Down, 2);
     testContext.platform.PushKey(platform::Key::Enter);
-    testContext.platform.PushKeyRepeated(platform::Key::Down, 3);
+    testContext.platform.PushKeyRepeated(platform::Key::Down, 4);
     testContext.platform.PushKey(platform::Key::Enter);
 
     REQUIRE(JonesUiControls_RunControlOptionsScreen(ui, &painter, config) == 1);
@@ -1480,7 +1503,7 @@ TEST_CASE("the Controls tab keeps its row order after the Controller screen clos
 
     const std::vector<std::string> expected = {
         "Scheme", "New", "Delete", "Controller", "Keyboard & Mouse", "Mouse camera",
-        "Rumble", "Apply",
+        "Rumble", "Reset to defaults", "Apply",
     };
     const std::vector<std::string> known = {
         "Scheme", "New", "Delete", "Controller", "Keyboard & Mouse", "Mouse camera",
@@ -1523,4 +1546,199 @@ TEST_CASE("the Controls tab keeps its row order after the Controller screen clos
 
     JonesUiControls_FreeModel(model);
     jonesConfig_FreeControlConfigEntry(&config);
+}
+
+
+TEST_CASE("reset is enabled for a built-in scheme and removes its stale user copy on OK")
+{
+    sithControl_SetModernControlStyle(true);
+    ControlsTestContext testContext;
+
+    // The stale user copy predates the quick whip: it has no gamepad bindings at all.
+    const char* pName = JonesControlSchemes_GetDefaultSchemeName(4);
+    REQUIRE(pName != nullptr);
+    testContext.WriteSchemeFile(pName, HandWrittenScheme());
+
+    JonesControlsConfig config;
+    REQUIRE(LoadConfig(config));
+    const std::size_t builtIn = 4;
+    REQUIRE(FindScheme(config, pName) == builtIn);
+    config.selectedShemeIdx = (int)builtIn;
+    testContext.StartControls();
+
+    JonesUiControlsModel model;
+    REQUIRE(JonesUiControls_InitModel(model, config));
+    REQUIRE(model.selected == builtIn);
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+    JonesUiControlsLayout layout;
+    const babylon::ui::Screen screen = JonesUiControls_BuildOptionsTabScreen(model, layout);
+    const babylon::ui::ScreenId screenId = ui.push(screen);
+    REQUIRE(screenId != babylon::ui::kInvalidScreen);
+
+    const auto* pReset = std::get_if<babylon::ui::Button>(&screen.widgets[layout.reset]);
+    REQUIRE(pReset != nullptr);
+    CHECK(pReset->enabled);
+    CHECK(pReset->text == "Reset to defaults");
+
+    // Reset, confirm Yes, then OK.
+    testContext.platform.PushKey(platform::Key::Enter);
+    REQUIRE(JonesUiControls_HandleAction(ui, screenId, 13, &painter, model, layout));
+    REQUIRE(JonesUiControls_Apply(model, config) == 1);
+
+    CHECK_FALSE(std::filesystem::exists(testContext.SchemePath(pName)));
+
+    // The built-in now carries the Modern defaults again, including LB on the step-left row.
+    std::size_t lb = STDCONTROL_JOYSTICK_GETBUTTON(0, 4);
+    bool bFound = false;
+    for ( std::size_t cur = 0; cur < JonesControlSchemes_GetNumBindings(
+            &config.aSchemes[builtIn], JONESCONTROL_ACTION_STEPLEFT); ++cur )
+    {
+        std::size_t bound = 0;
+        if ( JonesControlSchemes_GetBinding(&config.aSchemes[builtIn],
+                JONESCONTROL_ACTION_STEPLEFT, cur, &bound) && bound == lb )
+        {
+            bFound = true;
+        }
+    }
+    CHECK(bFound);
+
+    // Reloading the active scheme now falls back to the built-in data; LB is quick whip in Modern.
+    // The pad must be registered before the bind call, because the binder only binds present pads.
+    testContext.platform.PushGamepadConnected();
+    static_cast<void>(stdControl_GetNumJoysticks());
+    JonesControlsScheme* pActive = jonesConfig_LoadActiveControlScheme();
+    REQUIRE(pActive != nullptr);
+    sithControl_SetModernGamepadStyle(true);
+    REQUIRE(JonesControlSchemes_SetActiveScheme(pActive) == 1);
+    jonesConfig_FreeControlScheme(pActive);
+
+    testContext.platform.PushGamepadButtonDown(platform::GamepadButton::LeftShoulder);
+    stdControl_ReadControls();
+    int pressed = 0;
+#ifdef J3D_QOL_IMPROVEMENTS
+    // The Modern gamepad maps the step-left row's LB to the quick whip.
+    CHECK(sithControl_GetKey(SITHCONTROL_QUICKWHIP, &pressed) != 0);
+#else
+    // Retail keeps LB as the original held sidestep.
+    CHECK(sithControl_GetKey(SITHCONTROL_STPLEFT, &pressed) != 0);
+#endif
+    CHECK(pressed != 0);
+    testContext.platform.PushGamepadButtonUp(platform::GamepadButton::LeftShoulder);
+    stdControl_ReadControls();
+
+    jonesConfig_FreeControlConfigEntry(&config);
+    sithControl_SetModernControlStyle(true);
+}
+
+
+TEST_CASE("reset on a custom scheme still restores the style defaults")
+{
+    sithControl_SetModernControlStyle(true);
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    JonesUiControlsModel model;
+    REQUIRE(JonesUiControls_InitModel(model, config));
+    model.selected = index;
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+    JonesUiControlsLayout layout;
+    const babylon::ui::Screen screen = JonesUiControls_BuildOptionsTabScreen(model, layout);
+    const babylon::ui::ScreenId screenId = ui.push(screen);
+    REQUIRE(screenId != babylon::ui::kInvalidScreen);
+
+    testContext.platform.PushKey(platform::Key::Enter);
+    REQUIRE(JonesUiControls_HandleAction(ui, screenId, 13, &painter, model, layout));
+    REQUIRE(JonesUiControls_Apply(model, config) == 1);
+
+    // Still a custom scheme, now saved with the style defaults.
+    JonesControlsScheme defaults{};
+    REQUIRE(JonesControlSchemes_SetDefaultScheme(&defaults,
+        JonesUiControls_DefaultSchemeIndex()) == 1);
+    CHECK(JonesUiControls_SchemeMatchesDefault(config.aSchemes[index],
+        JonesUiControls_DefaultSchemeIndex()));
+    CHECK(std::filesystem::exists(testContext.SchemePath("ui-layout")));
+    jonesConfig_FreeControlConfigEntry(&config);
+    sithControl_SetModernControlStyle(true);
+}
+
+
+TEST_CASE("OK on an unchanged built-in scheme writes no user copy")
+{
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    REQUIRE(LoadConfig(config));
+    const char* pName = JonesControlSchemes_GetDefaultSchemeName(4);
+    REQUIRE(pName != nullptr);
+    const std::size_t builtIn = FindScheme(config, pName);
+    REQUIRE(builtIn == 4);
+    config.selectedShemeIdx = (int)builtIn;
+    testContext.StartControls();
+
+    JonesUiControlsModel model;
+    REQUIRE(JonesUiControls_InitModel(model, config));
+    model.selected = builtIn;
+
+    REQUIRE(JonesUiControls_Apply(model, config) == 1);
+    CHECK_FALSE(std::filesystem::exists(testContext.SchemePath(pName)));
+    jonesConfig_FreeControlConfigEntry(&config);
+}
+
+
+TEST_CASE("the Button Layout reset row triggers the existing device reset")
+{
+    sithControl_SetModernControlStyle(false);
+    ControlsTestContext testContext;
+    JonesControlsConfig config;
+    std::size_t index = 0;
+    REQUIRE(LoadSchemeForLayout(testContext, config, index));
+    config.selectedShemeIdx = (int)index;
+    testContext.StartControls();
+
+    const std::size_t padEast = STDCONTROL_JOYSTICK_GETBUTTON(0, 1);
+    REQUIRE(JonesControlSchemes_AddBinding(&config.aSchemes[index], JONESCONTROL_ACTION_JUMP,
+        padEast) == 1);
+
+    ui::NullPainter painter;
+    ui::Ui ui(painter, testContext.cvars);
+    REQUIRE(ui.setViewport(480, 480));
+
+    JonesUiButtonLayoutModel model;
+    model.pConfig = &config;
+    model.schemeIndex = index;
+    model.device = JonesUiButtonLayoutDevice::Controller;
+    JonesUiButtonLayout_RefreshRows(model);
+
+    const babylon::ui::Rect resetRow = JonesUiButtonLayout_ResetRowRectForTest(ui.canvasSize());
+    testContext.platform.PushMouseMove(resetRow.x + resetRow.width * 0.5f,
+        resetRow.y + resetRow.height * 0.5f);
+    testContext.platform.PushMouseButton(platform::MouseButton::Left);
+    testContext.platform.PushKey(platform::Key::Enter);   // Yes
+    testContext.platform.PushKey(platform::Key::Escape);  // Back
+
+    REQUIRE(JonesUiButtonLayout_RunScreen(ui, &painter, model) == 1);
+
+    // The hand-written scheme had no pad bindings, so the reset row restored Jump's default pad
+    // control (and not East).
+    std::size_t controller = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(config.aSchemes[index],
+        JONESCONTROL_ACTION_JUMP, JonesUiButtonLayoutDevice::Controller, controller));
+
+    JonesControlsScheme defaults{};
+    REQUIRE(JonesControlSchemes_SetDefaultScheme(&defaults,
+        JonesUiControls_DefaultSchemeIndex()) == 1);
+    std::size_t expected = 0;
+    REQUIRE(JonesUiButtonLayout_GetDeviceBinding(defaults,
+        JONESCONTROL_ACTION_JUMP, JonesUiButtonLayoutDevice::Controller, expected));
+    CHECK(controller == expected);
+    CHECK(controller != padEast);
+    jonesConfig_FreeControlConfigEntry(&config);
+    sithControl_SetModernControlStyle(true);
 }
