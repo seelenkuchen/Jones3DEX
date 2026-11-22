@@ -140,6 +140,31 @@ TEST_CASE("An SDL GPU device on a window clears and presents its swapchain")
         || info.swapchainFormat == TextureFormat::Rgba8));
     CHECK(device->supportsFormat(info.swapchainFormat, TextureUsage::ColorTarget));
 
+    // Vsync always holds. The others are whatever this driver and surface
+    // offer (lavapipe varies); an unsupported one falls back to vsync.
+    const PresentModeSupport support = device->presentModeSupport();
+    CHECK(support.vsync);
+    CHECK(device->presentMode() == PresentMode::Vsync);
+    if ( support.immediate )
+    {
+        CHECK(device->setPresentMode(PresentMode::Immediate));
+        CHECK(device->presentMode() == PresentMode::Immediate);
+    }
+    if ( support.mailbox )
+    {
+        CHECK(device->setPresentMode(PresentMode::Mailbox));
+        CHECK(device->presentMode() == PresentMode::Mailbox);
+    }
+    else
+    {
+        CHECK_FALSE(device->setPresentMode(PresentMode::Mailbox));
+        CHECK(device->presentMode() == PresentMode::Vsync);
+        sink.clear();
+    }
+    CHECK(device->setPresentMode(PresentMode::Vsync));
+    CHECK(device->presentMode() == PresentMode::Vsync);
+    sink.clear();
+
     // Frames to the swapchain, one also with a depth target the window's
     // size, and one that never touches the swapchain and so presents
     // nothing.

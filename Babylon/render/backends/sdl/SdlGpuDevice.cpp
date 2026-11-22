@@ -120,6 +120,28 @@ namespace
         }
     }
 
+    SDL_GPUPresentMode toSdl(PresentMode mode)
+    {
+        switch ( mode )
+        {
+            case PresentMode::Vsync: return SDL_GPU_PRESENTMODE_VSYNC;
+            case PresentMode::Immediate: return SDL_GPU_PRESENTMODE_IMMEDIATE;
+            case PresentMode::Mailbox: return SDL_GPU_PRESENTMODE_MAILBOX;
+        }
+        return SDL_GPU_PRESENTMODE_VSYNC;
+    }
+
+    const char* presentModeName(PresentMode mode)
+    {
+        switch ( mode )
+        {
+            case PresentMode::Vsync: return "vsync";
+            case PresentMode::Immediate: return "immediate";
+            case PresentMode::Mailbox: return "mailbox";
+        }
+        return "unknown";
+    }
+
     SDL_GPUVertexElementFormat toSdl(VertexFormat format)
     {
         switch ( format )
@@ -309,6 +331,21 @@ namespace
         SdlGpuDevice(SDL_GPUDevice* device, SDL_Window* window, DeviceInfo info)
             : m_device(device), m_window(window), m_info(std::move(info))
         {
+            // The window is already claimed here. Vsync is always supported; the
+            // others are what the driver offers for this window's surface.
+            if ( m_window != nullptr )
+            {
+                m_presentModeSupport.immediate = SDL_WindowSupportsGPUPresentMode(m_device,
+                    m_window, SDL_GPU_PRESENTMODE_IMMEDIATE);
+                m_presentModeSupport.mailbox = SDL_WindowSupportsGPUPresentMode(m_device,
+                    m_window, SDL_GPU_PRESENTMODE_MAILBOX);
+            }
+            else
+            {
+                // No swapchain: the two modes mean nothing but are accepted, like
+                // the Null device's.
+                m_presentModeSupport.immediate = true;
+            }
         }
 
         ~SdlGpuDevice() override
@@ -355,7 +392,49 @@ namespace
                 toSdl(usage));
         }
 
+        PresentModeSupport presentModeSupport() const override
+        {
+            return m_presentModeSupport;
+        }
+
+        PresentMode presentMode() const override
+        {
+            return m_presentMode;
+        }
+
+        bool setPresentMode(PresentMode mode) override
+        {
+            if ( !m_presentModeSupport.supports(mode) )
+            {
+                log::warning("render: setPresentMode: {} is not supported, using vsync",
+                    presentModeName(mode));
+                static_cast<void>(applyPresentMode(PresentMode::Vsync));
+                m_presentMode = PresentMode::Vsync;
+                return false;
+            }
+            if ( !applyPresentMode(mode) )
+            {
+                log::warning("render: setPresentMode: {} failed: {}", presentModeName(mode),
+                    SDL_GetError());
+                static_cast<void>(applyPresentMode(PresentMode::Vsync));
+                m_presentMode = PresentMode::Vsync;
+                return false;
+            }
+            m_presentMode = mode;
+            return true;
+        }
+
     private:
+        bool applyPresentMode(PresentMode mode)
+        {
+            if ( m_window == nullptr )
+            {
+                return true;
+            }
+            return SDL_SetGPUSwapchainParameters(m_device, m_window,
+                SDL_GPU_SWAPCHAINCOMPOSITION_SDR, toSdl(mode));
+        }
+
         const TextureDesc* findTexture(TextureHandle texture) const override
         {
             const SdlTexture* const found = m_textures.find(texture);
@@ -826,6 +905,8 @@ namespace
         SDL_GPUDevice* m_device;
         SDL_Window* m_window;   // claimed for the swapchain, or nullptr
         DeviceInfo m_info;
+        PresentModeSupport m_presentModeSupport;
+        PresentMode m_presentMode = PresentMode::Vsync;
         HandlePool<TextureTag, SdlTexture> m_textures;
         HandlePool<BufferTag, SdlBuffer> m_buffers;
         HandlePool<SamplerTag, SdlSampler> m_samplers;

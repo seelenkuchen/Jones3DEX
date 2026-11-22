@@ -33,6 +33,7 @@
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesFixedTick.h>
 #include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
@@ -511,6 +512,34 @@ TEST_CASE("the display screen reads the motion blur default per build")
 #endif
 }
 
+TEST_CASE("the display frame rate row defaults to V-Sync")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    CHECK(values.frameLimit == 0u);
+
+    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+    REQUIRE(layout.frameLimit < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.frameLimit]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Frame rate limit");
+    CHECK(pChoice->options == std::vector<std::string>{
+        "V-Sync", "30", "60", "120", "144", "240", "Unlimited" });
+    CHECK(pChoice->selected == 0u);
+}
+
 TEST_CASE("the display screen OK writes the chosen settings and config")
 {
     SettingsTestContext testContext;
@@ -527,6 +556,9 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     sithRender_g_fogDensity = 100.0f;
     sithCamera_SetGameplayFOV(0.0f);
 
+    // The frame-rate row reads the stored 144 Hz (index 4); Right selects 240 (index 5).
+    REQUIRE(stdConfig_SetInt(JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT, 144));
+
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
@@ -535,7 +567,7 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     // 13 light shafts, 14 ambient occlusion, 15 motion blur, 16 lens flare, 17 vignette,
     // 18 film grain, 19 water ripples, 20 depth of field (cutscenes), 21 depth of field (gameplay),
     // 22 sharpening, 23 tone mapping, 24 exposure, 25 colour grading, 26 anisotropic filtering,
-    // 27 crisp pixels, 28 Brightness..., 29 OK, 30 back.
+    // 27 crisp pixels, 28 frame rate limit, 29 Brightness..., 30 OK, 31 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -591,6 +623,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
     testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
     testContext.platform.PushKey(platform::Key::Enter); // crisp pixels on
+    testContext.platform.PushKey(platform::Key::Down);  // frame rate limit
+    testContext.platform.PushKey(platform::Key::Right); // 144 -> 240
     testContext.platform.PushKey(platform::Key::Down);  // Brightness...
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
@@ -673,6 +707,7 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 1);
 #endif
     CHECK(stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT, -1) == 240);
     char aDisplay[128] = { 0 };
     CHECK(stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aDisplay,
         sizeof(aDisplay), ""));
@@ -964,6 +999,34 @@ TEST_CASE("quick whip reads its config key")
     CHECK(sithWeapon_IsQuickWhipEnabled() == (J3D_QOL_VALUE(true, false) != 0));
 }
 
+TEST_CASE("the simulation tick row is an Enhanced choice that starts Off")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    const JonesUiGameplayValues values;
+    JonesUiGameplayLayout layout;
+    const babylon::ui::Screen screen = JonesUiGameplay_BuildScreen(true, values, layout);
+    REQUIRE(layout.fixedTick < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.fixedTick]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Simulation tick");
+    CHECK(pChoice->options == std::vector<std::string>{
+        "Off", "30 Hz", "50 Hz", "60 Hz", "120 Hz" });
+    CHECK(pChoice->selected == 0u);
+    CHECK(pChoice->enabled);
+
+    JonesUiGameplayLayout retailLayout;
+    const babylon::ui::Screen retail =
+        JonesUiGameplay_BuildScreen(false, values, retailLayout);
+    REQUIRE(retailLayout.fixedTick < retail.widgets.size());
+    const babylon::ui::Choice* pRetailChoice =
+        std::get_if<babylon::ui::Choice>(&retail.widgets[retailLayout.fixedTick]);
+    REQUIRE(pRetailChoice != nullptr);
+    CHECK_FALSE(pRetailChoice->enabled);
+}
+
 TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
 {
     SettingsTestContext testContext;
@@ -978,6 +1041,11 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     JonesReticle_Enable(false);
     sithWeapon_EnableBloodSplatter(false);
     sithWeapon_SetQuickWhipEnabled(true);
+
+    // The simulation tick row starts Off; the stored 60 Hz (index 3) is read, and Right
+    // selects 120 Hz (index 4).
+    CHECK(JonesUiGameplay_LoadValues(true).fixedTick == 0u);
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 60));
 
     REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
@@ -995,7 +1063,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
     // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading,
     // 10 interaction prompts, 11 quick whip, 12 fire flash, 13 external materials,
-    // 14 external keyframes, 15 OK, 16 back.
+    // 14 external keyframes, 15 simulation tick, 16 OK, 17 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -1019,6 +1087,8 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Enter); // external materials off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // external keyframes off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Right); // simulation tick 60 -> 120
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
 
@@ -1048,6 +1118,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    CHECK(stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, -1) == 120);
     // The profile is fixed by the build and written nowhere.
     CHECK_FALSE(stdConfig_Contains("game.profile"));
 }
@@ -1135,6 +1206,7 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    CHECK(stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, -1) == 0);
     // The original options still work under Retail.
     CHECK(stdConfig_Contains(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT));
     // The profile row is fixed by the build and writes no key in either direction.
@@ -1755,10 +1827,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 27).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 28).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 27; ++row )
+    for ( int row = 0; row < 28; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

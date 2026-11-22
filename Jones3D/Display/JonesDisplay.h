@@ -50,6 +50,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES             "engine.renderer.dof.cutscenes" // Added: M9.14 depth of field in cutscenes
 #define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY              "engine.renderer.dof.gameplay" // Added: M9.14 depth of field in gameplay
 #define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_STRENGTH              "engine.renderer.dof.strength" // Added: M9.14 depth-of-field strength
+#define JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT                "engine.renderer.frameLimit" // Added: M9.23 frame pacing
 
 
 // Returns 0 for success and 1 indicating error

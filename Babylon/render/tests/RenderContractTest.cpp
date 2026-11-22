@@ -196,6 +196,46 @@ TEST_CASE("A render device reports what it is and what it accepts")
     });
 }
 
+TEST_CASE("A render device offers vsync and sets the present modes it supports")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const PresentModeSupport support = device.presentModeSupport();
+        CHECK(support.vsync);
+        CHECK(device.presentMode() == PresentMode::Vsync);
+
+        CHECK(device.setPresentMode(PresentMode::Vsync));
+        CHECK(device.presentMode() == PresentMode::Vsync);
+        noWarning(sink);
+
+        if ( support.immediate )
+        {
+            CHECK(device.setPresentMode(PresentMode::Immediate));
+            CHECK(device.presentMode() == PresentMode::Immediate);
+            noWarning(sink);
+        }
+
+        if ( support.mailbox )
+        {
+            CHECK(device.setPresentMode(PresentMode::Mailbox));
+            CHECK(device.presentMode() == PresentMode::Mailbox);
+            noWarning(sink);
+        }
+        else
+        {
+            // An unsupported mode falls back to vsync with one warning.
+            CHECK_FALSE(device.setPresentMode(PresentMode::Mailbox));
+            CHECK(device.presentMode() == PresentMode::Vsync);
+            oneWarning(sink);
+        }
+
+        CHECK(device.setPresentMode(PresentMode::Vsync));
+        CHECK(device.presentMode() == PresentMode::Vsync);
+        noWarning(sink);
+    });
+}
+
 TEST_CASE("Textures are created and destroyed, and stale handles are refused")
 {
     forEachDevice([](Device& device)

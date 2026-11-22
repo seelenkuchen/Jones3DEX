@@ -85,6 +85,9 @@ namespace babylon::render
 
         const DeviceInfo& info() const override;
         bool supportsFormat(TextureFormat format, TextureUsage usage) const override;
+        PresentModeSupport presentModeSupport() const override;
+        PresentMode presentMode() const override;
+        bool setPresentMode(PresentMode mode) override;
 
         // Everything recorded since creation or the last clearRecorded().
         const std::vector<RecordedCommand>& recorded() const;

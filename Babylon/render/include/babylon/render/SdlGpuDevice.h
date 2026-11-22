@@ -28,6 +28,11 @@ namespace babylon::render
     // window must outlive the device. With nullptr the device is headless:
     // no swapchain, and passes to the swapchain draw nothing.
     //
+    // Present modes: Vsync is always offered; Immediate and Mailbox are what
+    // SDL_WindowSupportsGPUPresentMode reports for the claimed window. A
+    // headless device offers Vsync and Immediate. setPresentMode() maps the
+    // mode to SDL_SetGPUSwapchainParameters with the SDR composition.
+    //
     // SDL GPU needs SDL's video subsystem, so the device initializes it
     // (SDL_InitSubSystem, counted) and quits it again when it is destroyed;
     // without a display, SDL_VIDEO_DRIVER=offscreen gives a headless one.

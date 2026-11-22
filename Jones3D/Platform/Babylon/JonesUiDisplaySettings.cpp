@@ -40,6 +40,7 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/std3DBabylon.h>
+#include <std/Babylon/stdDisplayBabylon.h>
 #include <std/General/std.h>
 #include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
@@ -98,6 +99,7 @@ namespace
     constexpr const char* kJonesDisplaySharpeningText = "Sharpening"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayToneMappingText = "Tone mapping"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayExposureText = "Exposure"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayFrameLimitText = "Frame rate limit"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayColorGradingText = "Colour grading"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAnisotropicText = "Anisotropic filtering"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayCrispPixelsText = "Crisp pixels"; // TODO: [COMPAT]
@@ -165,6 +167,13 @@ namespace
     constexpr double kJonesDisplayExposureMin = 0.5;
     constexpr double kJonesDisplayExposureMax = 2.0;
     constexpr double kJonesDisplayExposureStep = 0.1;
+
+    // Added: M9.23 frame pacing. 0 is V-Sync (the default), a positive value
+    // caps presentation with V-Sync off, and -1 is unlimited with V-Sync off.
+    constexpr int kJonesDisplayFrameLimitValues[] = { 0, 30, 60, 120, 144, 240, -1 };
+    constexpr const char* kJonesDisplayFrameLimitLabels[] = {
+        "V-Sync", "30", "60", "120", "144", "240", "Unlimited" };
+    constexpr std::size_t kJonesDisplayFrameLimitDefault = 0;
 
     // Added: M9.13 color-grading presets; Neutral (index 0) is the default in every build.
     constexpr int kJonesDisplayColorGradingValues[] = { 0, 1, 2, 3, 4, 5 };
@@ -418,6 +427,20 @@ namespace
         }
 
         return kJonesDisplayColorGradingDefault;
+    }
+
+    // The frame-rate choice of a stored value; V-Sync when it is not one of the offered ones.
+    std::size_t JonesUiDisplay_FrameLimitIndex(int frameLimit)
+    {
+        for ( std::size_t cur = 0; cur < STD_ARRAYLEN(kJonesDisplayFrameLimitValues); ++cur )
+        {
+            if ( kJonesDisplayFrameLimitValues[cur] == frameLimit )
+            {
+                return cur;
+            }
+        }
+
+        return kJonesDisplayFrameLimitDefault;
     }
 
     // The anisotropic choice of a level; the nearest offered step, 8x when it is not usable.
@@ -762,6 +785,20 @@ namespace
             JonesUiDisplay_ResolveLabel(kJonesDisplayCrispPixelsText), std::string(), true,
             values.bCrispPixels });
 
+        // Added: M9.23. V-Sync is the default; a numeric cap presents immediately and the
+        // frame loop waits for the next deadline. Unlimited turns V-Sync off with no cap.
+        std::vector<std::string> frameLimitOptions;
+        for ( const char* pLabel : kJonesDisplayFrameLimitLabels )
+        {
+            frameLimitOptions.emplace_back(pLabel);
+        }
+        layout.frameLimit = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayFrameLimitText), std::string(),
+            std::move(frameLimitOptions), true,
+            values.frameLimit < STD_ARRAYLEN(kJonesDisplayFrameLimitValues)
+                ? values.frameLimit : kJonesDisplayFrameLimitDefault });
+
         // Added: opens the brightness calibration screen; the value is written there, not by
         // this screen's OK.
         layout.brightness = screen.widgets.size();
@@ -940,6 +977,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
         (int)STD_ARRAYLEN(kJonesDisplayColorGradingValues) - 1);
     model.anisotropic = std3DBabylon_ReadAnisotropicFilterLevel();
     model.bCrispPixels = JonesUiDisplay_ReadConfigBool(STD3D_CFG_TEXTUREPIXELATED, false);
+    model.frameLimit = JonesUiDisplay_ReadConfigInt(
+        JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT, 0);
 
     values.bBitDepth   = model.bitDepths.size() > 1;
     values.bitDepth    = model.curBitDepth;
@@ -968,6 +1007,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.sharpening = JonesUiDisplay_SharpeningIndex(model.sharpening);
     values.toneMapping = JonesUiDisplay_ToneMappingIndex(model.toneMapping);
     values.exposure = (double)model.exposure;
+    values.frameLimit = JonesUiDisplay_FrameLimitIndex(model.frameLimit);
     values.colorGrading = JonesUiDisplay_ColorGradingIndex(model.colorGrading);
     values.anisotropic = JonesUiDisplay_AnisotropicIndex(model.anisotropic);
     values.bCrispPixels = model.bCrispPixels;
@@ -1042,6 +1082,8 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.toneMapping));
     static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.exposure,
         values.exposure));
+    static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.frameLimit,
+        values.frameLimit));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.colorGrading,
         values.colorGrading));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.anisotropic,
@@ -1312,6 +1354,14 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
     JonesUiDisplay_SetConfigInt(STD3D_CFG_ANISOTROPICFILTER,
         kJonesDisplayAnisotropicValues[anisotropic]);
     JonesUiDisplay_SetConfigBool(STD3D_CFG_TEXTUREPIXELATED, values.bCrispPixels);
+
+    // Added: M9.23. Frame pacing applies at once, unlike the scene stages that read their key
+    // when the display reopens; the adapter switches the present mode and the limiter.
+    const std::size_t frameLimit = std::min(values.frameLimit,
+        STD_ARRAYLEN(kJonesDisplayFrameLimitValues) - 1);
+    const int frameLimitValue = kJonesDisplayFrameLimitValues[frameLimit];
+    JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT, frameLimitValue);
+    stdDisplayBabylon_SetFrameLimit(frameLimitValue);
 
     return kJonesDialogOk;
 }

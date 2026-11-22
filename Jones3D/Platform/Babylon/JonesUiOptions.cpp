@@ -250,6 +250,9 @@ namespace
             "Load material data from external CND files.";
         screen.help[layout.externalKeyframes] =
             "Load animation keyframes from external CND files.";
+        screen.help[layout.fixedTick] =
+            "Run the simulation at a fixed rate and smooth motion between ticks; it changes game "
+            "timing slightly. Applies when the game restarts.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
@@ -396,6 +399,9 @@ namespace
         screen.help[layout.crispPixels] =
             "Use nearest filtering for world and model textures, for the original sharp, blocky "
             "look. Applies when the display reopens.";
+        screen.help[layout.frameLimit] =
+            "Cap how many frames are drawn each second, or follow the display with V-Sync. "
+            "Unlimited turns V-Sync off; the change applies at once.";
         screen.help[layout.brightness] =
             "Calibrate the scene brightness on a dark test pattern; the value applies at once.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";

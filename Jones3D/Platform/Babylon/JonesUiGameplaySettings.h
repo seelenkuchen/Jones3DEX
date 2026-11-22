@@ -32,6 +32,7 @@ struct JonesUiGameplayValues
     bool bFireFlash = false;
     bool bExternalMaterials = false;
     bool bExternalKeyframes = false;
+    std::size_t fixedTick = 0; // Added: index into Off, 30, 50, 60, 120 Hz
 };
 
 struct JonesUiGameplayLayout
@@ -49,6 +50,7 @@ struct JonesUiGameplayLayout
     std::size_t fireFlash = 0;
     std::size_t externalMaterials = 0;
     std::size_t externalKeyframes = 0;
+    std::size_t fixedTick = 0; // Added: M9.23 simulation tick rate
     std::size_t ok = 0;
     std::size_t back = 0;
 };

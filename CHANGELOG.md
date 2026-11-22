@@ -6,6 +6,17 @@
     presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer and save
     thumbnails stay display-sized, and menus stay at the window's native resolution. Applies when the
     display reopens, like the other Display options.
+  - **Options > Display** has a **Frame rate limit** row (`engine.renderer.frameLimit`: V-Sync,
+    30, 60, 120, 144, 240 or Unlimited = 0, 30, 60, 120, 144, 240 or -1; V-Sync by default).
+    V-Sync keeps the display's own pacing; a numeric cap presents immediately with V-Sync off and
+    waits after each present for a drift-free wall-clock deadline, so presentation is capped
+    without changing game time or the simulation; Unlimited turns V-Sync off with no cap. The
+    wait is off in headless runs and while a level loads, which keeps its fast path. The row
+    applies at once. The Babylon render device now exposes V-Sync, immediate and mailbox present
+    modes to its backends.
+  - **Options > Gameplay** has a **Simulation tick** row (`engine.sim.fixedTick`: Off, 30, 50, 60
+    or 120 Hz; Off by default and disabled in Retail) that selects the fixed simulation tick. The
+    value is read at startup, so it applies when the game restarts. The help text says so.
   - **Options > Display** has an **Anti-aliasing** row (`engine.renderer.antiAliasing`, SMAA by default
     in Enhanced and off in Retail). SMAA 1x runs on the tone-mapped 3D scene at the presented
     resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are never anti-aliased.
@@ -131,9 +142,10 @@
   - `engine.sim.fixedTick` (off by default, int Hz: 0, 30, 50, 60 or 120) runs the Enhanced simulation
     on a fixed tick and draws extra frames by interpolating thing positions and orientations and the
     camera. Visibility marks, AI waypoint lasers and polyline updates move onto the tick, so draw-only
-    frames change nothing. `0` keeps the measured frame time and is the default. There is no Options
-    row yet; QOL-off/Retail builds ignore the key. The headless `--fixed-tick` and `--draw-step` options
-    drive it for tests.
+    frames change nothing. `0` keeps the measured frame time and is the default. Choose it in
+    Options > Gameplay > **Simulation tick** (Off, 30, 50, 60 or 120 Hz; it applies when the game
+    restarts); QOL-off/Retail builds ignore the key. The headless `--fixed-tick` and `--draw-step`
+    options drive it for tests.
 
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
