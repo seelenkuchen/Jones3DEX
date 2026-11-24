@@ -150,6 +150,9 @@ float JonesFixedTick_AccumAlpha(const JonesFixedTickAccumulator* pAccum, uint32_
 // Per rendered frame.
 int JonesFixedTick_BeginFrame(bool bPaused); // measured delta -> number of ticks to run
 float JonesFixedTick_GetAlpha(void);
+// Added: set the interpolation alpha for the next BeginDraw. The frame loop derives it from the
+// accumulator; tests and the headless analysis set it directly to sample a drawn frame.
+void JonesFixedTick_SetDrawAlpha(float alpha);
 size_t JonesFixedTick_GetTickCount(void);
 
 // Per simulation tick.

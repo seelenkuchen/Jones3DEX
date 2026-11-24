@@ -58,6 +58,7 @@ static bool                      jonesFixedTick_bDrawing;
 // headless runner opens it. The joint indices are resolved once from the player model's node names.
 static FILE*  jonesFixedTick_pDrawTraceFile;
 static size_t jonesFixedTick_drawTraceCount;
+static int    jonesFixedTick_drawTraceRootJoint = -1;
 static int    jonesFixedTick_drawTraceHeadJoint = -1;
 static int    jonesFixedTick_drawTraceHandJoint = -1;
 static int    jonesFixedTick_drawTraceFootJoint = -1;
@@ -70,6 +71,12 @@ static rdVector3 jonesFixedTick_aDrawTracePrevJoints[RDPUPPET_MAX_KFNODES];
 static rdVector3 jonesFixedTick_aDrawTraceCurJoints[RDPUPPET_MAX_KFNODES];
 static size_t    jonesFixedTick_drawTraceNumJoints;
 static bool      jonesFixedTick_bDrawTraceHaveTickJoints;
+
+// Added: the trace builds the tick endpoint skeletons to record them, which would overwrite the
+// drawn state. Save the model's joint matrices and frame stamp before that and put them back, so a
+// trace run draws exactly what a run without --draw-trace draws.
+static rdMatrix34 jonesFixedTick_aDrawTraceSavedMatrices[RDPUPPET_MAX_KFNODES];
+static int        jonesFixedTick_drawTraceSavedFrameNum;
 
 // Added: M9.22 interpolated animation. The world's scroll and light state follows the same
 // previous/current tick pair as the things and camera.
@@ -346,6 +353,13 @@ int JonesFixedTick_BeginFrame(bool bPaused)
 float JonesFixedTick_GetAlpha(void)
 {
     return jonesFixedTick_alpha;
+}
+
+void JonesFixedTick_SetDrawAlpha(float alpha)
+{
+    // Added: tests and the headless analysis sample a drawn frame at an exact alpha. BeginDraw
+    // clamps the value, so no range check is needed here.
+    jonesFixedTick_alpha = alpha;
 }
 
 static bool JonesFixedTick_EnsureCapacity(size_t numThings)
@@ -626,6 +640,30 @@ void JonesFixedTick_RestorePuppet(const JonesFixedTickPuppetState* pCur, rdPuppe
 // is drawn at a time, so one array is enough; the model node limit matches the puppet cache.
 static rdMatrix34 jonesFixedTick_aPoseCrossfadePrevMatrices[RDPUPPET_MAX_KFNODES];
 
+// Added: whether the last JonesFixedTick_BlendPuppetPose call wrote the drawn joints for a pose
+// crossfade. The stamp alone cannot tell: a tick build in the same rdCache frame also matches it.
+static bool jonesFixedTick_bPoseCrossfadeBuilt;
+
+// Added: the drawn frame rebuilds a thing's joints from the interpolated placement and sampled
+// pose, which overwrites the world-space joint matrices and frame stamp the tick left. The
+// simulation may read them on the next tick (path movement, attached meshes, the internal
+// camera), so BeginDraw keeps them and EndDraw puts them back exactly.
+typedef struct sJonesFixedTickSavedJoints
+{
+    bool   valid;
+    size_t numJoints;
+    size_t poolOffset;
+    int    rdFrameNum;
+    int    bSkipBuildingJoints;
+} JonesFixedTickSavedJoints;
+
+static JonesFixedTickSavedJoints* jonesFixedTick_pSavedJoints;
+static size_t                     jonesFixedTick_savedJointsCapacity;
+static size_t                     jonesFixedTick_numSavedJoints;
+static rdMatrix34*                jonesFixedTick_pSavedJointPool;
+static size_t                     jonesFixedTick_savedJointPoolCapacity;
+static size_t                     jonesFixedTick_savedJointPoolUsed;
+
 static bool JonesFixedTick_PuppetTrackFrameValid(const JonesFixedTickPuppetTrackState* pTrack)
 {
     return !pTrack->valid || (pTrack->pKFTrack
@@ -769,6 +807,8 @@ static void JonesFixedTick_BuildPuppetSnapshotPose(const JonesFixedTickPuppetSta
 static bool JonesFixedTick_BlendPuppetPose(const JonesFixedTickThingState* pPrevThing,
     JonesFixedTickThingState* pCurThing, SithThing* pThing, float alpha)
 {
+    jonesFixedTick_bPoseCrossfadeBuilt = false;
+
     rdThing*  pRender = &pThing->renderData;
     rdPuppet* pPuppet = pRender->pPuppet;
     const JonesFixedTickPuppetState* pPrev = pPrevThing ? &pPrevThing->puppet : NULL;
@@ -817,7 +857,230 @@ static bool JonesFixedTick_BlendPuppetPose(const JonesFixedTickThingState* pPrev
 
     // Added: tell the model draw the joints are already built for this frame.
     pRender->rdFrameNum = (int)rdCache_GetFrameNum();
+    jonesFixedTick_bPoseCrossfadeBuilt = true;
     return true;
+}
+
+static bool JonesFixedTick_EnsureSavedJointsCapacity(size_t numThings)
+{
+    if ( numThings <= jonesFixedTick_savedJointsCapacity )
+    {
+        return true;
+    }
+
+    size_t newCapacity = jonesFixedTick_savedJointsCapacity ? jonesFixedTick_savedJointsCapacity : 64;
+    while ( newCapacity < numThings )
+    {
+        newCapacity *= 2;
+    }
+
+    JonesFixedTickSavedJoints* pSaved = (JonesFixedTickSavedJoints*)STDREALLOC(
+        jonesFixedTick_pSavedJoints, newCapacity * sizeof(*pSaved));
+    if ( !pSaved )
+    {
+        return false;
+    }
+
+    jonesFixedTick_pSavedJoints          = pSaved;
+    jonesFixedTick_savedJointsCapacity   = newCapacity;
+    return true;
+}
+
+static bool JonesFixedTick_EnsureSavedJointPoolCapacity(size_t numJoints)
+{
+    if ( numJoints <= jonesFixedTick_savedJointPoolCapacity )
+    {
+        return true;
+    }
+
+    size_t newCapacity = jonesFixedTick_savedJointPoolCapacity ? jonesFixedTick_savedJointPoolCapacity : 256;
+    while ( newCapacity < numJoints )
+    {
+        newCapacity *= 2;
+    }
+
+    rdMatrix34* pPool = (rdMatrix34*)STDREALLOC(
+        jonesFixedTick_pSavedJointPool, newCapacity * sizeof(*pPool));
+    if ( !pPool )
+    {
+        return false;
+    }
+
+    jonesFixedTick_pSavedJointPool         = pPool;
+    jonesFixedTick_savedJointPoolCapacity  = newCapacity;
+    return true;
+}
+
+static void JonesFixedTick_BeginDrawJoints(size_t numThings)
+{
+    jonesFixedTick_numSavedJoints     = 0;
+    jonesFixedTick_savedJointPoolUsed = 0;
+
+    if ( !JonesFixedTick_EnsureSavedJointsCapacity(numThings) )
+    {
+        return;
+    }
+
+    jonesFixedTick_numSavedJoints = numThings;
+    for ( size_t i = 0; i < numThings; ++i )
+    {
+        jonesFixedTick_pSavedJoints[i].valid = false;
+    }
+}
+
+// Added: keep the tick's joint matrices and stamp for one model thing before BlendThing or a draw
+// rebuild overwrites them.
+static void JonesFixedTick_SaveThingJoints(size_t thingNum, const SithThing* pThing)
+{
+    if ( thingNum >= jonesFixedTick_numSavedJoints || !pThing )
+    {
+        return;
+    }
+
+    JonesFixedTickSavedJoints* pSaved = &jonesFixedTick_pSavedJoints[thingNum];
+    pSaved->valid = false;
+
+    const rdThing* pRender = &pThing->renderData;
+    if ( pRender->type != RD_THING_MODEL3 || !pRender->data.pModel3 || !pRender->paJointMatrices )
+    {
+        return;
+    }
+
+    const size_t numJoints = pRender->data.pModel3->numHNodes;
+    if ( !numJoints )
+    {
+        return;
+    }
+
+    if ( !JonesFixedTick_EnsureSavedJointPoolCapacity(jonesFixedTick_savedJointPoolUsed + numJoints) )
+    {
+        return;
+    }
+
+    // Added: take the pool after EnsureSavedJointPoolCapacity; it may have reallocated it.
+    pSaved->valid                = true;
+    pSaved->numJoints            = numJoints;
+    pSaved->poolOffset           = jonesFixedTick_savedJointPoolUsed;
+    pSaved->rdFrameNum           = pRender->rdFrameNum;
+    pSaved->bSkipBuildingJoints  = pRender->bSkipBuildingJoints;
+
+    memcpy(&jonesFixedTick_pSavedJointPool[pSaved->poolOffset], pRender->paJointMatrices,
+        numJoints * sizeof(rdMatrix34));
+    jonesFixedTick_savedJointPoolUsed += numJoints;
+}
+
+// Added: a skipped-joint thing was built by the simulation with the placement at the origin and
+// then shifted so its root joint sits exactly on the thing position (the animation's root motion is
+// consumed as thing movement). It must not be rebuilt by the draw: rebuilding with the thing's
+// position as the placement would add the root animation offset again. Instead move the stored
+// world matrices from the tick placement to the drawn one: rotate about the tick root by the
+// interpolated orientation and translate the root to the drawn position.
+static void JonesFixedTick_TransformSkippedThingJoints(const JonesFixedTickSavedJoints* pSaved,
+    const JonesFixedTickThingState* pCur, SithThing* pThing)
+{
+    rdThing* pRender = &pThing->renderData;
+    if ( !pRender->paJointMatrices || !pRender->data.pModel3 )
+    {
+        return;
+    }
+
+    size_t numJoints = pRender->data.pModel3->numHNodes;
+    if ( numJoints > pSaved->numJoints )
+    {
+        numJoints = pSaved->numJoints;
+    }
+
+    rdMatrix34 tickOrient = pCur->orient;
+    tickOrient.dvec       = rdroid_g_zeroVector3;
+
+    rdMatrix34 invTickOrient;
+    rdMatrix_InvertOrtho34(&invTickOrient, &tickOrient);
+
+    rdMatrix34 drawOrient = pThing->orient;
+    drawOrient.dvec       = rdroid_g_zeroVector3;
+
+    // R_delta = R_draw * inverse(R_tick); the translation is applied about the tick root below.
+    rdMatrix34 deltaOrient;
+    rdMatrix_Multiply34(&deltaOrient, &drawOrient, &invTickOrient);
+
+    // Added: pivot on the root the build actually produced, so the drawn root lands exactly on the
+    // drawn thing position even if a later tick step nudged the thing after the shift.
+    const rdVector3 tickRoot = jonesFixedTick_pSavedJointPool[pSaved->poolOffset].dvec;
+    const rdVector3 negTickRoot = { -tickRoot.x, -tickRoot.y, -tickRoot.z };
+    for ( size_t jointNum = 0; jointNum < numJoints; ++jointNum )
+    {
+        rdMatrix34 shifted;
+        rdMatrix_Copy34(&shifted, &pRender->paJointMatrices[jointNum]);
+        rdMatrix_PostTranslate34(&shifted, &negTickRoot);
+
+        rdMatrix34 rotated;
+        rdMatrix_Multiply34(&rotated, &deltaOrient, &shifted);
+        rdVector_Add3Acc(&rotated.dvec, &pThing->pos);
+
+        rdMatrix_Copy34(&pRender->paJointMatrices[jointNum], &rotated);
+    }
+}
+
+// Added: after the pose blend, make the drawn frame use the interpolated placement. A pose
+// crossfade already built the interpolated skeleton and stamped the draw's cache frame; leave it.
+// A skipped-joint thing keeps its flag so the draw uses the stored pose, which is moved from the
+// tick placement to the interpolated one. Everything else lets the scene draw rebuild from the
+// interpolated placement and sampled pose by invalidating its frame stamp.
+static void JonesFixedTick_InvalidateStaleThingJoints(size_t thingNum,
+    const JonesFixedTickThingState* pCur, SithThing* pThing)
+{
+    if ( thingNum >= jonesFixedTick_numSavedJoints || !pCur || !pThing
+        || !jonesFixedTick_pSavedJoints[thingNum].valid )
+    {
+        return;
+    }
+
+    if ( jonesFixedTick_bPoseCrossfadeBuilt )
+    {
+        // The pose crossfade built the interpolated skeleton and stamped it for this draw.
+        return;
+    }
+
+    if ( jonesFixedTick_pSavedJoints[thingNum].bSkipBuildingJoints )
+    {
+        JonesFixedTick_TransformSkippedThingJoints(&jonesFixedTick_pSavedJoints[thingNum], pCur,
+            pThing);
+        return;
+    }
+
+    pThing->renderData.rdFrameNum = -1;
+}
+
+static void JonesFixedTick_EndDrawJoints(SithThing* pThings, size_t numThings)
+{
+    const size_t numSaved = jonesFixedTick_numSavedJoints < numThings
+        ? jonesFixedTick_numSavedJoints
+        : numThings;
+
+    for ( size_t i = 0; i < numSaved; ++i )
+    {
+        const JonesFixedTickSavedJoints* pSaved = &jonesFixedTick_pSavedJoints[i];
+        if ( !pSaved->valid )
+        {
+            continue;
+        }
+
+        rdThing* pRender = &pThings[i].renderData;
+        if ( !pRender->paJointMatrices
+            || !pRender->data.pModel3
+            || pRender->data.pModel3->numHNodes != pSaved->numJoints )
+        {
+            continue;
+        }
+
+        memcpy(pRender->paJointMatrices, &jonesFixedTick_pSavedJointPool[pSaved->poolOffset],
+            pSaved->numJoints * sizeof(rdMatrix34));
+        pRender->rdFrameNum          = pSaved->rdFrameNum;
+        pRender->bSkipBuildingJoints = pSaved->bSkipBuildingJoints;
+    }
+
+    jonesFixedTick_numSavedJoints     = 0;
+    jonesFixedTick_savedJointPoolUsed = 0;
 }
 
 void JonesFixedTick_CaptureSurface(JonesFixedTickSurfaceState* pDst, const SithSurface* pSurface)
@@ -1371,6 +1634,12 @@ static void JonesFixedTick_CaptureTraceTickJoints(const JonesFixedTickThingState
 
     jonesFixedTick_drawTraceNumJoints = numJoints;
 
+    // Added: the endpoint builds below overwrite the joints the scene draw will inspect. Keep the
+    // state the tick left so the draw and TraceDraw see the real drawn skeleton, not the trace's.
+    memcpy(jonesFixedTick_aDrawTraceSavedMatrices, pPlayer->renderData.paJointMatrices,
+        numJoints * sizeof(jonesFixedTick_aDrawTraceSavedMatrices[0]));
+    jonesFixedTick_drawTraceSavedFrameNum = pPlayer->renderData.rdFrameNum;
+
     // The render pass places a thing with its position in orient.dvec; the tick state keeps that
     // zero. Use the same placement the scene draw will use for each tick.
     const JonesFixedTickPuppetState* pPrevPuppet = pPrevThing ? &pPrevThing->puppet : NULL;
@@ -1378,6 +1647,9 @@ static void JonesFixedTick_CaptureTraceTickJoints(const JonesFixedTickThingState
 
     if ( !pCurPuppet->valid )
     {
+        memcpy(pPlayer->renderData.paJointMatrices, jonesFixedTick_aDrawTraceSavedMatrices,
+            numJoints * sizeof(jonesFixedTick_aDrawTraceSavedMatrices[0]));
+        pPlayer->renderData.rdFrameNum = jonesFixedTick_drawTraceSavedFrameNum;
         return;
     }
 
@@ -1399,9 +1671,10 @@ static void JonesFixedTick_CaptureTraceTickJoints(const JonesFixedTickThingState
         }
     }
 
-    // The caller's BlendThing applies the drawn pose. Invalidate the frame stamp so the scene draw
-    // does not keep these endpoint joints.
-    pPlayer->renderData.rdFrameNum = -1;
+    // Put the tick's joints and stamp back; the scene draw and TraceDraw must see the drawn state.
+    memcpy(pPlayer->renderData.paJointMatrices, jonesFixedTick_aDrawTraceSavedMatrices,
+        numJoints * sizeof(jonesFixedTick_aDrawTraceSavedMatrices[0]));
+    pPlayer->renderData.rdFrameNum = jonesFixedTick_drawTraceSavedFrameNum;
     jonesFixedTick_bDrawTraceHaveTickJoints = true;
 }
 
@@ -1442,6 +1715,10 @@ void JonesFixedTick_BeginDraw(void)
             ? pWorld->numThings
             : jonesFixedTick_curNumThings;
 
+        // Added: keep the tick's joint matrices and frame stamp before the blend or the scene draw
+        // overwrites them, so EndDraw can put the simulation-visible state back exactly.
+        JonesFixedTick_BeginDrawJoints(numThings);
+
         for ( size_t i = 0; i < numThings; ++i )
         {
             JonesFixedTickThingState* pCur = &jonesFixedTick_pCurThings[i];
@@ -1450,17 +1727,29 @@ void JonesFixedTick_BeginDraw(void)
                 continue;
             }
 
+            SithThing* pThing = &pWorld->aThings[i];
+
+            // Added: the dev trace may build endpoint skeletons; saving first keeps its restore and
+            // the draw from clobbering the tick state EndDraw has to return.
+            JonesFixedTick_SaveThingJoints(i, pThing);
+
             const JonesFixedTickThingState* pPrev = i < jonesFixedTick_prevNumThings
                 ? &jonesFixedTick_pPrevThings[i]
                 : NULL;
 
             // Added: dev-only skeleton endpoints for the trace's wrong-frame check.
-            if ( jonesFixedTick_pDrawTraceFile && &pWorld->aThings[i] == sithPlayer_g_pLocalPlayerThing )
+            if ( jonesFixedTick_pDrawTraceFile && pThing == sithPlayer_g_pLocalPlayerThing )
             {
-                JonesFixedTick_CaptureTraceTickJoints(pPrev, pCur, &pWorld->aThings[i]);
+                JonesFixedTick_CaptureTraceTickJoints(pPrev, pCur, pThing);
             }
 
-            JonesFixedTick_BlendThing(pPrev, pCur, &pWorld->aThings[i], alpha);
+            // Added: reset the crossfade flag; BlendThing may return before calling the pose blend.
+            jonesFixedTick_bPoseCrossfadeBuilt = false;
+            JonesFixedTick_BlendThing(pPrev, pCur, pThing, alpha);
+
+            // Added: a job built at the tick placement, or a skipped-joint model, would otherwise
+            // be drawn from the stored tick pose while the camera and everything else interpolate.
+            JonesFixedTick_InvalidateStaleThingJoints(i, pCur, pThing);
         }
     }
 
@@ -1539,6 +1828,16 @@ void JonesFixedTick_EndDraw(void)
                 JonesFixedTick_RestoreThing(pCur, &pWorld->aThings[i]);
             }
         }
+
+        // Added: the draw rebuilt the joints from the interpolated placement; give the simulation
+        // the exact matrices and stamp the tick left.
+        JonesFixedTick_EndDrawJoints(pWorld->aThings, numThings);
+    }
+    else
+    {
+        // Added: no thing loop ran this draw, so nothing was saved; keep the save state clean.
+        jonesFixedTick_numSavedJoints     = 0;
+        jonesFixedTick_savedJointPoolUsed = 0;
     }
 
     if ( sithCamera_g_pCurCamera && jonesFixedTick_curCamera.valid )
@@ -1597,6 +1896,7 @@ bool JonesFixedTick_OpenDrawTrace(const char* pPath)
 
     jonesFixedTick_pDrawTraceFile             = pFile;
     jonesFixedTick_drawTraceCount             = 0;
+    jonesFixedTick_drawTraceRootJoint         = -1;
     jonesFixedTick_drawTraceHeadJoint         = -1;
     jonesFixedTick_drawTraceHandJoint         = -1;
     jonesFixedTick_drawTraceFootJoint         = -1;
@@ -1616,6 +1916,7 @@ void JonesFixedTick_CloseDrawTrace(void)
     jonesFixedTick_bDrawTraceHaveTickJoints = false;
 
     jonesFixedTick_drawTraceCount           = 0;
+    jonesFixedTick_drawTraceRootJoint       = -1;
     jonesFixedTick_drawTraceHeadJoint       = -1;
     jonesFixedTick_drawTraceHandJoint       = -1;
     jonesFixedTick_drawTraceFootJoint       = -1;
@@ -1691,6 +1992,7 @@ static void JonesFixedTick_ResolveDrawTraceJoints(const SithThing* pPlayer)
     }
 
     const rdModel3* pModel3 = pPlayer->renderData.data.pModel3;
+    jonesFixedTick_drawTraceRootJoint = (pModel3 && pModel3->numHNodes) ? 0 : -1;
     jonesFixedTick_drawTraceHeadJoint = JonesFixedTick_FindJointByName(pModel3, aHeadTokens, STD_ARRAYLEN(aHeadTokens));
     jonesFixedTick_drawTraceHandJoint = JonesFixedTick_FindJointByName(pModel3, aHandTokens, STD_ARRAYLEN(aHandTokens));
     jonesFixedTick_drawTraceFootJoint = JonesFixedTick_FindJointByName(pModel3, aFootTokens, STD_ARRAYLEN(aFootTokens));
@@ -1772,10 +2074,21 @@ void JonesFixedTick_TraceDraw(void)
         (double)sithCamera_g_camLookSpot.x, (double)sithCamera_g_camLookSpot.y,
         (double)sithCamera_g_camLookSpot.z);
 
+    // Added: the stamp and current rdCache frame show whether the scene draw rebuilt the player's
+    // joints this frame (rdFrameNum != current frame) or kept the stored ones.
+    if ( pPlayer )
+    {
+        fprintf(pFile, " rdframe %d cache %zu skip %d",
+            pPlayer->renderData.rdFrameNum, rdCache_GetFrameNum(),
+            pPlayer->renderData.bSkipBuildingJoints);
+    }
+
+    JonesFixedTick_TraceJoint(pFile, "root", jonesFixedTick_drawTraceRootJoint, pPlayer);
     JonesFixedTick_TraceJoint(pFile, "head", jonesFixedTick_drawTraceHeadJoint, pPlayer);
     JonesFixedTick_TraceJoint(pFile, "hand", jonesFixedTick_drawTraceHandJoint, pPlayer);
     JonesFixedTick_TraceJoint(pFile, "foot", jonesFixedTick_drawTraceFootJoint, pPlayer);
 
+    JonesFixedTick_TraceTickJoint(pFile, "root", jonesFixedTick_drawTraceRootJoint);
     JonesFixedTick_TraceTickJoint(pFile, "head", jonesFixedTick_drawTraceHeadJoint);
     JonesFixedTick_TraceTickJoint(pFile, "hand", jonesFixedTick_drawTraceHandJoint);
     JonesFixedTick_TraceTickJoint(pFile, "foot", jonesFixedTick_drawTraceFootJoint);
@@ -1834,6 +2147,16 @@ void JonesFixedTick_ResetGlobals(void)
         STDFREE(jonesFixedTick_pCurSectors);
     }
 
+    if ( jonesFixedTick_pSavedJoints )
+    {
+        STDFREE(jonesFixedTick_pSavedJoints);
+    }
+
+    if ( jonesFixedTick_pSavedJointPool )
+    {
+        STDFREE(jonesFixedTick_pSavedJointPool);
+    }
+
     jonesFixedTick_rateHz        = 0;
     jonesFixedTick_stepMsec      = 0;
     jonesFixedTick_bEnabled      = false;
@@ -1846,6 +2169,14 @@ void JonesFixedTick_ResetGlobals(void)
     jonesFixedTick_prevNumThings = 0;
     jonesFixedTick_curNumThings  = 0;
     jonesFixedTick_bDrawing      = false;
+
+    jonesFixedTick_pSavedJoints              = NULL;
+    jonesFixedTick_savedJointsCapacity       = 0;
+    jonesFixedTick_numSavedJoints            = 0;
+    jonesFixedTick_pSavedJointPool           = NULL;
+    jonesFixedTick_savedJointPoolCapacity    = 0;
+    jonesFixedTick_savedJointPoolUsed        = 0;
+    jonesFixedTick_bPoseCrossfadeBuilt       = false;
 
     jonesFixedTick_pPrevSurfaces   = NULL;
     jonesFixedTick_pCurSurfaces    = NULL;
@@ -1878,6 +2209,7 @@ void JonesFixedTick_ResetGlobals(void)
 
     // Added: a global reset starts a fresh trace sequence but keeps the file the runner opened.
     jonesFixedTick_drawTraceCount           = 0;
+    jonesFixedTick_drawTraceRootJoint       = -1;
     jonesFixedTick_drawTraceHeadJoint       = -1;
     jonesFixedTick_drawTraceHandJoint       = -1;
     jonesFixedTick_drawTraceFootJoint       = -1;

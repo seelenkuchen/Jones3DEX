@@ -4,21 +4,37 @@
 #include <string.h>
 
 #include <Jones3D/Main/JonesFixedTick.h>
+#include <rdroid/Engine/rdPuppet.h>
+#include <rdroid/Raster/rdCache.h>
 #include <sith/Engine/sithCamera.h>
 #include <sith/Gameplay/sithTime.h>
+#include <sith/World/sithWorld.h>
+
+#include <std/General/std.h>
+#include <std/General/stdPlatform.h>
 
 TEST_GROUP(JonesFixedTick);
+
+// Added: the draw tests build a world snapshot, which allocates through the engine allocator.
+static tHostServices jonesFixedTickTest_hostServices;
 
 TEST_SETUP(JonesFixedTick)
 {
     JonesFixedTick_SetRateOverride(-1);
     JonesFixedTick_ResetGlobals();
+
+    memset(&jonesFixedTickTest_hostServices, 0, sizeof(jonesFixedTickTest_hostServices));
+    stdPlatform_InitServices(&jonesFixedTickTest_hostServices);
+    stdStartup(&jonesFixedTickTest_hostServices);
 }
 
 TEST_TEAR_DOWN(JonesFixedTick)
 {
     JonesFixedTick_SetRateOverride(-1);
     JonesFixedTick_ResetGlobals();
+
+    stdShutdown();
+    std_g_pHS = NULL;
 }
 
 static rdMatrix34 JonesFixedTickTest_Identity(void)
@@ -762,6 +778,195 @@ TEST(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended)
     TEST_ASSERT_EQUAL_FLOAT(14.0f, particle.radius);
 }
 
+// Added: the simulation builds a path/force-move thing's joints with the placement at the origin
+// and then shifts them so the root joint sits on the thing position, consuming the animation's
+// root motion. Mirror that here.
+static void JonesFixedTickTest_BuildSkippedJoints(SithThing* pThing, rdMatrix34* pJoints,
+    size_t numJoints, float tickPosX)
+{
+    pThing->pos.x = tickPosX;
+
+    rdMatrix34 placement = pThing->orient;
+    placement.dvec       = rdroid_g_zeroVector3;
+    pThing->renderData.bSkipBuildingJoints = 0;
+    rdPuppet_BuildJointMatrices(&pThing->renderData, &placement);
+    pThing->renderData.bSkipBuildingJoints = 1;
+
+    rdVector3 shift;
+    rdVector_Sub3(&shift, &pThing->pos, &pJoints[0].dvec);
+    for ( size_t jointNum = 0; jointNum < numJoints; ++jointNum )
+    {
+        rdVector_Add3Acc(&pJoints[jointNum].dvec, &shift);
+    }
+}
+
+TEST(JonesFixedTick, DrawRebuildsJointsBuiltAtTheTickPlacement)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // A tick that builds a thing's joints stamps the cache frame it saw. The drawn frame must still
+    // rebuild them from the interpolated placement, not draw the tick pose while everything else
+    // moves; EndDraw must then give the tick's matrices and stamp back to the simulation.
+    rdModel3     model;
+    rdModel3HNode node;
+    rdMatrix34   joints[1];
+    SithWorld    world;
+    SithThing    thing;
+    memset(&model, 0, sizeof(model));
+    memset(&node, 0, sizeof(node));
+    memset(&joints, 0, sizeof(joints));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+
+    model.numHNodes          = 1;
+    model.aHierarchyNodes    = &node;
+    node.num                 = 0;
+    node.meshIdx             = -1;
+    node.meshOrient          = JonesFixedTickTest_Identity();
+    joints[0]                = JonesFixedTickTest_Identity();
+
+    thing.type                            = SITH_THING_ACTOR;
+    thing.signature                       = 3;
+    thing.pos                             = (rdVector3){ 0.0f, 0.0f, 0.0f };
+    thing.orient                          = JonesFixedTickTest_Identity();
+    thing.renderData.type                 = RD_THING_MODEL3;
+    thing.renderData.data.pModel3         = &model;
+    thing.renderData.paJointMatrices      = joints;
+    thing.renderData.bSkipBuildingJoints  = 0;
+
+    world.aThings  = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+    JonesFixedTick_SetDrawAlpha(0.5f);
+
+    JonesFixedTick_BeforeTick();
+
+    // The tick moves the thing and builds its joints at the tick placement in this cache frame.
+    thing.pos.x = 2.0f;
+    rdMatrix34 placement = thing.orient;
+    placement.dvec       = thing.pos;
+    thing.renderData.bSkipBuildingJoints = 0;
+    rdPuppet_BuildJointMatrices(&thing.renderData, &placement);
+    const int tickFrameNum = (int)rdCache_GetFrameNum();
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[0].dvec.x);
+
+    JonesFixedTick_AfterTick();
+
+    JonesFixedTick_BeginDraw();
+    TEST_ASSERT_TRUE(thing.renderData.rdFrameNum != (int)rdCache_GetFrameNum());
+
+    const rdMatrix34 drawPlacement = thing.orient;
+    rdMatrix34 placed = drawPlacement;
+    placed.dvec = thing.pos;
+    rdPuppet_BuildJointMatrices(&thing.renderData, &placed);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.x);
+
+    JonesFixedTick_EndDraw();
+
+    // The simulation sees exactly what the tick left.
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[0].dvec.x);
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+    TEST_ASSERT_EQUAL_INT(0, thing.renderData.bSkipBuildingJoints);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
+TEST(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlacement)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // A path/force-move tick builds the joints at the origin and shifts the root onto the thing
+    // position, then leaves bSkipBuildingJoints set. Clearing the flag and rebuilding would add the
+    // root animation offset again. The stored pose must move from the tick placement to the
+    // interpolated one, keep the skip flag during the draw, and be restored exactly afterwards.
+    rdModel3     model;
+    rdModel3HNode node;
+    rdMatrix34   joints[1];
+    SithWorld    world;
+    SithThing    thing;
+    memset(&model, 0, sizeof(model));
+    memset(&node, 0, sizeof(node));
+    memset(&joints, 0, sizeof(joints));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+
+    // A root node with a 5-unit animation offset, as a force-move root translation would be.
+    node.meshOrient           = JonesFixedTickTest_Identity();
+    node.meshOrient.dvec.y    = 5.0f;
+    model.numHNodes           = 1;
+    model.aHierarchyNodes     = &node;
+    node.num                  = 0;
+    node.meshIdx              = -1;
+    joints[0]                 = JonesFixedTickTest_Identity();
+
+    thing.type                            = SITH_THING_ACTOR;
+    thing.signature                       = 4;
+    thing.pos                             = (rdVector3){ 0.0f, 0.0f, 0.0f };
+    thing.orient                          = JonesFixedTickTest_Identity();
+    thing.renderData.type                 = RD_THING_MODEL3;
+    thing.renderData.data.pModel3         = &model;
+    thing.renderData.paJointMatrices      = joints;
+    thing.renderData.bSkipBuildingJoints  = 0;
+
+    world.aThings   = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+    JonesFixedTick_SetDrawAlpha(0.5f);
+
+    JonesFixedTick_BeforeTick();
+
+    JonesFixedTickTest_BuildSkippedJoints(&thing, joints, STD_ARRAYLEN(joints), 2.0f);
+    const int tickFrameNum = (int)rdCache_GetFrameNum();
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, joints[0].dvec.y);
+
+    JonesFixedTick_AfterTick();
+
+    JonesFixedTick_BeginDraw();
+
+    // The draw keeps the stored pose but moves the root to the interpolated position (2 -> 1),
+    // without adding the 5-unit root animation offset again.
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, joints[0].dvec.y);
+    TEST_ASSERT_EQUAL_INT(1, thing.renderData.bSkipBuildingJoints);
+
+    // The scene draw's joint build is a no-op for a skipped model, so the pose stays as transformed.
+    rdMatrix34 placed = thing.orient;
+    placed.dvec = thing.pos;
+    rdPuppet_BuildJointMatrices(&thing.renderData, &placed);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, joints[0].dvec.y);
+
+    JonesFixedTick_EndDraw();
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, joints[0].dvec.y);
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+    TEST_ASSERT_EQUAL_INT(1, thing.renderData.bSkipBuildingJoints);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
@@ -793,4 +998,6 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, SectorLightBlendsAndRestores);
     RUN_TEST_CASE(JonesFixedTick, ParticleSizeBlendsAndRestores);
     RUN_TEST_CASE(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended);
+    RUN_TEST_CASE(JonesFixedTick, DrawRebuildsJointsBuiltAtTheTickPlacement);
+    RUN_TEST_CASE(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlacement);
 }

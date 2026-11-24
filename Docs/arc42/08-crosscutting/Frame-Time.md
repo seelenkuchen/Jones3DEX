@@ -552,9 +552,10 @@ still open.
 The owner still saw jitter in jump and fall animation on a fixed tick. A dev-only headless trace measured it:
 `--draw-trace <file>` writes one line per drawn frame after the scene draw, while the interpolated values are
 still in place. A line carries the tick count, alpha, the player position and left vector, the camera position,
-`lookPos`, and the `sithCamera_g_camSpot`/`camLookSpot` globals, the world positions of Indy's head, left hand
-and left shoe (`inhead`, `inlhand`, `inlshoe` in `gen_in_shirt.3do`, nodes 8, 12 and 25, found by name so the
-other costumes work), and every active puppet track's keyframe name, frame and blend weight. The option is
+`lookPos`, and the `sithCamera_g_camSpot`/`camLookSpot` globals, the world positions of Indy's root node (0),
+head, left hand and left shoe (`inhead`, `inlhand`, `inlshoe` in `gen_in_shirt.3do`, nodes 8, 12 and 25, found
+by name so the other costumes work), the player model's joint frame stamp with the current `rdCache` frame and
+skip flag, and every active puppet track's keyframe name, frame and blend weight. The option is
 compiled into every build and is inert unless the file is opened; it works with the fixed tick on or off.
 Trace, `--input` and analysis scripts are run artifacts, not part of the repository.
 
@@ -631,3 +632,37 @@ therefore behaved differently at 33 ms frames than at 8 ms frames. When a fixed-
 and no explicit `--draw-step`, the runner now clamps the implicit draw step to the tick step, so every tick
 samples the script at its own frame and the state files match across draw steps. An explicit `--draw-step`
 still wins, and runs without an input script keep the old default.
+
+## M9.24c drawn joints rebuilt from the interpolated placement
+
+The owner saw Indy drawn briefly at another place during jumps and upward moves with the fixed tick on.
+`rdModel3` keeps a thing's world-space joint matrices and rebuilds them only when
+`rdThing.rdFrameNum != rdCache_GetFrameNum()` (`rdModel3.c`). The simulation also builds them at the tick
+placement for path movement and force moves (`sithPuppet_UpdatePuppet`, `sithPuppet_FinishForceMove`), and a
+path/force-move tick leaves `bSkipBuildingJoints` set. A drawn frame between two ticks then either reused a
+stamp the tick had written or, with the skip flag, never rebuilt at all: the mesh stayed at the tick pose while
+the camera and every other thing were interpolated.
+
+The dev-only `--draw-trace` hook had hidden this. It built the tick endpoint skeletons for the trace and then
+set `pPlayer->renderData.rdFrameNum = -1` to force the scene draw to rebuild, so every trace run drew at the
+interpolated placement regardless of what a run without the trace did. The hook now saves the model's joint
+matrices and stamp around its own builds and puts both back, so the trace leaves the drawn state exactly as it
+was and the analyser compares the real scene draw with the alpha blend of the two tick skeletons.
+
+`JonesFixedTick_BeginDraw` now keeps, for every active model thing, the joint matrices, `rdFrameNum` and
+`bSkipBuildingJoints` the tick left. After the pose blend, unless a whole-pose crossfade already built the
+interpolated skeleton for this draw (the crossfade reports it explicitly; the stamp alone cannot tell, because
+a tick build in the same cache frame matches it too), a normal model thing's stamp is invalidated so the scene
+draw rebuilds its joints from the interpolated placement and the sampled pose. A thing with
+`bSkipBuildingJoints` set is different: the path/force-move build placed the joints at the origin and then
+shifted the root joint onto the thing position, consuming the animation's root motion, so clearing the flag
+and rebuilding with the thing position as the placement would add that root offset again and draw Indy
+displaced by it. Its skip flag stays set for the draw and the stored world matrices are moved from the tick
+placement to the drawn one instead: rotated about the tick root by `R_draw * inverse(R_tick)` and translated
+so the root lands on the interpolated position. `JonesFixedTick_EndDraw` puts the matrices, stamp and flag back
+unchanged, because the next tick may read them (path movement, attached meshes, the internal camera and weapon
+fire all do). Unit tests build a thing's joints at the tick placement in the draw's cache frame, and a
+force-move-style variant with a root animation offset, then check the drawn rebuild and the moved skipped pose;
+they fail with the old clear-skip handling. The jump/fall harness used for the earlier pose work does not hit
+the path/force-move skip path in the recorded save, so it reports no displaced sample joints with or without
+this change; the climb/pull-up moves are the case to replay on a real display.
