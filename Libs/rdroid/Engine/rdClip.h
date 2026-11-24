@@ -62,6 +62,13 @@ int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* 
 // interpolated. An entry without lit arrays gets only what rdClip_FaceToPlane writes.
 int J3DAPI rdClip_FaceToPlaneLit(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal);
 
+// Added: M10.2. rdClip_FaceToPlaneLit, except that aLightColors is not added to aVertColors: each
+// output aVertIntensities is aVertColors[i] itself, without the 0..1 clamp. When aVertColors is
+// NULL it behaves exactly as rdClip_FaceToPlaneLit. Used for world GOURAUD in per-pixel mode, whose
+// dynamic lights the lit fragment shader adds; everything else, including the view-space vectors,
+// is unchanged.
+int J3DAPI rdClip_FaceToPlaneLitBaked(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal);
+
 // Function transforms vertices to screen space and assigns them to out pProcFace 
 // aVerts here should be transformed to camera space.
 void J3DAPI rdClip_VerticesToPlane(rdCacheProcEntry* pProcFace, const rdVector3* aVerts, const rdVector2* aTexVerts, size_t numVerts);

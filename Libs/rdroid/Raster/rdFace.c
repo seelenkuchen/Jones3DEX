@@ -109,7 +109,7 @@ bool rdFace_CalcSmoothNormals(const rdFace* const* apFaces, const bool* abExclud
     for ( size_t faceNum = 0; faceNum < numFaces; ++faceNum )
     {
         const rdFace* pFace = apFaces[faceNum];
-        if ( !pFace )
+        if ( !pFace || (pFace->numVertices > 0 && !pFace->aVertices) )
         {
             return false;
         }

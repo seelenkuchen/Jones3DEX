@@ -1,4 +1,11 @@
-## Jones3D EX (unreleased)
+## Jones3D EX 0.6.0-alpha
+### M10: Lighting
+  - **Options > Display** has a **Lighting** row (`engine.renderer.perPixelLighting`: Classic or Per-pixel;
+    Per-pixel by default in Enhanced, Classic forced in the Retail profile). Per-pixel evaluates the camera's dynamic lights per pixel
+    with N·L and the original radius ramp in the lit shader, and the CPU leaves those lights out of the lit vertex
+    colour so nothing counts twice: world GOURAUD keeps its baked static light, model GOURAUD and DIFFUSE keep the
+    per-draw sector light. It needs lit faces; with them off it behaves as Classic. Classic, sprites, particles,
+    polylines, the sky and the HUD are unchanged, and headless traces are identical either way (ADR-0040).
 ### M9: Presentation
 #### Gameplay
   - **Quick whip** on the Modern gamepad's LB now works wherever the whip can be used and is instant: the
@@ -7,6 +14,9 @@
     target it still swings or climbs and switches back, and the keyboard whip-select key still quick-whips
     only at a target before selecting the whip. Normal weapon selection and changes keep their animations,
     and the prompt is unchanged (ADR-0038).
+  - **Fixed:** after loading a saved game, putting the whip or a gun away left Indy without the holstered
+    model (the whip vanished from his hip after a quick whip). The savegame lost the holster models because
+    their static-data index was read back sign-extended.
 #### Image quality
   - **Options > Display** has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
     50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample
@@ -164,6 +174,7 @@
     Physics still integrates in 20 ms substeps, so a 50 Hz simulation tick matches it and removes the airborne
     one-frame stall that 60 Hz produces.
 
+## Jones3D EX 0.5.0-alpha
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
     `Jones3D --version` print it.

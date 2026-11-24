@@ -79,6 +79,7 @@ typedef struct sJonesFixedTickThingState
     rdMatrix34                  orient;
     const rdModel3*             pModel3; // Added: a model swap between ticks cannot be pose-blended
     JonesFixedTickPuppetState   puppet;
+    bool                        bSkipBuildingJoints; // Added: the tick's joints carry consumed root motion
     bool                        bParticle;
     float                       particleRadius;
     rdVector4                   lightColor;

@@ -1244,16 +1244,17 @@ struct Ui::State
         setFocus(state, next);
     }
 
-    void moveSelection(ScreenState& state, int direction)
+    // Moves a focused list's selection one row; false when there is no row in that direction.
+    bool moveSelection(ScreenState& state, int direction)
     {
         if ( state.focus == kNoWidget )
         {
-            return;
+            return false;
         }
         List* list = get<List>(state.screen.widgets[state.focus]);
         if ( list == nullptr || list->items.empty() )
         {
-            return;
+            return false;
         }
         const long current = static_cast<long>(std::min(list->selected,
             list->items.size() - 1));
@@ -1270,19 +1271,25 @@ struct Ui::State
             {
                 events.emplace_back(SoundCue{ skin.focusSound });
             }
+            return true;
         }
+        return false;
     }
 
+    // Up and down move a focused list's selection; past its first or last row they leave the list
+    // like any other widget, so a pad without Tab reaches the widgets above and below it.
     void navigateVertical(ScreenState& state, int direction)
     {
         if ( state.focus != kNoWidget
-            && get<List>(state.screen.widgets[state.focus]) != nullptr )
+            && get<List>(state.screen.widgets[state.focus]) != nullptr
+            && moveSelection(state, direction) )
         {
-            moveSelection(state, direction);
+            return;
         }
-        else
+        const std::size_t next = nextFocusable(state, state.focus, direction);
+        if ( next != state.focus )
         {
-            moveFocus(state, direction);
+            setFocus(state, next);
         }
     }
 
@@ -2583,12 +2590,6 @@ struct Ui::State
         textRect.width = std::max(0.0f, textRect.width - row.textInset);
         const Color color = disabled ? skin.textDisabled
             : (focused ? skin.textFocused : skin.text);
-        if ( focused && !skin.focusMarker.empty() )
-        {
-            drawRowText(skin.textFont, skin.focusMarker,
-                Rect{ rect.x, rect.y, row.markerWidth, skin.rowHeight },
-                TextAlign::Left, skin.textFocused);
-        }
         float y = rect.y;
         if ( !list.text.empty() )
         {
@@ -2602,6 +2603,22 @@ struct Ui::State
             [](const ListItem& item) { return item.image != 0; });
         const std::size_t visible = std::min(kListVisibleRows,
             list.items.size() - std::min(offset, list.items.size()));
+
+        // A focused list marks its selected row with the focus marker; the other rows keep the
+        // normal text colour, so a skin without a highlight fill still shows the selection.
+        if ( focused && !skin.focusMarker.empty() )
+        {
+            float markerY = rect.y;
+            if ( list.selected >= offset && list.selected < offset + visible )
+            {
+                markerY = y + static_cast<float>(list.selected - offset) * skin.rowHeight;
+            }
+            drawRowText(skin.textFont, skin.focusMarker,
+                Rect{ rect.x, markerY, row.markerWidth, skin.rowHeight },
+                TextAlign::Left, skin.textFocused);
+        }
+
+        const Color& itemColor = disabled ? skin.textDisabled : skin.text;
         for ( std::size_t i = 0; i < visible; ++i )
         {
             const std::size_t itemIndex = offset + i;
@@ -2628,7 +2645,7 @@ struct Ui::State
             drawRowText(skin.textFont, item.text,
                 Rect{ textX, itemRect.y, std::max(0.0f, textWidth), itemRect.height },
                 TextAlign::Left,
-                itemIndex == list.selected ? skin.textFocused : color);
+                itemIndex == list.selected && !disabled ? skin.textFocused : itemColor);
         }
     }
 

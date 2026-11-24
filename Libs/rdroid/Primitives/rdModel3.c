@@ -62,6 +62,12 @@ static size_t numMeshLights = 0;
 static rdLight* apMeshLights[RDCAMERA_MAX_LIGHTS] = { 0 };
 rdVector3 aLocalLightPos[RDCAMERA_MAX_LIGHTS]     = { 0 };
 
+// Added: M10.2. During sithRender's model draws the camera list ends with the sector's point
+// light, which is not in the uploaded std3D_SetLights list. In per-pixel mode the CPU keeps only
+// that light's contribution in the model's base colour and the shader adds the uploaded ones;
+// -1 means no sector light was added, and the CPU lights the mesh the classic way.
+static int sectorLightNum = -1;
+
 static rdFaceFlags extraFaceFlags = 0;
 static rdFaceFlags drawFaceFlags = 0;
 
@@ -72,6 +78,13 @@ void rdModel3_ResetGlobals(void)
 {
     STD_ZEROMEM(&rdModel3_g_numDrawnFaces, sizeof(rdModel3_g_numDrawnFaces));
     STD_ZEROMEM(&rdModel3_g_numDrawnAlphaFaces, sizeof(rdModel3_g_numDrawnAlphaFaces));
+    sectorLightNum = -1;
+}
+
+void J3DAPI rdModel3_SetSectorLightNum(int num)
+{
+    // Added: the camera list index of the sector light sithRender added for this model draw.
+    sectorLightNum = num;
 }
 
 rdModel3LoaderFunc J3DAPI rdModel3_RegisterLoader(rdModel3LoaderFunc pfFunc)
@@ -1843,6 +1856,36 @@ void J3DAPI rdModel3_DrawMesh(const rdModel3Mesh* pMesh, const rdMatrix34* orien
                 pCurMesh->numVertices
             );
 
+            // Added: M10.2. Per-pixel drops the camera-list lights from the base colour, which the
+            // lit shader adds instead; the sector light is not in the uploaded list, so its term
+            // stays here, as it does in Classic. A model drawn without a sector light keeps no
+            // camera light (the shader adds the uploaded list), so nothing counts twice.
+            if ( rdGetPerPixelLighting() )
+            {
+                if ( sectorLightNum >= 0
+                    && (size_t)sectorLightNum < rdCamera_g_pCurCamera->numLights )
+                {
+                    const rdLight* pSectorLight = rdCamera_g_pCurCamera->aLights[sectorLightNum];
+                    rdLight_CalcVertexIntensities(
+                        &pSectorLight,
+                        &aLocalLightPos[sectorLightNum],
+                        1u,
+                        pCurMesh->aVertNormals,
+                        pCurMesh->apVertices,
+                        pCurMesh->aVertColors,
+                        pCurMesh->aLightIntensities,
+                        pCurMesh->numVertices
+                    );
+                }
+                else
+                {
+                    for ( size_t i = 0; i < pCurMesh->numVertices; ++i )
+                    {
+                        pCurMesh->aLightIntensities[i] = pCurMesh->aVertColors[i];
+                    }
+                }
+            }
+
             if ( bDrawMeshBounds )
             {
                 // Draw mesh bounds
@@ -1955,10 +1998,30 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
         }
 
         rdVector4 faceIntensity = { 0 };
+        // Added: M10.2. Per-pixel keeps only the sector light in the base face colour; the lit
+        // shader adds the camera-list lights with the face normal. Classic keeps every camera light.
+        const rdLight** apFaceLights = rdCamera_g_pCurCamera->aLights;
+        const rdVector3* apFaceLightPos = aLocalLightPos;
+        size_t numFaceLights = rdCamera_g_pCurCamera->numLights;
+        if ( rdGetPerPixelLighting() )
+        {
+            if ( sectorLightNum >= 0
+                && (size_t)sectorLightNum < rdCamera_g_pCurCamera->numLights )
+            {
+                apFaceLights    = &rdCamera_g_pCurCamera->aLights[sectorLightNum];
+                apFaceLightPos  = &aLocalLightPos[sectorLightNum];
+                numFaceLights   = 1u;
+            }
+            else
+            {
+                numFaceLights = 0u; // the shader adds the uploaded camera list
+            }
+        }
+
         rdLight_CalcFaceIntensity(
-            rdCamera_g_pCurCamera->aLights, // TODO: use apMeshLights
-            aLocalLightPos,
-            rdCamera_g_pCurCamera->numLights, // TODO: use numMeshLights
+            apFaceLights,
+            apFaceLightPos,
+            numFaceLights,
             pFace,
             &faceNormal,
             pCurMesh->apVertices,

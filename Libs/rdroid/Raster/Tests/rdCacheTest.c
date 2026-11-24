@@ -529,6 +529,7 @@ static rdCamera* rdCacheTest_pSavedCamera;
 static rdMatrix34 rdCacheTest_savedCamMatrix;
 static rdRoidFlags rdCacheTest_savedRenderOptions;
 static bool rdCacheTest_bSavedLitFaces;
+static bool rdCacheTest_bSavedPerPixelLighting;
 
 static void rdCacheTest_SetupModelCamera(void)
 {
@@ -564,6 +565,7 @@ static void rdCacheTest_SetupModelCamera(void)
     rdCacheTest_savedCamMatrix     = rdCamera_g_camMatrix;
     rdCacheTest_savedRenderOptions = rdroid_g_curRenderOptions;
     rdCacheTest_bSavedLitFaces     = rdGetLitFaces();
+    rdCacheTest_bSavedPerPixelLighting = rdGetPerPixelLighting();
     rdCamera_g_pCurCamera          = &rdCacheTest_camera;
     rdCacheTest_bModelCamera       = true;
 
@@ -585,6 +587,7 @@ static void rdCacheTest_RestoreModelCamera(void)
     rdCamera_g_camMatrix      = rdCacheTest_savedCamMatrix;
     rdroid_g_curRenderOptions = rdCacheTest_savedRenderOptions;
     rdSetLitFaces(rdCacheTest_bSavedLitFaces);
+    rdSetPerPixelLighting(rdCacheTest_bSavedPerPixelLighting);
 }
 
 // Draws the one-face mesh (vertices v0, v1, v2) with lit faces on or off and reads its draws.
@@ -748,6 +751,59 @@ TEST(rdCache, ModelFacesStayClassicWithLitFacesOff)
     }
 
     TEST_ASSERT_FALSE(rdGetLitFaces());
+}
+
+TEST(rdCache, PerPixelModelFacesFlagTheShaderAndClassicStaysZero)
+{
+    // M10.2: only per-pixel mode writes the shader's per-vertex light flag, into the otherwise
+    // unused specular blue byte. GOURAUD and DIFFUSE faces ask for lights; LIT faces do not.
+    rdCacheTest_SetupModelCamera();
+    rdSetPerPixelLighting(true);
+
+    const int aVerts[3]        = { 0, 1, 2 };
+    const rdVector3 faceNormal = { 0.0f, -1.0f, 0.0f };
+
+    // The classic vertex bytes are the same with per-pixel on and off.
+    rdSetPerPixelLighting(false);
+    rdCacheTest_DrawModelFace(false, aVerts, RD_LIGHTING_GOURAUD, 0, &faceNormal);
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAW, rdCacheTest_aDraws[0].id);
+    uint32_t aClassicSpecular[3];
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        aClassicSpecular[i] = rdCacheTest_aDraws[0].aVerts[i].tl.specular;
+    }
+
+    rdSetPerPixelLighting(true);
+    rdCacheTest_DrawModelFace(true, aVerts, RD_LIGHTING_GOURAUD, 0, &faceNormal);
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAWLIT, rdCacheTest_aDraws[0].id);
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, rdCacheTest_aDraws[0].aVerts[i].tl.specular);
+    }
+
+    rdCacheTest_DrawModelFace(true, aVerts, RD_LIGHTING_DIFFUSE, 0, &faceNormal);
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAWLIT, rdCacheTest_aDraws[0].id);
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, rdCacheTest_aDraws[0].aVerts[i].tl.specular);
+    }
+
+    rdCacheTest_DrawModelFace(true, aVerts, RD_LIGHTING_LIT, 0, &faceNormal);
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAWLIT, rdCacheTest_aDraws[0].id);
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        TEST_ASSERT_EQUAL_UINT32(0u, rdCacheTest_aDraws[0].aVerts[i].tl.specular);
+    }
+
+    // Classic draws keep the vertex they were given, whatever per-pixel mode is doing.
+    rdCacheTest_DrawModelFace(false, aVerts, RD_LIGHTING_GOURAUD, 0, &faceNormal);
+    TEST_ASSERT_EQUAL_UINT16(RDCACHETEST_ID_DRAW, rdCacheTest_aDraws[0].id);
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        TEST_ASSERT_EQUAL_UINT32(aClassicSpecular[i], rdCacheTest_aDraws[0].aVerts[i].tl.specular);
+    }
+
+    rdSetPerPixelLighting(false);
 }
 
 // Added: upstream's face batching and alpha depth tests. Each face encodes its number in the first
@@ -1048,6 +1104,7 @@ TEST_GROUP_RUNNER(rdCache)
     RUN_TEST_CASE(rdCache, BackFacesOfModelsCarryNegatedNormals);
     RUN_TEST_CASE(rdCache, TranslucentModelFacesAreDrawnLitFromTheAlphaList);
     RUN_TEST_CASE(rdCache, ModelFacesStayClassicWithLitFacesOff);
+    RUN_TEST_CASE(rdCache, PerPixelModelFacesFlagTheShaderAndClassicStaysZero);
     RUN_TEST_CASE(rdCache, DistanceComparatorHandlesEqualDepthsAndSignedZero);
     RUN_TEST_CASE(rdCache, DistanceComparatorProvidesConsistentOrdering);
     RUN_TEST_CASE(rdCache, MaximumSizeFacesSplitBeforeIndexWrap);

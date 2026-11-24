@@ -126,5 +126,14 @@ int sithRender_MakeScreenShot(void);
 
 void sithRender_ResetGlobals(void);
 
+#ifdef J3D_TEST
+// Added: M10.4 seams. Build and free the renderer-side smoothed surface normals of
+// sithWorld_g_pCurrentWorld, and apply the per-pixel corner normals to a clipped surface entry.
+// Classic (rdGetPerPixelLighting() false) applies nothing, so the entry keeps its face normals.
+void sithRender_BuildSmoothNormalsForTest(void);
+void sithRender_FreeSmoothNormalsForTest(void);
+void sithRender_ApplySmoothNormalsForTest(rdCacheProcEntry* pPoly, const SithWorld* pWorld, const SithSurface* pSurf, const rdMatrix34* pView);
+#endif
+
 J3D_EXTERN_C_END
 #endif // SITH_SITHRENDER_H

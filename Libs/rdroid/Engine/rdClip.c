@@ -3956,7 +3956,7 @@ void J3DAPI rdClip_QClipFaceW(const rdClipFrustum* pFrustrum, const rdPrimit3* p
     }
 }
 
-int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors)
+static int rdClip_FaceToPlaneEx(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, bool bAddDynamicLights)
 {
     // Clip and transform face vertices to screen space then assigns pProcFace
 
@@ -4000,8 +4000,16 @@ int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* 
                 pOutVert->tv = aTexVerts[pFace->aTexVertices[i]].y + pFace->texVertOffset.y;
 
                 int vertIdx = pFace->aVertices[i];
-                rdVector_Add4(&pProcFace->aVertIntensities[i], &aLightColors[vertIdx], &aVertColors[i]);
-                rdMath_ClampVector4Acc(&pProcFace->aVertIntensities[i], 0.0f, 1.0f);
+                if ( bAddDynamicLights )
+                {
+                    rdVector_Add4(&pProcFace->aVertIntensities[i], &aLightColors[vertIdx], &aVertColors[i]);
+                    rdMath_ClampVector4Acc(&pProcFace->aVertIntensities[i], 0.0f, 1.0f);
+                }
+                else
+                {
+                    // Added: M10.2. Per-pixel keeps only the baked term; the shader adds the lights.
+                    pProcFace->aVertIntensities[i] = aVertColors[i];
+                }
             }
         }
         else
@@ -4047,14 +4055,13 @@ int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* 
     return 1;
 }
 
-int J3DAPI rdClip_FaceToPlaneLit(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal)
+int J3DAPI rdClip_FaceToPlane(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors)
 {
-    // Added
-    if ( !rdClip_FaceToPlane(pFrustrum, pProcFace, pFace, aVerts, aTexVerts, aLightColors, aVertColors) )
-    {
-        return 0;
-    }
+    return rdClip_FaceToPlaneEx(pFrustrum, pProcFace, pFace, aVerts, aTexVerts, aLightColors, aVertColors, true);
+}
 
+static int rdClip_FillViewVectors(rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector3* aVertNormals, const rdVector3* pFaceNormal)
+{
     if ( !pProcFace->aViewVertices || !pProcFace->aViewNormals )
     {
         return 1;
@@ -4079,6 +4086,29 @@ int J3DAPI rdClip_FaceToPlaneLit(const rdClipFrustum* pFrustrum, rdCacheProcEntr
     }
 
     return 1;
+}
+
+int J3DAPI rdClip_FaceToPlaneLit(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal)
+{
+    // Added
+    if ( !rdClip_FaceToPlaneEx(pFrustrum, pProcFace, pFace, aVerts, aTexVerts, aLightColors, aVertColors, true) )
+    {
+        return 0;
+    }
+
+    return rdClip_FillViewVectors(pProcFace, pFace, aVerts, aVertNormals, pFaceNormal);
+}
+
+int J3DAPI rdClip_FaceToPlaneLitBaked(const rdClipFrustum* pFrustrum, rdCacheProcEntry* pProcFace, const rdFace* pFace, const rdVector3* aVerts, const rdVector2* aTexVerts, const rdVector4* aLightColors, const rdVector4* aVertColors, const rdVector3* aVertNormals, const rdVector3* pFaceNormal)
+{
+    // Added: M10.2, rdClip_FaceToPlaneLit without aLightColors added to aVertColors. World GOURAUD
+    // keeps its baked vertex light in per-pixel mode; the lit shader adds the dynamic lights.
+    if ( !rdClip_FaceToPlaneEx(pFrustrum, pProcFace, pFace, aVerts, aTexVerts, aLightColors, aVertColors, false) )
+    {
+        return 0;
+    }
+
+    return rdClip_FillViewVectors(pProcFace, pFace, aVerts, aVertNormals, pFaceNormal);
 }
 
 void J3DAPI rdClip_VerticesToPlane(rdCacheProcEntry* pProcFace, const rdVector3* aVerts, const rdVector2* aTexVerts, size_t numVerts)

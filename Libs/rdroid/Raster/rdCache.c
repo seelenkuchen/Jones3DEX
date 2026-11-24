@@ -404,6 +404,17 @@ LABEL_4:
                     pLitVert->nx = pCurPoly->aViewNormals[i].x;
                     pLitVert->ny = pCurPoly->aViewNormals[i].y;
                     pLitVert->nz = pCurPoly->aViewNormals[i].z;
+
+                    // Added: M10.2. The unused specular color's blue byte tells the lit fragment
+                    // shader to add the dynamic lights per pixel: 0xFF where the resolved mode is
+                    // GOURAUD or DIFFUSE, 0 for LIT/NONE. Only per-pixel mode sets it, so Classic
+                    // lit vertices and captures stay as they were.
+                    if ( rdGetPerPixelLighting() )
+                    {
+                        const bool bAddLights = lightingMode == RD_LIGHTING_GOURAUD
+                            || lightingMode == RD_LIGHTING_DIFFUSE;
+                        pLitVert->tl.specular = bAddLights ? 0xFFFFFFFFu : 0u;
+                    }
                 }
             }
 

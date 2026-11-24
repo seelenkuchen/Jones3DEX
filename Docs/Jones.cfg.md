@@ -279,6 +279,18 @@ waits after each present until the next frame's wall-clock deadline, so the rate
 game time or the simulation. `-1` turns V-Sync off with no cap. The wait is off in headless runs and while a
 level loads. The Display row applies at once; any other value falls back to `0`.
 
+### `engine.renderer.perPixelLighting`
+
+Presentation only, with the values Classic (`false`) and Per-pixel (`true`, the default in Enhanced); the Retail
+profile and QOL-off builds always use Classic. Per-pixel evaluates the camera's dynamic light list per pixel in the lit
+fragment shader with N·L and the original radius ramp (full within `maxRadius`, linear to zero at `minRadius`),
+and the CPU leaves exactly those lights out of the lit vertex colour so nothing counts twice. World GOURAUD stops
+adding `sithRender_BuildDynamicLights` and keeps its baked light; model GOURAUD and DIFFUSE drop the camera-list
+lights but keep the per-draw sector light, which is not in the uploaded list. Each lit face carries a flag in the
+otherwise unused specular colour. Sprites, particles, polylines, the sky and the HUD stay classic. It needs
+`engine.renderer.litFaces.enabled`; with lit faces off it behaves as Classic. The Options > Display **Lighting** row
+applies at once.
+
 ### `engine.sim.fixedTick`
 
 The fixed simulation tick: `0` (Off) keeps the measured frame time, and `50` (On) runs the simulation at
@@ -383,6 +395,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.culling.culledSectorTraversal.maxThingCollectDistance` | float | `18.0` | Default build value. Legacy/QOL-off builds use `8.0`. |
 | `engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance` | float | `18.0` | Default build value. Legacy/QOL-off builds use `8.0`. |
 | `engine.renderer.litFaces.enabled` | bool | `true` | Presentation only, in every build and both profiles. On: world surfaces and models reach the renderer as lit faces, with view-space positions and normals (smoothed across level edges under 45 degrees), which fill the normal target for later per-pixel passes; the colour is the same as off. Off: the classic path, exactly as before (classic draws only). Sky, sprites, particles, polylines, shadows and the HUD are always classic. Read when the display opens. |
+| `engine.renderer.perPixelLighting` | bool | `true` (Enhanced), `false` (Retail and QOL-off) | Presentation only (Options > Display, "Lighting": Classic or Per-pixel); Classic is the only value in the Retail profile and QOL-off builds. Per-pixel evaluates the camera's dynamic light list per pixel in `std3d_lit.frag.hlsl` with N·L and the original `minRadius`/`maxRadius` ramp, and the CPU leaves those lights out of the lit vertex colour (world GOURAUD drops `sithRender_BuildDynamicLights`; model GOURAUD/DIFFUSE drop the camera-list lights but keep the per-draw sector light). Needs `engine.renderer.litFaces.enabled`; with lit faces off it behaves as Classic. Sprites, particles, polylines and the sky stay classic. The Options row applies at once; `JonesDisplay_Open` reads it too. |
 | `engine.renderer.renderScale` | float | `1.0` | Presentation only. The internal resolution of the 3D scene as a multiple of the game's video mode, clamped to `0.5`..`2.0` and to the device's texture limit (Options > Display, "Render scale": 50, 67, 75, 100, 125, 150 or 200%). Above 100% supersamples the scene; the final tone-map pass resolves it to the presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer's image and save thumbnails stay display-sized, and menus stay at the window's native resolution; the in-world HUD is drawn with the scene. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
 | `engine.renderer.antiAliasing` | int | `1` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Anti-aliasing": Off or SMAA). `1` runs SMAA 1x on the tone-mapped 3D scene at the presented resolution, smoothing its edges; the HUD, 2D layer, menus and prompts are unchanged. `0` presents the plain tone-mapped image, byte-identical to before the option existed. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
 | `engine.renderer.sharpening` | float | `0.3` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Sharpening": Off, Low, Medium or High = `0`, `0.3`, `0.5`, `0.8`; clamped to `0`..`1`). One contrast-adaptive sharpening pass (AMD FidelityFX CAS, sharpen-only) on the presented-size 3D image, after SMAA or the tone map and before the HUD layer composite. It restores detail lost to a render scale below 100% and the softening of SMAA; the HUD, 2D layer, menus and prompts are unchanged. `0` skips the pass, so the image is byte-identical to the path without the option. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |

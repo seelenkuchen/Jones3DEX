@@ -1115,6 +1115,7 @@ namespace
         std::memcpy(aBlock + 4, aFogColor, sizeof(aFogColor));
         aBlock[8]  = alphaRef;
         aBlock[12] = 1.0f;
+        aBlock[13] = 1.0f; // M10.2: the screen fade factor (no fade)
         return BytesOf(aBlock, 16u);
     }
 
@@ -1406,9 +1407,9 @@ TEST(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline)
     TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitVert().uniformCount);
     TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().textureCount);
     TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().uniformCount);
-    // The light buffer is bound for the lit draws, but no lit shader declares it yet (M6.9c).
+    // The light buffer is bound for the lit draws; the per-pixel lit fragment shader reads it (M10.2).
     TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dLitVert().storageBufferCount);
-    TEST_ASSERT_EQUAL_UINT32(0u, stdBabylon::shaders::std3dLitFrag().storageBufferCount);
+    TEST_ASSERT_EQUAL_UINT32(1u, stdBabylon::shaders::std3dLitFrag().storageBufferCount);
 
     const StdVertexLit aLit[3] = { LitVertex(Vertex(1.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u), -1.0f, 10.0f, 2.0f, 0.0f, -1.0f, 0.0f),
         LitVertex(Vertex(9.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u), 3.0f, 10.0f, 2.0f, 0.6f, 0.0f, 0.8f),
@@ -3424,7 +3425,7 @@ TEST(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor)
     aLit[2] = LitVertex(aTl[2], 1.0f, 10.0f, -1.0f, 1.0f, 0.0f, 0.0f);
     aLit[3] = LitVertex(aTl[3], -1.0f, 10.0f, -1.0f, 0.0f, 0.0f, 1.0f);
 
-    // With a light list in the light buffer (M6.9c), which the lit shader doesn't read yet.
+    // With a light list in the light buffer (M6.9c); these vertices do not ask for per-pixel lights (M10.2).
     const StdLight aLights[2] = {
         { 0.0f, 5.0f, 0.0f, 8.0f, 1.0f, 1.0f, 1.0f, 0.0f, 4.0f, 0.2f, 0.1f, STD_LIGHT_ENABLED },
         { 2.0f, 9.0f, 1.0f, 3.0f, 0.5f, 0.0f, 0.0f, 0.0f, 1.5f, 0.2f, 0.1f, STD_LIGHT_ENABLED },
@@ -3479,6 +3480,61 @@ TEST(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor)
     const std::vector<std::byte> aClassicNormals = std3DBabylonTest_pDevice->readTexture(stdRenderBabylon_GetNormalTarget(), 0);
     AssertNormal(aClassicNormals, 48u, 16u, true);
     AssertNormal(aClassicNormals, 16u, 48u, true);
+}
+
+TEST(std3DBabylonGpu, PerPixelLightsAddNdotLOnlyWhereTheVertexAsks)
+{
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    // Three black lit quads, left to right, each with a constant view position and normal:
+    // - left: facing the light at view (0, 5, 0), 5 units from view (0, 10, 0), so the ramp is
+    //   (8 - 5) / (8 - 4) = 0.75 and the fragment is 0.75 white;
+    // - middle: the same position but 15 units away, beyond minRadius 8, so dark;
+    // - right: the same position as the left one but its normal faces away, so dark.
+    // The specular blue byte asks for the lights, as rdCache sets it in per-pixel mode.
+    const auto makeLitQuad = [](float x0, float x1, float vy, float ny, bool bAddLights)
+    {
+        const StdVertexTL aTl[4] = { Vertex(x0, 0.0f, 0.5f, 1.0f, 0xFF000000u), Vertex(x1, 0.0f, 0.5f, 1.0f, 0xFF000000u),
+            Vertex(x1, 64.0f, 0.5f, 1.0f, 0xFF000000u), Vertex(x0, 64.0f, 0.5f, 1.0f, 0xFF000000u) };
+        StdVertexLit aLit[4];
+        for ( size_t i = 0; i < 4u; ++i )
+        {
+            aLit[i] = LitVertex(aTl[i], 0.0f, vy, 0.0f, 0.0f, ny, 0.0f);
+            aLit[i].tl.specular = bAddLights ? 0xFFFFFFFFu : 0xFF000000u;
+        }
+
+        return std::array<StdVertexLit, 4>{ aLit[0], aLit[1], aLit[2], aLit[3] };
+    };
+
+    const auto aLeft   = makeLitQuad(0.0f, 20.0f, 10.0f, -1.0f, true);
+    const auto aMiddle = makeLitQuad(22.0f, 42.0f, 20.0f, -1.0f, true);
+    const auto aRight  = makeLitQuad(44.0f, 64.0f, 10.0f, 1.0f, true);
+    const auto aClassic = makeLitQuad(0.0f, 20.0f, 10.0f, -1.0f, false);
+
+    // rdroid camera space: (0, 5, 0) is five units in front of the left and right quads.
+    const StdLight light = { 0.0f, 5.0f, 0.0f, 8.0f, 1.0f, 1.0f, 1.0f, 0.0f, 4.0f, 0.2f, 0.1f, STD_LIGHT_ENABLED };
+    std3D_SetLights(&light, 1u);
+    const uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
+    RenderScene([&]
+    {
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aLeft.data()), 4u, const_cast<uint16_t*>(aIndices), 6u);
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aMiddle.data()), 4u, const_cast<uint16_t*>(aIndices), 6u);
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aRight.data()), 4u, const_cast<uint16_t*>(aIndices), 6u);
+    });
+
+    AssertPixel(10u, 32u, 191, 191, 191, 255, 2);
+    AssertPixel(32u, 32u, 0, 0, 0, 255, 0);
+    AssertPixel(54u, 32u, 0, 0, 0, 255, 0);
+
+    // The same left quad without the flag stays black: the classic vertex adds no light.
+    RenderScene([&]
+    {
+        std3D_DrawRenderListLit(nullptr, (Std3DRenderState)0, const_cast<StdVertexLit*>(aClassic.data()), 4u, const_cast<uint16_t*>(aIndices), 6u);
+    });
+    AssertPixel(10u, 32u, 0, 0, 0, 255, 0);
 }
 
 TEST(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer)
@@ -5861,6 +5917,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ReplayWritesFrameImages);
     RUN_TEST_CASE(std3DBabylonGpu, TheNormalTargetHoldsTheConstantNormalWhereZIsWritten);
     RUN_TEST_CASE(std3DBabylonGpu, ALitQuadInterpolatesItsNormalsAndKeepsTheClassicColor);
+    RUN_TEST_CASE(std3DBabylonGpu, PerPixelLightsAddNdotLOnlyWhereTheVertexAsks);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassChangesThePresentedImageNotTheBackBuffer);
     RUN_TEST_CASE(std3DBabylonGpu, APostPassReadsTheNormalTarget);
     RUN_TEST_CASE(std3DBabylonGpu, SurfaceTagsAreWrittenToTheNormalTargetAlpha);

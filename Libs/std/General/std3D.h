@@ -68,7 +68,8 @@ void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags,
 // Added: the light list of the frame (option A L4, ADR-0023): numLights lights in the order of the
 // rdroid camera's list, positions in view space (StdLight). A backend with per-pixel lighting keeps a
 // copy for its lit draws (std3D_DrawRenderListLit): the lit draws of a scene pass see the last list
-// set before the pass ends. No shader reads it yet, so it changes no pixel; backends without
+// set before the pass ends. The per-pixel lit shader reads it for vertices whose face asks for
+// lights (M10.2); a Classic vertex adds nothing, so its pixel is unchanged. Backends without
 // per-pixel lighting (Null) ignore the call. aLights is read during the call only and may be NULL
 // when numLights is 0, which sets the empty list. A backend that keeps the list refuses more than
 // STD3D_MAXLIGHTS lights, or a NULL aLights with lights, with a logged error, and sets the empty

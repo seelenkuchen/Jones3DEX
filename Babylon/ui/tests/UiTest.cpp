@@ -492,6 +492,63 @@ TEST_CASE("list selection reports SelectionChanged and the wheel does not select
     CHECK(action->item == 2);
 }
 
+TEST_CASE("up and down leave a list past its first and last row")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.title = "Saves";
+    List list;
+    for ( std::int64_t i = 0; i < 2; ++i )
+    {
+        list.items.push_back(ListItem{ "Row " + std::to_string(i), 0, i });
+    }
+    list.action = 9;
+    screen.widgets = { Button{ "Above", 1, true }, list, Button{ "Below", 2, true } };
+    screen.initialFocus = 1;
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    // Down moves through the rows, then on to the widget below the list.
+    tap(ui, platform::Key::Down);
+    std::vector<UiEvent> events = drain(ui);
+    const SelectionChanged* selection = findEvent<SelectionChanged>(events);
+    REQUIRE(selection != nullptr);
+    CHECK(selection->row == 1);
+
+    tap(ui, platform::Key::Down);
+    tap(ui, platform::Key::Enter);
+    events = drain(ui);
+    const ActionPressed* action = findEvent<ActionPressed>(events);
+    REQUIRE(action != nullptr);
+    CHECK(action->action == 2);
+
+    // Up re-enters the list on its kept row, moves up through it and leaves it above.
+    tap(ui, platform::Key::Up);
+    tap(ui, platform::Key::Up);
+    tap(ui, platform::Key::Up);
+    tap(ui, platform::Key::Enter);
+    events = drain(ui);
+    action = findEvent<ActionPressed>(events);
+    REQUIRE(action != nullptr);
+    CHECK(action->action == 1);
+
+    // The pad's d-pad does the same as the arrow keys.
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, true)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, false)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, true)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, false)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, true)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, false)));
+    tap(ui, platform::Key::Enter);
+    events = drain(ui);
+    action = findEvent<ActionPressed>(events);
+    REQUIRE(action != nullptr);
+    CHECK(action->action == 2);
+}
+
 TEST_CASE("binding capture handles key, mouse, gamepad button and axis")
 {
     SUBCASE("key")
@@ -1302,6 +1359,82 @@ TEST_CASE("the focus marker is drawn only on the focused row at a fixed x")
     ui.handleEvent(platform::Event(keyEvent(platform::Key::Down, false)));
     painter.clearRecorded();
     checkDraw("B");
+}
+
+TEST_CASE("a focused list marks its selected row without a highlight fill")
+{
+    NullPainter painter(NullPainterDesc{ 8.0f, 16.0f, true });
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    // The modern menu look: no highlight fill, a marker and a brighter text colour.
+    Skin skin;
+    skin.rowHeight = 20.0f;
+    skin.titleHeight = 0.0f;
+    skin.rowSpacing = 0.0f;
+    skin.panelPadding = 0.0f;
+    skin.minPanelWidth = 0.0f;
+    skin.borderWidth = 0.0f;
+    skin.panel = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.highlight = Color{ 0.0f, 0.0f, 0.0f, 0.0f };
+    skin.text = Color{ 0.5f, 0.5f, 0.5f, 1.0f };
+    skin.textFocused = Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+    skin.focusMarker = "*";
+    skin.markerSpacing = 4.0f;
+    REQUIRE(ui.setSkin(skin));
+
+    Screen screen;
+    List list;
+    for ( std::int64_t i = 0; i < 3; ++i )
+    {
+        list.items.push_back(ListItem{ "Row" + std::to_string(i), 0, i });
+    }
+    list.action = 9;
+    screen.widgets = { list };
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    // The marker sits on the selected row, which alone has the focused colour (owner, 2026-11-24:
+    // with a pad the selected save could not be seen).
+    const auto checkSelected = [&painter, &ui](const std::string& selectedRow)
+    {
+        painter.clearRecorded();
+        ui.draw();
+        float markerY = -1.0f;
+        float selectedY = -2.0f;
+        int bright = 0;
+        for ( const RecordedCall& call : painter.recorded() )
+        {
+            if ( const RecordedDrawText* text = std::get_if<RecordedDrawText>(&call) )
+            {
+                if ( text->text == "*" )
+                {
+                    markerY = text->rect.y;
+                }
+                else if ( text->text.rfind("Row", 0) == 0 )
+                {
+                    if ( text->text == selectedRow )
+                    {
+                        selectedY = text->rect.y;
+                        CHECK(text->color.r == doctest::Approx(1.0f));
+                    }
+                    else
+                    {
+                        CHECK(text->color.r == doctest::Approx(0.5f));
+                    }
+                    bright += text->color.r > 0.9f ? 1 : 0;
+                }
+            }
+        }
+        CHECK(markerY == selectedY);
+        CHECK(bright == 1);
+    };
+
+    checkSelected("Row0");
+    tap(ui, platform::Key::Down);
+    checkSelected("Row1");
+    tap(ui, platform::Key::Down);
+    checkSelected("Row2");
 }
 
 TEST_CASE("a transparent panel, border and highlight draw no fills")

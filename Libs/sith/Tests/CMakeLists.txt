@@ -7,6 +7,8 @@ set(SITH_TEST_SOURCES
     ../Engine/Tests/sithCameraTest.c
     ../Engine/Tests/sithModernCameraTest.c
     ../Engine/Tests/sithPhysicsTest.c
+    ../Engine/Tests/sithRenderTest.c
+    ../World/Tests/sithModelTest.c
     ../World/Tests/sithTemplateTest.c
     ../World/Tests/sithThingTest.c
     ../World/Tests/sithVoiceTest.c
@@ -15,6 +17,7 @@ set(SITH_TEST_SOURCES
 set(SITH_TESTED_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../Cog/sithCog.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithPhysics.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithRender.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithTemplate.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithThing.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../World/sithVoice.c"

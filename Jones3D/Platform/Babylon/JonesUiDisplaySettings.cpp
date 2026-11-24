@@ -38,6 +38,8 @@
 #include <sith/World/sithModel.h>
 #include <sith/World/sithWorld.h>
 
+#include <rdroid/Main/rdroid.h>
+
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/std3DBabylon.h>
 #include <std/Babylon/stdDisplayBabylon.h>
@@ -83,6 +85,7 @@ namespace
     constexpr const char* kJonesDisplayHiPolyText      = "Hi-poly models"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayLitFacesText    =
         "Lit faces (applies when the display reopens)"; // TODO: [COMPAT]
+    constexpr const char* kJonesDisplayLightingText = "Lighting"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayFOVText = "Field of view"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayRenderScaleText = "Render scale"; // TODO: [COMPAT]
     constexpr const char* kJonesDisplayAntiAliasingText = "Anti-aliasing"; // TODO: [COMPAT]
@@ -138,6 +141,11 @@ namespace
     constexpr bool kJonesDisplayLensFlareDefault = J3D_QOL_VALUE(1, 0) != 0;
     constexpr bool kJonesDisplayVignetteDefault  = false;
     constexpr bool kJonesDisplayFilmGrainDefault = false;
+
+    // Added: M10.2 Lighting choices; Classic (0) is the default everywhere for now and the only
+    // one Retail/QOL-off builds accept. Per-pixel needs lit faces.
+    constexpr const char* kJonesDisplayLightingLabels[] = { "Classic", "Per-pixel" };
+    constexpr std::size_t kJonesDisplayLightingDefault = J3D_QOL_VALUE(0, 0);
 
     // Added: M9.19 camera motion-blur choices; Low (1) is the Enhanced default, off in
     // Retail/QOL-off builds.
@@ -585,6 +593,20 @@ namespace
             JonesUiDisplay_ResolveLabel(kJonesDisplayLitFacesText), std::string(), true,
             values.bLitFaces });
 
+        // Added: M10.2 Lighting: Classic keeps the CPU's baked vertex lighting, Per-pixel adds the
+        // camera's dynamic lights per pixel in the lit shader. It applies at once and only when lit
+        // faces are on; Retail/QOL-off builds stay Classic.
+        std::vector<std::string> lightingOptions;
+        for ( const char* pLabel : kJonesDisplayLightingLabels )
+        {
+            lightingOptions.emplace_back(pLabel);
+        }
+        layout.lighting = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Choice{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayLightingText), std::string(),
+            std::move(lightingOptions), true,
+            values.bPerPixelLighting ? 1u : 0u });
+
         // Added: the player's Field of view, horizontal degrees at 4:3. It only changes what the
         // player sees; the simulation keeps its default visibility frustum.
         layout.gameplayFOV = screen.widgets.size();
@@ -937,6 +959,9 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.bHiPoly = sithModel_IsHiPolyEnabled();
     model.bLitFaces = JonesUiDisplay_ReadConfigBool(
         JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
+    // Added: M10.2. Retail/QOL-off builds always report Classic, whatever the file says.
+    model.bPerPixelLighting = J3D_QOL_VALUE(JonesUiDisplay_ReadConfigBool(
+        JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, JONESDISPLAY_DEFAULT_PERPIXELLIGHTING) != 0, 0) != 0;
     model.gameplayFOV = sithCamera_GetGameplayFOV();
     model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
@@ -991,6 +1016,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.performance = (std::size_t)performance;
     values.bHiPoly     = model.bHiPoly;
     values.bLitFaces   = model.bLitFaces;
+    values.bPerPixelLighting = model.bPerPixelLighting;
     values.gameplayFOV = (double)model.gameplayFOV;
     values.renderScale = JonesUiDisplay_RenderScaleIndex(model.renderScale);
     values.antiAliasing = JonesUiDisplay_AntiAliasingIndex(model.antiAliasing);
@@ -1050,6 +1076,11 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.bHiPoly));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.litFaces,
         values.bLitFaces));
+    {
+        std::size_t lighting = values.bPerPixelLighting ? 1u : 0u;
+        static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.lighting, lighting));
+        values.bPerPixelLighting = lighting != 0u;
+    }
     static_cast<void>(JonesUiDisplay_ReadSlider(ui, screen, layout.gameplayFOV,
         values.gameplayFOV));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.renderScale,
@@ -1265,6 +1296,13 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
 
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED,
         values.bLitFaces);
+
+    // Added: M10.2. Writes the Lighting option and applies it at once; Retail/QOL-off builds stay
+    // Classic. It lights only faces that already use the lit path, so lit faces must be on.
+    const int perPixelLighting = J3D_QOL_VALUE(values.bPerPixelLighting ? 1 : 0, 0);
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING,
+        perPixelLighting != 0);
+    rdSetPerPixelLighting(perPixelLighting != 0 && rdGetLitFaces());
 
     const float gameplayFOV = (float)std::clamp(values.gameplayFOV,
         (double)SITHCAMERA_GAMEPLAYFOVMIN, (double)SITHCAMERA_GAMEPLAYFOVMAX);

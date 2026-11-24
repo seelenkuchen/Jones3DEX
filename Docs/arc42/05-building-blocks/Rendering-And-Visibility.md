@@ -834,15 +834,177 @@ Since M6.9b2 the game fills them, behind the presentation option `engine.rendere
 
 ### The Frame's Light List (M6.9c)
 
-With the same option the renderer also gets the frame's lights, for per-pixel lighting (option A L5, M10), which nothing reads yet:
+With the same option the renderer also gets the frame's lights, for per-pixel lighting (option A L5, M10.2):
 
 - **`sithRender_Draw`**, after the visible sector and thing lists and `sithRender_BuildDynamicLights`, calls **`rdCamera_BuildStdLights`** and **`std3D_SetLights`** once per frame. The list is the rdroid camera's: the thing lights and head lights the visibility pass collected through `rdCamera_AddLight`, in that order and up to `RDCAMERA_MAX_LIGHTS` (128, equal to `STD3D_MAXLIGHTS`), so nothing new is selected. It is read only. Not in it: the sector point light `sithRender_RenderThings` adds around each model and removes after it, and the per-sector subset `sithRender_BuildDynamicLights` picks (lights whose `minRadius` reaches the sector's bounding sphere); per-pixel lighting has to apply those rules itself.
 - **`StdLight`** (`Libs/std/types.h`, 48 bytes, three groups of four 32-bit values): the view-space position (the camera's view matrix applied to the light's world position) and `minRadius`; the color (`rdLight.color`, alpha as stored); `maxRadius`, the camera's `attenuationMin` and `attenuationMax`, and flags (`STD_LIGHT_ENABLED` for `rdLight.bEnabled`). These are all the inputs of `rdLight_CalcVertexIntensities` (full intensity within `maxRadius`, linear to zero at `minRadius`, times the normal's cosine), `rdLight_CalcFaceIntensity` (plane distance times `attenuationMin` subtracted, within `minRadius`, enabled lights only) and the dynamic vertex lights (distance times `attenuationMax` subtracted, within `maxRadius`, clamped to 0..1). `rdLight.type` (always 2, a point light) and `direction` are read by none of them and are left out.
-- **Babylon `std3D`** copies the list into a storage buffer (made on first use: a 16-byte header with the count, then the lights as they are) in the first scene pass after it changed, before the pass, and binds it to fragment storage slot 0 of the pass's lit draws. `std3d_lit.frag.hlsl` declares no buffer yet (its compiler drops one nothing reads), so its compiled code and colour are unchanged; SDL GPU keeps the binding without passing it on. A test shader in Babylon's render tests reads a storage buffer on lavapipe. The Null `std3D` ignores the call.
+- **Babylon `std3D`** copies the list into a storage buffer (made on first use: a 16-byte header with the count, then the lights as they are) in the first scene pass after it changed, before the pass, and binds it to fragment storage slot 0 of the pass's lit draws. `std3d_lit.frag.hlsl` declares it and reads it only for vertices that ask for per-pixel lights (M10.2). A test shader in Babylon's render tests reads a storage buffer on lavapipe. The Null `std3D` ignores the call.
 - **Off**: no `std3D_SetLights`, no lit draws, no light buffer; the classic device calls exactly as before.
 - **Capture**: `std3D_SetLights` records as id 36 ([RCAP](../../Formats/RCAP.md)); older captures replay unchanged.
 
-The option is presentation, not part of the Retail or Enhanced simulation profile: the colour is the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with it on and off.
+The option is presentation, not part of the Retail or Enhanced simulation profile: with Classic the colour is
+the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state
+run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with
+it on and off.
+
+### Per-pixel Lighting (M10.2)
+
+`engine.renderer.perPixelLighting` (Options > Display, **Lighting**: Classic or Per-pixel, Per-pixel by default in
+Enhanced and Classic forced in the Retail profile) moves the camera's dynamic lights out of the CPU vertex colour and into
+`std3d_lit.frag.hlsl`. It needs `engine.renderer.litFaces.enabled`; with lit faces off it behaves as Classic.
+Classic is byte-identical to before.
+
+One formula lights every per-pixel surface: the model GOURAUD one from `rdLight_CalcVertexIntensities`. For each
+light in the uploaded list with `STD_LIGHT_ENABLED`, let `d = |lightPos - p|`; it adds nothing if `d >= minRadius`
+or `N·L <= 0`, adds `color * N·L` inside `maxRadius`, and ramps linearly to zero at `minRadius` outside it.
+`p` and `N` are the lit vertex's interpolated view-space position and normal; the light positions are in the same
+rdroid camera space (the shader turns both into the normal target's space with `(x, z, -y)`). There is no
+specular, no shadow, no per-sector subset and no new light selection: the shader iterates the frame's list, which
+keeps the original order and cap. World and model surfaces therefore use the same N·L rule (the old world
+distance-only formula is Classic's alone), which stops light leaking around corners at the cost of a different
+look on levels lit for the old formula.
+
+What the CPU keeps in the lit vertex colour, so nothing counts twice:
+
+| Geometry (resolved mode) | Classic | Per-pixel base colour | Shader adds |
+| --- | --- | --- | --- |
+| World `GOURAUD` | baked `aIntensities` + `sithRender_BuildDynamicLights`, clamped, + `extraLight` | baked `aIntensities` + `extraLight` (`rdClip_FaceToPlaneLitBaked`) | the uploaded lights |
+| World `DIFFUSE` | `extraLight` (the dynamic intensities are ignored) | same | the uploaded lights |
+| World `LIT` / `NONE` | `extraLight` / none | same | nothing |
+| Model `GOURAUD` | `aVertColors` + all camera lights (sector light included) + `extraLight` + camera ambient | `aVertColors` + the sector light + `extraLight` + camera ambient | the uploaded lights |
+| Model `DIFFUSE` | `faceIntensity` from all camera lights + `extraLight` + camera ambient | sector-light `faceIntensity` + `extraLight` + camera ambient | the uploaded lights (with the lit face normal) |
+| Model `LIT` / `NONE` | `extraLight` + camera ambient | same | nothing |
+| Sprites, particles, polylines, sky, HUD | unchanged | unchanged | nothing, they never use the lit shaders |
+
+The **model sector light** is added to the camera list only around each model draw, so it is not in the uploaded
+list. `sithRender_RenderThings` records its camera-list index with `rdModel3_SetSectorLightNum`; in per-pixel mode
+`rdModel3_DrawMesh`/`rdModel3_DrawFace` calculate the mesh's GOURAUD intensities and DIFFUSE face intensity from
+that light alone, keeping its contribution in the base colour exactly as before. Every other camera light goes
+per pixel. Models drawn outside that path (no sector light recorded) keep the classic camera-list lighting.
+
+The shader learns per face whether to add lights from the unused specular color's blue byte: `rdCache` writes
+`0xFFFFFFFF` for a resolved `GOURAUD` or `DIFFUSE` lit face and 0 for `LIT`/`NONE` in per-pixel mode, and leaves
+every vertex as it was in Classic, so Classic vertices, captures and pixels are unchanged. The screen fade factor
+`rdCache_SendFaceListToHardware` applies to the base colour is passed to the shader in the fragment uniform block
+(`gSurfaceTag.y`, 1.0 when no fade is active) and multiplies the light sum. The fragment colour is
+`texture * saturate(base.rgb + dynamic)`, then fog as before; the normal target and its surface tag are unchanged.
+The `--render gpu` replay reads the same flag bytes from a per-pixel capture, so it lights the frame the same way.
+
+The option applies at once through `rdSetPerPixelLighting` (the Display OK calls it), still gated on the current
+lit-faces state; `JonesDisplay_Open` also sets it from the config. The CPU split touches only renderer-side data:
+`sithRender_BuildDynamicLights` may keep running, the visibility pass and simulation state are untouched, and
+headless traces are identical with the option on and off.
+
+### Lighting terms (M10.1 audit)
+
+This section records, for the M10 per-pixel split, every lighting term the CPU bakes into a vertex colour today, where it is computed, and which terms come from the camera's dynamic lights. It is documentation only; it changes no code. Line references are to the current tree. The short version:
+
+- The camera light list is the thing lights and actor headlights the visibility passes collect (`sithRender_BuildVisibleSector`, `sithRender.c:955-994`, and `sithRender_CollectThingLights`, `sithRender.c:1344-1390`), capped at `RDCAMERA_MAX_LIGHTS` 128 (`rdCamera_AddLight`, `rdCamera.c:470-496`).
+- World surfaces use it in the vertex colour **only in `RD_LIGHTING_GOURAUD`**, and through the separate `sithRender_BuildDynamicLights` formula, not through `rdLight_CalcVertexIntensities`.
+- Models use it in `RD_LIGHTING_DIFFUSE` and `RD_LIGHTING_GOURAUD`, through `rdLight_CalcFaceIntensity` and `rdLight_CalcVertexIntensities` respectively.
+- Sprites, particles, polylines and the sky never use the camera light list; they stay classic.
+- `SithSector.tint` (`Libs/sith/types.h:1943`) is read only by the sector COG get/set (`sithCogFunctionSector.c:23,39`) and by serialization; no renderer path reads it today.
+
+#### Geometry paths and the terms in their vertex colour
+
+The resolved mode is `min(face or mesh mode, global mode)`: world surfaces clamp at `sithRender.c:1115-1119` and `1721`, models at `rdModel3.c:1793-1797` and `1902-1906`, and `rdCache_SendFaceListToHardware` clamps once more at `rdCache.c:330-334`. `sithRender_lightMode` is `RD_LIGHTING_GOURAUD` by default (`sithRender.c:244`, `JonesDisplay.c:189` and `JonesMain.c:2895`).
+
+| Geometry path (resolved mode) | Draw | Vertex colour computed at | Terms added to the colour | Camera dynamic lights |
+| --- | --- | --- | --- | --- |
+| World surface, `NONE` | lit entry when `!bSky && rdGetLitFaces()` (`sithRender.c:1062-1064`), else classic | `rdCache_SendFaceListToHardware` (`rdCache.c:330-388`) | none: RGB starts at 1.0 and alpha is `aVertIntensities->alpha` (`rdCache.c:342-345`); `extraLight` and `aVertIntensities` are read but not applied for `NONE` | none |
+| World surface, `LIT` | as above | `rdCache_SendFaceListToHardware` (`rdCache.c:346-352`) | `face.extraLight + sector.extraLight` (`sithRender.c:1121-1122`), no clamp | none; `aVertIntensities` RGB is ignored below `GOURAUD` (only its alpha is read, at `rdCache.c:351`) |
+| World surface, `DIFFUSE` | as above | `rdCache_SendFaceListToHardware` (`rdCache.c:346-352`) | same as `LIT`; world surfaces never call `rdLight_CalcFaceIntensity` | none |
+| World surface, `GOURAUD` | as above | `rdCache_SendFaceListToHardware` (`rdCache.c:354-369`) | `extraLight` plus `aVertIntensities[i]`; the latter is `clamp(aIntensities[i] + aVertDynamicLights[vertIdx])` (`rdClip.c:4003-4004`), where `aIntensities` is the level-baked static per-vertex light (`sithSurface.c:447-459`, `sithSurface.c:829-832`) | **yes**, via `sithRender_BuildDynamicLights` (`sithRender.c:1392-1452`), per-sector subset; no N·L |
+| World translucent adjoin, any mode | lit alpha entry when `rdGetLitFaces()` (`sithRender.c:1713-1714`), else classic | `rdCache_SendFaceListToHardware` (`rdCache.c:330-388`) | same as the matching world-surface mode: `sithRender.c:1721-1729` and `sithRender_SurfaceFaceToPlane` (`sithRender.c:1832-1869`) | same as world `GOURAUD` only; the camera ambient set at `sithRender.c:1686-1691` is not read by `rdCache` for world faces |
+| Model face, `NONE` | lit entry when `bLitMesh` (`rdModel3.c:1779`, `1889-1893`), else classic | `rdCache_SendFaceListToHardware` (`rdCache.c:342-345`) | none | none |
+| Model face, `LIT` | as above | `rdCache_SendFaceListToHardware` (`rdCache.c:346-352`) | `face.extraLight` (`rdModel3.c:1945`) plus camera ambient (`rdModel3.c:1972-1975`), which `sithRender` sets to `clamp(sector.ambient + sector.extra)` (`sithRender.c:1469-1472,1571`) or that plus the thing's flat light (`sithRender.c:1557-1567`) | none (the mesh light loop runs only above `LIT`, `rdModel3.c:1682`) |
+| Model face, `DIFFUSE` | as above | `rdCache_SendFaceListToHardware` (`rdCache.c:346-352`) | `face.extraLight + faceIntensity + camera ambient`; `faceIntensity` from `rdLight_CalcFaceIntensity` (`rdModel3.c:1958-1969`) over **all** camera lights (`rdModel3.c:1799-1815`) | **yes**, per face, plane-distance formula, `bEnabled` only |
+| Model face, `GOURAUD` | as above | `rdCache_SendFaceListToHardware` (`rdCache.c:354-369`) | `face.extraLight + camera ambient + aLightIntensities[i]`; `aLightIntensities = aVertColors + rdLight_CalcVertexIntensities` over all camera lights (`rdModel3.c:1817-1843`) | **yes**, per vertex, radius-ramp formula |
+| Sprite | classic alpha entry (`rdSprite.c:173`) | `rdSprite_Draw` (`rdSprite.c:283-310`) | `sprite.extraLight + camera ambient`, clamped to 0..1 (`rdSprite.c:289-296`); mode capped at `DIFFUSE` (`rdSprite.c:310`), so the per-vertex alpha at `rdSprite.c:289` is never used as RGB | none |
+| Particle, `NONE` | classic (`rdParticle.c:388-397`) | `rdParticle_Draw` (`rdParticle.c:406-420`) | none: `lightingMode` is `NONE` for emit-light particles (`sithParticle.c:266-270`), so `extraLight` is ignored | none |
+| Particle, `DIFFUSE` | classic | `rdParticle_Draw` (`rdParticle.c:406-420`) | `aExtraLights[i]` (per-particle extra light, `rdParticle.c:420`); camera ambient is put in `aVertIntensities` (`rdParticle.c:352-357,406-409`) but `rdCache` adds that only in `GOURAUD`, which particles never use | none |
+| Polyline | classic alpha entry (`rdPolyline.c:226`) | `rdPolyline_DrawFace` (`rdPolyline.c:291-319`) | none: `lightingMode` is forced to `NONE` (`rdPolyline.c:319`), so both `aVertIntensities` and `extraLight` are ignored | none |
+| Sky (ceiling or horizon) | classic (`sithRender.c:1062-1064,1072-1104`) | `sithRenderSky_HorizonFaceToPlane` / `_CeilingFaceToPlane` (`sithRenderSky.c:63-127`) | none: `lightingMode` is `NONE` (`sithRenderSky.c:65,92`) | none |
+
+Flags that change a path's lighting, rather than only its presentation:
+
+- `SITH_SURFACE_CEILINGSKY` / `SITH_SURFACE_HORIZONSKY` force `bLit = false` (`sithRender.c:1062-1063`) and `NONE` (`sithRenderSky.c:65,92`).
+- `RD_FF_TEX_TRANSLUCENT` changes which colour channels are written (`rdCache.c:381-388`), not the RGB terms.
+- `SITH_SURFACE_WATER` only adds the normal-target tag (`sithRender.c:1134-1138`, `1739-1742`); it does not change lighting.
+- `RD_FF_FOG_ENABLED` only drives the fragment shader's fog; fog is applied after texture times diffuse (`std3d_lit.frag.hlsl`), so it must stay out of the per-pixel light sum.
+- `RD_FF_DOUBLE_SIDED` and back-face-culling off only negate a model's lit normals when the back face is drawn (`rdModel3.c:1931-1938`).
+
+One open case: `rdParticle_Draw` uses `prdParticle->lightningMode` unchanged (`rdParticle.c:416`). Sith's own clouds set it to `NONE` or `DIFFUSE` (`sithParticle.c:266-270`), but a particle loaded from a file can carry `GOURAUD` (`rdParticle.c:209`), in which case `rdCache` would add the camera ambient stored in `aVertIntensities` (`rdParticle.c:406-409`). Whether any shipped particle asset does this was not determined; the sith-created path does not.
+
+#### Exact dynamic-light formulas
+
+All formulas below use `rdLight.color` per channel and the camera's attenuation values. `sithCamera` sets `attenuationMin = 0.4` and `attenuationMax = 0.8` (`sithCamera.h:29-30`, applied at `sithCamera.c:335,382`); `rdCamera_NewEntry` starts at 0.2 and 0.1 before that (`rdCamera.c:77-78`). When a light arrives with zero radii, `rdCamera_AddLight` derives `minRadius = mean(color) / attenuationMin` and `maxRadius = mean(color) / attenuationMax` (`rdCamera.c:480-490`, mean at `rdLight.c:183-186`), so normally `maxRadius < minRadius`.
+
+- **`sithRender_BuildDynamicLights`** (`sithRender.c:1392-1452`), the world-surface path:
+  - per sector, select every camera light with `sector.radius + light.minRadius > |lightPos - sector.center|` (`sithRender.c:1408-1418`);
+  - reset each processed vertex to 0 (`sithRender.c:1426`);
+  - for each selected light, let `d = |lightPos - vertex|`. If `d < maxRadius`, add `color - d * attenuationMax` **per channel** (`sithRender.c:1435-1442`). There is no N·L, no `bEnabled` test and no `minRadius` outer term in this formula;
+  - after **each** light, clamp the accumulated RGB to 0..1 (`sithRender.c:1444`); alpha stays 0;
+  - cache per vertex by render tick (`sithRender.c:1448`).
+- **`rdLight_CalcVertexIntensities`** (`rdLight.c:67-105`), the model `GOURAUD` path:
+  - start from `aVertexColors` (`rdLight.c:71`);
+  - iterate lights from last to first (`rdLight.c:69,73`); no `bEnabled` test;
+  - `d = |lightPos - vertex|`; require `d < minRadius` (`rdLight.c:78-80`);
+  - `L = normalize(lightPos - vertex)`, `dot = N·L`, require `dot > 0` (`rdLight.c:81-85`);
+  - if `d < maxRadius`, add `color * dot`; otherwise add `color * (1 - ((d - maxRadius) / (minRadius - maxRadius))) * dot`, i.e. full inside `maxRadius`, linear to zero at `minRadius` (`rdLight.c:86-100`);
+  - no clamp at this level, and no use of `attenuationMin` or `attenuationMax`.
+- **`rdLight_CalcFaceIntensity`** (`rdLight.c:133-160`), the model `DIFFUSE` path:
+  - only `bEnabled` lights (`rdLight.c:140`);
+  - `d = (lightPos - firstFaceVertex) · faceNormal`, a **signed plane distance**, not the Euclidean distance (`rdLight.c:145`, `rdMath.h:78-81`);
+  - require `d < minRadius`, then `L = normalize(lightPos - firstFaceVertex)`, `dot = faceNormal·L > 0` (`rdLight.c:146-151`);
+  - add `(color - d * attenuationMin) * dot` per channel (`rdLight.c:152-155`); no `maxRadius`, no clamp.
+- **Unused**: `rdLight_CalcDistVertexIntensities` (`rdLight.c:107-131`) and `rdLight_CalcDistFaceIntensity` (`rdLight.c:162-181`) have no callers in the tree. They also reuse and mutate the `attenuation` parameter across lights and the vertex variant writes `color.red` to all three channels, so they are not a specification to copy. Open: whether M10 keeps or removes them is undecided; nothing reaches the screen through them today.
+- **`rdCamera_SetAttenuation`** (`rdCamera.c:450-468`) rewrites zero light radii as `attenuationMin * 40` and `attenuationMax * 50` (16 and 40). This runs when a light already exists with zero radii; in the normal startup order `rdCamera_AddLight` fills the radii first, so this path is not normally hit.
+
+#### Light selection and caps
+
+- The visibility passes fill the camera list before any draw: visible sectors in `sithRender_BuildVisibleSector` (`sithRender.c:955-994`) and off-screen thing sectors in `sithRender_CollectThingLights` (`sithRender.c:1344-1390`). Only things with `SITH_TF_EMITLIGHT` are considered: their light if its range is dynamic (`alpha > 0.01`, `sithRender.c:79-80,958-963`) and, for actor/player types, their headlight (`sithRender.c:976-991`). `sithRender_aThingLights` holds `SITHRENDER_MAXTHINGLIGHTS` = 64 (`sithRender.c:74,167`); `rdCamera_AddLight` caps the camera list at `RDCAMERA_MAX_LIGHTS` = 128 (`rdCamera.c:472-475`, `Libs/rdroid/types.h:9`).
+- The GPU list (`rdCamera_BuildStdLights` + `std3D_SetLights`, `sithRender.c:561-566`, `rdCamera.c:501-529`) is a snapshot of that camera list taken **before** `sithRender_RenderThings`. It therefore has the thing lights and headlights but neither the per-sector subset nor the model sector light.
+- World surfaces: the per-sector subset from `sithRender_BuildDynamicLights` (`sithRender.c:1408-1418`); every visible sector's vertices are stamped once per render tick, so a shared vertex keeps the first sector's subset. In `LIT`/`DIFFUSE` the dynamic result is computed but not used.
+- Models: all camera lights, with **no** per-mesh or per-thing radius cull. The loops at `rdModel3.c:1799-1815` and `1817-1850` fill `aLocalLightPos`/`apMeshLights` but then pass `rdCamera_g_pCurCamera->aLights` and `->numLights` directly (the `TODO`s at `rdModel3.c:1836-1838`, `1959-1961`); `apMeshLights`/`numMeshLights` are unused.
+- Model sector light: `sithRender_RenderThings` adds `pSector->light` to the camera list for the duration of each model draw and removes it afterwards (`sithRender.c:1504-1518,1580-1584`). Models therefore see it; world surfaces do not (they are drawn earlier), and it is not in the GPU list. The index `sithRender_numSectorPointLights` is never incremented (`sithRender.c:1506` TODO), so only slot 0 is used.
+- Headlights are ordinary camera lights by this point (`sithRender.c:976-991,1376-1387`); they are in the GPU list.
+
+#### Clamps and quantisation before std3D
+
+A per-pixel sum cannot reproduce the classic result exactly because the CPU clamps at several intermediate points and then quantises to 8 bits:
+
+1. `sithRender_BuildDynamicLights` clamps the accumulated dynamic RGB to 0..1 after every light (`sithRender.c:1444`).
+2. `rdClip_FaceToPlane` adds the dynamic vector to the baked `aIntensities` and clamps the sum to 0..1 (`rdClip.c:4003-4004`) for world surfaces and alpha adjoins. Models hit the other branch and copy `aLightIntensities` without that clamp (`rdClip.c:4024`).
+3. `rdCache_SendFaceListToHardware` applies the screen-fade factor to RGB (`rdCache.c:370-375`) and clamps RGB and alpha to 0..1 (`rdCache.c:376-379`).
+4. The colour is written as 8-bit `D3DCOLOR` with truncating casts (`STD_COLOR_FROM_FLOATS`/`_RGB`, `std/types.h:98-99`, used at `rdCache.c:381-388`); an opaque face forces alpha 255. The lit shader then computes `texture * diffuse` from those bytes.
+5. Some paths pre-clamp their ambient/extra-light terms: sprites and polylines clamp `extraLight + camera ambient` (`rdSprite.c:295`, `rdPolyline.c:305`), the sector ambient used by models is clamped (`sithRender.c:1471`) and the flat-light variant too (`sithRender.c:1564`), while the alpha-adjoin ambient set at `sithRender.c:1686-1691` is not clamped and is not read by world faces anyway.
+
+#### Render side effects touching simulation-facing state
+
+These paths must keep their existing side effects; the M10 split is presentation only:
+
+- `sithRender_BuildVisibleSector` marks `SITH_SECTOR_SEEN` and sends `SIGHTED` to cog-linked sectors (`sithRender.c:941-949`); the same traversal collects the lights.
+- `sithRender_RenderThing` sends `SIGHTED`/wakes AI through `sithRender_MarkThingSeen` (`sithRender.c:1631-1635`), temporarily writes `pThing->orient.dvec = pThing->pos` and clears it afterwards (`sithRender.c:1638,1649`), and updates render counters.
+- `sithRender_RenderThings` writes render-side thing fields `cameraSpacePos` and `frustumCull` (`sithRender.c:1481,1544`) and changes the shared camera ambient per thing (`sithRender.c:1567,1571`).
+- `sithRender_BuildDynamicLights` writes the world's renderer-side `aVertDynamicLights` and `aVertDynamicLightsRenderTicks` (`sithRender.c:1396-1448`; declared in `sith/types.h:2698-2699`); they are not serialized and never feed the simulation.
+- `rdModel3_DrawMesh` overwrites each mesh asset's `aLightIntensities` (`rdModel3.c:1817-1843`); this is presentation data shared by every instance of the model.
+- On the fixed tick, sprite destruction and polyline jitter are owned by the simulation mark pass (`sithRender.c:1601-1629`), not by the draw path. A lighting change must not move them.
+
+#### Implications for M10.2
+
+Per path, what the CPU base colour must keep and what the shader may add:
+
+- **World `GOURAUD`**: keep `texture * (extraLight + aIntensities)`; stop adding `aVertDynamicLights` to `aVertIntensities`. The shader must add the `sithRender_BuildDynamicLights` term per pixel (distance only, no N·L, per-sector mask, clamp), **not** `rdLight_CalcVertexIntensities`. The split is not clean: classic clamps `aIntensities + dynamic` to 0..1 per vertex before `extraLight` is added (`rdClip.c:4003-4004`), so a per-pixel sum only approximates it.
+- **World `LIT` / `DIFFUSE`**: classic adds no camera dynamic light. The base colour is already complete; the shader must add nothing for these faces, or the classic look changes.
+- **World `NONE`, sky, `RD_FF_TEX_TRANSLUCENT` alpha handling**: no dynamic term; leave as is.
+- **Model `GOURAUD`**: keep `aLightIntensities = aVertColors` only; remove the `rdLight_CalcVertexIntensities` contribution at `rdModel3.c:1835-1843`. The shader adds the same radius ramp and N·L per pixel using the whole camera list. The split is clean for this term, except for the model sector light below.
+- **Model `DIFFUSE`**: remove the `faceIntensity` term (`rdModel3.c:1958-1969`); the shader must reproduce the plane-distance formula, which needs the face normal and the signed plane distance rather than the interpolated per-pixel normal. This is not equivalent to a per-pixel radial point light, so the split is not clean.
+- **Model `LIT` / `NONE`**: no dynamic term; keep the base as it is.
+- **Model sector light**: the shader cannot reproduce it from the current `StdLight` list, because `sithRender_RenderThings` adds it after the list is built and removes it after the model (`sithRender.c:561-566,1504-1518`). M10.2/3 must either extend the uploaded list for model draws or drop this term; either way it is a deliberate behaviour decision.
+- **Camera ambient / sector ambient / flat thing light**: these stay in the base colour (`rdModel3.c:1972-1975`, `rdSprite.c:292-296`, `rdParticle.c:352-357`, `rdPolyline.c:302-306`); the shader must not treat them as dynamic lights.
+- **Sprites, particles, polylines, sky**: stay classic. They have no camera-dynamic term today, so the shader must add none for them. All four draw through `rdCache_GetProcEntry`/`GetAlphaProcEntry`, never the lit entries.
+- **Headlights** are already in the uploaded list, so world `GOURAUD` and model split can use them as ordinary point lights. The per-sector mask for world faces is the only selection the shader needs to reproduce.
 
 ### Textures And Cache
 

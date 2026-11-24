@@ -59,6 +59,12 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
 void J3DAPI rdModel3_EnableFogRendering(int bEnabled);
 rdModel3DrawFaceFunc J3DAPI rdModel3_RegisterFaceDraw(rdModel3DrawFaceFunc pFunc); // Added
 
+// Added: M10.2. The camera-list index of the sector point light sithRender added for the model
+// draws that follow, or -1 when there is none (the default and after rdModel3_ResetGlobals).
+// With per-pixel lighting on, model GOURAUD and DIFFUSE keep that light in the CPU base colour
+// and drop the other camera lights, which the lit shader adds per pixel.
+void J3DAPI rdModel3_SetSectorLightNum(int num);
+
 /**
  * Interpolates angle of a model's joint towards a target angle using exponential damping (see stdMath_SmoothDamp).
  * Creates smooth, natural motion that slows as it approaches the target.
