@@ -1298,6 +1298,95 @@ TEST(JonesFixedTick, DrawLeavesNormalJointsAtTheTickPlacement)
 #endif
 }
 
+TEST(JonesFixedTick, ForceMoveStartBlendsFromTheDrawnNormalPose)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // When a drawn normal pose precedes a force move (a hang before a pull-up, standing before a
+    // climb), the first force-move tick must blend from that pose instead of snapping to the new
+    // one (owner trace, 2026-11-24: a foot jump at the start of climbs and pull-ups).
+    rdModel3      model;
+    rdModel3HNode nodes[2];
+    rdMatrix34    joints[2];
+    SithWorld     world;
+    SithThing     thing;
+    memset(&model, 0, sizeof(model));
+    memset(&nodes, 0, sizeof(nodes));
+    memset(&joints, 0, sizeof(joints));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+
+    // The root 1 unit above the position, the hand 1 unit to the side of it.
+    model.numHNodes          = 2;
+    model.aHierarchyNodes    = nodes;
+    nodes[0].meshIdx         = -1;
+    nodes[0].meshOrient      = JonesFixedTickTest_Identity();
+    nodes[0].meshOrient.dvec.z = 1.0f;
+    nodes[1].num             = 1;
+    nodes[1].meshIdx         = -1;
+    nodes[1].meshOrient      = JonesFixedTickTest_Identity();
+    nodes[1].meshOrient.dvec.x = 1.0f;
+    nodes[1].meshOrient.dvec.z = 1.0f;
+
+    thing.type                           = SITH_THING_ACTOR;
+    thing.signature                      = 10;
+    thing.orient                         = JonesFixedTickTest_Identity();
+    thing.renderData.type                = RD_THING_MODEL3;
+    thing.renderData.data.pModel3        = &model;
+    thing.renderData.paJointMatrices     = joints;
+    thing.renderData.bSkipBuildingJoints = 0;
+
+    world.aThings   = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+
+    // A normal tick, then a drawn frame that builds the normal pose.
+    JonesFixedTick_BeforeTick();
+    JonesFixedTick_AfterTick();
+    JonesFixedTick_SetDrawAlpha(1.0f);
+    JonesFixedTick_BeginDraw();
+    rdMatrix34 placed = thing.orient;
+    placed.dvec = thing.pos;
+    rdPuppet_BuildJointMatrices(&thing.renderData, &placed);
+    JonesFixedTick_EndDraw();
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[1].dvec.x);
+
+    // The force move starts: the position moves onto the root, the hand goes up above it.
+    JonesFixedTick_BeforeTick();
+    thing.pos.z      = 1.0f;
+    joints[0]        = JonesFixedTickTest_Identity();
+    joints[0].dvec.z = 1.0f;
+    joints[1]        = JonesFixedTickTest_Identity();
+    joints[1].dvec.z = 2.0f;
+    thing.renderData.bSkipBuildingJoints = 1;
+    const int tickFrameNum = (int)rdCache_GetFrameNum();
+    thing.renderData.rdFrameNum = tickFrameNum;
+    JonesFixedTick_AfterTick();
+
+    JonesFixedTick_SetDrawAlpha(0.5f);
+    JonesFixedTick_BeginDraw();
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.z); // the root stays put
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, joints[1].dvec.x); // halfway between the poses
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.5f, joints[1].dvec.z);
+    JonesFixedTick_EndDraw();
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, joints[1].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[1].dvec.z);
+    TEST_ASSERT_EQUAL_INT(1, thing.renderData.bSkipBuildingJoints);
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
@@ -1335,4 +1424,5 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, ForceMoveStartDrawsTheTickJointsNotTheInterpolatedPosition);
     RUN_TEST_CASE(JonesFixedTick, ForceMovePoseBlendsBetweenTicks);
     RUN_TEST_CASE(JonesFixedTick, DrawLeavesNormalJointsAtTheTickPlacement);
+    RUN_TEST_CASE(JonesFixedTick, ForceMoveStartBlendsFromTheDrawnNormalPose);
 }
