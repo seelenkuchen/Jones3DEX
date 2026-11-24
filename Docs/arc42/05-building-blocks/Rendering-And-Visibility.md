@@ -849,8 +849,8 @@ it on and off.
 
 ### Per-pixel Lighting (M10.2)
 
-`engine.renderer.perPixelLighting` (Options > Display, **Lighting**: Classic or Per-pixel, Classic by default and
-forced in the Retail profile) moves the camera's dynamic lights out of the CPU vertex colour and into
+`engine.renderer.perPixelLighting` (Options > Display, **Lighting**: Classic or Per-pixel, Per-pixel by default in
+Enhanced and Classic forced in the Retail profile) moves the camera's dynamic lights out of the CPU vertex colour and into
 `std3d_lit.frag.hlsl`. It needs `engine.renderer.litFaces.enabled`; with lit faces off it behaves as Classic.
 Classic is byte-identical to before.
 

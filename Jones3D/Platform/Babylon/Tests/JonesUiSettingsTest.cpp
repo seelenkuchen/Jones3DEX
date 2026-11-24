@@ -540,7 +540,7 @@ TEST_CASE("the display frame rate row defaults to V-Sync")
     CHECK(pChoice->selected == 0u);
 }
 
-TEST_CASE("the display lighting row defaults to Classic and reads the config")
+TEST_CASE("the display lighting row defaults to Per-pixel in Enhanced and reads the config")
 {
     SettingsTestContext testContext;
     ConfigTest config;
@@ -564,15 +564,16 @@ TEST_CASE("the display lighting row defaults to Classic and reads the config")
     CHECK(pChoice->text == "Lighting");
     CHECK(pChoice->options == std::vector<std::string>{ "Classic", "Per-pixel" });
 #ifdef J3D_QOL_IMPROVEMENTS
-    CHECK(pChoice->selected == 0u);
+    // Enhanced defaults to Per-pixel (owner, 2026-11-24).
+    CHECK(pChoice->selected == 1u);
 
-    // A stored Per-pixel reaches the row in Enhanced, but Retail/QOL-off report Classic.
-    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, true));
+    // A stored Classic reaches the row in Enhanced, but Retail/QOL-off always report Classic.
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, false));
     model = JonesUiDisplay_LoadModel(&env, &settings, values);
     screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
     pChoice = std::get_if<babylon::ui::Choice>(&screen.widgets[layout.lighting]);
     REQUIRE(pChoice != nullptr);
-    CHECK(pChoice->selected == 1u);
+    CHECK(pChoice->selected == 0u);
 #else
     CHECK(pChoice->selected == 0u);
     REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, true));

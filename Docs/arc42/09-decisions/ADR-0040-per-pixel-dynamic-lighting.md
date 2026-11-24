@@ -21,7 +21,8 @@ The owner decided the shape in the M10 plan:
   subset.
 - The model sector light is not in the uploaded list (it is added only during each model draw), so the CPU keeps
   its contribution in the model base colour and only uploaded lights go per pixel.
-- Default Classic for now; the Retail profile forces Classic. Per-pixel needs lit faces; without them it behaves
+- Default Classic at first; the owner switched Enhanced to Per-pixel after the play-test (2026-11-24). The
+  Retail profile forces Classic. Per-pixel needs lit faces; without them it behaves
   as Classic.
 
 ## Decision

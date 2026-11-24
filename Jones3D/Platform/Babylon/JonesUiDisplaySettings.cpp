@@ -961,7 +961,7 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
         JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true);
     // Added: M10.2. Retail/QOL-off builds always report Classic, whatever the file says.
     model.bPerPixelLighting = J3D_QOL_VALUE(JonesUiDisplay_ReadConfigBool(
-        JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, false) != 0, 0) != 0;
+        JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, JONESDISPLAY_DEFAULT_PERPIXELLIGHTING) != 0, 0) != 0;
     model.gameplayFOV = sithCamera_GetGameplayFOV();
     model.renderScale = std::clamp(JonesUiDisplay_ReadConfigFloat(
         JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 1.0f), 0.5f, 2.0f);
