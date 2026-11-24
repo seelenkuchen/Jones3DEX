@@ -109,6 +109,11 @@ Babylon code (C++):
 
 Everywhere:
 
+- Follow SOLID ([Babylon-Design-Rules](Docs/arc42/08-crosscutting/Babylon-Design-Rules.md),
+  [Platform-Layer](Docs/arc42/05-building-blocks/Platform-Layer.md)): one job per file, class and module. A new
+  feature, stage or effect gets its own file; don't append it to an existing one. Files past about 800 lines are
+  split as part of the change that grows them, as a pure refactor. Recovered original files keep the
+  decompilation's layout.
 - Validate counts and sizes from files, configs, savegames, packets, scripts and the OS where they enter.
 - No platform types (Windows, SDL, graphics APIs) in shared headers above the backends.
 - Keep helpers `static` and types private unless another module needs them now. No abstractions without a
