@@ -1,4 +1,11 @@
 ## Jones3D EX (unreleased)
+### M10: Lighting
+  - **Options > Display** has a **Lighting** row (`engine.renderer.perPixelLighting`: Classic or Per-pixel;
+    Classic by default, forced in the Retail profile). Per-pixel evaluates the camera's dynamic lights per pixel
+    with N·L and the original radius ramp in the lit shader, and the CPU leaves those lights out of the lit vertex
+    colour so nothing counts twice: world GOURAUD keeps its baked static light, model GOURAUD and DIFFUSE keep the
+    per-draw sector light. It needs lit faces; with them off it behaves as Classic. Classic, sprites, particles,
+    polylines, the sky and the HUD are unchanged, and headless traces are identical either way (ADR-0040).
 ### M9: Presentation
 #### Gameplay
   - **Quick whip** on the Modern gamepad's LB now works wherever the whip can be used and is instant: the

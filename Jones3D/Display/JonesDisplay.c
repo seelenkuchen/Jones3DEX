@@ -52,6 +52,13 @@ static int JonesDisplay_dword_55332C;
 void JonesDisplay_ResetGlobals(void)
 {}
 
+void J3DAPI JonesDisplay_SetPerPixelLighting(int bEnable)
+{
+    // Added: M10.2. The Retail profile and QOL-off builds always stay Classic.
+    const bool bEnabled = J3D_QOL_VALUE(bEnable != 0, 0);
+    rdSetPerPixelLighting(bEnabled && rdGetLitFaces());
+}
+
 int J3DAPI JonesDisplay_Startup(JonesDisplaySettings* pSettings)
 {
     if ( !stdDisplay_Startup() )
@@ -326,6 +333,9 @@ int J3DAPI JonesDisplay_Open(JonesDisplaySettings* pSettings)
 
     rdSetGeometryMode(pSettings->geoMode);
     rdSetLitFaces(bLitFaces); // Added
+    // Added: M10.2 Lighting: Classic / Per-pixel, off by default and forced off in Retail/QOL-off
+    // builds. It takes effect only with lit faces, so the same call applies it here and from Options.
+    JonesDisplay_SetPerPixelLighting((int)stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, false));
     sithRender_SetLightingMode(pSettings->lightMode);
     sithRender_SetRenderFlags(sithRender_GetRenderFlags() | RDROID_USE_AMBIENT_CAMERA_LIGHT);
 

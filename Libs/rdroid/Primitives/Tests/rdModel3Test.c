@@ -52,6 +52,13 @@ static int rdModel3Test_bDidNestedDraw;
 static size_t rdModel3Test_numNestedFaces;
 static int rdModel3Test_bProcEntryNull;
 
+// Added: M10.2 model-lighting split inputs (vertex colors, intensities, normals and camera lights).
+static rdVector4 rdModel3Test_aVertexColors[8];
+static rdVector4 rdModel3Test_aLightIntensities[8];
+static rdVector3 rdModel3Test_aVertexNormals[8];
+static rdLight rdModel3Test_aLights[2];
+static bool rdModel3Test_bSavedPerPixelLighting;
+
 TEST_GROUP(rdModel3);
 
 rdCacheProcEntry* rdModel3Test_GetProcEntry(void)
@@ -157,12 +164,16 @@ TEST_SETUP(rdModel3)
     rdModel3Test_bProcEntryNull = 0;
     rdModel3_EnableFogRendering(0);
     rdModel3Test_pfPreviousDraw = rdModel3_RegisterFaceDraw(rdModel3_DrawFace);
+    rdModel3Test_bSavedPerPixelLighting = rdGetPerPixelLighting();
+    rdModel3_SetSectorLightNum(-1);
 }
 
 TEST_TEAR_DOWN(rdModel3)
 {
     rdModel3_RegisterFaceDraw(rdModel3Test_pfPreviousDraw);
     rdModel3_EnableFogRendering(0);
+    rdSetPerPixelLighting(rdModel3Test_bSavedPerPixelLighting);
+    rdModel3_SetSectorLightNum(-1);
     TEST_ASSERT_EQUAL_INT(0, J3DTest_GetAssertCount());
     rdModel3Test_pCamera = NULL;
     J3DTest_Shutdown();
@@ -325,6 +336,102 @@ TEST(rdModel3, TestNestedOrdinaryDrawClearsAndRestoresOuterFlags)
         RD_FF_TEX_TRANSLUCENT | RD_FF_ZWRITE_DISABLED);
 }
 
+TEST(rdModel3, PerPixelGouraudKeepsOnlyTheSectorLightInTheBaseColor)
+{
+    // M10.2: two camera lights, the second the per-draw sector light. In per-pixel mode the mesh's
+    // base intensities keep only the sector light (green); Classic keeps both (red and green).
+    rdModel3Test_InitQueuedDraw();
+    rdModel3Test_mesh.lightMode = RD_LIGHTING_GOURAUD;
+    rdModel3Test_mesh.aVertColors = rdModel3Test_aVertexColors;
+    rdModel3Test_mesh.aLightIntensities = rdModel3Test_aLightIntensities;
+    rdModel3Test_mesh.aVertNormals = rdModel3Test_aVertexNormals;
+    for ( size_t i = 0; i < STD_ARRAYLEN(rdModel3Test_aVertexNormals); ++i )
+    {
+        rdModel3Test_aVertexColors[i] = (rdVector4){ 0, 0, 0, 0 };
+        rdModel3Test_aLightIntensities[i] = (rdVector4){ 0, 0, 0, 0 };
+        rdModel3Test_aVertexNormals[i] = (rdVector3){ 0.0f, -1.0f, 0.0f };
+    }
+
+    // Both lights are straight below the mesh, so N.L is 1; maxRadius above minRadius keeps the
+    // full colour, and the first is the camera light, the second the sector light.
+    rdModel3Test_aLights[0] = (rdLight){ .type = 2, .bEnabled = 1, .color = { 0.5f, 0.0f, 0.0f, 0.0f },
+        .minRadius = 5000.0f, .maxRadius = 10000.0f, .num = 0 };
+    rdModel3Test_aLights[1] = (rdLight){ .type = 2, .bEnabled = 1, .color = { 0.0f, 0.5f, 0.0f, 0.0f },
+        .minRadius = 5000.0f, .maxRadius = 10000.0f, .num = 1 };
+    rdModel3Test_camera.numLights = 2u;
+    rdModel3Test_camera.aLights[0] = &rdModel3Test_aLights[0];
+    rdModel3Test_camera.aLights[1] = &rdModel3Test_aLights[1];
+    rdModel3Test_camera.aLightPositions[0] = (rdVector3){ 0.0f, -1000.0f, 0.0f };
+    rdModel3Test_camera.aLightPositions[1] = (rdVector3){ 0.0f, -1000.0f, 0.0f };
+    rdroid_g_curLightingMode = RD_LIGHTING_GOURAUD;
+
+    rdSetPerPixelLighting(true);
+    rdModel3_SetSectorLightNum(1);
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+    for ( size_t i = 0; i < rdModel3Test_mesh.numVertices; ++i )
+    {
+        TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, rdModel3Test_aLightIntensities[i].red);
+        TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.5f, rdModel3Test_aLightIntensities[i].green);
+        TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, rdModel3Test_aLightIntensities[i].blue);
+    }
+
+    // Classic: both lights, and the sector light is only a normal camera light.
+    rdSetPerPixelLighting(false);
+    rdModel3Test_numQueuedFaces = 0;
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+    for ( size_t i = 0; i < rdModel3Test_mesh.numVertices; ++i )
+    {
+        TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.5f, rdModel3Test_aLightIntensities[i].red);
+        TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.5f, rdModel3Test_aLightIntensities[i].green);
+        TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, rdModel3Test_aLightIntensities[i].blue);
+    }
+
+    rdSetPerPixelLighting(false);
+    rdModel3_SetSectorLightNum(-1);
+}
+
+TEST(rdModel3, PerPixelDiffuseKeepsOnlyTheSectorLightInTheFaceColor)
+{
+    // M10.2: the same split for a DIFFUSE face's plane-distance intensity: per-pixel keeps only the
+    // sector light, Classic keeps every camera light. attenuationMin 0 makes both full colour.
+    rdModel3Test_InitQueuedDraw();
+    rdModel3Test_renderOptions = 0; // draw the -Y face whatever side the camera is on
+    rdModel3Test_mesh.lightMode = RD_LIGHTING_DIFFUSE;
+    rdModel3Test_mesh.numFaces = 1u;
+    rdModel3Test_mesh.aFaces = &rdModel3Test_aFaces[3];
+    rdModel3Test_mesh.aFaces[0].lightingMode = RD_LIGHTING_DIFFUSE;
+
+    rdModel3Test_aLights[0] = (rdLight){ .type = 2, .bEnabled = 1, .color = { 0.5f, 0.0f, 0.0f, 0.0f },
+        .minRadius = 5000.0f, .maxRadius = 10000.0f, .num = 0 };
+    rdModel3Test_aLights[1] = (rdLight){ .type = 2, .bEnabled = 1, .color = { 0.0f, 0.5f, 0.0f, 0.0f },
+        .minRadius = 5000.0f, .maxRadius = 10000.0f, .num = 1 };
+    rdModel3Test_camera.numLights = 2u;
+    rdModel3Test_camera.aLights[0] = &rdModel3Test_aLights[0];
+    rdModel3Test_camera.aLights[1] = &rdModel3Test_aLights[1];
+    rdModel3Test_camera.aLightPositions[0] = (rdVector3){ 0.0f, -1000.0f, 0.0f };
+    rdModel3Test_camera.aLightPositions[1] = (rdVector3){ 0.0f, -1000.0f, 0.0f };
+    rdModel3Test_camera.attenuationMin = 0.0f;
+    rdModel3Test_camera.attenuationMax = 0.0f;
+    rdroid_g_curLightingMode = RD_LIGHTING_DIFFUSE;
+
+    rdSetPerPixelLighting(true);
+    rdModel3_SetSectorLightNum(1);
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+    TEST_ASSERT_EQUAL_size_t(1u, rdModel3Test_numQueuedFaces);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, rdModel3Test_aQueuedFaces[0].extraLight.red);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.5f, rdModel3Test_aQueuedFaces[0].extraLight.green);
+
+    rdSetPerPixelLighting(false);
+    rdModel3Test_numQueuedFaces = 0;
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+    TEST_ASSERT_EQUAL_size_t(1u, rdModel3Test_numQueuedFaces);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.5f, rdModel3Test_aQueuedFaces[0].extraLight.red);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.5f, rdModel3Test_aQueuedFaces[0].extraLight.green);
+
+    rdSetPerPixelLighting(false);
+    rdModel3_SetSectorLightNum(-1);
+}
+
 TEST_GROUP_RUNNER(rdModel3)
 {
     RUN_TEST_CASE(rdModel3, TestDrawFlagsPersistInDeferredFacesWithoutChangingAssets);
@@ -333,6 +440,8 @@ TEST_GROUP_RUNNER(rdModel3)
     RUN_TEST_CASE(rdModel3, TestFullVertexBufferDropsTheFaceWithoutDrawing);
     RUN_TEST_CASE(rdModel3, TestMeshOverTheVertexLimitIsNotDrawn);
     RUN_TEST_CASE(rdModel3, TestNestedOrdinaryDrawClearsAndRestoresOuterFlags);
+    RUN_TEST_CASE(rdModel3, PerPixelGouraudKeepsOnlyTheSectorLightInTheBaseColor);
+    RUN_TEST_CASE(rdModel3, PerPixelDiffuseKeepsOnlyTheSectorLightInTheFaceColor);
 }
 
 static void rdModel3Test_RunAll(void)

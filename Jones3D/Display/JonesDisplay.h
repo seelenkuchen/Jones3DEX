@@ -32,6 +32,7 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MAXTHINGCOLLECTDISTANCE   "engine.renderer.culling.culledSectorTraversal.maxThingCollectDistance"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MAXLIGHTCOLLECTDISTANCE   "engine.renderer.culling.culledSectorTraversal.maxLightCollectDistance"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED           "engine.renderer.litFaces.enabled" // Added: option A L3 (ADR-0023)
+#define JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING           "engine.renderer.perPixelLighting" // Added: M10.2 Lighting: Classic / Per-pixel
 #define JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE               "engine.renderer.renderScale" // Added: M9.4 internal 3D resolution
 #define JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING              "engine.renderer.antiAliasing" // Added: M9.8 SMAA 1x scene anti-aliasing
 #define JONESDISPLAY_CFG_ENGINE_RENDER_SHARPENING                "engine.renderer.sharpening" // Added: M9.9 contrast-adaptive sharpening
@@ -70,6 +71,10 @@ void J3DAPI JonesDisplay_SetDefaultVideoMode(const StdDisplayEnvironment* pEnv, 
 void J3DAPI JonesDisplay_ResolveFirstRunMode(const StdVideoMode* pDesktopMode,
     int bHasWidth, int width, int bHasHeight, int height,
     int* pWidth, int* pHeight);
+
+// Added: M10.2. Applies the Lighting option at once: per-pixel mode needs lit faces, so it is
+// forced off when they are off and in Retail/QOL-off builds. Presentation only.
+void J3DAPI JonesDisplay_SetPerPixelLighting(int bEnable);
 
 void J3DAPI JonesDisplay_EnableDualMonitor(int bEnable);
 int J3DAPI JonesDisplay_UpdateDualScreenWindowSize(const JonesDisplaySettings* pSettings);

@@ -99,6 +99,17 @@ void J3DAPI rdSetLightingMode(rdLightMode mode);
 bool rdGetLitFaces(void);
 void rdSetLitFaces(bool bEnable);
 
+// Added: M10.2 per-pixel dynamic lighting. When on, the CPU leaves the camera's dynamic
+// lights out of the lit vertex colour (world GOURAUD drops sithRender_BuildDynamicLights,
+// model GOURAUD/DIFFUSE drop the camera list but keep the per-draw sector light) and the
+// lit fragment shader adds them back per pixel from the std3D_SetLights list. Effective only
+// together with rdSetLitFaces: without lit faces it is off, so Classic stays byte-identical.
+// Presentation only; nothing that reaches simulation state reads it. Off after
+// rdroid_ResetGlobals; JonesDisplay sets it from Jones.cfg. Read when a face is handed to
+// rdCache and by rdModel3, so a change applies from the next frame on.
+bool rdGetPerPixelLighting(void);
+void rdSetPerPixelLighting(bool bEnable);
+
 void rdroid_ResetGlobals(void);
 
 J3D_EXTERN_C_END

@@ -26,10 +26,10 @@
 // with lit draws, or the first pass after the list changed, copies it into the light buffer, a
 // storage buffer made on first use (std3D_kLightBufferSize: a 16-byte header with the count, then
 // up to STD3D_MAXLIGHTS lights as they are), and the pass binds it to fragment storage slot 0 of
-// the lit draws. No shader reads it yet, so no pixel changes: a buffer std3d_lit.frag.hlsl doesn't
-// read would be dropped by its compiler, so it declares none, and SDL GPU keeps the binding without
-// passing it to a shader that declares none. Per-pixel lighting (option A L5) declares and reads it. Without lit draws and std3D_SetLights (the litFaces
-// option off) there is no light buffer and the classic draws' device calls stay what they were.
+// the lit draws. std3d_lit.frag.hlsl reads it for the vertices per-pixel lighting flags (M10.2);
+// a Classic vertex adds nothing, so its pixel is unchanged. Without lit draws and std3D_SetLights
+// (the litFaces option off) there is no light buffer and the classic draws' device calls stay what
+// they were.
 //
 // A scene is one or more passes on the back buffer. CommandList::updateBuffer can't be recorded
 // inside a pass, so a draw streams its vertices and indices into the frame's vertex and index
@@ -44,6 +44,7 @@
 #include <std/General/std.h>
 #include <std/General/stdColor.h>
 #include <std/General/stdConfig.h>
+#include <std/General/stdEffect.h>
 #include <std/General/stdMath.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -1208,6 +1209,10 @@ namespace
             : ((std3D_renderState & STD3D_RS_SURFACE_WATER) != 0
                 ? stdRenderBabylon_kSurfaceTags.water
                 : stdRenderBabylon_kSurfaceTags.ordinary);
+        // Added: M10.2. rdCache applies this factor to the base colour; the per-pixel light sum uses
+        // it too, so a fading scene fades its dynamic lighting with it.
+        const tStdFadeFactor* pFadeFactor = stdEffect_GetFadeFactor();
+        uniforms.aSurfaceTag[1] = pFadeFactor->bEnabled ? pFadeFactor->factor : 1.0f;
         return uniforms;
     }
 

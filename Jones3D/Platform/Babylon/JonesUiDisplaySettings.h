@@ -64,6 +64,8 @@ struct JonesUiDisplayValues
     std::size_t performance = 0;
     bool bHiPoly = false;
     bool bLitFaces = false;
+    // Added: M10.2 Lighting: Classic (false) or Per-pixel (true).
+    bool bPerPixelLighting = false;
     double gameplayFOV = 90.0; // Added: Field of view, horizontal degrees at 4:3.
     // Added: index into the render scale choices (50..200%, 100% at index 3).
     std::size_t renderScale = 3;
@@ -120,6 +122,7 @@ struct JonesUiDisplayLayout
     std::size_t performance = 0;
     std::size_t hiPoly = 0;
     std::size_t litFaces = 0;
+    std::size_t lighting = 0; // Added: M10.2 Lighting: Classic / Per-pixel
     std::size_t gameplayFOV = 0; // Added
     std::size_t renderScale = 0;
     std::size_t antiAliasing = 0; // Added
@@ -161,6 +164,7 @@ struct JonesUiDisplayModel
     int perfLevel = 4;
     bool bHiPoly = false;
     bool bLitFaces = false;
+    bool bPerPixelLighting = false; // Added: engine.renderer.perPixelLighting
     float gameplayFOV = 90.0f; // Added: sithCamera_GetGameplayFOV()
     float renderScale = 1.0f;
     int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA

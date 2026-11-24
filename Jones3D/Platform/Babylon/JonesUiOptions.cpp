@@ -349,6 +349,10 @@ namespace
             "Use the high-polygon models; the game must restart to apply the change.";
         screen.help[layout.litFaces] =
             "Light world faces when the display reopens.";
+        screen.help[layout.lighting] =
+            "Classic bakes the dynamic lights into the vertices; Per-pixel computes them for "
+            "every pixel, so torches and headlights fade smoothly across surfaces. Needs lit "
+            "faces; applies at once.";
         screen.help[layout.gameplayFOV] =
             "Set how wide the view is. It changes only the picture, not the game.";
         screen.help[layout.renderScale] =

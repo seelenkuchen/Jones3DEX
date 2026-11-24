@@ -540,6 +540,50 @@ TEST_CASE("the display frame rate row defaults to V-Sync")
     CHECK(pChoice->selected == 0u);
 }
 
+TEST_CASE("the display lighting row defaults to Classic and reads the config")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+
+    REQUIRE(layout.lighting < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.lighting]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Lighting");
+    CHECK(pChoice->options == std::vector<std::string>{ "Classic", "Per-pixel" });
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(pChoice->selected == 0u);
+
+    // A stored Per-pixel reaches the row in Enhanced, but Retail/QOL-off report Classic.
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, true));
+    model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+    pChoice = std::get_if<babylon::ui::Choice>(&screen.widgets[layout.lighting]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->selected == 1u);
+#else
+    CHECK(pChoice->selected == 0u);
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, true));
+    model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+    pChoice = std::get_if<babylon::ui::Choice>(&screen.widgets[layout.lighting]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->selected == 0u);
+#endif
+}
+
 TEST_CASE("the display screen OK writes the chosen settings and config")
 {
     SettingsTestContext testContext;
@@ -563,11 +607,11 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
-    // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 light shafts, 14 ambient occlusion, 15 motion blur, 16 lens flare, 17 vignette,
-    // 18 film grain, 19 water ripples, 20 depth of field (cutscenes), 21 depth of field (gameplay),
-    // 22 sharpening, 23 tone mapping, 24 exposure, 25 colour grading, 26 anisotropic filtering,
-    // 27 crisp pixels, 28 frame rate limit, 29 Brightness..., 30 OK, 31 back.
+    // 7 hi-poly, 8 lit faces, 9 lighting, 10 field of view, 11 render scale, 12 anti-aliasing,
+    // 13 bloom, 14 light shafts, 15 ambient occlusion, 16 motion blur, 17 lens flare, 18 vignette,
+    // 19 film grain, 20 water ripples, 21 depth of field (cutscenes), 22 depth of field (gameplay),
+    // 23 sharpening, 24 tone mapping, 25 exposure, 26 colour grading, 27 anisotropic filtering,
+    // 28 crisp pixels, 29 frame rate limit, 30 Brightness..., 31 OK, 32 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -585,6 +629,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Enter); // hi-poly off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // lit faces off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Right); // lighting Classic -> Per-pixel
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Left); // field of view 90 -> 89
     testContext.platform.PushKey(platform::Key::Down);  // render scale
@@ -653,6 +699,12 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_GRAPHICS_PERFORMANCELEVEL, -1) == 2);
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_HIPOLY, true));
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LITFACESENABLED, true));
+#ifdef J3D_QOL_IMPROVEMENTS
+    // The Lighting row moved to Per-pixel; the Retail profile and QOL-off builds write Classic.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, false));
+#else
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING, true));
+#endif
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_FOV, 0.0f) == doctest::Approx(89.0f));
     CHECK(sithCamera_GetGameplayFOV() == doctest::Approx(89.0f));
     CHECK(stdConfig_GetFloat(JONESDISPLAY_CFG_ENGINE_RENDER_RENDERSCALE, 0.0f)
@@ -1842,10 +1894,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 28).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 29).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 28; ++row )
+    for ( int row = 0; row < 29; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

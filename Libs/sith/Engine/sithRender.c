@@ -1511,7 +1511,10 @@ void sithRender_RenderThings(void)
                             sithRender_aSectorPointLights[sithRender_numSectorPointLights].minRadius = pSector->light.minRadius;
                             sithRender_aSectorPointLights[sithRender_numSectorPointLights].maxRadius = pSector->light.maxRadius;
 
+                            const size_t numLightsBefore = rdCamera_g_pCurCamera->numLights;
                             rdCamera_AddLight(rdCamera_g_pCurCamera, &sithRender_aSectorPointLights[sithRender_numSectorPointLights], &pSector->light.pos);
+                            rdModel3_SetSectorLightNum(rdCamera_g_pCurCamera->numLights > numLightsBefore
+                                ? (int)rdCamera_g_pCurCamera->numLights - 1 : -1); // Added: M10.2 per-pixel keeps this light in the model base
                             bLightSet = true;
                         }
                     }break;
@@ -1585,6 +1588,7 @@ void sithRender_RenderThings(void)
                 if ( bLightSet == 1 )
                 {
                     --rdCamera_g_pCurCamera->numLights;
+                    rdModel3_SetSectorLightNum(-1); // Added: M10.2 the sector light is no longer in the list
                     bLightSet = false;
                 }
             }
@@ -1842,9 +1846,21 @@ int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSe
 
     const rdMatrix34* pView = &rdCamera_g_pCurCamera->viewMatrix;
 
+    // Added: M10.2. Per-pixel world GOURAUD keeps its baked vertex light and the shader adds the
+    // dynamic lights; LIT and DIFFUSE never read the intensities, so they stay on the classic call.
+    rdLightMode resolvedMode = pSurf->face.lightingMode;
+    if ( resolvedMode >= sithRender_lightMode )
+    {
+        resolvedMode = sithRender_lightMode;
+    }
+    const bool bBakedOnly = rdGetPerPixelLighting() && resolvedMode == RD_LIGHTING_GOURAUD;
+
     rdVector3 viewNormal;
     rdMatrix_TransformVector34(&viewNormal, &pSurf->face.normal, pView);
-    if ( !rdClip_FaceToPlaneLit(pSector->pClipFrustum, pPoly, &pSurf->face, pWorld->aTransformedVertices, pWorld->aTexVerticies, pWorld->aVertDynamicLights, pSurf->aIntensities, NULL, &viewNormal) )
+    const int clipResult = bBakedOnly
+        ? rdClip_FaceToPlaneLitBaked(pSector->pClipFrustum, pPoly, &pSurf->face, pWorld->aTransformedVertices, pWorld->aTexVerticies, pWorld->aVertDynamicLights, pSurf->aIntensities, NULL, &viewNormal)
+        : rdClip_FaceToPlaneLit(pSector->pClipFrustum, pPoly, &pSurf->face, pWorld->aTransformedVertices, pWorld->aTexVerticies, pWorld->aVertDynamicLights, pSurf->aIntensities, NULL, &viewNormal);
+    if ( !clipResult )
     {
         return 0;
     }

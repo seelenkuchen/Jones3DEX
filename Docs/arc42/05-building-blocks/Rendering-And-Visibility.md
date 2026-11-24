@@ -834,15 +834,66 @@ Since M6.9b2 the game fills them, behind the presentation option `engine.rendere
 
 ### The Frame's Light List (M6.9c)
 
-With the same option the renderer also gets the frame's lights, for per-pixel lighting (option A L5, M10), which nothing reads yet:
+With the same option the renderer also gets the frame's lights, for per-pixel lighting (option A L5, M10.2):
 
 - **`sithRender_Draw`**, after the visible sector and thing lists and `sithRender_BuildDynamicLights`, calls **`rdCamera_BuildStdLights`** and **`std3D_SetLights`** once per frame. The list is the rdroid camera's: the thing lights and head lights the visibility pass collected through `rdCamera_AddLight`, in that order and up to `RDCAMERA_MAX_LIGHTS` (128, equal to `STD3D_MAXLIGHTS`), so nothing new is selected. It is read only. Not in it: the sector point light `sithRender_RenderThings` adds around each model and removes after it, and the per-sector subset `sithRender_BuildDynamicLights` picks (lights whose `minRadius` reaches the sector's bounding sphere); per-pixel lighting has to apply those rules itself.
 - **`StdLight`** (`Libs/std/types.h`, 48 bytes, three groups of four 32-bit values): the view-space position (the camera's view matrix applied to the light's world position) and `minRadius`; the color (`rdLight.color`, alpha as stored); `maxRadius`, the camera's `attenuationMin` and `attenuationMax`, and flags (`STD_LIGHT_ENABLED` for `rdLight.bEnabled`). These are all the inputs of `rdLight_CalcVertexIntensities` (full intensity within `maxRadius`, linear to zero at `minRadius`, times the normal's cosine), `rdLight_CalcFaceIntensity` (plane distance times `attenuationMin` subtracted, within `minRadius`, enabled lights only) and the dynamic vertex lights (distance times `attenuationMax` subtracted, within `maxRadius`, clamped to 0..1). `rdLight.type` (always 2, a point light) and `direction` are read by none of them and are left out.
-- **Babylon `std3D`** copies the list into a storage buffer (made on first use: a 16-byte header with the count, then the lights as they are) in the first scene pass after it changed, before the pass, and binds it to fragment storage slot 0 of the pass's lit draws. `std3d_lit.frag.hlsl` declares no buffer yet (its compiler drops one nothing reads), so its compiled code and colour are unchanged; SDL GPU keeps the binding without passing it on. A test shader in Babylon's render tests reads a storage buffer on lavapipe. The Null `std3D` ignores the call.
+- **Babylon `std3D`** copies the list into a storage buffer (made on first use: a 16-byte header with the count, then the lights as they are) in the first scene pass after it changed, before the pass, and binds it to fragment storage slot 0 of the pass's lit draws. `std3d_lit.frag.hlsl` declares it and reads it only for vertices that ask for per-pixel lights (M10.2). A test shader in Babylon's render tests reads a storage buffer on lavapipe. The Null `std3D` ignores the call.
 - **Off**: no `std3D_SetLights`, no lit draws, no light buffer; the classic device calls exactly as before.
 - **Capture**: `std3D_SetLights` records as id 36 ([RCAP](../../Formats/RCAP.md)); older captures replay unchanged.
 
-The option is presentation, not part of the Retail or Enhanced simulation profile: the colour is the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with it on and off.
+The option is presentation, not part of the Retail or Enhanced simulation profile: with Classic the colour is
+the same either way, and the visibility pass, `SITH_SECTOR_SEEN` and everything else that reaches simulation state
+run the same code; the load-time allocation touches no world, thing or random state, so traces are identical with
+it on and off.
+
+### Per-pixel Lighting (M10.2)
+
+`engine.renderer.perPixelLighting` (Options > Display, **Lighting**: Classic or Per-pixel, Classic by default and
+forced in the Retail profile) moves the camera's dynamic lights out of the CPU vertex colour and into
+`std3d_lit.frag.hlsl`. It needs `engine.renderer.litFaces.enabled`; with lit faces off it behaves as Classic.
+Classic is byte-identical to before.
+
+One formula lights every per-pixel surface: the model GOURAUD one from `rdLight_CalcVertexIntensities`. For each
+light in the uploaded list with `STD_LIGHT_ENABLED`, let `d = |lightPos - p|`; it adds nothing if `d >= minRadius`
+or `N·L <= 0`, adds `color * N·L` inside `maxRadius`, and ramps linearly to zero at `minRadius` outside it.
+`p` and `N` are the lit vertex's interpolated view-space position and normal; the light positions are in the same
+rdroid camera space (the shader turns both into the normal target's space with `(x, z, -y)`). There is no
+specular, no shadow, no per-sector subset and no new light selection: the shader iterates the frame's list, which
+keeps the original order and cap. World and model surfaces therefore use the same N·L rule (the old world
+distance-only formula is Classic's alone), which stops light leaking around corners at the cost of a different
+look on levels lit for the old formula.
+
+What the CPU keeps in the lit vertex colour, so nothing counts twice:
+
+| Geometry (resolved mode) | Classic | Per-pixel base colour | Shader adds |
+| --- | --- | --- | --- |
+| World `GOURAUD` | baked `aIntensities` + `sithRender_BuildDynamicLights`, clamped, + `extraLight` | baked `aIntensities` + `extraLight` (`rdClip_FaceToPlaneLitBaked`) | the uploaded lights |
+| World `DIFFUSE` | `extraLight` (the dynamic intensities are ignored) | same | the uploaded lights |
+| World `LIT` / `NONE` | `extraLight` / none | same | nothing |
+| Model `GOURAUD` | `aVertColors` + all camera lights (sector light included) + `extraLight` + camera ambient | `aVertColors` + the sector light + `extraLight` + camera ambient | the uploaded lights |
+| Model `DIFFUSE` | `faceIntensity` from all camera lights + `extraLight` + camera ambient | sector-light `faceIntensity` + `extraLight` + camera ambient | the uploaded lights (with the lit face normal) |
+| Model `LIT` / `NONE` | `extraLight` + camera ambient | same | nothing |
+| Sprites, particles, polylines, sky, HUD | unchanged | unchanged | nothing, they never use the lit shaders |
+
+The **model sector light** is added to the camera list only around each model draw, so it is not in the uploaded
+list. `sithRender_RenderThings` records its camera-list index with `rdModel3_SetSectorLightNum`; in per-pixel mode
+`rdModel3_DrawMesh`/`rdModel3_DrawFace` calculate the mesh's GOURAUD intensities and DIFFUSE face intensity from
+that light alone, keeping its contribution in the base colour exactly as before. Every other camera light goes
+per pixel. Models drawn outside that path (no sector light recorded) keep the classic camera-list lighting.
+
+The shader learns per face whether to add lights from the unused specular color's blue byte: `rdCache` writes
+`0xFFFFFFFF` for a resolved `GOURAUD` or `DIFFUSE` lit face and 0 for `LIT`/`NONE` in per-pixel mode, and leaves
+every vertex as it was in Classic, so Classic vertices, captures and pixels are unchanged. The screen fade factor
+`rdCache_SendFaceListToHardware` applies to the base colour is passed to the shader in the fragment uniform block
+(`gSurfaceTag.y`, 1.0 when no fade is active) and multiplies the light sum. The fragment colour is
+`texture * saturate(base.rgb + dynamic)`, then fog as before; the normal target and its surface tag are unchanged.
+The `--render gpu` replay reads the same flag bytes from a per-pixel capture, so it lights the frame the same way.
+
+The option applies at once through `rdSetPerPixelLighting` (the Display OK calls it), still gated on the current
+lit-faces state; `JonesDisplay_Open` also sets it from the config. The CPU split touches only renderer-side data:
+`sithRender_BuildDynamicLights` may keep running, the visibility pass and simulation state are untouched, and
+headless traces are identical with the option on and off.
 
 ### Lighting terms (M10.1 audit)
 

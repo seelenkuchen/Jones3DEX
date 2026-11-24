@@ -296,6 +296,35 @@ TEST(rdClip, AClassicEntryGetsWhatFaceToPlaneWrites)
         sizeof(rdClipTest_lit) - arraysOffset);
 }
 
+TEST(rdClip, ABakedFaceKeepsOnlyTheVertexColors)
+{
+    // M10.2: rdClip_FaceToPlaneLitBaked writes the per-corner baked colors, without adding the
+    // dynamic light colors and without the 0..1 clamp, and fills the same view-space vectors.
+    const int aIdxs[3] = { 0, 1, 2 };
+    rdClipTest_InitEntry(&rdClipTest_lit, true);
+    rdClipTest_InitEntry(&rdClipTest_classic, true);
+    const rdFace* pFace = rdClipTest_Face(aIdxs, 3u);
+    TEST_ASSERT_EQUAL_INT(1, rdClip_FaceToPlaneLitBaked(&rdClipTest_frustum, &rdClipTest_lit.entry, pFace,
+        rdClipTest_aVerts, rdClipTest_aTexVerts, rdClipTest_aLightColors, rdClipTest_aVertColors,
+        rdClipTest_aNormals, NULL));
+    TEST_ASSERT_EQUAL_INT(1, rdClip_FaceToPlaneLit(&rdClipTest_frustum, &rdClipTest_classic.entry, pFace,
+        rdClipTest_aVerts, rdClipTest_aTexVerts, rdClipTest_aLightColors, rdClipTest_aVertColors,
+        rdClipTest_aNormals, NULL));
+
+    TEST_ASSERT_EQUAL_MEMORY(rdClipTest_aVertColors, rdClipTest_lit.aIntensities,
+        sizeof(rdClipTest_aVertColors));
+    TEST_ASSERT_EQUAL_MEMORY(rdClipTest_classic.aVertices, rdClipTest_lit.aVertices,
+        sizeof(rdClipTest_lit.aVertices));
+    TEST_ASSERT_EQUAL_MEMORY(rdClipTest_classic.aViewVertices, rdClipTest_lit.aViewVertices,
+        sizeof(rdClipTest_lit.aViewVertices));
+    TEST_ASSERT_EQUAL_MEMORY(rdClipTest_classic.aViewNormals, rdClipTest_lit.aViewNormals,
+        sizeof(rdClipTest_lit.aViewNormals));
+
+    // The classic call did add the light colors: the two intensities differ where the sum changed.
+    TEST_ASSERT_TRUE(memcmp(rdClipTest_aVertColors, rdClipTest_classic.aIntensities,
+        sizeof(rdClipTest_aVertColors)) != 0);
+}
+
 TEST_GROUP_RUNNER(rdClip)
 {
     RUN_TEST_CASE(rdClip, AFaceInsideKeepsItsPositionsAndRenormalizedVertexNormals);
@@ -305,4 +334,5 @@ TEST_GROUP_RUNNER(rdClip)
     RUN_TEST_CASE(rdClip, AFaceCrossingPlanesIsKeptWholeWithoutInterpolation);
     RUN_TEST_CASE(rdClip, AFaceOutsideIsCulledAndWritesNothing);
     RUN_TEST_CASE(rdClip, AClassicEntryGetsWhatFaceToPlaneWrites);
+    RUN_TEST_CASE(rdClip, ABakedFaceKeepsOnlyTheVertexColors);
 }
