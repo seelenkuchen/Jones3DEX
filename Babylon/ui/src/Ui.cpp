@@ -1244,16 +1244,17 @@ struct Ui::State
         setFocus(state, next);
     }
 
-    void moveSelection(ScreenState& state, int direction)
+    // Moves a focused list's selection one row; false when there is no row in that direction.
+    bool moveSelection(ScreenState& state, int direction)
     {
         if ( state.focus == kNoWidget )
         {
-            return;
+            return false;
         }
         List* list = get<List>(state.screen.widgets[state.focus]);
         if ( list == nullptr || list->items.empty() )
         {
-            return;
+            return false;
         }
         const long current = static_cast<long>(std::min(list->selected,
             list->items.size() - 1));
@@ -1270,19 +1271,25 @@ struct Ui::State
             {
                 events.emplace_back(SoundCue{ skin.focusSound });
             }
+            return true;
         }
+        return false;
     }
 
+    // Up and down move a focused list's selection; past its first or last row they leave the list
+    // like any other widget, so a pad without Tab reaches the widgets above and below it.
     void navigateVertical(ScreenState& state, int direction)
     {
         if ( state.focus != kNoWidget
-            && get<List>(state.screen.widgets[state.focus]) != nullptr )
+            && get<List>(state.screen.widgets[state.focus]) != nullptr
+            && moveSelection(state, direction) )
         {
-            moveSelection(state, direction);
+            return;
         }
-        else
+        const std::size_t next = nextFocusable(state, state.focus, direction);
+        if ( next != state.focus )
         {
-            moveFocus(state, direction);
+            setFocus(state, next);
         }
     }
 

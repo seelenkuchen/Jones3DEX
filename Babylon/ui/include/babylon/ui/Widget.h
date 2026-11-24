@@ -137,8 +137,10 @@ namespace babylon::ui
         bool operator==(const ListItem&) const = default;
     };
 
-    // A scrolling selection list. When focused, up/down move the selection
-    // and accept reports action together with the selected row's id in an
+    // A scrolling selection list. When focused, up/down move the selection;
+    // past the first or last row (or in an empty list) they move the focus
+    // to the widget above or below, so a gamepad without Tab can leave the
+    // list. The selection is kept for when focus returns. Accept reports action together with the selected row's id in an
     // ActionPressed event. The mouse wheel scrolls without moving the
     // selection, and a click selects the row under the pointer. Every user
     // change of the selected row reports SelectionChanged. A list reserves

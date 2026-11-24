@@ -67,7 +67,8 @@ namespace babylon::ui
 
         // The widgets from top to bottom. Focus skips labels, images and
         // disabled widgets. A list takes over up/down for its own selection
-        // while it has focus; see List.
+        // while it has focus, and passes them on past its first and last
+        // row; see List.
         std::vector<Widget> widgets;
 
         // The tab labels of a tabbed screen, in display order. Empty draws

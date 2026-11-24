@@ -492,6 +492,63 @@ TEST_CASE("list selection reports SelectionChanged and the wheel does not select
     CHECK(action->item == 2);
 }
 
+TEST_CASE("up and down leave a list past its first and last row")
+{
+    NullPainter painter;
+    cvars::Registry registry;
+    Ui ui(painter, registry);
+    REQUIRE(ui.setViewport(640, 480));
+
+    Screen screen;
+    screen.title = "Saves";
+    List list;
+    for ( std::int64_t i = 0; i < 2; ++i )
+    {
+        list.items.push_back(ListItem{ "Row " + std::to_string(i), 0, i });
+    }
+    list.action = 9;
+    screen.widgets = { Button{ "Above", 1, true }, list, Button{ "Below", 2, true } };
+    screen.initialFocus = 1;
+    REQUIRE(ui.push(screen) != kInvalidScreen);
+
+    // Down moves through the rows, then on to the widget below the list.
+    tap(ui, platform::Key::Down);
+    std::vector<UiEvent> events = drain(ui);
+    const SelectionChanged* selection = findEvent<SelectionChanged>(events);
+    REQUIRE(selection != nullptr);
+    CHECK(selection->row == 1);
+
+    tap(ui, platform::Key::Down);
+    tap(ui, platform::Key::Enter);
+    events = drain(ui);
+    const ActionPressed* action = findEvent<ActionPressed>(events);
+    REQUIRE(action != nullptr);
+    CHECK(action->action == 2);
+
+    // Up re-enters the list on its kept row, moves up through it and leaves it above.
+    tap(ui, platform::Key::Up);
+    tap(ui, platform::Key::Up);
+    tap(ui, platform::Key::Up);
+    tap(ui, platform::Key::Enter);
+    events = drain(ui);
+    action = findEvent<ActionPressed>(events);
+    REQUIRE(action != nullptr);
+    CHECK(action->action == 1);
+
+    // The pad's d-pad does the same as the arrow keys.
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, true)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, false)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, true)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, false)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, true)));
+    ui.handleEvent(platform::Event(padButtonEvent(platform::GamepadButton::DpadDown, false)));
+    tap(ui, platform::Key::Enter);
+    events = drain(ui);
+    action = findEvent<ActionPressed>(events);
+    REQUIRE(action != nullptr);
+    CHECK(action->action == 2);
+}
+
 TEST_CASE("binding capture handles key, mouse, gamepad button and axis")
 {
     SUBCASE("key")
