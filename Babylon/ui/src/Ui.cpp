@@ -2590,12 +2590,6 @@ struct Ui::State
         textRect.width = std::max(0.0f, textRect.width - row.textInset);
         const Color color = disabled ? skin.textDisabled
             : (focused ? skin.textFocused : skin.text);
-        if ( focused && !skin.focusMarker.empty() )
-        {
-            drawRowText(skin.textFont, skin.focusMarker,
-                Rect{ rect.x, rect.y, row.markerWidth, skin.rowHeight },
-                TextAlign::Left, skin.textFocused);
-        }
         float y = rect.y;
         if ( !list.text.empty() )
         {
@@ -2609,6 +2603,22 @@ struct Ui::State
             [](const ListItem& item) { return item.image != 0; });
         const std::size_t visible = std::min(kListVisibleRows,
             list.items.size() - std::min(offset, list.items.size()));
+
+        // A focused list marks its selected row with the focus marker; the other rows keep the
+        // normal text colour, so a skin without a highlight fill still shows the selection.
+        if ( focused && !skin.focusMarker.empty() )
+        {
+            float markerY = rect.y;
+            if ( list.selected >= offset && list.selected < offset + visible )
+            {
+                markerY = y + static_cast<float>(list.selected - offset) * skin.rowHeight;
+            }
+            drawRowText(skin.textFont, skin.focusMarker,
+                Rect{ rect.x, markerY, row.markerWidth, skin.rowHeight },
+                TextAlign::Left, skin.textFocused);
+        }
+
+        const Color& itemColor = disabled ? skin.textDisabled : skin.text;
         for ( std::size_t i = 0; i < visible; ++i )
         {
             const std::size_t itemIndex = offset + i;
@@ -2635,7 +2645,7 @@ struct Ui::State
             drawRowText(skin.textFont, item.text,
                 Rect{ textX, itemRect.y, std::max(0.0f, textWidth), itemRect.height },
                 TextAlign::Left,
-                itemIndex == list.selected ? skin.textFocused : color);
+                itemIndex == list.selected && !disabled ? skin.textFocused : itemColor);
         }
     }
 
