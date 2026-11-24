@@ -666,3 +666,36 @@ force-move-style variant with a root animation offset, then check the drawn rebu
 they fail with the old clear-skip handling. The jump/fall harness used for the earlier pose work does not hit
 the path/force-move skip path in the recorded save, so it reports no displaced sample joints with or without
 this change; the climb/pull-up moves are the case to replay on a real display.
+
+## M9.24d force moves, attached things and the owner's draw trace
+
+The owner's play-tests after M9.24c found five more fixed-tick artefacts. All were found with a dev-only draw
+trace of the owner's own run (one line per drawn frame: tick, alpha, the player's placement, sample joints, the
+stamp and skip flag) and fixed in `JonesFixedTick.c`; each has a unit test that fails on the code before it.
+
+- **Crossfade from a force-move pose.** The whole-pose crossfade rebuilt the previous tick's skeleton at that
+  tick's position. When the previous tick was a force move, its root motion was already in the position, so the
+  rebuild added it twice and Indy popped up for a frame as a hang or climb ended. The thing snapshot now records
+  `bSkipBuildingJoints`, and such a skeleton is rebuilt the way the simulation builds it: at the origin, root
+  shifted onto the position.
+- **The first force-move tick.** The tick that starts a force move moves the thing position by the animation's
+  root offset while the root joint stays put. Pinning the root to the interpolated position (which still blends
+  from the old one) lifted the whole body for that tick: a one-frame pop as every jump started.
+- **Limbs stepping at 50 Hz.** A skipped-joint skeleton changes only when a tick rebuilds it, so during climbs and
+  pull-ups the limbs moved in 50 Hz steps while the placement moved every frame. `BeforeTick` now keeps each
+  skipped-joint thing's joints as the previous tick's skeleton, and the drawn frame blends it with the current
+  one (both are world matrices with the root where it really is). This replaces the M9.24c transform except as a
+  fallback.
+- **Stale joints for the simulation.** A normal model's joints are built only by the draw, and the simulation
+  reads the last built ones: things attached to a mesh (the whip in Indy's hand, the lighter and its light) take
+  their placement from them each tick. M9.24c's `EndDraw` restored the copy saved before the draw, which for such
+  models can be many frames old (last refreshed by a force move), so the whip hung on an old hand pose and the
+  lighter's light stayed where Indy had climbed. `EndDraw` now rebuilds a drawn normal model's joints at the tick
+  placement, as the original draw would have left them; skipped-joint models keep the simulation's exact copy.
+- **Blending into a force move.** Those rebuilt normal skeletons are marked fresh, so the first force-move tick
+  blends from the hang or stand pose like every later force-move tick instead of snapping (a foot jump at the
+  start of climbs and pull-ups in the owner's trace).
+
+The owner's last trace (35,000 drawn frames, about 165 per second, climbs, pull-ups, whip, lighter, swimming)
+shows no single-frame displacement of the player's position, sample joints or camera. With the tick off
+(`BeginDraw`/`EndDraw` are inert) and in the Retail profile the headless traces are unchanged.
