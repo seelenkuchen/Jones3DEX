@@ -269,7 +269,7 @@ startup and a stable module-level CTest entry.
 | `jones3dTests` | `Jones3D.Main` | `JonesMain` video mode lookup | Available |
 | `soundTests` | `sound` | Deterministic lip-sync generation and lookup, AudioLib codec and header vectors | Available |
 | `smushTests` | `smush` | INSANE movie player: core, bitmap, codec, sound, stream areas and original-engine assembly vectors | Available |
-| `sithTests` | `sith` | World thing/template I/O, voice lip-sync, camera interpolation, player physics at the original 50 Hz step, and the cogstatus console command bounds | Available |
+| `sithTests` | `sith` | World thing/template I/O, voice lip-sync, camera interpolation, player physics at the original 50 Hz step, smoothed level surface normals, and the cogstatus console command bounds | Available |
 | `sithInteractionTests` | `sith.Interaction` | Interaction prompt target query and each press share the same surface, thing, item, movable object, climb-on, climb-wall and pull-up decision; Use/Pick up require an activated handler on a linked COG; excluded cases leave no prompt; repeated queries leave the collision scratch unchanged | Available |
 | `sithThingQuetzVecTests` | `sith.ThingQuetz` | Original-engine vectors of the Quetz tail functions (world-state harness, `Libs/sith/Tests/Vec`) | Available |
 | `sithAIInstinctVecTests` | `sith.AIInstinct` | Original-engine vectors of the instinct registration (world-state harness) | Available |

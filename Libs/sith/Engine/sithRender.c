@@ -83,8 +83,8 @@ typedef struct sSithRenderSectorQueue
 #define SITHRENDER_MAXSCREENSHOTS 100u
 
 // Added: option A L3 (ADR-0023). Surfaces whose normals are less than this many degrees apart share a
-// smoothed normal at the vertices they share (rdFace_CalcSmoothNormals); wider edges stay hard. A
-// starting value: it is tuned on cave levels with per-pixel lighting (M10).
+// smoothed normal at the vertices they share (rdFace_CalcSmoothNormals); wider edges stay hard. The
+// threshold is in degrees; every lit draw uses the result (Classic's normal target and per-pixel N.L).
 #define SITHRENDER_SMOOTHNORMAL_MAXANGLE 45.0f
 
 // Render state vars
@@ -200,6 +200,7 @@ static void sithRender_MarkThingSeen(SithThing* pThing);
 
 static void sithRender_BuildSmoothNormals(void); // Added
 static void sithRender_FreeSmoothNormals(void); // Added
+static void sithRender_ApplySmoothNormals(rdCacheProcEntry* pPoly, const SithWorld* pWorld, const SithSurface* pSurf, const rdMatrix34* pView); // Added
 static int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSector, const SithSurface* pSurf, bool bLit); // Added
 
 void sithRender_ResetGlobals(void)
@@ -1762,8 +1763,8 @@ void sithRender_BuildSmoothNormals(void)
 {
     // Added: option A L3 (ADR-0023). Levels store a face normal per surface only; the lit path's
     // vertex normals are the surfaces' corners smoothed across edges under
-    // SITHRENDER_SMOOTHNORMAL_MAXANGLE. Sky surfaces are drawn classic and never smooth a neighbour.
-    // Only renderer-side memory is touched: no world, thing or RNG state.
+    // SITHRENDER_SMOOTHNORMAL_MAXANGLE. Sky surfaces are drawn classic and never smooth a
+    // neighbour. Only renderer-side memory is touched: no world, thing or RNG state.
     sithRender_FreeSmoothNormals();
 
     const SithWorld* pWorld = sithWorld_g_pCurrentWorld;
@@ -1772,10 +1773,32 @@ void sithRender_BuildSmoothNormals(void)
         return;
     }
 
+    // Added: counts come from the level data, so reject values the allocations below cannot hold.
+    if ( pWorld->numSurfaces > SIZE_MAX / sizeof(const rdFace*)
+        || pWorld->numSurfaces > SIZE_MAX / sizeof(bool)
+        || pWorld->numSurfaces > SIZE_MAX / sizeof(size_t) )
+    {
+        SITHLOG_WARNING("sithRender: the surface count is too large for the smooth normals.\n");
+        return;
+    }
+
     size_t numCorners = 0;
     for ( size_t i = 0; i < pWorld->numSurfaces; ++i )
     {
-        numCorners += pWorld->aSurfaces[i].face.numVertices;
+        const size_t numVertices = pWorld->aSurfaces[i].face.numVertices;
+        if ( numVertices > SIZE_MAX - numCorners )
+        {
+            SITHLOG_WARNING("sithRender: the surface vertex count overflows the smooth normals.\n");
+            return;
+        }
+
+        numCorners += numVertices;
+    }
+
+    if ( numCorners > SIZE_MAX / sizeof(rdVector3) )
+    {
+        SITHLOG_WARNING("sithRender: the corner count is too large for the smooth normals.\n");
+        return;
     }
 
     const rdFace** apFaces = (const rdFace**)STDMALLOC(sizeof(const rdFace*) * pWorld->numSurfaces);
@@ -1833,6 +1856,39 @@ void sithRender_FreeSmoothNormals(void)
     sithRender_numSmoothSurfaces   = 0;
 }
 
+static void sithRender_ApplySmoothNormals(rdCacheProcEntry* pPoly, const SithWorld* pWorld, const SithSurface* pSurf, const rdMatrix34* pView)
+{
+    // Added: the smoothed level normals replace the face normal the clip call wrote, in Classic (the
+    // normal target) and per-pixel lighting (N.L) alike. rdClip_FillViewVectors indexes aVertNormals by world vertex, but a world vertex has one smoothed
+    // normal per surface; the corner array is added after the clip call, which keeps faces unclipped
+    // and its vertices in face order.
+    if ( !sithRender_aCornerNormals
+        || !sithRender_aSurfaceFirstCorner
+        || !pWorld
+        || !pWorld->aSurfaces
+        || !pSurf
+        || !pView
+        || !pPoly->aViewNormals
+        || pSurf < pWorld->aSurfaces )
+    {
+        return;
+    }
+
+    const size_t surfNum = (size_t)(pSurf - pWorld->aSurfaces);
+    if ( surfNum >= sithRender_numSmoothSurfaces || surfNum >= pWorld->numSurfaces )
+    {
+        return;
+    }
+
+    const rdVector3* aCorners = &sithRender_aCornerNormals[sithRender_aSurfaceFirstCorner[surfNum]];
+    for ( size_t i = 0; i < pSurf->face.numVertices; ++i )
+    {
+        rdVector3 cornerNormal;
+        rdMatrix_TransformVector34(&cornerNormal, &aCorners[i], pView);
+        rdVector_Normalize3(&pPoly->aViewNormals[i], &cornerNormal);
+    }
+}
+
 int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSector, const SithSurface* pSurf, bool bLit)
 {
     // Added: rdClip_FaceToPlane of a world surface, or with bLit (an entry of a lit getter)
@@ -1865,24 +1921,30 @@ int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSe
         return 0;
     }
 
-    // rdClip_FaceToPlaneLit keeps every vertex in order, so corner i is vertex i of the entry
-    if ( sithRender_aCornerNormals && pSurf >= pWorld->aSurfaces )
-    {
-        size_t surfNum = (size_t)(pSurf - pWorld->aSurfaces);
-        if ( surfNum < sithRender_numSmoothSurfaces && surfNum < pWorld->numSurfaces )
-        {
-            const rdVector3* aCorners = &sithRender_aCornerNormals[sithRender_aSurfaceFirstCorner[surfNum]];
-            for ( size_t i = 0; i < pSurf->face.numVertices; ++i )
-            {
-                rdVector3 cornerNormal;
-                rdMatrix_TransformVector34(&cornerNormal, &aCorners[i], pView);
-                rdVector_Normalize3(&pPoly->aViewNormals[i], &cornerNormal);
-            }
-        }
-    }
+    // rdClip_FaceToPlaneLit keeps every vertex in order, so corner i is vertex i of the entry.
+    sithRender_ApplySmoothNormals(pPoly, pWorld, pSurf, pView);
 
     return 1;
 }
+
+#ifdef J3D_TEST
+// Added: seams for the smoothed level normal tests. The builder and the normal swap are
+// static here, so the test build observes the real code paths instead of a copy.
+void sithRender_BuildSmoothNormalsForTest(void)
+{
+    sithRender_BuildSmoothNormals();
+}
+
+void sithRender_FreeSmoothNormalsForTest(void)
+{
+    sithRender_FreeSmoothNormals();
+}
+
+void sithRender_ApplySmoothNormalsForTest(rdCacheProcEntry* pPoly, const SithWorld* pWorld, const SithSurface* pSurf, const rdMatrix34* pView)
+{
+    sithRender_ApplySmoothNormals(pPoly, pWorld, pSurf, pView);
+}
+#endif
 
 void J3DAPI sithRender_SetExtraThingRenderFunc(int (J3DAPI* pfFunc)(SithThing* pThing))
 {
