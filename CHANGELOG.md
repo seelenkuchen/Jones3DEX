@@ -1,4 +1,4 @@
-## Jones3D EX (unreleased)
+## Jones3D EX 0.6.0-alpha
 ### M10: Lighting
   - **Options > Display** has a **Lighting** row (`engine.renderer.perPixelLighting`: Classic or Per-pixel;
     Per-pixel by default in Enhanced, Classic forced in the Retail profile). Per-pixel evaluates the camera's dynamic lights per pixel
@@ -174,6 +174,7 @@
     Physics still integrates in 20 ms substeps, so a 50 Hz simulation tick matches it and removes the airborne
     one-frame stall that 60 Hz produces.
 
+## Jones3D EX 0.5.0-alpha
 ### M8: Release
   - This is version 0.5.0-alpha (tag `v0.5.0-alpha`), the first Jones3D EX release; `Jones3D-headless --version` and
     `Jones3D --version` print it.
