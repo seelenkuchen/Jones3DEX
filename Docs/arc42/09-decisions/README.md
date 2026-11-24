@@ -46,3 +46,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0039](ADR-0039-fixed-tick-interpolated-rendering.md) | Fixed simulation tick with interpolated rendering | Accepted |
 | [ADR-0040](ADR-0040-per-pixel-dynamic-lighting.md) | Per-pixel dynamic lighting | Accepted |
 | [ADR-0041](ADR-0041-shadows.md) | Shadows | Proposed |
+| [ADR-0042](ADR-0042-babylon-second-game.md) | Babylon serves a second game | Accepted |

@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-24
 - **Relates to:** [ADR-0023](ADR-0023-advanced-graphics-on-the-cpu-geometry-path.md),
-  [ADR-0040](ADR-0040-per-pixel-dynamic-lighting.md), [ADR-0015](ADR-0015-babylon-modules-as-cmake-targets.md)
+  [ADR-0040](ADR-0040-per-pixel-dynamic-lighting.md), [ADR-0015](ADR-0015-babylon-modules-as-cmake-targets.md),
+  [ADR-0042](ADR-0042-babylon-second-game.md)
 
 ## Context
 
@@ -44,6 +45,10 @@ profile and QOL-off builds keep the original blob shadow.
 6. **Babylon additions** (M11.0), game-agnostic and implemented by both the Null and the SDL GPU backend with
    contract tests: comparison samplers, 2D-array textures with a per-attachment layer, and depth bias in the
    pipeline. Depth-only pipelines and sampled depth targets exist already.
+7. **Where the code lives** (ADR-0042): the shadow framework (shadow-map allocation and fitting, the receive
+   pass, contact shadows, the dynamic-light shadow maps) is Babylon code, reusable by a second game. The
+   Jones3D adapter supplies only the casters (models from the model draw, the level geometry) and the light
+   choice.
 
 ## Consequences
 
