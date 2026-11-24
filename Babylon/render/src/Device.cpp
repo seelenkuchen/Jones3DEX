@@ -9,6 +9,7 @@
 
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -53,6 +54,11 @@ namespace
         {
             return std::format("{} mip levels: a {}x{} texture has 1 to {}",
                 desc.mipLevels, desc.width, desc.height, maxLevels);
+        }
+        const std::uint32_t maxLayers = device.info().limits.maxTextureLayers;
+        if ( desc.layers == 0 || desc.layers > maxLayers )
+        {
+            return std::format("{} layers: a texture has 1 to {}", desc.layers, maxLayers);
         }
         if ( desc.usage == TextureUsage::None )
         {
@@ -208,6 +214,18 @@ namespace
         {
             return std::string("depth test or write without a depth format");
         }
+        const bool biased = desc.depth.depthBiasConstant != 0.0f
+            || desc.depth.depthBiasSlope != 0.0f || desc.depth.depthBiasClamp != 0.0f;
+        if ( biased && (!std::isfinite(desc.depth.depthBiasConstant)
+            || !std::isfinite(desc.depth.depthBiasSlope)
+            || !std::isfinite(desc.depth.depthBiasClamp)) )
+        {
+            return std::string("a non-finite depth bias");
+        }
+        if ( biased && !desc.depthFormat.has_value() )
+        {
+            return std::string("depth bias without a depth format");
+        }
         return checkVertexLayout(desc.vertexLayout);
     }
 
@@ -325,6 +343,11 @@ namespace
             log::warning("render: uploadTexture: {}", describe(texture));
             return false;
         }
+        if ( desc->layers > 1 )
+        {
+            log::warning("render: uploadTexture: layered textures can't be uploaded");
+            return false;
+        }
         if ( isDepthFormat(desc->format) )
         {
             log::warning("render: uploadTexture: depth textures can't be uploaded");
@@ -364,6 +387,11 @@ namespace
         if ( desc == nullptr )
         {
             log::warning("render: readTexture: {}", describe(texture));
+            return {};
+        }
+        if ( desc->layers > 1 )
+        {
+            log::warning("render: readTexture: layered textures can't be read back");
             return {};
         }
         if ( isDepthFormat(desc->format) )
@@ -567,6 +595,11 @@ namespace
                 {
                     return std::format("color attachment mip {} out of range", attachment.mip);
                 }
+                if ( attachment.layer >= desc->layers )
+                {
+                    return std::format("color attachment layer {} out of range",
+                        attachment.layer);
+                }
                 if ( !sameSize(mipDimension(desc->width, attachment.mip),
                     mipDimension(desc->height, attachment.mip)) )
                 {
@@ -585,6 +618,11 @@ namespace
                 if ( !hasUsage(desc->usage, TextureUsage::DepthTarget) )
                 {
                     return std::string("depth attachment without DepthTarget usage");
+                }
+                if ( command.desc.depthTarget->layer >= desc->layers )
+                {
+                    return std::format("depth attachment layer {} out of range",
+                        command.desc.depthTarget->layer);
                 }
                 if ( !sameSize(desc->width, desc->height) )
                 {
@@ -670,6 +708,10 @@ namespace
             if ( isDepthFormat(source->format) || source->format != destination->format )
             {
                 return std::string("both textures need the same color format");
+            }
+            if ( source->layers > 1 || destination->layers > 1 )
+            {
+                return std::string("layered textures can't be copied");
             }
             if ( command.source == command.destination
                 && command.sourceRegion.mip == command.destinationMip )

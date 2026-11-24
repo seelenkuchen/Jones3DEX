@@ -50,6 +50,8 @@ namespace babylon::render
     // One color attachment. The null texture handle names the swapchain: the
     // window's image of this frame, in DeviceInfo::swapchainFormat. A
     // swapchain attachment must be the only color attachment of its pass.
+    // layer names the layer of a 2D array target; it must be below the
+    // texture's layers, and a pass whose attachment isn't is dropped.
     struct ColorAttachment
     {
         TextureHandle target;
@@ -57,10 +59,13 @@ namespace babylon::render
         LoadOp load = LoadOp::Clear;
         StoreOp store = StoreOp::Store;
         ClearColor clear;
+        std::uint32_t layer = 0;
 
         bool operator==(const ColorAttachment&) const = default;
     };
 
+    // layer names the layer of a 2D array depth target; it must be below the
+    // texture's layers, and a pass whose attachment isn't is dropped.
     struct DepthAttachment
     {
         TextureHandle target;
@@ -68,6 +73,7 @@ namespace babylon::render
         StoreOp store = StoreOp::DontCare;
         float clearDepth = 1.0f;
         std::uint8_t clearStencil = 0;
+        std::uint32_t layer = 0;
 
         bool operator==(const DepthAttachment&) const = default;
     };

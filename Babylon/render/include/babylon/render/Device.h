@@ -25,6 +25,7 @@ namespace babylon::render
     struct DeviceLimits
     {
         std::uint32_t maxTextureDimension = 0;   // width and height, in texels
+        std::uint32_t maxTextureLayers = 0;      // layers of a 2D array texture
         std::uint32_t maxBufferSize = 0;         // in bytes
 
         bool operator==(const DeviceLimits&) const = default;
@@ -142,19 +143,20 @@ namespace babylon::render
         // Replaces region of the texture with data: rows of region.width
         // texels in bytesPerTexel() bytes each, top row first, no padding,
         // so exactly width * height * bytesPerTexel() bytes. Refused for a
-        // depth format, a mip out of range, a region of size 0 or outside
-        // the mip, and a data size that doesn't match.
+        // layered texture, a depth format, a mip out of range, a region of
+        // size 0 or outside the mip, and a data size that doesn't match.
         [[nodiscard]] bool uploadTexture(TextureHandle texture, const TextureRegion& region,
             std::span<const std::byte> data);
 
-        // Uploads one whole mip level.
+        // Uploads one whole mip level of a single-layer texture.
         [[nodiscard]] bool uploadTexture(TextureHandle texture, std::uint32_t mip,
             std::span<const std::byte> data);
 
-        // The contents of one mip level as uploadTexture() takes them, after
-        // every submitted list has finished (it waits for the GPU; for tests
-        // and screenshots, not per frame). Empty and one warning for a stale
-        // handle, a depth format or a mip out of range.
+        // The contents of one mip level of a single-layer texture as
+        // uploadTexture() takes them, after every submitted list has finished
+        // (it waits for the GPU; for tests and screenshots, not per frame).
+        // Empty and one warning for a stale handle, a layered texture, a depth
+        // format or a mip out of range.
         [[nodiscard]] std::vector<std::byte> readTexture(TextureHandle texture, std::uint32_t mip);
 
         // Creates a buffer; its contents are undefined until uploaded.

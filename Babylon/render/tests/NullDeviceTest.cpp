@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -239,6 +240,17 @@ TEST_CASE("The Null device keeps and reports a sampler's desc")
     REQUIRE(stored.has_value());
     CHECK(*stored == desc);
     CHECK(stored->maxAnisotropy == 8.0f);
+    CHECK_FALSE(stored->compare.has_value());
+
+    // A comparison sampler keeps its compare operation as given.
+    SamplerDesc compared = desc;
+    compared.compare = CompareOp::GreaterOrEqual;
+    const SamplerHandle compareSampler = device->createSampler(compared);
+    REQUIRE_FALSE(compareSampler.isNull());
+    REQUIRE(device->samplerDesc(compareSampler).has_value());
+    CHECK(device->samplerDesc(compareSampler)->compare == CompareOp::GreaterOrEqual);
+    noWarning(sink);
+    device->destroySampler(compareSampler);
 
     CHECK_FALSE(device->samplerDesc(SamplerHandle{}).has_value());
     device->destroySampler(sampler);
@@ -312,6 +324,75 @@ TEST_CASE("The Null device refuses invalid pipeline descs with one warning each"
     oneWarning(sink);
     CHECK(lacking->createTexture(TextureDesc{ 4, 4, 1, TextureFormat::B4G4R4A4,
         TextureUsage::Sampled }).isNull());
+    oneWarning(sink);
+}
+
+TEST_CASE("The Null device accepts depth bias only with finite values and a depth format")
+{
+    CaptureSink sink;
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    const PipelineDesc valid = transformedVertexPipeline(TextureFormat::Bgra8, TextureFormat::D32F);
+
+    // Each field on its own, and all three together, are accepted with a
+    // depth format.
+    const std::function<void(PipelineDesc&)> biases[] = {
+        [](PipelineDesc& d) { d.depth.depthBiasConstant = 1.0f; },
+        [](PipelineDesc& d) { d.depth.depthBiasSlope = 0.5f; },
+        [](PipelineDesc& d) { d.depth.depthBiasClamp = 0.25f; },
+        [](PipelineDesc& d)
+        {
+            d.depth.depthBiasConstant = 1.0f;
+            d.depth.depthBiasSlope = 2.0f;
+            d.depth.depthBiasClamp = 3.0f;
+        },
+        [](PipelineDesc& d) { d.depth.depthBiasConstant = -1.0f; },
+    };
+    for ( std::size_t i = 0; i < std::size(biases); ++i )
+    {
+        INFO("bias " << i);
+        PipelineDesc desc = valid;
+        biases[i](desc);
+        CHECK_FALSE(device->createPipeline(desc).isNull());
+        noWarning(sink);
+    }
+
+    // A non-finite value in any field is refused, even beside zero values.
+    const float nonFinite[] = { std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(),
+        -std::numeric_limits<float>::infinity() };
+    for ( const float value : nonFinite )
+    {
+        for ( const int field : { 0, 1, 2 } )
+        {
+            INFO("value " << value << " in field " << field);
+            PipelineDesc desc = valid;
+            if ( field == 0 )
+            {
+                desc.depth.depthBiasConstant = value;
+            }
+            else if ( field == 1 )
+            {
+                desc.depth.depthBiasSlope = value;
+            }
+            else
+            {
+                desc.depth.depthBiasClamp = value;
+            }
+            CHECK(device->createPipeline(desc).isNull());
+            oneWarning(sink);
+        }
+    }
+
+    // Bias without a depth format is refused; the zero bias stays accepted
+    // without one.
+    PipelineDesc withoutDepth = valid;
+    withoutDepth.depth.testEnabled = false;
+    withoutDepth.depth.writeEnabled = false;
+    withoutDepth.depthFormat.reset();
+    CHECK_FALSE(device->createPipeline(withoutDepth).isNull());
+    noWarning(sink);
+    withoutDepth.depth.depthBiasConstant = 1.0f;
+    CHECK(device->createPipeline(withoutDepth).isNull());
     oneWarning(sink);
 }
 

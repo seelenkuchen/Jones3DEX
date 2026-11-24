@@ -5,7 +5,10 @@
 
 #pragma once
 
+#include <babylon/render/CompareOp.h>
+
 #include <cstdint>
+#include <optional>
 
 namespace babylon::render
 {
@@ -40,6 +43,14 @@ namespace babylon::render
         // limit and treat a non-finite value as 1. It has no effect on
         // magnification.
         float maxAnisotropy = 1.0f;
+
+        // When set, the sampler is a comparison sampler: reading a depth
+        // texture compares the texel with the reference the shader passes
+        // (HLSL SampleCmp and SampleCmpLevelZero) through compare and returns
+        // the filtered 0..1 result instead of the texel, so Linear filters
+        // give hardware PCF. Empty samples normally. It is only meaningful on
+        // depth textures; other textures read normally.
+        std::optional<CompareOp> compare = std::nullopt;
 
         bool operator==(const SamplerDesc&) const = default;
     };

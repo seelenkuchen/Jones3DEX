@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <babylon/render/CompareOp.h>
 #include <babylon/render/Texture.h>
 
 #include <cstddef>
@@ -191,24 +192,22 @@ namespace babylon::render
         bool operator==(const ColorTargetDesc&) const = default;
     };
 
-    enum class CompareOp : std::uint8_t
-    {
-        Never,
-        Less,
-        Equal,
-        LessOrEqual,
-        Greater,
-        NotEqual,
-        GreaterOrEqual,
-        Always,
-    };
-
     // Depth test and write. Either needs PipelineDesc::depthFormat.
+    //
+    // Depth bias moves the depth a fragment writes by a constant and a
+    // slope term, for shadow-map casters and the like; a clamp of 0 leaves
+    // it unbounded. Any non-zero value turns the bias on, and Device::
+    // createPipeline() refuses non-finite values and bias without a depth
+    // format.
     struct DepthState
     {
         bool testEnabled = false;
         bool writeEnabled = false;
         CompareOp compare = CompareOp::LessOrEqual;
+
+        float depthBiasConstant = 0.0f;
+        float depthBiasSlope = 0.0f;
+        float depthBiasClamp = 0.0f;
 
         bool operator==(const DepthState&) const = default;
     };
@@ -232,7 +231,8 @@ namespace babylon::render
     // kMaxColorTargets color targets, no color target and no depth format, a
     // color target in a depth format or one the device can't render to, a
     // depth format that isn't one, a depth test or write without a depth
-    // format, and a vertex layout that breaks the rules of VertexLayout.
+    // format, a non-finite depth bias or bias without a depth format, and a
+    // vertex layout that breaks the rules of VertexLayout.
     struct PipelineDesc
     {
         ShaderDesc vertexShader;
