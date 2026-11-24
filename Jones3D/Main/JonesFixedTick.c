@@ -1043,7 +1043,7 @@ static void JonesFixedTick_TransformSkippedThingJoints(const JonesFixedTickSaved
 // tick placement to the interpolated one. Everything else lets the scene draw rebuild from the
 // interpolated placement and sampled pose by invalidating its frame stamp.
 static void JonesFixedTick_InvalidateStaleThingJoints(size_t thingNum,
-    const JonesFixedTickThingState* pCur, SithThing* pThing)
+    const JonesFixedTickThingState* pPrev, const JonesFixedTickThingState* pCur, SithThing* pThing)
 {
     if ( thingNum >= jonesFixedTick_numSavedJoints || !pCur || !pThing
         || !jonesFixedTick_pSavedJoints[thingNum].valid )
@@ -1059,6 +1059,19 @@ static void JonesFixedTick_InvalidateStaleThingJoints(size_t thingNum,
 
     if ( jonesFixedTick_pSavedJoints[thingNum].bSkipBuildingJoints )
     {
+        // Added: the tick that starts a force move (a jump, a climb) moves the thing position by
+        // the animation's root offset while the root joint stays where it was. The interpolated
+        // position is then not where the root belongs: pinning the root to it lifts or drops the
+        // whole body for the frames of that tick (Indy pops up as a jump starts). The root is
+        // continuous across that tick, so draw the tick's own joints. From the second force-move
+        // tick on, the root sits on the position at both ticks and follows the interpolation.
+        const bool bPrevSkipped = pPrev && pPrev->valid && pPrev->signature == pCur->signature
+            && pPrev->bSkipBuildingJoints;
+        if ( !bPrevSkipped )
+        {
+            return;
+        }
+
         JonesFixedTick_TransformSkippedThingJoints(&jonesFixedTick_pSavedJoints[thingNum], pCur,
             pThing);
         return;
@@ -1765,7 +1778,7 @@ void JonesFixedTick_BeginDraw(void)
 
             // Added: a job built at the tick placement, or a skipped-joint model, would otherwise
             // be drawn from the stored tick pose while the camera and everything else interpolate.
-            JonesFixedTick_InvalidateStaleThingJoints(i, pCur, pThing);
+            JonesFixedTick_InvalidateStaleThingJoints(i, pPrev, pCur, pThing);
         }
     }
 

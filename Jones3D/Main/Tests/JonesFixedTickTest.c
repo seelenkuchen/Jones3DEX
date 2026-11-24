@@ -930,6 +930,9 @@ TEST(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlace
     TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
     JonesFixedTick_SetDrawAlpha(0.5f);
 
+    // The previous tick is already inside the force move: its root sits on its position.
+    JonesFixedTickTest_BuildSkippedJoints(&thing, joints, STD_ARRAYLEN(joints), 0.0f);
+
     JonesFixedTick_BeforeTick();
 
     JonesFixedTickTest_BuildSkippedJoints(&thing, joints, STD_ARRAYLEN(joints), 2.0f);
@@ -1070,6 +1073,82 @@ TEST(JonesFixedTick, PoseCrossfadeFromAForceMovePoseKeepsItsRootOnThePosition)
 #endif
 }
 
+TEST(JonesFixedTick, ForceMoveStartDrawsTheTickJointsNotTheInterpolatedPosition)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // The tick that starts a force move (a jump) moves the thing position by the animation's root
+    // offset while the root joint stays where it was. Pinning the root to the interpolated position
+    // would lift the body for that tick (owner video, 2026-11-24: Indy pops up as a jump starts).
+    // The drawn frame must keep the tick's joints, then restore everything exactly.
+    rdModel3      model;
+    rdModel3HNode node;
+    rdMatrix34    joints[1];
+    SithWorld     world;
+    SithThing     thing;
+    memset(&model, 0, sizeof(model));
+    memset(&node, 0, sizeof(node));
+    memset(&joints, 0, sizeof(joints));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+
+    // The standing pose puts the root 1 unit above the position.
+    node.meshOrient           = JonesFixedTickTest_Identity();
+    node.meshOrient.dvec.z    = 1.0f;
+    model.numHNodes           = 1;
+    model.aHierarchyNodes     = &node;
+    node.num                  = 0;
+    node.meshIdx              = -1;
+    joints[0]                 = JonesFixedTickTest_Identity();
+
+    thing.type                            = SITH_THING_ACTOR;
+    thing.signature                       = 7;
+    thing.orient                          = JonesFixedTickTest_Identity();
+    thing.renderData.type                 = RD_THING_MODEL3;
+    thing.renderData.data.pModel3         = &model;
+    thing.renderData.paJointMatrices      = joints;
+    thing.renderData.bSkipBuildingJoints  = 0;
+
+    world.aThings   = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+
+    // Standing tick: position 0, root at z = 1, built normally.
+    JonesFixedTick_BeforeTick();
+
+    // Force-move start: the root stays at z = 1 and the position moves onto it.
+    thing.pos.z = 1.0f;
+    joints[0]   = JonesFixedTickTest_Identity();
+    joints[0].dvec.z = 1.0f;
+    thing.renderData.bSkipBuildingJoints = 1;
+    const int tickFrameNum = (int)rdCache_GetFrameNum();
+    thing.renderData.rdFrameNum = tickFrameNum;
+
+    JonesFixedTick_AfterTick();
+
+    JonesFixedTick_SetDrawAlpha(0.25f);
+    JonesFixedTick_BeginDraw();
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.25f, thing.pos.z); // the placement still interpolates
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.z); // the root does not drop with it
+    TEST_ASSERT_EQUAL_INT(1, thing.renderData.bSkipBuildingJoints);
+    JonesFixedTick_EndDraw();
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, thing.pos.z);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.z);
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
@@ -1104,4 +1183,5 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, DrawRebuildsJointsBuiltAtTheTickPlacement);
     RUN_TEST_CASE(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlacement);
     RUN_TEST_CASE(JonesFixedTick, PoseCrossfadeFromAForceMovePoseKeepsItsRootOnThePosition);
+    RUN_TEST_CASE(JonesFixedTick, ForceMoveStartDrawsTheTickJointsNotTheInterpolatedPosition);
 }
