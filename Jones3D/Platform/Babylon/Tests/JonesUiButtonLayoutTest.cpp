@@ -7,10 +7,13 @@
 #include <Jones3D/Platform/Babylon/JonesControlSchemes.h>
 
 #include <std/General/stdControl.h>
+#include <std/General/stdKeys.h>
 
 #include <sith/Devices/sithControl.h>
 #include <Jones3D/Platform/Babylon/JonesUiButtonLayout.h>
 
+#include <babylon/input/InputState.h>
+#include <babylon/platform/Event.h>
 #include <babylon/ui/NullPainter.h>
 #include <babylon/ui/Skin.h>
 #include <babylon/ui/Types.h>
@@ -443,4 +446,45 @@ TEST_CASE("the Keyboard & Mouse layout draws the mouse and key icons, not the pa
     CHECK_FALSE(hasImage(painter, 77));
     CHECK(hasText(painter, "Not bound"));
     CHECK(hasText(painter, "KEYBOARD & MOUSE"));
+}
+
+
+TEST_CASE("the Button Layout prompt shows the Reset button on the North pad button or R")
+{
+    using babylon::input::DeviceClass;
+    using babylon::input::LastDevice;
+    using babylon::platform::GamepadType;
+
+    JonesUiPromptIcons icons;
+    icons.back = 1;
+    icons.accept = 2;
+    icons.reset = 77;
+    const std::vector<babylon::ui::Prompt> prompts =
+        JonesUiButtonLayout_BuildPromptsForTest(icons);
+    REQUIRE(prompts.size() == 3u);
+    CHECK(prompts[2].icon == 77);
+    CHECK(prompts[2].label == "Reset to defaults");
+
+    // Every pad set uses its North button; the keyboard uses R.
+    JonesUiPromptAssets assets;
+    assets.keyboard.reset = 10;
+    assets.xbox.reset = 20;
+    assets.playStation.reset = 30;
+    assets.nintendo.reset = 40;
+    assets.steamDeck.reset = 50;
+    CHECK(JonesUiPrompts_IconsFor(assets, LastDevice{}).reset == 10);
+    CHECK(JonesUiPrompts_IconsFor(assets,
+        LastDevice{ DeviceClass::Gamepad, GamepadType::Xbox }).reset == 20);
+    CHECK(JonesUiPrompts_IconsFor(assets,
+        LastDevice{ DeviceClass::Gamepad, GamepadType::PlayStation }).reset == 30);
+    CHECK(JonesUiPrompts_IconsFor(assets,
+        LastDevice{ DeviceClass::Gamepad, GamepadType::Nintendo }).reset == 40);
+    CHECK(JonesUiPrompts_IconsFor(assets,
+        LastDevice{ DeviceClass::Gamepad, GamepadType::SteamDeck }).reset == 50);
+
+    CHECK(JonesUiButtonLayout_GetPromptIconPath(STDCONTROL_JOYSTICK_GETBUTTON(0, 3),
+        JonesUiButtonLayoutDevice::Controller, "xbox") == "prompts/xbox/XboxSeriesX_Y.png");
+    CHECK(JonesUiButtonLayout_GetPromptIconPath(STDKEY_R,
+        JonesUiButtonLayoutDevice::KeyboardMouse, "xbox")
+        == "prompts/keyboard/R_Key_Dark.png");
 }

@@ -74,6 +74,17 @@ struct JonesUiDisplayValues
     // Added: index into the light-shaft choices (Off, Low, Medium, High; Low at index 1 in
     // Enhanced).
     std::size_t lightShafts = 1;
+    // Added: index into the ambient-occlusion choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t ssao = 1;
+    // Added: index into the camera motion-blur choices (Off, Low, Medium, High; Low at index 1 in
+    // Enhanced).
+    std::size_t motionBlur = 1;
+    // Added: lens flare, a toggle (on in Enhanced, off in Retail/QOL-off).
+    bool bLensFlare = true;
+    // Added: vignette and film grain, toggles (off in every build).
+    bool bVignette = false;
+    bool bFilmGrain = false;
     // Added: water ripples, a toggle (on in Enhanced, off in Retail/QOL-off).
     bool bWaterRipples = true;
     // Added: depth of field, a toggle for cutscene cameras and one for gameplay cameras.
@@ -87,8 +98,11 @@ struct JonesUiDisplayValues
     // Added: index into the tone-mapping choices (Clamp, Neutral, Filmic = operator 0, 1, 2;
     // Neutral at index 1 in Enhanced).
     std::size_t toneMapping = 1;
-    // Added: exposure multiplier applied before the tone-map curve, 0.5..2.0.
+    // Added: the exposure multiplier applied before the tone-map curve, 0.5..2.0.
     double exposure = 1.0;
+    // Added: index into the frame-rate choices (V-Sync, 30, 60, 120, 144, 240, Unlimited;
+    // V-Sync at index 0).
+    std::size_t frameLimit = 0;
     // Added: index into the color-grading choices (Neutral, Warm, Cool, Adventure, Vivid, Muted =
     // preset 0..5; Neutral at index 0 in every build).
     std::size_t colorGrading = 0;
@@ -111,6 +125,11 @@ struct JonesUiDisplayLayout
     std::size_t antiAliasing = 0; // Added
     std::size_t bloom = 0; // Added
     std::size_t lightShafts = 0; // Added: M9.16 light-shaft level
+    std::size_t ssao = 0; // Added: M9.17b ambient-occlusion level
+    std::size_t motionBlur = 0; // Added: M9.19 camera motion-blur level
+    std::size_t lensFlare = 0; // Added: M9.18 lens flare toggle
+    std::size_t vignette = 0; // Added: M9.18 vignette toggle
+    std::size_t filmGrain = 0; // Added: M9.18 film grain toggle
     std::size_t waterRipples = 0; // Added: M9.17 water ripples toggle
     std::size_t dofCutscenes = 0; // Added: M9.14 depth of field in cutscenes
     std::size_t dofGameplay = 0; // Added: M9.14 depth of field in gameplay
@@ -118,6 +137,7 @@ struct JonesUiDisplayLayout
     std::size_t anisotropic = 0; // Added
     std::size_t toneMapping = 0; // Added
     std::size_t exposure = 0; // Added
+    std::size_t frameLimit = 0; // Added: M9.23 frame-rate cap
     std::size_t colorGrading = 0; // Added
     std::size_t crispPixels = 0; // Added
     std::size_t brightness = 0; // Added: opens the brightness calibration screen
@@ -146,6 +166,11 @@ struct JonesUiDisplayModel
     int antiAliasing = 1;       // Added: engine.renderer.antiAliasing, 0 off / 1 SMAA
     int bloom = 1;              // Added: engine.renderer.bloom, 0 off / 1 low / 2 medium / 3 high
     int lightShafts = 1;        // Added: engine.renderer.lightShafts, 0 off / 1 low / 2 medium / 3 high
+    int ssao = 1;               // Added: engine.renderer.ssao, 0 off / 1 low / 2 medium / 3 high
+    int motionBlur = 1;         // Added: engine.renderer.motionBlur, 0 off / 1 low / 2 medium / 3 high
+    bool bLensFlare = true;     // Added: engine.renderer.lensFlare
+    bool bVignette = false;     // Added: engine.renderer.vignette
+    bool bFilmGrain = false;    // Added: engine.renderer.filmGrain
     bool bWaterRipples = true;  // Added: engine.renderer.water.ripples
     bool bDofCutscenes = true;  // Added: engine.renderer.dof.cutscenes
     bool bDofGameplay = true;   // Added: engine.renderer.dof.gameplay
@@ -153,6 +178,7 @@ struct JonesUiDisplayModel
     int anisotropic = 8;        // Added: graphics.anisotropicFilter, normalized
     int toneMapping = 1;        // Added: engine.renderer.toneMapping, 0 clamp / 1 Neutral / 2 ACES
     float exposure = 1.0f;      // Added: engine.renderer.exposure, 0.5..2.0
+    int frameLimit = 0;         // Added: engine.renderer.frameLimit, 0 V-Sync / >0 cap / -1 unlimited
     int colorGrading = 0;       // Added: engine.renderer.colorGrading, 0 Neutral .. 5 Muted
     bool bCrispPixels = false;  // Added: engine.renderer.texturePixelated
 };

@@ -53,6 +53,15 @@ StdBabylonContext* stdBabylon_GetContext();
 // installed!" to stderr and aborts: every caller needs the context and cannot recover.
 StdBabylonContext& stdBabylon_RequireContext(const char* pFunction);
 
+// True while the headless virtual clock is latched (stdPlatformNull_UseVirtualClock).
+// Presentation waits must stay off then, so nothing in a headless run depends on
+// wall-clock pacing.
+bool stdBabylon_VirtualClockActive();
+
+// Adapter-internal: stdPlatformTimeBabylon.cpp latches the virtual clock through
+// these, so a test build without that file still links the query above.
+void stdBabylon_SetVirtualClockActive(bool bActive);
+
 #ifdef J3D_TEST
 // Test-only: clears the virtual-clock latch of stdPlatformTimeBabylon.cpp, which is a
 // file-static that a test cannot otherwise reset. Defined only when J3D_TEST is set.

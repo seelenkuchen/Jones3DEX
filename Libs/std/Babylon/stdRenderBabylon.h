@@ -9,8 +9,9 @@
 // stdDisplay_Update with stdRenderBabylon_PresentFrame. That submit first runs the post-processing
 // chain, an ordered list of full-screen passes that is empty by default, then the built-in
 // depth-of-field stage when its cutscene or gameplay option is on and the game set a focus, then
-// the built-in light-shaft stage when it is on, then the built-in bloom stage when it is on, and
-// then, on a device with a swapchain, runs the built-in final tone-map pass
+// the built-in light-shaft stage when it is on, the built-in lens-flare stage when it is on, then the
+// built-in bloom stage when it is on, and then, on a device with a swapchain, runs the built-in final
+// tone-map pass
 // over that output (the back buffer color when the chain is empty and the later stages are off) and writes it
 // to the swapchain at the presented size, sampling with linear filtering when the render scale is
 // not 1 so supersampled scenes resolve cleanly. When the
@@ -19,8 +20,9 @@
 // writes the swapchain; with it off the image is byte-identical to the plain tone-map present.
 // Added: the sharpening option (AMD FidelityFX CAS, engine.renderer.sharpening) then runs one
 // contrast-adaptive sharpening pass on that presented-size LDR image, after SMAA or after the tone
-// map when anti-aliasing is off; at 0 it is skipped and the image is byte-identical. It then
-// composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
+// map when anti-aliasing is off; at 0 it is skipped and the image is byte-identical. The vignette and
+// film-grain option then runs one presented-size pass after it when either is on; both off skip it and
+// leave the image byte-identical. It then composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
 // image, so no anti-aliasing, sharpening or other scene effect touches the HUD, before the prompt
 // and menu present overlays. std3D records its scenes and HUD layer into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
 // translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
@@ -241,6 +243,32 @@ float stdRenderBabylon_GetBloom();
 bool stdRenderBabylon_SetLightShafts(int level);
 int stdRenderBabylon_GetLightShafts();
 
+// Added: the built-in lens-flare stage over the HDR scene, after the light-shaft stage and before
+// bloom, so the flare blooms with the rest of the bright image. It reuses the light-shaft stage's
+// GPU-reduced 1 x 1 sky centroid and its smoothed visible-sky strength (no readback): a few tinted
+// ghosts sit along the line from the light through the screen centre and a soft halo surrounds the
+// light, both scaled by the strength. With light shafts off, only the mask and centroid reduction
+// needed for the centroid run, not the shaft blur. No sky visible, or a centroid off screen, adds
+// nothing. Off, or a failure, records no pass and the image is byte-identical to the path without
+// it. The HUD layer, menus and prompts come after and are untouched. Opening reads
+// engine.renderer.lensFlare (default on in Enhanced builds, off without QOL); this setter changes
+// it until the next open. Closing frees the stage's target and pipeline.
+bool stdRenderBabylon_SetLensFlare(bool bEnabled);
+bool stdRenderBabylon_GetLensFlare();
+
+// Added: the vignette and film-grain stage on the presented-size LDR image, after SMAA and
+// sharpening and before the HUD layer composite, so the HUD, menus and prompts are untouched. The
+// vignette smoothly darkens the corners, aspect-corrected, with the centre unchanged. The film
+// grain is deterministic luminance noise from a hash of the pixel and a game-time frame counter,
+// weaker in the highlights, with zero mean. Each on its own is byte-identical to the path without
+// it; both off skip the pass and the image is byte-identical to today. Opening reads
+// engine.renderer.vignette and engine.renderer.filmGrain (both off in every build by default);
+// these setters change them until the next open. Closing frees the stage's target and pipelines.
+bool stdRenderBabylon_SetVignette(bool bEnabled);
+bool stdRenderBabylon_GetVignette();
+bool stdRenderBabylon_SetFilmGrain(bool bEnabled);
+bool stdRenderBabylon_GetFilmGrain();
+
 // Added: the built-in water-ripple stage, after the post-processing chain and before depth of field.
 // On pixels whose normal target's alpha carries the water surface tag (1/3), the scene is sampled at
 // a small animated offset from two scrolling sine layers whose phase follows the frame's game time,
@@ -255,6 +283,52 @@ int stdRenderBabylon_GetLightShafts();
 // screen-space ray march there would use the wrong depth.
 bool stdRenderBabylon_SetWaterRipples(bool bEnabled);
 bool stdRenderBabylon_GetWaterRipples();
+
+// Added: the built-in screen-space ambient occlusion stage over the HDR scene, after the water
+// ripples and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the sample
+// count, world-space radius, bias and intensity of each level live with the stage's other constants
+// in stdRenderBabylon.cpp. On: view-space positions and normals are reconstructed from the depth
+// target (the classic draws write a constant normal), an 8, 12 or 16 sample normal-oriented
+// hemisphere kernel is gathered at half the scene size in a fixed 4 x 4 interleaved rotation
+// pattern, a depth-aware 4 x 4 blur removes the pattern, and a scene-sized composite multiplies the
+// HDR colour by the result. Pixels tagged sky or water, and pixels with nothing drawn, are left
+// unchanged. Off, or a failure, skips every pass and the image is byte-identical to the path
+// without the option. The HUD layer, menus and prompts come after and are untouched. A level
+// outside 0..3 is clamped. Opening reads engine.renderer.ssao (default 1 Low in Enhanced builds, 0
+// in Retail/QOL-off ones); this setter changes it until the next open. Closing frees the stage's
+// targets and pipelines.
+bool stdRenderBabylon_SetSsao(int level);
+int stdRenderBabylon_GetSsao();
+
+// Added: the built-in camera motion-blur stage over the HDR scene, after the ambient-occlusion
+// stage and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); each level's
+// tap count, shutter fraction and maximum blur length (a fraction of the output height) live with
+// the stage's other constants in stdRenderBabylon.cpp. The game feeds the camera each frame through
+// std3D_SetCameraTransform; the pass reconstructs each pixel's view position from the depth target
+// exactly as the ambient-occlusion pass does, takes it to the world with the current camera and into
+// the previous frame's camera, projects it with the same tangents and gathers the HDR scene along
+// the resulting screen-space velocity. Sky pixels take part, so a camera rotation blurs the sky;
+// pixels with nothing drawn and the first-person overlay (sz < 0.1) do not move. The blur is
+// skipped after a camera cut, when the frame's game-time step is zero, after a teleport or a large
+// snap, and on the first frame after open. Off, or a failure, skips the pass and the image is
+// byte-identical to the path without the option. The HUD layer, menus and prompts come after and
+// are untouched. A level outside 0..3 is clamped. Opening reads engine.renderer.motionBlur (default
+// 1 Low in Enhanced builds, 0 in Retail/QOL-off ones); this setter changes it until the next open.
+// Closing frees the stage's target and pipeline.
+bool stdRenderBabylon_SetMotionBlur(int level);
+int stdRenderBabylon_GetMotionBlur();
+
+// Added: the current camera's world transform for the motion-blur stage, called by
+// std3D_SetCameraTransform. aMatrix is 12 floats in rdCamera's model-matrix order: right, forward
+// and up basis vectors, then the world position. bCut marks a camera cut. Presentation state only.
+void stdRenderBabylon_SetCameraTransform(const float aMatrix[12], bool bCut);
+
+// Added: the frame's projection for the ambient-occlusion reconstruction. fovDegrees is the
+// horizontal fov at the 4:3 reference aspect, in degrees, as rdCamera's fov is; the stage derives
+// the vertical tangent from it and the horizontal tangent from the real aspect (Hor+). nearPlane
+// and farPlane are the frame's planes. The values are presentation state only; invalid ones are
+// ignored.
+void stdRenderBabylon_SetProjection(float fovDegrees, float nearPlane, float farPlane);
 
 // Added: the frame's game time in seconds, used by the light-shaft fade and the water ripple phase.
 // Presentation state only; a non-finite value is ignored and the step is clamped to 0.25 s.
@@ -425,12 +499,20 @@ void stdRenderBabylon_ForceLegacyPresentationForTest(bool bLegacy);
 
 // Added: test-only. Reads the 1 x 1 light-shaft centroid after a presenting submit and writes its
 // mask weight in 0..1 and the sky position in image uv (0, 0 top left; 1, 1 bottom right). Returns
-// false without a presented light-shaft frame. Production builds don't compile it.
+// false without a presented light-shaft or lens-flare frame. Production builds don't compile it.
 bool stdRenderBabylon_GetLightShaftCentroidForTest(float* pU, float* pV, float* pWeight);
 
 // Added: test-only. Reads the half-res light-shaft blur at a full-res pixel centre (the linear
 // sample the composite uses) and writes it in red. Returns false without a presented shaft frame.
 bool stdRenderBabylon_GetLightShaftValueForTest(std::uint32_t x, std::uint32_t y, float* pValue);
+
+// Added: test-only. Writes the ambient-occlusion reconstruction's horizontal and vertical tangent
+// scales for the current scene size and projection. Returns false when not open.
+bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalfY);
+// Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
+// whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
+// Returns false without such a submit. Production builds don't compile it.
+bool stdRenderBabylon_GetLensFlareStateForTest(float* pU, float* pV, float* pStrength);
 #endif
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame

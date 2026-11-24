@@ -641,6 +641,13 @@ void J3DAPI std3D_SetFrameTime(float deltaTime)
     J3D_UNUSED(deltaTime);
 }
 
+void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut)
+{
+    // Added: motion blur is a Babylon presentation stage; the Null column draws nothing.
+    J3D_UNUSED(aMatrix);
+    J3D_UNUSED(bCut);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     // Added: Fog state is stored without device validation; nothing consumes it on the

@@ -4,6 +4,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 babylon_add_module(time
-    SOURCES src/NullClock.cpp backends/sdl/SdlClock.cpp
+    SOURCES src/NullClock.cpp src/FrameLimiter.cpp backends/sdl/SdlClock.cpp
     LIBS ${BABYLON_SDL3_TARGET})
-babylon_add_module_tests(time SOURCES tests/ClockContractTest.cpp tests/NullClockTest.cpp)
+babylon_add_module_tests(time SOURCES tests/ClockContractTest.cpp tests/NullClockTest.cpp
+    tests/FrameLimiterTest.cpp)

@@ -16,6 +16,11 @@ void sithSprite_Shutdown(void);
 void J3DAPI sithSprite_Update(SithThing* pThing, uint32_t msecDeltaTime);
 int J3DAPI sithSprite_Draw(SithThing* pThing);
 
+// Added: M9.20. The draw used to destroy an out-of-water air-destroyed sprite itself; on a fixed
+// tick the tick's mark pass calls this instead, so draw-only frames do not destroy things.
+// Returns 1 when it destroyed the thing.
+int J3DAPI sithSprite_DestroyIfAirDestroyed(SithThing* pThing);
+
 void J3DAPI sithSprite_Create(SithThing* pThing);
 void J3DAPI sithSprite_Initialize(SithThing* pThing);
 rdSprite3* J3DAPI sithSprite_Load(SithWorld* pWorld, const char* pName);

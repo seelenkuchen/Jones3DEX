@@ -169,6 +169,17 @@ namespace
         log::warning("render: {}: the device has no free slot left", call);
     }
 
+    const char* presentModeName(PresentMode mode)
+    {
+        switch ( mode )
+        {
+            case PresentMode::Vsync: return "vsync";
+            case PresentMode::Immediate: return "immediate";
+            case PresentMode::Mailbox: return "mailbox";
+        }
+        return "unknown";
+    }
+
 }
 
     struct NullDevice::State
@@ -181,6 +192,7 @@ namespace
         HandlePool<PipelineTag, PipelineDesc> pipelines;
         std::uint64_t frame = 0;
         bool record = true;
+        PresentMode presentMode = PresentMode::Vsync;
         std::vector<RecordedCommand> recorded;
     };
 
@@ -214,6 +226,29 @@ namespace
             return !hasUsage(usage, TextureUsage::ColorTarget);
         }
         return !hasUsage(usage, TextureUsage::DepthTarget);
+    }
+
+    PresentModeSupport NullDevice::presentModeSupport() const
+    {
+        return PresentModeSupport{ true, true, false };
+    }
+
+    PresentMode NullDevice::presentMode() const
+    {
+        return m_state->presentMode;
+    }
+
+    bool NullDevice::setPresentMode(PresentMode mode)
+    {
+        if ( !presentModeSupport().supports(mode) )
+        {
+            log::warning("render: setPresentMode: {} is not supported, using vsync",
+                presentModeName(mode));
+            m_state->presentMode = PresentMode::Vsync;
+            return false;
+        }
+        m_state->presentMode = mode;
+        return true;
     }
 
     const std::vector<RecordedCommand>& NullDevice::recorded() const

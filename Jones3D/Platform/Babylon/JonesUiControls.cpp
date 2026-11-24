@@ -107,6 +107,8 @@ namespace
     constexpr const char* kJonesControlsClassicText    = "Classic";           // TODO: [COMPAT]
     constexpr const char* kJonesControlsRumbleText     = "Rumble";            // TODO: [COMPAT]
     constexpr const char* kJonesControlsResetText      = "Reset to defaults"; // TODO: [COMPAT]
+    constexpr const char* kJonesControlsResetQuestionText =
+        "Restore the default bindings of \"%s\"?"; // TODO: [COMPAT]
     constexpr const char* kJonesControlsNameText       = "Name";              // TODO: [COMPAT]
     constexpr const char* kJonesControlsAddText        = "Add binding";       // TODO: [COMPAT]
     constexpr const char* kJonesControlsRemoveText     = "Remove";            // TODO: [COMPAT]
@@ -185,6 +187,24 @@ namespace
     {
         const char* pName = JonesControlSchemes_GetCapActionName(action);
         return pName ? std::string(pName) : std::string();
+    }
+
+    // Added: asks before a reset, with the same Yes/No modal the Button Layout screen uses.
+    bool AskResetScheme(babylon::ui::Ui& ui, babylon::ui::Painter* pPainter, const char* pName)
+    {
+        babylon::ui::Screen screen;
+        screen.title = kJonesControlsResetText;
+        screen.widgets.emplace_back(babylon::ui::Label{
+            FormatLabel(ResolveLabel("JONES_STR_RESET_SCHEME", kJonesControlsResetQuestionText),
+                pName ? pName : ""),
+            std::string() });
+        screen.widgets.emplace_back(babylon::ui::Button{
+            ResolveLabel("JONES_STR_YES", "Yes"), kJonesDialogOk, true });
+        screen.widgets.emplace_back(babylon::ui::Button{
+            ResolveLabel("JONES_STR_NO", "No"), kJonesDialogCancel, true });
+        screen.backResult   = kJonesDialogCancel;
+        screen.initialFocus = 1;
+        return JonesUiModal_Run(ui, pPainter, screen, Identity) == kJonesDialogOk;
     }
 
     // Added: the default scheme for a new install follows the control style.
@@ -318,8 +338,10 @@ namespace
         screen.widgets.emplace_back(babylon::ui::Toggle{
             kJonesControlsRumbleText, std::string(), true, bRumble });
         screen.widgets.emplace_back(EditButton(config, selected));
+        // Added: every scheme can be reset; a built-in returns to its built-in data, a custom one
+        // to the style defaults.
         screen.widgets.emplace_back(babylon::ui::Button{
-            kJonesControlsResetText, kJonesControlsActionReset, bCustom });
+            kJonesControlsResetText, kJonesControlsActionReset, selected < config.numSchemes });
         screen.widgets.emplace_back(babylon::ui::Button{
             kJonesControlsOkText, kJonesDialogOk, true });
         screen.widgets.emplace_back(babylon::ui::Button{
@@ -372,7 +394,7 @@ namespace
         if ( layout.reset != babylon::ui::kNoWidget )
         {
             static_cast<void>(ui.setWidget(screenId, layout.reset, babylon::ui::Button{
-                kJonesControlsResetText, kJonesControlsActionReset, bCustom }));
+                kJonesControlsResetText, kJonesControlsActionReset, selected < config.numSchemes }));
         }
     }
 
@@ -1210,6 +1232,12 @@ babylon::ui::Screen JonesUiControls_BuildOptionsTabScreen(const JonesUiControlsM
     screen.widgets.emplace_back(babylon::ui::Toggle{
         kJonesControlsRumbleText, std::string(), true, model.bRumble });
 
+    // Added: the Options tab also offers the reset, so a built-in scheme with a stale user copy can
+    // be cleaned up from the tab as well as from the standalone screen.
+    layout.reset = screen.widgets.size();
+    screen.widgets.emplace_back(babylon::ui::Button{
+        kJonesControlsResetText, kJonesControlsActionReset, selected < config.numSchemes });
+
     screen.initialFocus = layout.scheme;
     return screen;
 }
@@ -1291,12 +1319,31 @@ bool JonesUiControls_HandleAction(babylon::ui::Ui& ui, babylon::ui::ScreenId scr
 
         case kJonesControlsActionReset:
         {
-            if ( IsCustomScheme(model.working, model.selected) )
+            if ( model.selected >= model.working.numSchemes )
             {
-                JonesControlSchemes_ResetToDefault(&model.working.aSchemes[model.selected],
-                    DefaultSchemeIndexInternal());
-                model.working.aSchemes[model.selected].bModified = 1;
+                return true;
             }
+
+            JonesControlsScheme& scheme = model.working.aSchemes[model.selected];
+            if ( !AskResetScheme(ui, pPainter, scheme.aName) )
+            {
+                return true;
+            }
+
+            if ( model.selected < JonesControlSchemes_GetNumDefaultSchemes() )
+            {
+                // Added: a built-in scheme returns to its own built-in data. Its stale user copy is
+                // removed on OK, so later default changes reach this player automatically.
+                static_cast<void>(JonesControlSchemes_SetDefaultScheme(&scheme, model.selected));
+                model.deleteFiles.emplace_back(scheme.aName);
+            }
+            else
+            {
+                JonesControlSchemes_ResetToDefault(&scheme, DefaultSchemeIndexInternal());
+                scheme.bModified = 1;
+            }
+
+            UpdateScreenWidgets(ui, screenId, model, layout);
             return true;
         }
 
@@ -1357,6 +1404,44 @@ void JonesUiControls_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
     }
 }
 
+bool JonesUiControls_SchemeMatchesDefault(const JonesControlsScheme& scheme,
+    std::size_t defaultIndex)
+{
+    JonesControlsScheme defaults;
+    memset(&defaults, 0, sizeof(defaults));
+    if ( !JonesControlSchemes_SetDefaultScheme(&defaults, defaultIndex) )
+    {
+        return false;
+    }
+
+    for ( std::size_t action = 0; action < JONESCONTROL_ACTION_NUMACTIONS; ++action )
+    {
+        const std::size_t count = JonesControlSchemes_GetNumBindings(&scheme,
+            (JonesControlActions)action);
+        if ( count != JonesControlSchemes_GetNumBindings(&defaults,
+                (JonesControlActions)action) )
+        {
+            return false;
+        }
+
+        for ( std::size_t index = 0; index < count; ++index )
+        {
+            std::size_t bound = 0;
+            std::size_t expected = 0;
+            if ( !JonesControlSchemes_GetBinding(&scheme, (JonesControlActions)action, index,
+                    &bound)
+                || !JonesControlSchemes_GetBinding(&defaults, (JonesControlActions)action,
+                    index, &expected)
+                || bound != expected )
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& config)
 {
     // The main dialog's OK (line 5091-5161).
@@ -1366,6 +1451,18 @@ int JonesUiControls_Apply(JonesUiControlsModel& model, JonesControlsConfig& conf
     }
 
     const std::size_t numDefaults = JonesControlSchemes_GetNumDefaultSchemes();
+
+    // Added: a built-in scheme that still matches its built-in data keeps no user copy. Removing
+    // one left behind by an older install lets later default changes reach this player.
+    for ( std::size_t cur = 0; cur < numDefaults && cur < model.working.numSchemes; ++cur )
+    {
+        if ( JonesUiControls_SchemeMatchesDefault(model.working.aSchemes[cur], cur) )
+        {
+            static_cast<void>(JonesControlSchemes_DeleteScheme(
+                model.working.aSchemes[cur].aName));
+        }
+    }
+
     for ( std::size_t cur = numDefaults; cur < model.working.numSchemes; ++cur )
     {
         if ( model.working.aSchemes[cur].bModified == 1

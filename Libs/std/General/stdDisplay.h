@@ -5,6 +5,12 @@
 
 J3D_EXTERN_C_START
 
+// Added: M9.23 presentation frame pacing. 0 presents with V-Sync, a positive
+// value is a cap in frames per second with V-Sync off, and -1 is unlimited with
+// V-Sync off. Read by the Babylon display when it starts and changed at once by
+// the adapter's setter.
+#define STDDISPLAY_CFG_FRAMELIMIT "engine.renderer.frameLimit"
+
 typedef void (*tDisplayDevicePreResetCallback)(tSysDevice3D*);
 typedef bool (*tDisplayDevicePostResetCallback)(tSysDevice3D*);
 typedef void (*tDisplayDeviceReleaseCallback)(tSysDevice3D*);

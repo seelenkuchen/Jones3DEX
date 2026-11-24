@@ -9,6 +9,7 @@
 #endif
 
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
+#include <Jones3D/Platform/Babylon/JonesUiPrompts.h>
 #include <Jones3D/types.h>
 
 #include <babylon/ui/Painter.h>
@@ -122,9 +123,15 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
     JonesUiButtonLayoutModel& model);
 
 #ifdef J3D_TEST
-// Test support: the number of events the screen has seen since the last reset. The scripted
-// platform delivers one event per frame, so a test uses it to prove a nested screen stayed open
-// rather than closing on the same action that opened it.
+// Test support: the rect of the visible Reset row on a canvas, so a test clicks the same place the
+// painter draws it. BuildPromptsForTest returns the bar this screen would set for one icon set.
+babylon::ui::Rect JonesUiButtonLayout_ResetRowRectForTest(const babylon::ui::Size& canvas);
+std::vector<babylon::ui::Prompt> JonesUiButtonLayout_BuildPromptsForTest(
+    const JonesUiPromptIcons& icons);
+
+// The number of events the screen has seen since the last reset. The scripted platform delivers
+// one event per frame, so a test uses it to prove a nested screen stayed open rather than closing
+// on the same action that opened it.
 unsigned JonesUiButtonLayout_GetLayoutFramesForTest(void);
 unsigned JonesUiButtonLayout_GetLayoutRunsForTest(void);
 JonesUiButtonLayoutDevice JonesUiButtonLayout_GetLastDeviceForTest(void);

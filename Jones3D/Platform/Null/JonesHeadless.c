@@ -8,7 +8,7 @@
 // behind: the retail mutex, the Win32 signal handler, window creation and the
 // stdWin95 window/instance/Guid registration.
 //
-// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--state <file>] [--input <file>] [--capture <file>] [--runs <n>]
+// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--draw-step <msec>] [--fixed-tick <hz>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n>]
 //   --user-dir writes Jones.cfg, logs and savegames in the given directory, created when missing.
 //            The default is "" (the working directory), so headless traces keep today's paths.
 //   --load   answers the load-game dialog once with the given path; needs the
@@ -18,11 +18,21 @@
 //   --frames frame limit of the engine's own game-state frame counter (default 1000).
 //   --step   milliseconds of virtual time each JonesMain_Process call advances the clock by
 //            (default 33). 0 keeps the real clock and makes the run nondeterministic again.
+//   --draw-step (dev) with a fixed tick, milliseconds the virtual clock advances per drawn frame;
+//            default is --step, clamped to the tick step when --input is given so each tick sees
+//            its own key state. Smaller values produce draw-only frames between simulation ticks.
+//   --fixed-tick (dev) override engine.sim.fixedTick for this run: the simulation tick rate in Hz.
+//            Without it the run stays off, even though the Enhanced build defaults the option on.
+//            50 is the option's rate; 30, 60 and 120 are kept for dev comparisons, and other
+//            values clamp to the nearest of those. QOL-off/Retail builds ignore it.
 //   --state  writes the final state block, plus one line per active thing, to a file. It starts
 //            with one "cvar <name> <value>" line per simulation cvar of the run (ADR-0020), so a
 //            trace says which profile produced it; everything after those lines is as it was.
-//   --input  runs a scripted-input file: "frame <n>: cmd <command>" lines run console commands
-//            and "frame <n>: key <name|number> down|up" lines press keys at engine frame <n>.
+//   --input  runs a scripted-input file: "frame <n>: cmd <command>" lines run console commands,
+//            "frame <n>: key <name|number> down|up" lines press keys at engine frame <n>, and
+//            "frame <n>: control <name> down|up" lines press an engine control function through a
+//            developer key (for example the Modern quick whip, which the headless run has no
+//            default pad binding for).
 //            A malformed script aborts the run before startup, so the same script keeps a run
 //            deterministic like every other aspect of the run.
 //   --runs   runs the whole game n times in one process (1 to 3, default 1), resetting every
@@ -31,6 +41,9 @@
 //            The game opens it during JonesMain_Startup (once the host services exist) and closes
 //            it during JonesMain_Shutdown. The column named in its header is "babylon" for the
 //            Babylon column and "null" otherwise.
+//   --draw-trace (dev) writes one line per drawn frame after the scene draw: tick, interpolation
+//            alpha, player and camera pose, three player joint world positions and the active
+//            puppet tracks. Works with the fixed tick on or off; inert without the option.
 //   --render (Babylon column only) the render device std3D draws with: "null" (the default) records
 //            the frames and draws nothing; "gpu" is the SDL GPU device without a window (set
 //            SDL_VIDEO_DRIVER=offscreen where there is no display). The Babylon main() takes it out
@@ -41,11 +54,13 @@
 #include <string.h>
 
 #include <Jones3D/Main/JonesDataLocate.h>
+#include <Jones3D/Main/JonesFixedTick.h>
 #include <Jones3D/Main/JonesGlobals.h>
 #include <Jones3D/Main/JonesMain.h>
 #include <Jones3D/Platform/Null/JonesPlatformNull.h>
 
 #include <sith/Devices/sithConsole.h>
+#include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithPlayer.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithSector.h>
@@ -77,6 +92,7 @@ typedef enum HeadlessInputEventType
 {
     HEADLESS_INPUT_EVENT_CMD = 0,
     HEADLESS_INPUT_EVENT_KEY,
+    HEADLESS_INPUT_EVENT_CONTROL,
 } HeadlessInputEventType;
 
 // Added: One parsed "frame <n>: <event>" line. aText keeps the trimmed original text for
@@ -88,7 +104,8 @@ typedef struct HeadlessInputEvent
     char                   aText[HEADLESS_INPUT_MAX_TEXT]; // trimmed original event text
     const char*            pCmdText; // HEADLESS_INPUT_EVENT_CMD: points into aText, the command payload
     int                    keyId;    // HEADLESS_INPUT_EVENT_KEY: raw key id, see stdControl_UpdateKeyState
-    int                    bPressed; // HEADLESS_INPUT_EVENT_KEY: 1 = down, 0 = up
+    SithControlFunction    controlId; // HEADLESS_INPUT_EVENT_CONTROL: engine control function
+    int                    bPressed; // HEADLESS_INPUT_EVENT_KEY/CONTROL: 1 = down, 0 = up
 } HeadlessInputEvent;
 
 // Added: the Babylon column's main() also takes --render (see the usage comment at the top).
@@ -100,7 +117,7 @@ typedef struct HeadlessInputEvent
 
 static void Headless_PrintUsage(const char* pProgramName)
 {
-    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--state <file>] [--input <file>] [--capture <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
+    fprintf(stderr, "usage: %s [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n, default %d>] [--step <msec, default %d>] [--draw-step <msec, default step>] [--fixed-tick <hz, default off>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n, default %d, max %d>]" HEADLESS_RENDER_USAGE "\n",
         pProgramName ? pProgramName : "Jones3D-headless", HEADLESS_DEFAULT_FRAMES, HEADLESS_DEFAULT_STEP, HEADLESS_DEFAULT_RUNS, HEADLESS_MAX_RUNS);
 }
 
@@ -135,6 +152,27 @@ static const HeadlessInputKeyName aInputKeyNames[] =
     { "mouse1", STDCONTROL_KID_MOUSE_LBUTTON },
     { "mouse2", STDCONTROL_KID_MOUSE_RBUTTON },
 };
+
+// Added: Control functions the "control" verb can press. These are actions that have no default
+// keyboard binding in the headless run (which keeps the engine's default bindings); the Modern
+// quick whip is the first. The name is matched case-insensitively.
+typedef struct HeadlessInputControlName
+{
+    const char* pName;
+    SithControlFunction functionId;
+} HeadlessInputControlName;
+
+static const HeadlessInputControlName aInputControlNames[] =
+{
+    { "quickwhip", SITHCONTROL_QUICKWHIP },
+};
+
+// Added: the key a scripted control function is bound to. The headless run keeps the engine's
+// default bindings, so a function the windowed build takes from the pad is bound here once and
+// then pressed through the ordinary key path. F1 is free in the default bindings and mapped by
+// both platform columns.
+#define HEADLESS_INPUT_CONTROLKEY STDKEY_F1
+static int Headless_bInputControlBound = 0;
 
 // True when the token names this key, ignoring case.
 static bool Headless_InputIsKeyName(const char* pToken, const char* pName)
@@ -376,6 +414,54 @@ static bool Headless_InputParseLine(const char* pPath, size_t lineNum, char* aLi
         pEvent->keyId    = (int)keyId;
         pEvent->bPressed = strcmp(pStateToken, "down") == 0;
     }
+    else if ( strcmp(pVerb, "control") == 0 )
+    {
+        char* pControlToken = Headless_InputNextToken(&pEventCursor);
+        if ( !pControlToken )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: missing control name after 'control'!\n", pPath, lineNum);
+            return false;
+        }
+
+        char* pStateToken = Headless_InputNextToken(&pEventCursor);
+        if ( !pStateToken )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: missing 'down' or 'up' after control '%s'!\n", pPath, lineNum, pControlToken);
+            return false;
+        }
+
+        SithControlFunction functionId = (SithControlFunction)-1;
+        for ( size_t i = 0; i < sizeof(aInputControlNames) / sizeof(aInputControlNames[0]); ++i )
+        {
+            if ( Headless_InputIsKeyName(pControlToken, aInputControlNames[i].pName) )
+            {
+                functionId = aInputControlNames[i].functionId;
+                break;
+            }
+        }
+
+        if ( functionId == (SithControlFunction)-1 )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: unknown control '%s'!\n", pPath, lineNum, pControlToken);
+            return false;
+        }
+
+        if ( strcmp(pStateToken, "down") != 0 && strcmp(pStateToken, "up") != 0 )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: expected 'down' or 'up', got '%s'!\n", pPath, lineNum, pStateToken);
+            return false;
+        }
+
+        if ( Headless_InputNextToken(&pEventCursor) )
+        {
+            fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: unexpected text after control event!\n", pPath, lineNum);
+            return false;
+        }
+
+        pEvent->type      = HEADLESS_INPUT_EVENT_CONTROL;
+        pEvent->controlId = functionId;
+        pEvent->bPressed  = strcmp(pStateToken, "down") == 0;
+    }
     else
     {
         fprintf(stderr, "ERROR: Jones3D-headless: %s:%zu: unknown event '%s'!\n", pPath, lineNum, pVerb);
@@ -462,6 +548,24 @@ static void Headless_InputFireDue(size_t frameCount)
         if ( pEvent->type == HEADLESS_INPUT_EVENT_CMD )
         {
             sithConsole_ExeCommand(pEvent->pCmdText);
+        }
+        else if ( pEvent->type == HEADLESS_INPUT_EVENT_CONTROL )
+        {
+            // Added: bind the control function to a free key once, then press that key through the
+            // ordinary device seam. The windowed build binds this function from the pad (LB for
+            // the Modern quick whip); the headless run keeps the engine's default bindings, which
+            // do not include a pad, so this is the dev seam that drives the same action.
+            if ( !Headless_bInputControlBound )
+            {
+                sithControl_BindControl(pEvent->controlId, HEADLESS_INPUT_CONTROLKEY, (SithControlBindFlag)0);
+                Headless_bInputControlBound = 1;
+            }
+
+            if ( !stdControl_QueueKeyEvent(HEADLESS_INPUT_CONTROLKEY, pEvent->bPressed) )
+            {
+                printf("WARNING: Jones3D-headless: input frame=%zu: control key %d can't be delivered on this platform\n",
+                    pEvent->frame, (int)HEADLESS_INPUT_CONTROLKEY);
+            }
         }
         else
         {
@@ -636,16 +740,22 @@ int JonesHeadless_Run(int argc, char** argv)
     const char* pStatePath    = NULL;
     const char* pInputPath    = NULL;
     const char* pCapturePath  = NULL;
+    const char* pDrawTracePath = NULL;     // Added: dev-only --draw-trace
     size_t frameLimit         = HEADLESS_DEFAULT_FRAMES;
     unsigned long step        = HEADLESS_DEFAULT_STEP;
+    unsigned long drawStep    = 0;         // Added: M9.20 --draw-step, 0 = same as --step
+    int           fixedTickHz = -1;        // Added: M9.20 --fixed-tick, -1 = use the cfg
     size_t numRuns            = HEADLESS_DEFAULT_RUNS;
 
     for ( int i = 1; i < argc; ++i )
     {
         if ( !strcmp(argv[i], "--user-dir") || !strcmp(argv[i], "--load") || !strcmp(argv[i], "--data")
             || !strcmp(argv[i], "--hash-data")
-            || !strcmp(argv[i], "--frames") || !strcmp(argv[i], "--step") || !strcmp(argv[i], "--state")
+            || !strcmp(argv[i], "--frames") || !strcmp(argv[i], "--step")
+            || !strcmp(argv[i], "--draw-step") || !strcmp(argv[i], "--fixed-tick")
+            || !strcmp(argv[i], "--state")
             || !strcmp(argv[i], "--input") || !strcmp(argv[i], "--capture")
+            || !strcmp(argv[i], "--draw-trace")
             || !strcmp(argv[i], "--runs") )
         {
             if ( i + 1 >= argc )
@@ -697,6 +807,32 @@ int JonesHeadless_Run(int argc, char** argv)
 
                 step = value;
             }
+            else if ( !strcmp(argv[i], "--draw-step") )
+            {
+                char* pEnd = NULL;
+                unsigned long value = strtoul(argv[++i], &pEnd, 10);
+                if ( !pEnd || *pEnd || value == 0 || value > HEADLESS_MAX_STEP )
+                {
+                    fprintf(stderr, "ERROR: Jones3D-headless: --draw-step needs a millisecond count from 1 to %d!\n", HEADLESS_MAX_STEP);
+                    Headless_PrintUsage(argv[0]);
+                    return 1;
+                }
+
+                drawStep = value;
+            }
+            else if ( !strcmp(argv[i], "--fixed-tick") )
+            {
+                char* pEnd = NULL;
+                long value = strtol(argv[++i], &pEnd, 10);
+                if ( !pEnd || *pEnd || value < 0 || value > 1000 )
+                {
+                    fprintf(stderr, "ERROR: Jones3D-headless: --fixed-tick needs a rate in Hz from 0 to 1000!\n");
+                    Headless_PrintUsage(argv[0]);
+                    return 1;
+                }
+
+                fixedTickHz = (int)value;
+            }
             else if ( !strcmp(argv[i], "--runs") )
             {
                 char* pEnd = NULL;
@@ -719,6 +855,10 @@ int JonesHeadless_Run(int argc, char** argv)
             {
                 pCapturePath = argv[++i];
             }
+            else if ( !strcmp(argv[i], "--draw-trace") )
+            {
+                pDrawTracePath = argv[++i];
+            }
             else
             {
                 pStatePath = argv[++i];
@@ -731,6 +871,12 @@ int JonesHeadless_Run(int argc, char** argv)
             return 1;
         }
     }
+
+    // Added: M9.20 --fixed-tick overrides engine.sim.fixedTick for this run. The override survives
+    // the per-run global reset; JonesMain_Startup reads it through JonesFixedTick_Configure.
+    // Added: the headless runner must stay off unless asked, even though Enhanced now defaults the
+    // option on, so the trace references and headless scripts keep the measured-frame-time loop.
+    JonesFixedTick_SetRateOverride(fixedTickHz >= 0 ? fixedTickHz : 0);
 
     // Added: --input: parse the whole script up front. A malformed script exits 1 before any
     // engine code runs, so a run never starts on a script it cannot honor.
@@ -830,26 +976,83 @@ int JonesHeadless_Run(int argc, char** argv)
             return 1;
         }
 
+        // Added: dev-only --draw-trace. Open it after startup so the path is final, and reopen it
+        // for each run so a multi-run trace only describes the last run.
+        if ( pDrawTracePath && !JonesFixedTick_OpenDrawTrace(pDrawTracePath) )
+        {
+            JonesMain_Shutdown();
+            Headless_InputFree();
+            return 1;
+        }
+
+        // Added: M9.20. With a fixed tick the run is bounded by simulation ticks, so --frames and
+        // the state-file frame line count ticks and the same --frames gives the same game time
+        // however many draw-only frames fit between ticks. The virtual clock advances by the draw
+        // step; without a fixed tick this is exactly --step.
+        const bool bFixedTick  = JonesFixedTick_IsEnabled();
+        unsigned long renderStep = step;
+        if ( bFixedTick && step )
+        {
+            if ( drawStep )
+            {
+                renderStep = drawStep;
+            }
+            else if ( numInputEvents && step > JonesFixedTick_GetStepMsec() )
+            {
+                // Added: a scripted-input run must see the same key state on every tick however
+                // the draw step is chosen. With --step larger than the tick, one process call
+                // would run several ticks with one input snapshot; clamp the implicit draw step
+                // to the tick so each tick samples the script at its own frame. An explicit
+                // --draw-step still wins, as the key proof's draw-step variants require.
+                renderStep = JonesFixedTick_GetStepMsec();
+            }
+        }
+        if ( bFixedTick )
+        {
+            JonesFixedTick_SetTickLimit(frameLimit);
+            if ( run == 0 )
+            {
+                printf("fixed tick: rate %d Hz, step %u ms, draw step %lu ms, --frames counts ticks\n",
+                    JonesFixedTick_GetRateHz(), JonesFixedTick_GetStepMsec(), renderStep);
+            }
+        }
+
         // wkernel_Run: the main loop until JonesMain_Process() returns -1 (or 1 to finish),
         // stopped by the frame limit. Frames are counted by the engine's own counter, which
-        // only advances once the game state is reached.
+        // only advances once the game state is reached; with a fixed tick they are ticks.
         int exitCode    = 0;
         const char* pStopReason = NULL;
         size_t frameCount       = 0;
         size_t nextMilestone    = HEADLESS_PRINT_INTERVAL;
+        size_t numProcessCalls  = 0;
         while ( 1 )
         {
+            ++numProcessCalls;
+
+            // Added: a fixed-tick run whose game state never opens would never advance its tick
+            // count. The cap keeps the runner from looping forever.
+            if ( bFixedTick && numProcessCalls > frameLimit * 64 + 100000 )
+            {
+                exitCode    = 0;
+                pStopReason = "fixed-tick iteration safety limit";
+                break;
+            }
+
+            const size_t progressCount = bFixedTick
+                ? JonesFixedTick_GetTickCount()
+                : JonesMain_GetFrameCount();
+
             // Added: --input: fire every pending scripted event whose frame is due at the current
             // engine frame count, in file order, just before the engine processes the frame.
-            Headless_InputFireDue(JonesMain_GetFrameCount());
+            Headless_InputFireDue(progressCount);
 
             int result = JonesMain_Process();
 
             // Added: fixed time step: the engine clock moves exactly one frame's worth of time per
             // processed frame, so a run does not depend on the wall clock anymore.
-            if ( step )
+            if ( renderStep )
             {
-                stdPlatformNull_AdvanceClock((uint32_t)step);
+                stdPlatformNull_AdvanceClock((uint32_t)renderStep);
             }
 
             if ( result == -1 )
@@ -872,7 +1075,7 @@ int JonesHeadless_Run(int argc, char** argv)
                 fprintf(stdout, "WARNING: Jones3D-headless: Unhandled result code: %d, skipping...\n", result);
             }
 
-            frameCount = JonesMain_GetFrameCount();
+            frameCount = bFixedTick ? JonesFixedTick_GetTickCount() : JonesMain_GetFrameCount();
             while ( frameCount >= nextMilestone )
             {
                 Headless_PrintRunState(nextMilestone);
@@ -905,7 +1108,14 @@ int JonesHeadless_Run(int argc, char** argv)
 
         JonesMain_Shutdown();
 
+        // Added: close the dev trace before the next run reopens it.
+        JonesFixedTick_CloseDrawTrace();
+
         printf("stopped: %s (frames=%zu)\n", pStopReason ? pStopReason : "unknown reason", frameCount);
+        if ( bFixedTick )
+        {
+            printf("fixed tick: %zu rendered frames for %zu ticks\n", numProcessCalls, frameCount);
+        }
 
         if ( exitCode )
         {

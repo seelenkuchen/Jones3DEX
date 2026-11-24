@@ -30,6 +30,41 @@ namespace babylon::render
         bool operator==(const DeviceLimits&) const = default;
     };
 
+    // How a finished frame reaches the display. Vsync waits for the vertical
+    // blank, so the refresh rate caps the frame rate and nothing tears.
+    // Immediate presents at once and may tear; it has no refresh-rate cap.
+    // Mailbox waits for the vertical blank but replaces a pending image instead
+    // of queueing another, for less latency than Vsync without tearing.
+    enum class PresentMode
+    {
+        Vsync,
+        Immediate,
+        Mailbox,
+    };
+
+    // The present modes a device offers. Vsync is offered by every device and
+    // window; the others depend on the driver and the window's surface.
+    struct PresentModeSupport
+    {
+        bool vsync = true;
+        bool immediate = false;
+        bool mailbox = false;
+
+        // True when mode is one of the flags above.
+        bool supports(PresentMode mode) const
+        {
+            switch ( mode )
+            {
+                case PresentMode::Vsync: return vsync;
+                case PresentMode::Immediate: return immediate;
+                case PresentMode::Mailbox: return mailbox;
+            }
+            return false;
+        }
+
+        bool operator==(const PresentModeSupport&) const = default;
+    };
+
     // What a device is and accepts. Constant for the device's lifetime.
     struct DeviceInfo
     {
@@ -83,6 +118,21 @@ namespace babylon::render
         // usage. False for a depth format with ColorTarget usage, a color
         // format with DepthTarget usage, and anything the device lacks.
         virtual bool supportsFormat(TextureFormat format, TextureUsage usage) const = 0;
+
+        // The present modes this device offers. A device without a swapchain
+        // reports Vsync and Immediate; there is nothing to present either way.
+        virtual PresentModeSupport presentModeSupport() const = 0;
+
+        // The mode frames are presented with. Vsync until setPresentMode()
+        // accepts another.
+        virtual PresentMode presentMode() const = 0;
+
+        // Chooses how a presented frame reaches the display. Returns true and
+        // records mode when presentModeSupport() offers it. A mode it does not
+        // offer logs one warning, stores Vsync and returns false; a device
+        // without a swapchain accepts Vsync and Immediate and presents nothing
+        // either way.
+        virtual bool setPresentMode(PresentMode mode) = 0;
 
         // Creates a texture; its contents are undefined until uploaded,
         // cleared or copied to. Refused as described at TextureDesc.

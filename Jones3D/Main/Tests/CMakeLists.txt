@@ -237,6 +237,7 @@ endif()
 add_executable(jones3dTests
     jones3dTestRunner.c
     JonesMainTest.c
+    JonesFixedTickTest.c
     ${JONES3D_MAIN_TEST_PLATFORM_SOURCES}
     ${JONES3D_MAIN_TEST_SOURCES}
 )
@@ -283,6 +284,7 @@ set_target_properties(jones3dTests PROPERTIES
 source_group("Tests" FILES
     jones3dTestRunner.c
     JonesMainTest.c
+    JonesFixedTickTest.c
 )
 
 add_test(NAME Jones3D.Main COMMAND jones3dTests)

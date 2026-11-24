@@ -378,9 +378,26 @@ is no display). The option does not change the state trace. The same run must gi
 state file, byte for byte, in all of them; the
 runner writes the state file in binary mode so Windows line endings do not differ. On
 Linux the Windows build runs under wine (`wine <build>/Jones3D/Jones3D-headless.exe ...`).
-`--input <file>` feeds a scripted-input file of `frame <n>: cmd <command>` and
-`frame <n>: key <name|number> down|up` lines; scripted keys take effect at the next
-`stdControl_ReadControls`, as device input does.
+`--input <file>` feeds a scripted-input file of `frame <n>: cmd <command>`,
+`frame <n>: key <name|number> down|up` and `frame <n>: control <name> down|up` lines; scripted
+keys take effect at the next `stdControl_ReadControls`, as device input does, while a named
+control is bound to a developer key and pressed through that same key path (`quickwhip` is the
+Modern quick whip, which the headless run has no default pad binding for).
+
+Three developer options exercise the fixed tick: `--fixed-tick <hz>` selects the
+simulation rate, `--draw-step <ms>` sets the virtual time per drawn frame, and
+`--draw-trace <file>` writes one line per drawn frame after the scene draw (tick,
+alpha, player and camera pose, three player joint positions, their previous- and
+current-tick endpoint positions and the active puppet tracks) for presentation analysis. The trace option is inert unless given and also
+works with the fixed tick off. A headless run stays off unless `--fixed-tick` is
+given, whatever the cfg default, so the trace references and existing headless
+scripts keep the measured-frame loop. The option itself offers Off and On at 50 Hz;
+`--fixed-tick` also accepts 30, 60 and 120 for dev comparisons (other values clamp
+to the nearest of 0/30/50/60/120), and QOL-off/Retail builds ignore it. On a
+fixed-tick run with `--input` and no explicit `--draw-step`, the runner clamps the
+draw step to the tick step so every tick sees the same scripted key state; an
+explicit `--draw-step` wins. See
+[Frame-Time.md](arc42/08-crosscutting/Frame-Time.md#m924-jumpfall-jitter-findings).
 
 The state file starts with one `cvar <name> <value>` line per simulation cvar (today
 `cvar game.profile enhanced` or `retail`), followed by the frame, game time, player state and one line per

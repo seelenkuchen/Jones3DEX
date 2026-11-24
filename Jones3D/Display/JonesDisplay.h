@@ -40,11 +40,17 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BRIGHTNESS                "engine.renderer.brightness" // Added: M9.11 calibration gamma after the tone map
 #define JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM                     "engine.renderer.bloom" // Added: M9.12 bloom level
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS               "engine.renderer.lightShafts" // Added: M9.16 light-shaft level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_SSAO                      "engine.renderer.ssao" // Added: M9.17b ambient-occlusion level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR                "engine.renderer.motionBlur" // Added: M9.19 camera motion-blur level
+#define JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE                 "engine.renderer.lensFlare" // Added: M9.18 lens flare
+#define JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE                  "engine.renderer.vignette" // Added: M9.18 vignette
+#define JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN                 "engine.renderer.filmGrain" // Added: M9.18 film grain
 #define JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES             "engine.renderer.water.ripples" // Added: M9.17 water ripples
 #define JONESDISPLAY_CFG_ENGINE_RENDER_COLORGRADING              "engine.renderer.colorGrading" // Added: M9.13 color-grading preset
 #define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_CUTSCENES             "engine.renderer.dof.cutscenes" // Added: M9.14 depth of field in cutscenes
 #define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_GAMEPLAY              "engine.renderer.dof.gameplay" // Added: M9.14 depth of field in gameplay
 #define JONESDISPLAY_CFG_ENGINE_RENDER_DOF_STRENGTH              "engine.renderer.dof.strength" // Added: M9.14 depth-of-field strength
+#define JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT                "engine.renderer.frameLimit" // Added: M9.23 frame pacing
 
 
 // Returns 0 for success and 1 indicating error

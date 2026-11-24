@@ -46,7 +46,7 @@ namespace
     JonesUiPromptIcons LoadPromptIcons(babylon::uirender::RenderPainter& painter,
         babylon::files::FileSystem& files, const char* pSet,
         const char* pAccept, const char* pBack, const char* pTabsLeft,
-        const char* pTabsRight, const char* pChange)
+        const char* pTabsRight, const char* pChange, const char* pReset)
     {
         JonesUiPromptIcons icons;
         const std::string prefix = std::string("prompts/") + pSet + "/";
@@ -55,6 +55,7 @@ namespace
         icons.tabsLeft = LoadPromptIcon(painter, files, (prefix + pTabsLeft).c_str());
         icons.tabsRight = LoadPromptIcon(painter, files, (prefix + pTabsRight).c_str());
         icons.changeLeft = LoadPromptIcon(painter, files, (prefix + pChange).c_str());
+        icons.reset = LoadPromptIcon(painter, files, (prefix + pReset).c_str());
         return icons;
     }
 
@@ -72,6 +73,7 @@ namespace
             "prompts/keyboard/Arrow_Left_Key_Dark.png");
         icons.changeRight = LoadPromptIcon(painter, files,
             "prompts/keyboard/Arrow_Right_Key_Dark.png");
+        icons.reset = LoadPromptIcon(painter, files, "prompts/keyboard/R_Key_Dark.png");
         return icons;
     }
 
@@ -256,16 +258,16 @@ JonesUiContext* JonesUiContext_Acquire()
         *pContext->pFileSystem);
     pState->prompts.xbox = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
         "xbox", "XboxSeriesX_A.png", "XboxSeriesX_B.png", "XboxSeriesX_LB.png",
-        "XboxSeriesX_RB.png", "XboxSeriesX_Dpad.png");
+        "XboxSeriesX_RB.png", "XboxSeriesX_Dpad.png", "XboxSeriesX_Y.png");
     pState->prompts.playStation = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
         "ps5", "PS5_Cross.png", "PS5_Circle.png", "PS5_L1.png", "PS5_R1.png",
-        "PS5_Dpad.png");
+        "PS5_Dpad.png", "PS5_Triangle.png");
     pState->prompts.nintendo = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
         "switch", "Switch_B.png", "Switch_A.png", "Switch_LB.png", "Switch_RB.png",
-        "Switch_Dpad.png");
+        "Switch_Dpad.png", "Switch_X.png");
     pState->prompts.steamDeck = LoadPromptIcons(pState->painter, *pContext->pFileSystem,
         "steamdeck", "SteamDeck_A.png", "SteamDeck_B.png", "SteamDeck_L1.png",
-        "SteamDeck_R1.png", "SteamDeck_Dpad.png");
+        "SteamDeck_R1.png", "SteamDeck_Dpad.png", "SteamDeck_Y.png");
 
     pState->pUi = std::make_unique<babylon::ui::Ui>(pState->painter, *pContext->pCvars);
     if ( !pState->pUi->setSkin(JonesUiSkin_Create(pState->titleFont, pState->rowFont,

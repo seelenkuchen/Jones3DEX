@@ -37,11 +37,14 @@ diagram or callout lines and labels.
    key's large icon and action name below it.
 4. **Bind** captures the next input of that screen's device and replaces that action's first binding
    of the device, leaving the other device's bindings untouched. A control already bound to another
-   action uses the existing reassign question. Escape or pad East/Back cancels. **Reset Binds**
-   restores only that device's bindings from the default scheme after a Yes/No question. **Back**
-   writes nothing and runs no required-binding check when nothing changed. After a change it
-   validates the required-action check, turns a built-in default into a custom copy, writes the
-   scheme and rebinds; the other device's bindings are kept. The check counts any device binding,
+   action uses the existing reassign question. Escape or pad East/Back cancels. **Reset to defaults**
+   is a visible row under the list and also works with Y/North on a pad or R on the keyboard; its
+   prompt bar shows that device's reset button. It restores only that device's bindings from the
+   scheme's built-in data after a Yes/No question. **Back** writes nothing and runs no
+   required-binding check when nothing changed. After a change it validates the required-action
+   check, turns a built-in default into a custom copy, writes the scheme and rebinds; the other
+   device's bindings are kept. A built-in default that still matches its built-in data keeps no
+   user copy, so a stale copy is removed instead of written. The check counts any device binding,
    exempts the original weapon keys and the optional artifact hot keys, and exempts actions the
    Modern style drives from a stick.
 5. In the Modern control style the left stick owns movement, turn, sidestep and run, and the right
@@ -66,7 +69,10 @@ the Controls tab's bind list.
   content; the module still draws the prompt bar and reports back results.
 - The Keyboard & Mouse screen shares the model and layout; only its icon mapping and capture rules
   differ.
-- Scheme files, defaults and reassign behavior are unchanged. The required-binding check counts a
-  binding from either device and exempts the original weapon keys, the optional artifact hot keys
-  and the actions the Modern gamepad style drives from a stick (Decision 4), so existing schemes and
-  the Retail trace keep working.
+- The Controls tab and the Button Layout can both reset a built-in scheme; the reset is no longer
+  limited to custom schemes or a hidden shortcut. Removing a built-in's stale user copy is what
+  lets a later change to the shipped defaults reach an existing install.
+- Scheme files, defaults and reassign behavior are otherwise unchanged. The required-binding check
+  counts a binding from either device and exempts the original weapon keys, the optional artifact
+  hot keys and the actions the Modern gamepad style drives from a stick (Decision 4), so existing
+  schemes and the Retail trace keep working.

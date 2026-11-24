@@ -33,6 +33,7 @@
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesFixedTick.h>
 #include <Jones3D/Platform/Babylon/JonesUiBrightnessCalibration.h>
 #include <Jones3D/Platform/Babylon/JonesUiDisplaySettings.h>
 #include <Jones3D/Platform/Babylon/JonesUiControls.h>
@@ -437,6 +438,108 @@ TEST_CASE("the display resolution list is deduplicated by size")
     CHECK_FALSE(JonesUiDisplay_CollectVideoModes(&env, 1, modes));
 }
 
+TEST_CASE("the display screen reads the ambient occlusion default per build")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+
+    REQUIRE(layout.ssao < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.ssao]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Ambient occlusion");
+    CHECK(pChoice->options == std::vector<std::string>{ "Off", "Low", "Medium", "High" });
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(pChoice->selected == 1u);
+#else
+    CHECK(pChoice->selected == 0u);
+#endif
+
+    // The row sits after Light shafts and before Motion blur and Water ripples.
+    const babylon::ui::Choice* pShafts =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.lightShafts]);
+    const babylon::ui::Choice* pMotionBlur =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.motionBlur]);
+    const babylon::ui::Toggle* pWater =
+        std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.waterRipples]);
+    REQUIRE(pShafts != nullptr);
+    REQUIRE(pMotionBlur != nullptr);
+    REQUIRE(pWater != nullptr);
+    CHECK(layout.lightShafts < layout.ssao);
+    CHECK(layout.ssao < layout.motionBlur);
+    CHECK(layout.motionBlur < layout.waterRipples);
+}
+
+TEST_CASE("the display screen reads the motion blur default per build")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+
+    REQUIRE(layout.motionBlur < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.motionBlur]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Motion blur");
+    CHECK(pChoice->options == std::vector<std::string>{ "Off", "Low", "Medium", "High" });
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(pChoice->selected == 1u);
+#else
+    CHECK(pChoice->selected == 0u);
+#endif
+}
+
+TEST_CASE("the display frame rate row defaults to V-Sync")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    const JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    CHECK(values.frameLimit == 0u);
+
+    const babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+    REQUIRE(layout.frameLimit < screen.widgets.size());
+    const babylon::ui::Choice* pChoice =
+        std::get_if<babylon::ui::Choice>(&screen.widgets[layout.frameLimit]);
+    REQUIRE(pChoice != nullptr);
+    CHECK(pChoice->text == "Frame rate limit");
+    CHECK(pChoice->options == std::vector<std::string>{
+        "V-Sync", "30", "60", "120", "144", "240", "Unlimited" });
+    CHECK(pChoice->selected == 0u);
+}
+
 TEST_CASE("the display screen OK writes the chosen settings and config")
 {
     SettingsTestContext testContext;
@@ -453,14 +556,18 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     sithRender_g_fogDensity = 100.0f;
     sithCamera_SetGameplayFOV(0.0f);
 
+    // The frame-rate row reads the stored 144 Hz (index 4); Right selects 240 (index 5).
+    REQUIRE(stdConfig_SetInt(JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT, 144));
+
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 field of view, 10 render scale, 11 anti-aliasing, 12 bloom,
-    // 13 light shafts, 14 water ripples, 15 depth of field (cutscenes), 16 depth of field (gameplay),
-    // 17 sharpening, 18 tone mapping, 19 exposure, 20 colour grading, 21 anisotropic filtering,
-    // 22 crisp pixels, 23 Brightness..., 24 OK, 25 back.
+    // 13 light shafts, 14 ambient occlusion, 15 motion blur, 16 lens flare, 17 vignette,
+    // 18 film grain, 19 water ripples, 20 depth of field (cutscenes), 21 depth of field (gameplay),
+    // 22 sharpening, 23 tone mapping, 24 exposure, 25 colour grading, 26 anisotropic filtering,
+    // 27 crisp pixels, 28 frame rate limit, 29 Brightness..., 30 OK, 31 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -488,6 +595,16 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // light shafts
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // ambient occlusion
+    testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // motion blur
+    testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // lens flare
+    testContext.platform.PushKey(platform::Key::Enter); // on -> off in Enhanced, off -> on without QOL
+    testContext.platform.PushKey(platform::Key::Down);  // vignette
+    testContext.platform.PushKey(platform::Key::Enter); // off -> on
+    testContext.platform.PushKey(platform::Key::Down);  // film grain
+    testContext.platform.PushKey(platform::Key::Enter); // off -> on
     testContext.platform.PushKey(platform::Key::Down);  // water ripples
     testContext.platform.PushKey(platform::Key::Enter);
     testContext.platform.PushKey(platform::Key::Down);  // depth of field (cutscenes)
@@ -506,6 +623,8 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // 8x -> 4x
     testContext.platform.PushKey(platform::Key::Down);  // crisp pixels
     testContext.platform.PushKey(platform::Key::Enter); // crisp pixels on
+    testContext.platform.PushKey(platform::Key::Down);  // frame rate limit
+    testContext.platform.PushKey(platform::Key::Right); // 144 -> 240
     testContext.platform.PushKey(platform::Key::Down);  // Brightness...
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
@@ -541,6 +660,18 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_ANTIALIASING, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, -1) == 0);
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, -1) == 0);
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR, -1) == 0);
+#ifdef J3D_QOL_IMPROVEMENTS
+    // Enhanced starts lens flare on, so Enter turns it off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE, true));
+#else
+    // Without QOL it starts off, so Enter turns it on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE, false));
+#endif
+    // The vignette and film grain start off in every build, so Enter turns them on.
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE, false));
+    CHECK(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN, false));
 #ifdef J3D_QOL_IMPROVEMENTS
     // Enhanced starts water ripples on, so Enter turns them off.
     CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES, true));
@@ -576,6 +707,7 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(STD3D_CFG_ANISOTROPICFILTER, 0) == 1);
 #endif
     CHECK(stdConfig_GetBool(STD3D_CFG_TEXTUREPIXELATED, false));
+    CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_FRAMELIMIT, -1) == 240);
     char aDisplay[128] = { 0 };
     CHECK(stdConfig_GetString(JONESDISPLAY_CFG_GRAPHICS_DISPLAY, aDisplay,
         sizeof(aDisplay), ""));
@@ -867,6 +999,50 @@ TEST_CASE("quick whip reads its config key")
     CHECK(sithWeapon_IsQuickWhipEnabled() == (J3D_QOL_VALUE(true, false) != 0));
 }
 
+TEST_CASE("the simulation tick row is an Enhanced toggle that starts on")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+
+    // A missing key is on in an Enhanced build (50 Hz) and always off in the Retail profile.
+    // A QOL-off build has no Enhanced default, so the key missing stays Off there too.
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(JonesUiGameplay_LoadValues(true).bFixedTick);
+#else
+    CHECK_FALSE(JonesUiGameplay_LoadValues(true).bFixedTick);
+#endif
+    CHECK_FALSE(JonesUiGameplay_LoadValues(false).bFixedTick);
+
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 0));
+    CHECK_FALSE(JonesUiGameplay_LoadValues(true).bFixedTick);
+
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 50));
+    CHECK(JonesUiGameplay_LoadValues(true).bFixedTick);
+
+    // An old 30/60/120 from an earlier build reads as on.
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 60));
+    CHECK(JonesUiGameplay_LoadValues(true).bFixedTick);
+
+    const JonesUiGameplayValues values;
+    JonesUiGameplayLayout layout;
+    const babylon::ui::Screen screen = JonesUiGameplay_BuildScreen(true, values, layout);
+    REQUIRE(layout.fixedTick < screen.widgets.size());
+    const babylon::ui::Toggle* pToggle =
+        std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.fixedTick]);
+    REQUIRE(pToggle != nullptr);
+    CHECK(pToggle->text == "Simulation tick");
+    CHECK(pToggle->enabled);
+
+    JonesUiGameplayLayout retailLayout;
+    const babylon::ui::Screen retail =
+        JonesUiGameplay_BuildScreen(false, values, retailLayout);
+    REQUIRE(retailLayout.fixedTick < retail.widgets.size());
+    const babylon::ui::Toggle* pRetailToggle =
+        std::get_if<babylon::ui::Toggle>(&retail.widgets[retailLayout.fixedTick]);
+    REQUIRE(pRetailToggle != nullptr);
+    CHECK_FALSE(pRetailToggle->enabled);
+}
+
 TEST_CASE("the gameplay screen OK writes the original options and the enhancements")
 {
     SettingsTestContext testContext;
@@ -881,6 +1057,10 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     JonesReticle_Enable(false);
     sithWeapon_EnableBloodSplatter(false);
     sithWeapon_SetQuickWhipEnabled(true);
+
+    // The simulation tick row reads the stored Off; Enter turns it on, which writes 50 Hz.
+    REQUIRE(stdConfig_SetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, 0));
+    CHECK_FALSE(JonesUiGameplay_LoadValues(true).bFixedTick);
 
     REQUIRE(stdConfig_SetBool(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT, false));
     REQUIRE(stdConfig_SetBool(SITHOVERLAYMAP_CFG_GAMEPLAY_SHOWHINTS, false));
@@ -898,7 +1078,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     // 0 show text, 1 show hints, 2 rotate map, 3 difficulty, 4 default to run, 5 reticle,
     // 6 blood, 7 profile (disabled), 8 profile note, 9 enhancements heading,
     // 10 interaction prompts, 11 quick whip, 12 fire flash, 13 external materials,
-    // 14 external keyframes, 15 OK, 16 back.
+    // 14 external keyframes, 15 simulation tick, 16 OK, 17 back.
     testContext.platform.PushKey(platform::Key::Enter); // show text on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // show hints on
@@ -922,6 +1102,8 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     testContext.platform.PushKey(platform::Key::Enter); // external materials off
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // external keyframes off
+    testContext.platform.PushKey(platform::Key::Down);
+    testContext.platform.PushKey(platform::Key::Enter); // simulation tick off -> on
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Enter); // OK
 
@@ -951,6 +1133,7 @@ TEST_CASE("the gameplay screen OK writes the original options and the enhancemen
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    CHECK(stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, -1) == 50);
     // The profile is fixed by the build and written nowhere.
     CHECK_FALSE(stdConfig_Contains("game.profile"));
 }
@@ -1038,6 +1221,7 @@ TEST_CASE("the retail profile disables the enhancements and writes them off")
     CHECK_FALSE(stdConfig_GetBool(SITHWEAPON_CFG_ENGINERENDERER_VFX_WEAPONFIREFLASH_ENABLED, true));
     CHECK_FALSE(stdConfig_GetBool(SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true));
     CHECK_FALSE(stdConfig_GetBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true));
+    CHECK(stdConfig_GetInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK, -1) == 0);
     // The original options still work under Retail.
     CHECK(stdConfig_Contains(SITHVOICE_CFG_GAMEPLAY_SHOWTEXT));
     // The profile row is fixed by the build and writes no key in either direction.
@@ -1658,10 +1842,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 22).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 28).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 22; ++row )
+    for ( int row = 0; row < 28; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

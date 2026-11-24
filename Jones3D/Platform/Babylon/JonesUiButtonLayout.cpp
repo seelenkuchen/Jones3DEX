@@ -53,6 +53,7 @@ namespace
     constexpr float kListTop      = 94.0f;
     constexpr float kListGap      = 6.0f;
     constexpr float kListRowHeight = 34.0f;
+    constexpr float kResetRowHeight = 28.0f;
     constexpr float kIconSize      = 24.0f;
     constexpr float kScrollWidth   = 4.0f;
     constexpr float kListWidthFraction = 0.40f;
@@ -62,7 +63,7 @@ namespace
     constexpr const char* kTitleText          = "BUTTON LAYOUT";       // TODO: [COMPAT]
     constexpr const char* kBackText           = "Back";                // TODO: [COMPAT]
     constexpr const char* kBindText           = "Bind";                // TODO: [COMPAT]
-    constexpr const char* kResetText          = "Reset Binds";         // TODO: [COMPAT]
+    constexpr const char* kResetText          = "Reset to defaults";   // TODO: [COMPAT]
     constexpr const char* kPressPadText       = "Press a button...";   // TODO: [COMPAT]
     constexpr const char* kPressKeyText       = "Press a key...";      // TODO: [COMPAT]
     constexpr const char* kUnboundText        = "Not bound";           // TODO: [COMPAT]
@@ -656,6 +657,14 @@ namespace
             ListWidth(canvas), kListRowHeight };
     }
 
+    // Added: the visible Reset row under the action list. The prompt bar starts below it.
+    babylon::ui::Rect ResetRowRect(const babylon::ui::Size& canvas)
+    {
+        return babylon::ui::Rect{ kMargin,
+            kListTop + (float)kJonesUiButtonLayoutVisibleRows * (kListRowHeight + kListGap),
+            ListWidth(canvas), kResetRowHeight };
+    }
+
     void DrawScrollbar(const JonesUiButtonLayoutModel& model, babylon::ui::Painter& painter,
         const babylon::ui::Size& canvas)
     {
@@ -1055,6 +1064,14 @@ void JonesUiButtonLayout_Draw(const JonesUiButtonLayoutModel& model,
     }
     painter.popClip();
 
+    // Added: the visible Reset button under the list, so the action is not only a hidden shortcut.
+    const Rect resetRect = ResetRowRect(canvas);
+    painter.fillRect(resetRect, kRowFill);
+    DrawBorder(painter, resetRect, kRowBorder, 1.0f);
+    painter.drawText(rowFont, kResetText,
+        Rect{ resetRect.x + 12.0f, resetRect.y, resetRect.width - 24.0f, resetRect.height },
+        TextAlign::Left, skin.text);
+
     DrawScrollbar(model, painter, canvas);
 
     // The right side: the pad or mouse drawing and one callout per physical input, in columns
@@ -1376,6 +1393,17 @@ namespace
         JonesUiControls_ShowControlMessage(text);
     }
 
+    // Added: the prompt bar of the screen. Reset shows the pad's North/Y button or the keyboard's R,
+    // so it matches the shortcuts the screen handles instead of the Change arrows.
+    std::vector<babylon::ui::Prompt> BuildPrompts(const JonesUiPromptIcons& icons)
+    {
+        std::vector<babylon::ui::Prompt> prompts;
+        prompts.push_back(babylon::ui::Prompt{ icons.back, kBackText });
+        prompts.push_back(babylon::ui::Prompt{ icons.accept, kBindText });
+        prompts.push_back(babylon::ui::Prompt{ icons.reset, kResetText });
+        return prompts;
+    }
+
     bool ApplyOnBack(JonesUiButtonLayoutModel& model)
     {
         JonesControlsConfig& config = *model.pConfig;
@@ -1393,6 +1421,17 @@ namespace
         {
             ShowMissing(scheme);
             return false;
+        }
+
+        // Added: a built-in brought back to its own defaults keeps no user copy. Removing a stale
+        // one is what lets a later change to the built-in data reach this player.
+        if ( index < JonesControlSchemes_GetNumDefaultSchemes()
+            && JonesUiControls_SchemeMatchesDefault(scheme, index) )
+        {
+            static_cast<void>(JonesControlSchemes_DeleteScheme(scheme.aName));
+            static_cast<void>(JonesControlSchemes_SetActiveScheme(&scheme));
+            config.selectedShemeIdx = (int)index;
+            return true;
         }
 
         if ( !EnsureCustomScheme(model, index) )
@@ -1456,14 +1495,10 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
         (void)uiRef;
         JonesUiButtonLayout_Draw(*pModel, painter, canvas, ui.skin(), assets);
 
-        std::vector<babylon::ui::Prompt> prompts;
         const JonesUiPromptAssets emptyAssets;
         const JonesUiPromptIcons& icons = JonesUiPrompts_IconsFor(
             pContext ? pContext->prompts : emptyAssets, lastDevice);
-        prompts.push_back(babylon::ui::Prompt{ icons.back, kBackText });
-        prompts.push_back(babylon::ui::Prompt{ icons.accept, kBindText });
-        prompts.push_back(babylon::ui::Prompt{ icons.changeLeft, kResetText });
-        ui.setPrompts(std::move(prompts));
+        ui.setPrompts(BuildPrompts(icons));
     };
 
     screen.event = [pModel, device, pPainter, &aPadAxisDirection](
@@ -1479,6 +1514,21 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
             return false;
         }
         JonesControlsScheme& scheme = modelRef.pConfig->aSchemes[modelRef.schemeIndex];
+
+        // Added: the reset restores the device from the scheme's own built-in data when the scheme
+        // is a built-in, and from the style default for a custom one.
+        const auto resetDevice = [&]()
+        {
+            const std::size_t defaultIndex =
+                modelRef.schemeIndex < JonesControlSchemes_GetNumDefaultSchemes()
+                ? modelRef.schemeIndex : JonesUiControls_DefaultSchemeIndex();
+            if ( ConfirmReset(uiRef, pPainter) )
+            {
+                JonesUiButtonLayout_ResetDevice(scheme, device, defaultIndex);
+                modelRef.bChanged = true;
+                JonesUiButtonLayout_RefreshRows(modelRef);
+            }
+        };
 
         const auto cancelCapture = [&]()
         {
@@ -1641,13 +1691,7 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
                     }
                     return true;
                 case babylon::platform::Key::R:
-                    if ( ConfirmReset(uiRef, pPainter) )
-                    {
-                        JonesUiButtonLayout_ResetDevice(scheme, device,
-                            JonesUiControls_DefaultSchemeIndex());
-                        modelRef.bChanged = true;
-                        JonesUiButtonLayout_RefreshRows(modelRef);
-                    }
+                    resetDevice();
                     return true;
                 default:
                     return true;
@@ -1696,6 +1740,14 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
             {
                 return true;
             }
+
+            // Added: a click on the visible Reset row runs the same reset as Y/R.
+            if ( ResetRowRect(uiRef.canvasSize()).contains(pointer) )
+            {
+                resetDevice();
+                return true;
+            }
+
             for ( std::size_t visual = 0; visual < kJonesUiButtonLayoutVisibleRows; ++visual )
             {
                 const std::size_t index = modelRef.scroll + visual;
@@ -1815,13 +1867,7 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
                     }
                     return true;
                 case GamepadButton::North:
-                    if ( ConfirmReset(uiRef, pPainter) )
-                    {
-                        JonesUiButtonLayout_ResetDevice(scheme, device,
-                            JonesUiControls_DefaultSchemeIndex());
-                        modelRef.bChanged = true;
-                        JonesUiButtonLayout_RefreshRows(modelRef);
-                    }
+                    resetDevice();
                     return true;
                 case GamepadButton::East:
                 case GamepadButton::Back:
@@ -1844,6 +1890,17 @@ int JonesUiButtonLayout_RunScreen(babylon::ui::Ui& ui, babylon::ui::Painter* pPa
 }
 
 #ifdef J3D_TEST
+babylon::ui::Rect JonesUiButtonLayout_ResetRowRectForTest(const babylon::ui::Size& canvas)
+{
+    return ResetRowRect(canvas);
+}
+
+std::vector<babylon::ui::Prompt> JonesUiButtonLayout_BuildPromptsForTest(
+    const JonesUiPromptIcons& icons)
+{
+    return BuildPrompts(icons);
+}
+
 unsigned JonesUiButtonLayout_GetLayoutFramesForTest(void)
 {
     return g_layoutFrames;

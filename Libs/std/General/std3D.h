@@ -108,6 +108,17 @@ void J3DAPI std3D_SetFocus(float distance, bool bCutscene, float deltaTime);
 // shafts (Null, and the replay path) ignore the call, and it records nothing in a capture.
 void J3DAPI std3D_SetFrameTime(float deltaTime);
 
+// Added: the current camera's world transform, for the optional motion-blur stage (M9.19,
+// presentation only). aMatrix is the camera's model matrix as 12 floats in rdCamera's order:
+// right, forward and up basis vectors, then the world position (three floats each). The backend
+// keeps it and the previous frame's transform, which is presentation state only. bCut marks a
+// camera cut (the current camera changed, the cutscene camera switched on or off, or a level or
+// save was just loaded); a cut, a zero game-time step, or a large jump or snap skips the blur and
+// resets the previous transform. The first frame after open has no previous transform and does not
+// blur. Backends without motion blur (Null, and the replay path) ignore the call, and it records
+// nothing in a capture. It changes no simulation state.
+void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut);
+
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);

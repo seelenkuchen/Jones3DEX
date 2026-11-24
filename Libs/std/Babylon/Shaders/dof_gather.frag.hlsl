@@ -39,12 +39,13 @@ cbuffer DofShape : register(b2, space3)
 };
 
 
-// The depth target is 0 at the near plane and 1 at the far plane (the projection std3D sets up).
-float LinearizeDepth(float depth)
+// rdCamera's sz is 0.1 at the near plane and 1.0 at the far plane, 1/z-linear in between.
+float LinearizeDepth(float sz)
 {
-    const float nearPlane = max(gDof.y, 1.0e-4);
-    const float farPlane  = max(gDof.z, nearPlane + 1.0e-3);
-    return (nearPlane * farPlane) / max(farPlane - depth * (farPlane - nearPlane), 1.0e-4);
+    const float nearPlane = max(gDof.y, 1.0e-5);
+    const float farPlane  = max(gDof.z, nearPlane + 1.0e-5);
+    const float depthRange = saturate((sz - 0.1) / 0.9);
+    return (nearPlane * farPlane) / max(farPlane - depthRange * (farPlane - nearPlane), 1.0e-5);
 }
 
 // The circle of confusion in 0..1; the gather multiplies it by the maximum radius.

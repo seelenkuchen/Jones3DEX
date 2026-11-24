@@ -1043,6 +1043,41 @@ TEST(Sound, TestBankRoundTripKeepsFields)
     SoundTest_Free(record.pLipSyncData);
 }
 
+
+TEST(Sound, SetListenerLeavesChannelStateUnchanged)
+{
+    // Added: M9.22. A zero-volume 3D channel would be stopped by the full Sound_Update; the
+    // draw-frame listener refresh must leave every channel handle, flag and count untouched.
+    SoundTest_ConfigurePlayingChannel(SOUND_CHANNEL_3DSOUND, 1.0f);
+    SoundTest_channel.volume      = 0.0f;
+    SoundTest_channel.playPos.x   = 10.0f;
+    SoundTest_channel.playPos.y   = 20.0f;
+    SoundTest_channel.playPos.z   = 30.0f;
+    SoundTest_channel.minRadius   = 1.0f;
+    SoundTest_channel.maxRadius   = 100.0f;
+    SoundTest_channel.envflags    = (SoundEnvFlags)0;
+
+    const tSoundChannel before = SoundTest_channel;
+
+    SoundInstanceInfo aBefore[4];
+    SoundInstanceInfo aAfter[4];
+    const size_t numBefore = Sound_GetAllInstanceInfo(aBefore, STD_ARRAYLEN(aBefore));
+
+    const rdVector3 pos   = { 1.0f, 2.0f, 3.0f };
+    const rdVector3 top   = { 0.0f, 1.0f, 0.0f };
+    const rdVector3 front = { 1.0f, 0.0f, 0.0f };
+    Sound_SetListener(&pos, &top, &front);
+
+    TEST_ASSERT_EQUAL_MEMORY(&before, &SoundTest_channel, sizeof(before));
+    TEST_ASSERT_EQUAL_size_t(numBefore, Sound_GetAllInstanceInfo(aAfter, STD_ARRAYLEN(aAfter)));
+    TEST_ASSERT_EQUAL_UINT32(before.handle, SoundTest_channel.handle);
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)before.flags, (uint32_t)SoundTest_channel.flags);
+
+    // Prove the fixture would be stopped by the full tick update.
+    Sound_Update(NULL, NULL, NULL, NULL);
+    TEST_ASSERT_EQUAL_UINT32(SOUND_INVALIDHANDLE, SoundTest_channel.handle);
+}
+
 TEST_GROUP_RUNNER(Sound)
 {
     RUN_TEST_CASE(Sound, TestFailures);
@@ -1068,4 +1103,5 @@ TEST_GROUP_RUNNER(Sound)
     RUN_TEST_CASE(Sound, TestImportBankDropsStoredLipSyncPointer);
     RUN_TEST_CASE(Sound, TestExportBankWritesNoLipSyncPointer);
     RUN_TEST_CASE(Sound, TestBankRoundTripKeepsFields);
+    RUN_TEST_CASE(Sound, SetListenerLeavesChannelStateUnchanged);
 }

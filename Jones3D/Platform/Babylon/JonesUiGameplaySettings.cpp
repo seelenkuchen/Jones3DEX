@@ -24,6 +24,7 @@
 #include <Jones3D/Display/JonesHud.h>
 #include <Jones3D/Display/JonesReticle.h>
 #include <Jones3D/Display/jonesConfig.h>
+#include <Jones3D/Main/JonesFixedTick.h>
 #include <Jones3D/Play/jonesInventory.h>
 #include <Jones3D/Platform/Babylon/JonesUiContext.h>
 #include <Jones3D/Platform/Babylon/JonesUiModal.h>
@@ -86,6 +87,11 @@ namespace
         "External CND materials"; // TODO: [COMPAT]
     constexpr const char* kJonesGameplayExternalKeyframesText =
         "External CND keyframes"; // TODO: [COMPAT]
+    constexpr const char* kJonesGameplayFixedTickText =
+        "Simulation tick"; // TODO: [COMPAT]
+
+    // Added: M9.23/ADR-0039. The option is a toggle: Off, or On at the game's 50 Hz physics rate.
+    constexpr int kJonesGameplayFixedTickRate = JONESFIXEDTICK_RATE_HZ;
 
     bool JonesUiGameplay_ReadToggle(const babylon::ui::Ui& ui, babylon::ui::ScreenId screen,
         std::size_t index, bool& value)
@@ -116,6 +122,18 @@ namespace
     bool JonesUiGameplay_ReadConfigBool(const char* pKey, bool defaultValue)
     {
         return stdConfig_HasStarted() ? stdConfig_GetBool(pKey, defaultValue) : defaultValue;
+    }
+
+    int JonesUiGameplay_ReadConfigInt(const char* pKey, int defaultValue)
+    {
+        return stdConfig_HasStarted() ? stdConfig_GetInt(pKey, defaultValue) : defaultValue;
+    }
+
+    // Added: the stored key is on when it is 50 or an old positive rate; a negative value keeps
+    // the build's default (on in Enhanced), and 0 is Off. Retail is always off.
+    bool JonesUiGameplay_FixedTickEnabled(bool bEnhancedProfile, int rateHz)
+    {
+        return bEnhancedProfile && rateHz != 0;
     }
 
     void JonesUiGameplay_SetConfigBool(const char* pKey, bool value)
@@ -239,6 +257,14 @@ namespace
             JonesUiContext_ResolveString(kJonesGameplayExternalKeyframesText), std::string(),
             bEnhancedProfile, values.bExternalKeyframes });
 
+        // Added: M9.23/ADR-0039. Run the simulation at a fixed 50 Hz step, the game's physics
+        // rate, and draw interpolated frames between ticks; Off keeps the measured frame time.
+        // Read at startup, so it applies on restart.
+        layout.fixedTick = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiContext_ResolveString(kJonesGameplayFixedTickText), std::string(),
+            bEnhancedProfile, values.bFixedTick });
+
         layout.ok = screen.widgets.size();
         screen.widgets.emplace_back(babylon::ui::Button{
             JonesUiContext_ResolveString("OK"), kJonesGameplayActionOk, true });
@@ -275,6 +301,9 @@ JonesUiGameplayValues JonesUiGameplay_LoadValues(bool bEnhancedProfile)
         SITHMATERIAL_CFG_CNDWORLDMATERIALS_LOADEXTERNAL, true);
     values.bExternalKeyframes = bEnhancedProfile && JonesUiGameplay_ReadConfigBool(
         SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL, true);
+    values.bFixedTick = JonesUiGameplay_FixedTickEnabled(bEnhancedProfile,
+        JonesUiGameplay_ReadConfigInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK,
+            JONESFIXEDTICK_DEFAULT_RATE));
     return values;
 }
 
@@ -311,6 +340,8 @@ void JonesUiGameplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId
         values.bExternalMaterials));
     static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.externalKeyframes,
         values.bExternalKeyframes));
+    static_cast<void>(JonesUiGameplay_ReadToggle(ui, screen, layout.fixedTick,
+        values.bFixedTick));
 }
 
 int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedProfile)
@@ -361,6 +392,11 @@ int JonesUiGameplay_Apply(const JonesUiGameplayValues& values, bool bEnhancedPro
         values.bExternalMaterials);
     JonesUiGameplay_SetConfigBool(SITHPUPPET_CFG_CNDWORLDKEYFRAMES_LOADEXTERNAL,
         values.bExternalKeyframes);
+
+    // Added: M9.23/ADR-0039. JonesFixedTick_Configure reads the key at startup, so the new state
+    // takes effect on the next restart, not on the next level load.
+    JonesUiGameplay_SetConfigInt(JONESFIXEDTICK_CFG_ENGINE_SIM_FIXEDTICK,
+        values.bFixedTick ? kJonesGameplayFixedTickRate : 0);
 
     return kJonesDialogOk;
 }

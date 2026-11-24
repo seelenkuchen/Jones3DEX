@@ -33,9 +33,33 @@ Where Jones3D EX stands and what comes next. The reasons behind the order are in
 | M7. Playable | The Babylon build plays with sound, saving and in-game menus; the owner's play-test on real hardware remains | In progress |
 | M7.7 Modern controls | Before M8: camera-relative movement, free camera, quick-step, target lock and quick-select as the Enhanced Control style; Classic and the Retail profile keep the original controls ([ADR-0029](arc42/09-decisions/ADR-0029-modern-controls.md)) | Done (2026-11-14) |
 | M8. Release | Packages (Linux as AppImage or Flatpak, so nothing is installed into the system), game data installation with the setup wizard and `GameData`, first Jones3D EX release. macOS is deferred (2026-11-08): no macOS work or CI for now, the code stays portable, signing comes later. Install guide: [Install.md](Install.md) | Done (2026-11-21): setup wizard, play-test fixes, interaction prompts, quick whip; first release `v0.5.0-alpha` |
-| M9. Presentation | Widescreen and high-resolution output; bloom and depth of field as post-processing; high frame rates, which first needs an answer to how much of the simulation depends on frame time | |
-| M10. Modern lighting | Per-pixel dynamic lighting and screen-space ambient occlusion, with the original vertex lighting kept as the classic mode | |
+| M9. Presentation | Widescreen and high-resolution output; render scale, native HUD and texture filtering; SMAA, sharpening, tone mapping, bloom, colour grading, depth of field, light shafts, water ripples, ambient occlusion, motion blur, lens flare, vignette and film grain; a fixed 50 Hz simulation tick (on by default in Enhanced, decided 2026-11-22) with interpolated things, camera, animation and sound listener; frame pacing and the Simulation tick toggle. E1 weapon wheel, E2 inventory screen, E5 weather and E6 cheat menu are parked by the owner. Per-pixel lighting is M10 | Implemented, owner play-test pending (2026-11-22) |
+| M10. Modern lighting | Per-pixel dynamic lighting only, with the original vertex lighting kept as the classic mode | |
 | M11 and later. Babylon extras | Visible console; modding (loose-file overrides, mod folders, COG); threading last. Open idea: shadows and geometry on the GPU | |
+
+## M9. Presentation
+
+Status: implemented, owner play-test pending (2026-11-22). The presentation work is in, and the fixed-tick
+option is on by default in Enhanced at 50 Hz (owner decision, 2026-11-22).
+
+Delivered:
+
+- **Output and image quality**: widescreen hor+ cameras, the 16:9 HUD safe area and pillarboxed movies;
+  render scale; the gameplay HUD drawn at display resolution after the post chain; anisotropic filtering,
+  generated mipmaps and crisp pixels; SMAA anti-aliasing, CAS sharpening and the Field of view row.
+- **Colour and tone**: the HDR scene target and tone-map pass, Neutral and Filmic operators, exposure,
+  brightness calibration and the colour-grading presets.
+- **Atmosphere**: bloom, water ripples, screen-space ambient occlusion and light shafts.
+- **Camera and screen effects**: depth of field, camera motion blur, lens flare, vignette and film grain.
+- **Frame rate**: the fixed simulation tick (`engine.sim.fixedTick`, on by default in Enhanced at 50 Hz) with
+  interpolated things, camera, animation and sound listener; the frame rate limit and present modes; the
+  Simulation tick toggle.
+
+Parked by the owner (2026-11-21): E1 weapon wheel, E2 inventory screen, E5 weather and E6 cheat menu. See
+[Enhancements.md](Enhancements.md). The fixed-tick default was decided by the owner on 2026-11-22: On at
+50 Hz in Enhanced, because ADR-0030's physics step is 20 ms;
+[ADR-0039](arc42/09-decisions/ADR-0039-fixed-tick-interpolated-rendering.md) is Accepted. M10 is per-pixel
+lighting only.
 
 The enhancements planned so far, and what each needs from Babylon, are listed in [Enhancements.md](Enhancements.md).
 

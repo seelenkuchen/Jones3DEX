@@ -1454,11 +1454,13 @@ int J3DAPI sithPlayerControls_QueryInteraction(SithThing* pThing, SithPlayerInte
 
     // Added: with the whip not drawn, quick whip owns its binding at a target, so the prompt
     // shows the Swing or Climb the press would perform. CanQuickWhip is read-only and returns 0
-    // when the whip is current or the option is off.
+    // when the whip is current or the option is off; away from a whip-aim point it has no target,
+    // so the press would fire the whip normally and there is no prompt.
     {
         SithThing* pQuickWhipTarget = NULL;
         int bQuickWhipSwing = 0;
-        if ( sithWeapon_CanQuickWhip(pThing, &pQuickWhipTarget, &bQuickWhipSwing) )
+        // Altered: a normal quick whip press has no target, and only a targeted press prompts.
+        if ( sithWeapon_CanQuickWhip(pThing, &pQuickWhipTarget, &bQuickWhipSwing) && pQuickWhipTarget )
         {
             pOut->kind    = bQuickWhipSwing
                 ? SITHPLAYERINTERACTION_WHIP_SWING : SITHPLAYERINTERACTION_WHIP_CLIMB;

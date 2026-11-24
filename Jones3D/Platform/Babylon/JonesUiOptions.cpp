@@ -250,6 +250,9 @@ namespace
             "Load material data from external CND files.";
         screen.help[layout.externalKeyframes] =
             "Load animation keyframes from external CND files.";
+        screen.help[layout.fixedTick] =
+            "Smooth motion above 50 fps by matching the game's 50 Hz physics. Applies when the "
+            "game restarts.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
@@ -309,6 +312,12 @@ namespace
                 "Modern gives you a free camera on the right stick.";
         }
         screen.help[layout.rumble] = "Turn gamepad vibration on or off.";
+        if ( layout.reset < screen.help.size() )
+        {
+            screen.help[layout.reset] =
+                "Restore the selected scheme's default bindings and discard any saved copy of a "
+                "built-in scheme.";
+        }
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";
         return screen;
     }
@@ -354,6 +363,21 @@ namespace
         screen.help[layout.lightShafts] =
             "Add screen-space light shafts from the visible sky; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";
+        screen.help[layout.ssao] =
+            "Darken the creases where geometry meets itself with screen-space ambient occlusion; "
+            "the HUD, menus and prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.motionBlur] =
+            "Smear the 3D scene along the camera's motion; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.lensFlare] =
+            "Add tinted lens-flare ghosts and a halo from the visible sky; the HUD, menus and "
+            "prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.vignette] =
+            "Darken the corners of the 3D scene slightly; the HUD, menus and prompts are "
+            "unchanged. Applies when the display reopens.";
+        screen.help[layout.filmGrain] =
+            "Add subtle film grain to the 3D scene; the HUD, menus and prompts are unchanged. "
+            "Applies when the display reopens.";
         screen.help[layout.waterRipples] =
             "Animate water surfaces with small ripples and a faint highlight; the HUD, menus and "
             "prompts are unchanged. Applies when the display reopens.";
@@ -381,6 +405,9 @@ namespace
         screen.help[layout.crispPixels] =
             "Use nearest filtering for world and model textures, for the original sharp, blocky "
             "look. Applies when the display reopens.";
+        screen.help[layout.frameLimit] =
+            "Cap how many frames are drawn each second, or follow the display with V-Sync. "
+            "Unlimited turns V-Sync off; the change applies at once.";
         screen.help[layout.brightness] =
             "Calibrate the scene brightness on a dark test pattern; the value applies at once.";
         screen.help[layout.ok] = "Apply every change on all tabs and close Options.";

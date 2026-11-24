@@ -96,6 +96,12 @@ tSoundChannelFlag J3DAPI Sound_GetChannelFlags(tSoundChannelHandle hChannel);
 bool J3DAPI Sound_GetChannelPlayProgress(tSoundChannelHandle hChannel, float* pProgress); // Added: Get sound channel play progress in percentage. false is returned on when sound is not played or channel doesn't exist
 
 void J3DAPI Sound_Update(const rdVector3* pPos, const rdVector3* pVelocity, const rdVector3* pTopOrient, const rdVector3* pFrontOrient);
+
+// Added: M9.22. Refresh the listener and the presentational 3D mix parameters for a drawn frame.
+// Unlike Sound_Update it never runs fades, advances play clocks, stops, restarts or releases a
+// channel, and never changes channel flags or handles. The full Sound_Update stays on the
+// simulation tick.
+void J3DAPI Sound_SetListener(const rdVector3* pPos, const rdVector3* pTopOrient, const rdVector3* pFrontOrient);
 int J3DAPI Sound_GenerateLipSync(tSoundChannelHandle hChannel, uint8_t* pMouthPosX, uint8_t* pMouthPosY, int a4);
 
 size_t J3DAPI Sound_GetAllInstanceInfo(SoundInstanceInfo* pCurInstance, size_t sizeInstances); // Added: From debug version

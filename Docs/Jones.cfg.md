@@ -54,6 +54,9 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
     }
   },
   "engine": {
+    "sim": {
+      "fixedTick": 50
+    },
     "renderer": {
       "hipoly": true,
       "renderScale": 1.0,
@@ -62,6 +65,7 @@ Defaults below assume the standard build with `JONES3D_QOL_IMPROVEMENTS=ON` unle
       "sharpening": 0.3,
       "toneMapping": 1,
       "exposure": 1.0,
+      "frameLimit": 0,
       "texturePixelated": false,
       "fog": {
         "enabled": true,
@@ -167,6 +171,72 @@ The player's Field of view, in horizontal degrees at 4:3, the same unit as the c
 
 This is presentation only. The renderer keeps drawing at the chosen FOV, but the simulation's visibility marks (`SITH_TF_SEEN`, `SITH_SECTOR_SEEN` and `renderFrame`, which feed `SIGHTED` COG messages, AI wake and visibility queries) come from a separate pass at the default FOV, so changing the option does not change the game.
 
+### `engine.renderer.renderScale`
+
+The internal resolution of the 3D scene as a multiple of the game's video mode, clamped to `0.5`..`2.0` and
+to the device's texture limit. Values above 100% supersample the scene; the final tone-map pass resolves it
+to the presented size with linear filtering. The video mode, screen coordinates, the 2D/movie layer's image
+and save thumbnails stay display-sized, and menus stay at the window's native resolution. Default `1.0`
+(100%). Read when the display opens, so a changed value applies on the next display restart.
+
+### `engine.renderer.antiAliasing`
+
+`1` runs SMAA 1x on the tone-mapped 3D scene at the presented resolution; `0` presents the plain tone-mapped
+image, byte-identical to before the option existed. Default `1` in Enhanced builds and `0` in Retail and
+QOL-off builds. The HUD, 2D layer, menus and prompts are unchanged. Read when the display opens.
+
+### `engine.renderer.sharpening`
+
+One contrast-adaptive sharpening pass (AMD FidelityFX CAS, sharpen-only) on the presented-size 3D image,
+after SMAA or the tone map and before the HUD layer composite, clamped to `0`..`1`. The Options row offers
+Off, Low, Medium or High = `0`, `0.3`, `0.5`, `0.8`. Default `0.3` in Enhanced builds and `0` in Retail and
+QOL-off builds; `0` skips the pass. Read when the display opens.
+
+### `engine.renderer.texturePixelated`
+
+`true` uses nearest minification and magnification for world and model textures, for the original sharp,
+blocky look; the mip filter still follows `graphics.mipmapFilter`. `false` uses linear filtering where the
+game asks for it. Default `false` in every build. The HUD, 2D layer and menus are unchanged. Read when the
+display opens.
+
+### `engine.renderer.bloom`
+
+A built-in stage before the tone map: a half-size soft-knee luminance prefilter (threshold `0.6`, knee
+`0.3`), a downsample chain to 1/32 of the scene, additive tent upsamples back to 1/2, and a composite that
+adds the result times the strength to the scene. Off, Low, Medium or High = `0`, `1`, `2`, `3`, with
+strengths `0`, `0.15`, `0.3`, `0.5`; the default is `1` (Low) in Enhanced builds and `0` in Retail and
+QOL-off builds. The scene is display-referred, so the soft knee lets bright values below 1.0 glow. The HUD
+layer, 2D layer, menus and prompts come after and are unchanged. `0` skips the stage. Read when the display
+opens.
+
+### `engine.renderer.toneMapping`
+
+The curve the final pass applies after multiplying exposure: `0` clamps each channel to `0`..`1`
+(byte-identical to the pre-M9.10 defaults), `1` is Khronos PBR Neutral, and `2` is the Narkowicz 2015 ACES
+fitted curve. Default `1` in Enhanced builds and `0` in Retail and QOL-off builds. There is no transfer
+function, so the output gamma is unchanged. Read when the display opens.
+
+### `engine.renderer.exposure`
+
+Multiplies the scene colour before the tone-map operator, clamped to `0.5`..`2.0`; `1.0` leaves it
+unchanged and is the default in every build. Read when the display opens.
+
+### `engine.renderer.brightness`
+
+The calibration gamma the final tone-map pass applies after the operator:
+`pow(saturate(x), 1 / brightness)`, clamped to `0.6`..`1.8`; `1.0` is the identity and skips the pow, and is
+the default. On the first windowed start, when the key is missing, the brightness calibration screen runs
+after the setup wizard and before the main menu; later, Options > Display > "Brightness..." opens it. Read
+when the display opens, and the calibration screen also applies it to the open frame owner at once.
+
+### `engine.renderer.colorGrading`
+
+A subtle colour preset applied in the final tone-map pass after the operator and before brightness, from a
+32^3 lookup table generated in code at startup and stored as a 1024 x 32 `Rgba8` strip of 32 slices:
+Neutral, Warm, Cool, Adventure, Vivid or Muted = `0`..`5`. Neutral (`0`) skips the lookup, so the presented
+image is byte-identical to before the option existed, and is the default in every build and both profiles.
+The HUD, 2D layer, menus and prompts come after the pass and are unchanged. Read when the display opens.
+
 ### `engine.renderer.dof.cutscenes`, `engine.renderer.dof.gameplay` and `engine.renderer.dof.strength`
 
 Depth of field softens the 3D scene away from the camera's focus, as a presentation stage after the post-processing chain and before bloom. Both toggles are on by default in Enhanced builds and off in Retail and QOL-off builds. `engine.renderer.dof.cutscenes` applies it to cutscene cameras, where geometry both nearer and farther than the focus softens; `engine.renderer.dof.gameplay` applies it to the normal gameplay cameras, where only the far background softens, and starts at six times the focus distance and at least 1.5 world units away (the gameplay focus, camera to Indy, is about 0.2 units), and is full after another twenty-four times the focus or at least 6 units, so Indy, the foreground and nearby level geometry stay sharp. The focus is the camera's focus thing, read each frame from the camera without touching the simulation. `strength` is `0.5`..`2.0` (default `1.0`) and scales the gather radius. Both options off, or no focus input, skip the stage and the image is byte-identical to the path without it. The HUD, 2D layer, menus and prompts are composited after and are never softened.
@@ -177,9 +247,49 @@ The circle of confusion is computed from the scene depth target with the frame's
 
 Water ripples animate the water surfaces that the normal target tags with the water surface value, as a presentation stage after the post-processing chain and before depth of field. It is a toggle, on by default in Enhanced builds and off in Retail and QOL-off builds. On a water-tagged pixel the HDR scene is sampled at a small offset from two scrolling sine layers whose phase follows the frame's game time, so the water pauses when the game does; a faint view-dependent highlight is added. The offset is a constant fraction of the output height, so its pixel size follows the resolution, and a sample that lands on a non-water pixel falls back to the unoffset sample, so geometry next to the water never smears in. Every other pixel is copied unchanged. Off skips the stage, so the image is byte-identical to the path without the option. Screen-space reflections are not built: translucent water does not write depth, so the depth target at a water pixel holds the scene behind it rather than the water plane. The HUD, 2D layer, menus and prompts are composited after and are never touched. Read when the display opens, so a changed value applies on the next display restart like the other Display options.
 
+### `engine.renderer.ssao`
+
+Screen-space ambient occlusion darkens the creases where geometry meets itself, as a presentation stage after the water ripples and before depth of field. It is `0` Off, `1` Low, `2` Medium or `3` High; Low is the default in Enhanced builds and Off in Retail and QOL-off builds. The classic draws write a constant facing-the-camera normal, so the stage reconstructs view-space positions from the depth target and takes the normal from the neighbouring depths, choosing the smaller-difference neighbour per axis. The depth target holds rdCamera's `sz`: `0.1` at the near plane and `1.0` at the far plane, 1/z-linear in between, because the first-person overlay uses `0`..`0.1`; overlay pixels get no occlusion. `rdCamera`'s fov is the horizontal fov at the 4:3 reference aspect, so the reconstruction derives the vertical tangent from it and the horizontal tangent from the real aspect (Hor+). At half the scene size an 8, 12 or 16 sample normal-oriented hemisphere kernel is gathered with a world-space radius (`0.020`, `0.035`, `0.05`; the game's scale, where Indy is about 0.2 world units tall), a self-occlusion bias and a range check that fades an occluder out by twice the radius so a much nearer surface does not darken the scene behind it, in a fixed 4 x 4 interleaved rotation pattern indexed by the pixel, so there is no time-based noise. A 4 x 4 depth-aware bilateral blur removes the pattern and a scene-sized composite multiplies the HDR scene colour by the occlusion term (intensity `0.65`, `0.8`, `1.0`). Pixels tagged sky or water, and pixels with nothing drawn, are left unchanged, as are the HUD, 2D layer, menus and prompts. `0` skips every pass, so the image is byte-identical to the path without the option. Read when the display opens, so a changed value applies on the next display restart like the other Display options.
+
+### `engine.renderer.motionBlur`
+
+Camera motion blur smears the 3D scene along the camera's screen-space motion, as a presentation stage after the ambient occlusion and before depth of field. It is `0` Off, `1` Low, `2` Medium or `3` High; Low is the default in Enhanced builds and Off in Retail and QOL-off builds. Each rendered frame `sithRender` passes the camera's world transform read-only to `std3D_SetCameraTransform`, and marks a camera cut when the current camera changed, the cutscene camera switched on or off, or a level or save was just loaded. The pass reconstructs each pixel's view-space position from the depth target exactly as the ambient-occlusion stage does (the same projection tangents and the game's `0.1`..`1.0` depth range) and projects it through the previous frame's camera; the screen-space difference is the velocity. Sky pixels at the far plane take part, so a camera rotation blurs the sky. Pixels with nothing drawn (normal-target alpha `0`) and the first-person overlay (`sz < 0.1`) get zero velocity. The velocity is scaled by a shutter fraction of the frame's motion and its length is clamped to a fraction of the output height. A single full-resolution gather of 8, 12 or 16 taps follows the velocity, with shutter fractions `0.5`, `0.65`, `0.8` and maximum lengths of `2%`, `3%`, `4%` of the height; a tap whose depth is much nearer than the centre's is weighted down so a background pixel does not smear over a nearer edge. The stage is skipped, with the previous transform reset, after a camera cut, when the frame's game-time step is zero (paused or a menu), when the camera moved more than 16 world units or turned more than 45 degrees in one frame, and on the first frame after open. `0` skips every pass, so the image is byte-identical to the path without the option. The previous transform is presentation state only and never reaches the simulation. The HUD, 2D layer, menus and prompts are composited after and are never blurred. Read when the display opens, so a changed value applies on the next display restart like the other Display options.
+
 ### `engine.renderer.lightShafts`
 
 Light shafts spread the visible sky into screen-space rays, as a presentation stage after depth of field and before bloom. It is `0` Off, `1` Low, `2` Medium or `3` High, with strengths `0`, `0.25`, `0.5` and `0.8`; Low is the default in Enhanced builds and Off in Retail and QOL-off builds. The stage tags each drawn face in the normal target's alpha (ordinary `1`, sky `2/3`, water `1/3`), masks the bright sky pixels at half the scene size, reduces the mask's weighted position to a 1 x 1 light position on the GPU without a readback, and radial-blurs the mask toward that position with 40 decaying taps. The result is added to the HDR scene before bloom, at 0.15 strength on sky-tagged pixels so the clouds themselves stay crisp and at full strength over the geometry. When no sky is visible the strength fades to zero over about 0.3 s of game time. `0` skips every pass, so the image is byte-identical to the path without the option. The HUD, 2D layer, menus and prompts are composited after and are never touched. Read when the display opens, so a changed value applies on the next display restart like the other Display options.
+
+### `engine.renderer.lensFlare`
+
+Lens flare adds tinted ghosts and a soft halo around the visible sky, as a presentation stage after light shafts and before bloom. It is a toggle, on by default in Enhanced builds and off in Retail and QOL-off builds. The stage reuses the light-shaft stage's GPU-reduced 1 x 1 sky centroid and its smoothed visible-sky strength, so nothing is read back to the CPU; when light shafts are off, only the mask and centroid reduction needed for the flare run, not the shaft blur. The ghosts lie along the line from the light through the screen centre, tinted, and both they and the halo scale by the visible-sky strength. When no sky is visible, or the centroid is off screen, nothing is added. Off, or a failure, skips the pass and the image is byte-identical to the path without the option. The HUD, 2D layer, menus and prompts are composited after and are never touched. Read when the display opens, so a changed value applies on the next display restart like the other Display options.
+
+### `engine.renderer.vignette`
+
+The vignette smoothly darkens the corners of the 3D scene, as a presentation stage on the presented-size image after SMAA and sharpening and before the HUD layer composite. It is a toggle, off in every build. The radial falloff is aspect-corrected, so the corners of any window shape darken equally, and the centre is left unchanged. Off skips its work, so the image is byte-identical to the path without the option; with film grain also off the effect pass is skipped entirely. The HUD, 2D layer, menus and prompts are never darkened. Read when the display opens.
+
+### `engine.renderer.filmGrain`
+
+Film grain adds subtle luminance noise to the 3D scene, as a presentation stage on the presented-size image after SMAA and sharpening and before the HUD layer composite. It is a toggle, off in every build. The noise is a deterministic hash of the pixel position and a frame counter that advances on game-time frames (never wall-clock time or `rand()`), so a paused game holds the grain still and the same frame produces the same noise. The amplitude is small and weaker in the highlights, and the noise has zero mean. Off skips its work, so the image is byte-identical to the path without the option; with the vignette also off the effect pass is skipped entirely. The HUD, 2D layer, menus and prompts are never grained. Read when the display opens.
+
+### `engine.renderer.frameLimit`
+
+Presentation only, with the values V-Sync, 30, 60, 120, 144, 240 or Unlimited = `0`, `30`, `60`, `120`,
+`144`, `240` or `-1`; `0` (V-Sync) is the default. A positive value presents immediately with V-Sync off and
+waits after each present until the next frame's wall-clock deadline, so the rate is capped without affecting
+game time or the simulation. `-1` turns V-Sync off with no cap. The wait is off in headless runs and while a
+level loads. The Display row applies at once; any other value falls back to `0`.
+
+### `engine.sim.fixedTick`
+
+The fixed simulation tick: `0` (Off) keeps the measured frame time, and `50` (On) runs the simulation at
+50 Hz, matching the game's 20 ms physics step. On is the default in Enhanced builds; Retail and QOL-off
+builds ignore the key and always use the measured frame time. For compatibility, any other positive value
+(an old `30`, `60` or `120`) maps to `50`, and a negative value keeps the build's default. On, the game runs
+`sithUpdate` at the fixed step and draws extra frames by interpolating thing positions/orientations, the
+camera, puppet animation and the sound listener, while the simulation-facing draw work moves onto the tick.
+Options > Gameplay has an Enhanced-only **Simulation tick** toggle (Off/On at 50 Hz); the value is read at
+startup, so it applies when the game restarts. A headless `--fixed-tick <hz>` overrides it for a run, and a
+headless run stays off when the option is not given.
 
 ### `engine.renderer.culling.culledSectorTraversal.mode`
 
@@ -230,7 +340,7 @@ Controls how software-mixed positional sounds lose volume between their minimum 
 | `gameplay.mapRotation` | bool | `false` | Rotates the overlay map with player facing. |
 | `gameplay.lastSaveGame` | string | auto | Last save filename used by the save/load flow. Engine-managed. |
 | `gameplay.bloodSplatter` | bool | `true` | Enables the hit blood-splatter effect. |
-| `gameplay.quickWhip` | bool | `true` | Simulation. Enhanced only: at a whip target, LB (Modern gamepad) or the whip's select key (keyboard) swings or climbs without drawing the whip first, then switches back. On by default in Enhanced; the Retail profile is locked off. The pending state is not saved, so a save made during a quick whip loads with the whip drawn. |
+| `gameplay.quickWhip` | bool | `true` | Simulation. Enhanced only: LB (Modern gamepad) takes the whip in hand instantly anywhere it can be used, then either swings or climbs at a whip target or cracks the whip normally, and switches back to the previous weapon or empty hands when the attack ends. Neither the whip nor the previous weapon plays a draw or holster key. The whip's select key (keyboard `1`) quick-whips only at a target and otherwise selects the whip normally. On by default in Enhanced; the Retail profile is locked off. The pending state is not saved, so a save made during a quick whip loads with the whip current. |
 
 A connected gamepad is always on and works alongside the keyboard and mouse. The old
 `controls.controller` key is ignored when present and removed from the file on the next save.
@@ -264,6 +374,8 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.geometry` | int | `4` | Uses the `engine.renderer.geometry` enum above. |
 | `engine.renderer.lighting` | int | `3` | Uses the `engine.renderer.lighting` enum above. |
 | `engine.renderer.fov` | float | `90` | Player Field of view, horizontal degrees at 4:3, `60` to `110` (Options > Display, "Field of view"). `0` or missing keeps the default. Presentation only; the simulation keeps the default visibility frustum. |
+| `engine.sim.fixedTick` | int | `50` (Enhanced), `0` (Retail and QOL-off) | Fixed simulation tick: `0` Off keeps the measured frame time, `50` On runs the simulation at 50 Hz, matching the game's 20 ms physics step. Any other positive value (an old `30`/`60`/`120`) maps to `50`, and a negative value keeps the build's default. Enhanced/QOL builds only: Retail and QOL-off builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate` at the fixed step, draws extra frames by interpolating thing positions/orientations and the camera, and moves the simulation-facing draw work (visibility marks, AI waypoint lasers, polyline updates) onto the tick. Options > Gameplay has an Enhanced-only **Simulation tick** toggle (Off/On at 50 Hz); the value is read at startup, so it applies when the game restarts, not on the next level load. The headless `--fixed-tick <hz>` option overrides it for a run; a headless run without it stays off. |
+| `engine.renderer.frameLimit` | int | `0` | Presentation only (Options > Display, "Frame rate limit": V-Sync, 30, 60, 120, 144, 240 or Unlimited = `0`, `30`, `60`, `120`, `144`, `240` or `-1`). `0` presents with V-Sync. A positive value presents immediately (V-Sync off) and waits after each present until the next frame's wall-clock deadline, so the rate is capped without affecting game time or the simulation. `-1` turns V-Sync off with no cap. The wait is off in headless runs and while a level loads, which keeps its fast path. The Display row applies at once; any other value falls back to `0`. |
 | `engine.renderer.fog.enabled` | bool | `true` | Global fog toggle. |
 | `engine.renderer.fog.density` | float | `1.0` | Global fog density multiplier. |
 | `engine.renderer.culling.pvs.enabled` | bool | `true` | Enables PVS sector culling. |
@@ -276,7 +388,12 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.sharpening` | float | `0.3` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Sharpening": Off, Low, Medium or High = `0`, `0.3`, `0.5`, `0.8`; clamped to `0`..`1`). One contrast-adaptive sharpening pass (AMD FidelityFX CAS, sharpen-only) on the presented-size 3D image, after SMAA or the tone map and before the HUD layer composite. It restores detail lost to a render scale below 100% and the softening of SMAA; the HUD, 2D layer, menus and prompts are unchanged. `0` skips the pass, so the image is byte-identical to the path without the option. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
 | `engine.renderer.bloom` | int | `1` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Bloom": Off, Low, Medium or High = `0`, `1`, `2`, `3`, with strengths `0`, `0.15`, `0.3`, `0.5`). A built-in stage before the tone map: a half-size soft-knee luminance prefilter (threshold `0.6`, knee `0.3`), a downsample chain to 1/32 of the scene, additive tent upsamples back to 1/2, and a composite that adds the result times the strength to the scene. The scene is display-referred, so the soft knee lets bright values below 1.0 glow. The HUD layer, 2D layer, menus and prompts come after and are unchanged. `0` skips the stage, so the image is byte-identical to the path without the option. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
 | `engine.renderer.lightShafts` | int | `1` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Light shafts": Off, Low, Medium or High = `0`, `1`, `2`, `3`, with strengths `0`, `0.25`, `0.5`, `0.8`). A built-in stage after depth of field and before bloom: the normal target's alpha tags each face (ordinary `1`, sky `2/3`, water `1/3`), a half-size mask keeps the bright sky pixels, a GPU reduce chain gives the 1 x 1 luminance-weighted light position, and a 40-tap decaying radial blur of the mask is added to the HDR scene. The strength fades over about 0.3 s of game time when no sky is visible. The HUD, 2D layer, menus and prompts come after and are unchanged. `0` skips every pass, so the image is byte-identical to the path without the option. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
+| `engine.renderer.lensFlare` | bool | `true` (Enhanced), `false` (Retail and QOL-off) | Presentation only (Options > Display, "Lens flare"). A built-in stage after light shafts and before bloom: it reuses the shaft stage's 1 x 1 sky centroid and smoothed strength (the mask and centroid reduction also run when shafts are off, never the shaft blur) and adds tinted ghosts along the light-to-centre line plus a soft halo, scaled by the visible-sky strength. No sky visible or an off-screen centroid adds nothing. The HUD, 2D layer, menus and prompts are untouched. `false` skips the pass, so the image is byte-identical to the path without the option. Read when the display opens. |
+| `engine.renderer.vignette` | bool | `false` | Presentation only (Options > Display, "Vignette"). A presented-size stage after SMAA and sharpening and before the HUD layer composite: a smooth, aspect-corrected radial darkening of the corners, with the centre unchanged. The HUD, 2D layer, menus and prompts are untouched. `false` skips its work; with film grain off the effect pass is skipped, so the image is byte-identical to the path without the option. Read when the display opens. |
+| `engine.renderer.filmGrain` | bool | `false` | Presentation only (Options > Display, "Film grain"). A presented-size stage after SMAA and sharpening and before the HUD layer composite: deterministic luminance noise from a hash of the pixel and a game-time frame counter, weaker in the highlights and with zero mean. The HUD, 2D layer, menus and prompts are untouched. `false` skips its work; with the vignette off the effect pass is skipped, so the image is byte-identical to the path without the option. Read when the display opens. |
 | `engine.renderer.water.ripples` | bool | `true` (Enhanced), `false` (Retail and QOL-off) | Presentation only (Options > Display, "Water ripples"). A built-in stage after the post-processing chain and before depth of field: on water-tagged pixels the HDR scene is sampled at a small offset from two scrolling sine layers, with a faint view-dependent highlight added; the phase follows the frame's game time, so it pauses with the game. The offset is a constant fraction of the output height; an offset sample that is not water falls back to the unoffset sample. Other pixels are copied unchanged. The HUD, 2D layer, menus and prompts are untouched. `false` skips the stage, so the image is byte-identical to the path without the option. Read when the display opens. |
+| `engine.renderer.ssao` | int | `1` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Ambient occlusion": Off, Low, Medium or High = `0`, `1`, `2`, `3`). A built-in stage after the water ripples and before depth of field: view-space positions are reconstructed from the depth target (rdCamera's `sz` is `0.1` at the near plane and `1.0` at the far plane, 1/z-linear; the `0`..`0.1` overlay range gets no occlusion) with the fov scaled from the 4:3 reference aspect to the real aspect (Hor+), and normals come from the neighbouring depths (the classic draws write a constant normal). An 8, 12 or 16 sample normal-oriented hemisphere kernel is gathered at half the scene size in a fixed 4 x 4 interleaved rotation pattern with a world-space radius of `0.020`, `0.035` or `0.05` (the game's scale, where Indy is about 0.2 world units tall), a bias and a range check that fades to zero by twice the radius, and a depth-aware 4 x 4 blur feeds a scene-sized composite that multiplies the HDR colour by the occlusion term (intensity `0.65`, `0.8`, `1.0`). Sky, water, overlay and empty pixels are left unchanged, as are the HUD, 2D layer, menus and prompts. `0` skips every pass, so the image is byte-identical to the path without the option. Read when the display opens, so a changed value applies on the next display restart like the other Display options. |
+| `engine.renderer.motionBlur` | int | `1` (Enhanced), `0` (Retail and QOL-off) | Presentation only (Options > Display, "Motion blur": Off, Low, Medium or High = `0`, `1`, `2`, `3`, with 8, 12 or 16 taps, shutter fractions `0.5`, `0.65`, `0.8` and maximum lengths `2%`, `3%`, `4%` of the output height). A built-in stage after ambient occlusion and before depth of field: `sithRender` passes the camera's world transform each frame with `std3D_SetCameraTransform`, the pass reconstructs view-space positions from the depth target (the same `0.1`..`1.0` range and projection tangents as ambient occlusion), reprojects them through the previous frame's camera and gathers the HDR scene along the velocity. Sky pixels take part; nothing drawn and the `0`..`0.1` first-person overlay stay still. A camera cut, a zero game-time step, a move over 16 world units or a turn over 45 degrees in one frame resets the history and skips the stage, as does the first frame after open. The HUD, 2D layer, menus and prompts are unchanged. `0` skips every pass, so the image is byte-identical to the path without the option. Read when the display opens. |
 | `engine.renderer.dof.cutscenes` | bool | `true` (Enhanced), `false` (Retail and QOL-off) | Presentation only (Options > Display, "Depth of field (cutscenes)"). On: cutscene cameras soften the scene both nearer and farther than the focus. The HUD, 2D layer, menus and prompts are unchanged. Off skips this mode; with both depth-of-field modes off the stage is skipped and the image is byte-identical. Read when the display opens. |
 | `engine.renderer.dof.gameplay` | bool | `true` (Enhanced), `false` (Retail and QOL-off) | Presentation only (Options > Display, "Depth of field (gameplay)"). On: the gameplay cameras soften only the far background, starting at six times the focus distance and at least 1.5 world units away, so Indy, the foreground and nearby geometry stay sharp. Off skips this mode. Read when the display opens. |
 | `engine.renderer.dof.strength` | float | `1.0` | Presentation only. The depth-of-field gather radius scale, clamped to `0.5`..`2.0`; `1.0` is the default. There is no Options row; the two toggles above control the stage. Read when the display opens. |

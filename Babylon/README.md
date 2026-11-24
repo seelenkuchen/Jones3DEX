@@ -65,7 +65,11 @@ and readback are real, and records what it executed for tests. The SDL GPU
 backend (`createSdlGpuDevice`) runs on Vulkan, Direct3D 12 or Metal, headless
 or on a window of the SDL platform, whose `SDL_Window` it gets through
 `platform::sdlWindowOf`; the contract tests run against it too, on Mesa's
-lavapipe where there is no GPU, and report it as skipped without a driver.
+lavapipe where there is no GPU, and report it as skipped without a driver. A
+device also names its present modes (V-Sync, immediate and mailbox where the
+window supports them) and chooses one; `FrameLimiter` (in `time`) paces a presentation loop
+on an injected clock, with drift-free deadlines and no game-time reads, so a
+caller can cap frames per second without real sleeps in a test.
 
 `audio` hides the sound output (ADR-0010): a `Device` lists and opens output
 devices, owns immutable sounds and typed voices behind handles, applies gain,

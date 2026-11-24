@@ -1,6 +1,7 @@
 #include <unity_fixture.h>
 
 void TEST_JonesMain_GROUP_RUNNER(void);
+void TEST_JonesFixedTick_GROUP_RUNNER(void);
 #ifdef JONES3D_CONTROL_SCHEMES_TEST
 void TEST_JonesControlSchemes_GROUP_RUNNER(void);
 #endif
@@ -9,6 +10,7 @@ void TEST_JonesControlSchemes_GROUP_RUNNER(void);
 static void Jones3DTest_RunAllTests(void)
 {
     TEST_JonesMain_GROUP_RUNNER();
+    TEST_JonesFixedTick_GROUP_RUNNER();
 #ifdef JONES3D_CONTROL_SCHEMES_TEST
     TEST_JonesControlSchemes_GROUP_RUNNER();
 #endif

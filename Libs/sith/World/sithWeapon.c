@@ -54,16 +54,23 @@ static float sithWeapon_projectileFireFlashAmbThreshold = 0.65f;
 // Added: Modern quick whip (W10d), an Enhanced option. Non-QOL builds always keep it off.
 static int sithWeapon_bQuickWhipEnabled = J3D_QOL_VALUE(1, 0);
 
-#define SITHWEAPON_QUICKWHIP_IDLE    0
-#define SITHWEAPON_QUICKWHIP_PENDING 1
-#define SITHWEAPON_QUICKWHIP_RESTORE 2
+#define SITHWEAPON_QUICKWHIP_IDLE   0
+#define SITHWEAPON_QUICKWHIP_ACTIVE 1
+
+// Added: the quick whip's wait for a swing/climb move to start (the rule from W10d), and the
+// safety wait for a normal attack. Both are game-time deadlines; the attack normally ends when the
+// whip script's fire wait does.
+#define SITHWEAPON_QUICKWHIP_TARGETWAIT 2.0f
+#define SITHWEAPON_QUICKWHIP_ATTACKWAIT 8.0f
 
 // Added: the quick whip follow-up state. It is deliberately not saved; a save made during a quick
-// whip loads with the whip drawn.
+// whip loads with the whip current.
 static int sithWeapon_quickWhipState;
 static SithWeaponId sithWeapon_quickWhipRestoreWeaponID;
 static float sithWeapon_secQuickWhipDeadline;
 static int sithWeapon_bQuickWhipMoveStarted;
+static float sithWeapon_secQuickWhipAttackEndTime; // game time the no-target whip attack is over
+static int sithWeapon_bQuickWhipAttackFired;      // 1 after the quick whip pressed fire on the whip
 
 static const float sithWeapon_aMaxAimDistances[25] =
 {
@@ -128,6 +135,8 @@ static void sithWeapon_ResetQuickWhipState(void)
     sithWeapon_quickWhipRestoreWeaponID    = SITHWEAPON_NO_WEAPON;
     sithWeapon_secQuickWhipDeadline        = 0.0f;
     sithWeapon_bQuickWhipMoveStarted       = 0;
+    sithWeapon_secQuickWhipAttackEndTime   = 0.0f;
+    sithWeapon_bQuickWhipAttackFired       = 0;
 }
 
 void J3DAPI sithWeapon_SetQuickWhipEnabled(int bEnabled)
@@ -1339,15 +1348,18 @@ static int sithWeapon_IsWhipMoveStatus(SithThingMoveStatus moveStatus)
         || moveStatus == SITHPLAYERMOVE_WHIP_UNK2;
 }
 
-// Added: 1 when the quick whip key or the whip's weapon-select key is pressed this frame.
+// Added: 1 when the quick whip binding (Modern gamepad LB) is pressed this frame.
 static int sithWeapon_IsQuickWhipKeyPressed(void)
 {
     int keyState = 0;
-    if ( sithControl_GetKey(SITHCONTROL_QUICKWHIP, &keyState) && keyState )
-    {
-        return 1;
-    }
+    return sithControl_GetKey(SITHCONTROL_QUICKWHIP, &keyState) && keyState;
+}
 
+// Added: 1 when the whip's own weapon-select key (keyboard 1) is pressed this frame. It keeps its
+// old meaning: quick whip at a target, otherwise select the whip.
+static int sithWeapon_IsWhipSelectKeyPressed(void)
+{
+    int keyState = 0;
     for ( SithControlFunction keyId = SITHCONTROL_WSELECT0; (unsigned int)keyId <= SITHCONTROL_WSELECT16; ++keyId )
     {
         keyState = 0;
@@ -1361,49 +1373,306 @@ static int sithWeapon_IsQuickWhipKeyPressed(void)
     return 0;
 }
 
-// Added: the fire-when-ready conditions of an armed quick whip: the whip is drawn and ready, the
-// player can act, and the press would find a valid target.
-static int sithWeapon_IsQuickWhipReady(SithThing* pThing)
+// Added: sends an item script a message the normal weapon state machine sends. The item script is
+// what sets the armed mode, the current weapon and the model callbacks.
+static void sithWeapon_SendItemMessage(SithThing* pThing, SithWeaponId weaponID, SithCogMsgType messageType,
+    SithCogSymbolRefType senderType, int senderIdx)
 {
-    if ( pThing->thingInfo.actorInfo.weaponInfo.curWeaponID != SITHWEAPON_WHIP
-        || sithWeapon_IsMountingWeapon(pThing)
-        || sithTime_g_secGameTime < (double)sithWeapon_secWeaponActivationWaitEndTime
-        || sithWeapon_bPlayerWeaponActivated
-        || pThing->moveStatus > (unsigned int)SITHPLAYERMOVE_RUNNING
-        || pThing->thingInfo.actorInfo.bControlsDisabled == 1 )
+    SithInventoryType* pItem = sithInventory_GetType(weaponID);
+    if ( pItem->pCog )
     {
-        return 0;
+        sithCog_SendMessage(pItem->pCog, messageType, senderType, senderIdx, SITHCOG_SYM_REF_THING, pThing->idx, 0);
     }
-
-    SithThing* pTarget;
-    int bSwing;
-    return sithWeapon_GetWhipPressTarget(&pTarget, &bSwing) && pTarget != NULL;
 }
 
-// Added: switches the remembered weapon back, or puts the hands away when they were empty.
+// Added: stops a weapon-change key when the thing has a puppet. The fixture has none.
+static void sithWeapon_StopWeaponMode(SithThing* pThing, SithPuppetSubMode mode)
+{
+    if ( pThing->pPuppetClass && pThing->renderData.pPuppet )
+    {
+        sithPuppet_StopMode(pThing, mode, 0.0f);
+    }
+}
+
+// Added: runs the callback marker a weapon-change key reaches, without playing the key. The item
+// script swaps the hand or holster model and releases the capture selected/deselected set up, so
+// skipping the key leaves the same script and model state behind.
+static void sithWeapon_SendItemKeyMarker(SithThing* pThing, SithWeaponId weaponID, int markerType)
+{
+    SithInventoryType* pItem = sithInventory_GetType(weaponID);
+    if ( pItem->pCog )
+    {
+        sithCog_SendMessageEx(pItem->pCog, SITHCOG_MSG_CALLBACK, SITHCOG_SYM_REF_THING, pThing->idx,
+            SITHCOG_SYM_REF_NONE, 0, 0, 0, markerType, 0, 0);
+    }
+}
+
+// Added: the thing an item script captured for an attack (the whip actor), if any. The no-target
+// whip attack creates it in the script and only leaks it if its retract key is skipped.
+static SithThing* sithWeapon_FindCapturedItemThing(const SithCog* pCog, const SithThing* pPlayer)
+{
+    SithWorld* pWorld = sithWorld_g_pCurrentWorld;
+    if ( !pCog || !pWorld )
+    {
+        return NULL;
+    }
+
+    for ( size_t i = 0; i < pWorld->numThings; ++i )
+    {
+        SithThing* pThing = &pWorld->aThings[i];
+        if ( pThing != pPlayer && pThing->type != SITH_THING_FREE && pThing->pCaptureCog == pCog )
+        {
+            return pThing;
+        }
+    }
+
+    return NULL;
+}
+
+// Added: takes a weapon out of the hand without playing its holster key. The script still sees
+// DESELECTED and its put marker, so the armed mode, model and capture state stay consistent.
+static void sithWeapon_InstantDeselectWeapon(SithThing* pThing, SithWeaponId nextWeaponID)
+{
+    const SithWeaponId curWeaponID = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
+    if ( curWeaponID == SITHWEAPON_NO_WEAPON )
+    {
+        pThing->thingInfo.actorInfo.weaponInfo.deselectedWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+        return;
+    }
+
+    SithInventoryType* pItem = sithInventory_GetType(curWeaponID);
+
+    // A held fire key or a pending release is finished before the weapon changes, as the normal
+    // deselect does.
+    if ( pThing->type == SITH_THING_PLAYER )
+    {
+        if ( sithWeapon_bPlayerWeaponActivated == 1 || sithWeapon_deactivatedPlayerWeaponID == curWeaponID )
+        {
+            if ( pItem->pCog )
+            {
+                sithCog_SendMessage(pItem->pCog, SITHCOG_MSG_DEACTIVATED, SITHCOG_SYM_REF_NONE, 0, SITHCOG_SYM_REF_THING, pThing->idx, 0);
+            }
+
+            sithWeapon_bPlayerWeaponActivated = 0;
+        }
+
+        sithWeapon_deactivatedPlayerWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+    }
+
+    sithWeapon_SendItemMessage(pThing, curWeaponID, SITHCOG_MSG_DESELECTED, SITHCOG_SYM_REF_INT, nextWeaponID);
+
+    // Cancel the put key and run its model swap and capture release now.
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_HOLSTERWEAPON);
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_DRAWWEAPON);
+    sithWeapon_SendItemKeyMarker(pThing, curWeaponID, RDKEYMARKER_INVENTORYPUT);
+
+    // The script set waits for a key that no longer plays.
+    sithWeapon_secMountWait = sithTime_g_secGameTime;
+    pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime = sithTime_g_secGameTime;
+
+    if ( pThing->type == SITH_THING_PLAYER )
+    {
+        sithWeapon_bLocalPlayerAiming = 0;
+        if ( (pItem->flags & SITHINVENTORY_TYPE_PLAYERWEAPON) != 0 )
+        {
+            sithWeapon_lastPlayerWeaponID = curWeaponID;
+        }
+
+        sithInventory_SetCurrentWeapon(pThing, SITHWEAPON_NO_WEAPON);
+    }
+
+    pThing->thingInfo.actorInfo.weaponInfo.curWeaponID        = SITHWEAPON_NO_WEAPON;
+    pThing->thingInfo.actorInfo.weaponInfo.deselectedWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+}
+
+// Added: brings a weapon into the hand without playing its draw key. The script still sees
+// SELECTED and its pull marker, so the armed mode, model and capture state stay consistent.
+static void sithWeapon_InstantSelectWeapon(SithThing* pThing, SithWeaponId weaponID)
+{
+    if ( weaponID == SITHWEAPON_NO_WEAPON )
+    {
+        pThing->thingInfo.actorInfo.weaponInfo.selectedWeaponID = SITHWEAPON_NOWEAPONSELECTED;
+        return;
+    }
+
+    sithWeapon_SendItemMessage(pThing, weaponID, SITHCOG_MSG_SELECTED, SITHCOG_SYM_REF_NONE, 0);
+
+    // Cancel the pull key and run its model swap and capture release now.
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_DRAWWEAPON);
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_HOLSTERWEAPON);
+    sithWeapon_SendItemKeyMarker(pThing, weaponID, RDKEYMARKER_INVENTORYPULL);
+
+    // The script set waits for a key that no longer plays.
+    sithWeapon_secMountWait = sithTime_g_secGameTime;
+    pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime = sithTime_g_secGameTime;
+
+    if ( pThing->type == SITH_THING_PLAYER )
+    {
+        sithInventory_SetCurrentWeapon(pThing, weaponID);
+    }
+
+    pThing->thingInfo.actorInfo.weaponInfo.curWeaponID        = weaponID;
+    pThing->thingInfo.actorInfo.weaponInfo.selectedWeaponID   = SITHWEAPON_NOWEAPONSELECTED;
+    pThing->thingInfo.actorInfo.weaponInfo.deselectedWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+}
+
+// Added: ends a fired no-target whip attack the way releasing the fire key does, then runs the
+// retract key's end markers by hand. The quick whip skips the visible retract animation, but the
+// script still releases its capture and destroys the whip actor it created.
+static void sithWeapon_FinishQuickWhipAttack(SithThing* pThing)
+{
+    SithInventoryType* pItem = sithInventory_GetType(SITHWEAPON_WHIP);
+
+    // The script's own attack state must be torn down even if the engine already cleared the
+    // activated flag (for example when the player became unable to use a weapon).
+    if ( pItem->pCog )
+    {
+        sithCog_SendMessage(pItem->pCog, SITHCOG_MSG_DEACTIVATED, SITHCOG_SYM_REF_NONE, 0, SITHCOG_SYM_REF_THING, pThing->idx, 0);
+    }
+
+    SithThing* pWhipThing = sithWeapon_FindCapturedItemThing(pItem->pCog, pThing);
+    if ( pWhipThing )
+    {
+        sithWeapon_StopWeaponMode(pWhipThing, SITHPUPPETSUBMODE_FIRE4);
+        sithCog_ThingSendMessageEx(pWhipThing, NULL, SITHCOG_MSG_CALLBACK, 0, RDKEYMARKER_TURNOFF, 0, 0);
+    }
+
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_FIRE4);
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_FIRE3);
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_FIRE);
+    sithWeapon_StopWeaponMode(pThing, SITHPUPPETSUBMODE_AIMWEAPON);
+
+    // The retract key's first callback releases the player; do it without the key.
+    sithCog_ThingSendMessageEx(pThing, NULL, SITHCOG_MSG_CALLBACK, 0, RDKEYMARKER_ATTACKFINISH, 0, 0);
+
+    sithWeapon_bQuickWhipAttackFired     = 0;
+    sithWeapon_bPlayerWeaponActivated    = 0;
+    sithWeapon_deactivatedPlayerWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+}
+
+// Added: switches the remembered weapon back, or puts the hands away when they were empty, in the
+// same instant way the whip came out: no holster or draw key.
 static void sithWeapon_RestoreQuickWhipWeapon(SithThing* pThing)
 {
-    if ( sithWeapon_quickWhipRestoreWeaponID == SITHWEAPON_NO_WEAPON )
+    const SithWeaponId restoreWeaponID = sithWeapon_quickWhipRestoreWeaponID;
+
+    if ( sithWeapon_bQuickWhipAttackFired )
     {
-        sithWeapon_DeselectWeapon(pThing);
+        sithWeapon_FinishQuickWhipAttack(pThing);
+    }
+
+    sithWeapon_bPlayerWeaponActivated    = 0;
+    sithWeapon_deactivatedPlayerWeaponID = SITHWEAPON_NOWEAPONDESELECTED;
+    sithWeapon_bLocalPlayerAiming        = 0;
+
+    if ( restoreWeaponID == SITHWEAPON_NO_WEAPON )
+    {
+        SITHLOG_STATUS("Quick whip: restoring empty hands at %.3f.\n",
+            (double)sithTime_g_secGameTime);
     }
     else
     {
-        sithWeapon_SelectWeapon(pThing, sithWeapon_quickWhipRestoreWeaponID);
+        SITHLOG_STATUS("Quick whip: restoring weapon %d at %.3f.\n",
+            restoreWeaponID, (double)sithTime_g_secGameTime);
+    }
+
+    sithWeapon_InstantDeselectWeapon(pThing, restoreWeaponID);
+    if ( restoreWeaponID != SITHWEAPON_NO_WEAPON )
+    {
+        sithWeapon_InstantSelectWeapon(pThing, restoreWeaponID);
     }
 
     sithWeapon_ResetQuickWhipState();
 }
 
-// Added: drives the quick whip follow-up. It fires once when the drawn whip has a target, cancels
-// when the player leaves the conditions or the deadline passes, and restores the previous weapon
-// after the whip move. Returns 1 when it changed the weapon this frame, so the caller can stop
-// processing controls. The state is not saved.
+// Added: ends an armed quick whip and puts the remembered weapon back.
+static void sithWeapon_CancelQuickWhip(SithThing* pThing)
+{
+    if ( sithWeapon_quickWhipState == SITHWEAPON_QUICKWHIP_IDLE )
+    {
+        return;
+    }
+
+    sithWeapon_RestoreQuickWhipWeapon(pThing);
+}
+
+// Added: starts a quick whip. The whip is taken in hand at once, without the draw key or mount
+// wait, and then either the normal swing/climb activation runs or one no-target attack is pressed
+// on the same tick. The previous weapon is remembered for the instant restore.
+static void sithWeapon_BeginQuickWhip(SithThing* pThing, int bTarget)
+{
+    sithWeapon_quickWhipRestoreWeaponID  = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
+    sithWeapon_quickWhipState            = SITHWEAPON_QUICKWHIP_ACTIVE;
+    sithWeapon_bQuickWhipMoveStarted     = 0;
+    sithWeapon_bQuickWhipAttackFired     = 0;
+    sithWeapon_secQuickWhipAttackEndTime = 0.0f;
+
+    SITHLOG_STATUS("Quick whip: pressed at %.3f, remembered weapon %d.\n",
+        (double)sithTime_g_secGameTime, sithWeapon_quickWhipRestoreWeaponID);
+
+    sithWeapon_InstantDeselectWeapon(pThing, SITHWEAPON_WHIP);
+    sithWeapon_InstantSelectWeapon(pThing, SITHWEAPON_WHIP);
+
+    SITHLOG_STATUS("Quick whip: whip is current at %.3f.\n", (double)sithTime_g_secGameTime);
+
+    SithInventoryType* pItem = sithInventory_GetType(SITHWEAPON_WHIP);
+    if ( bTarget )
+    {
+        // Fill the swing/climb globals the drawn whip's aim update normally fills, then run the
+        // same activation the Activate key runs. Without a puppet there is no move to start.
+        if ( pThing->pPuppetClass && pThing->renderData.pPuppet
+            && (sithWhip_SearchWhipSwingThing(pThing) || sithWhip_SearchWhipClimbThing(pThing)) )
+        {
+            sithWeapon_ActivateWhipPress(pThing, pItem, SITHWEAPON_WHIP);
+        }
+
+        sithWeapon_bQuickWhipMoveStarted = sithWeapon_IsWhipMoveStatus(pThing->moveStatus);
+        sithWeapon_secQuickWhipDeadline  = sithTime_g_secGameTime + SITHWEAPON_QUICKWHIP_TARGETWAIT;
+        SITHLOG_STATUS("Quick whip: started the whip target at %.3f.\n",
+            (double)sithTime_g_secGameTime);
+        return;
+    }
+
+    // No target: one normal whip attack, pressed at once. The script's ACTIVATE sets the attack
+    // and fire waits; the restore follows them in game time. The fire key is not held, so the
+    // engine's usual single-shot release tears the attack down after the first shot instead of
+    // repeating it while the quick whip waits for the animation to end.
+    if ( pItem->pCog )
+    {
+        sithCog_SendMessage(pItem->pCog, SITHCOG_MSG_ACTIVATE, SITHCOG_SYM_REF_NONE, 0, SITHCOG_SYM_REF_THING, pThing->idx, 0);
+    }
+
+    sithWeapon_bufferedWaponKeyId              = -1;
+    sithWeapon_secWeaponActivationWaitEndTime  = pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime
+        + pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitTime;
+
+    sithWeapon_secQuickWhipAttackEndTime = sithWeapon_secWeaponActivationWaitEndTime;
+    if ( pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitEndTime != SITHWEAPON_TIMENOTSET
+        && pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitEndTime > sithWeapon_secQuickWhipAttackEndTime )
+    {
+        sithWeapon_secQuickWhipAttackEndTime = pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitEndTime;
+    }
+
+    if ( pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime > sithWeapon_secQuickWhipAttackEndTime )
+    {
+        sithWeapon_secQuickWhipAttackEndTime = pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime;
+    }
+
+    sithWeapon_secQuickWhipDeadline  = sithTime_g_secGameTime + SITHWEAPON_QUICKWHIP_ATTACKWAIT;
+    sithWeapon_bQuickWhipAttackFired = 1;
+    SITHLOG_STATUS("Quick whip: started the whip attack without a target at %.3f.\n",
+        (double)sithTime_g_secGameTime);
+}
+
+// Added: drives the quick whip follow-up. A target swing or climb holds the whip until its move
+// ends; a no-target attack holds it until the script's fire wait is over, then the retract key is
+// finished without playing it and the previous weapon is back in the same instant. It claims the
+// controls frame so the normal weapon loop cannot fight the swap. The state is not saved.
 static int sithWeapon_ProcessQuickWhip(SithThing* pThing)
 {
     if ( !sithWeapon_bQuickWhipEnabled )
     {
-        sithWeapon_ResetQuickWhipState();
+        sithWeapon_CancelQuickWhip(pThing);
         return 0;
     }
 
@@ -1412,79 +1681,69 @@ static int sithWeapon_ProcessQuickWhip(SithThing* pThing)
         return 0;
     }
 
-    if ( sithWeapon_quickWhipState == SITHWEAPON_QUICKWHIP_PENDING )
-    {
-        if ( sithPlayerControls_g_bCutsceneMode == 1
-            || (pThing->flags & SITH_TF_DYING) != 0
-            || sithWeapon_IsLocalPlayerUnableToUseWeapon()
-            || pThing->moveStatus > (unsigned int)SITHPLAYERMOVE_RUNNING
-            || pThing->thingInfo.actorInfo.bControlsDisabled == 1 )
-        {
-            sithWeapon_quickWhipState        = SITHWEAPON_QUICKWHIP_RESTORE;
-            sithWeapon_bQuickWhipMoveStarted = 0;
-        }
-        else
-        {
-            const SithWeaponId selectedWeaponID = pThing->thingInfo.actorInfo.weaponInfo.selectedWeaponID;
-            if ( selectedWeaponID != SITHWEAPON_NOWEAPONSELECTED && selectedWeaponID != SITHWEAPON_WHIP )
-            {
-                // The player chose another weapon while the whip was being drawn.
-                sithWeapon_ResetQuickWhipState();
-                return 0;
-            }
-
-            if ( sithTime_g_secGameTime >= (double)sithWeapon_secQuickWhipDeadline )
-            {
-                sithWeapon_quickWhipState        = SITHWEAPON_QUICKWHIP_RESTORE;
-                sithWeapon_bQuickWhipMoveStarted = 0;
-            }
-            else if ( sithWeapon_IsQuickWhipReady(pThing) )
-            {
-                const SithWeaponId curWeaponID = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
-                SithInventoryType* pItem       = sithInventory_GetType(curWeaponID);
-                if ( sithWeapon_ActivateWhipPress(pThing, pItem, curWeaponID) )
-                {
-                    sithWeapon_quickWhipState        = SITHWEAPON_QUICKWHIP_RESTORE;
-                    sithWeapon_bQuickWhipMoveStarted = sithWeapon_IsWhipMoveStatus(pThing->moveStatus);
-                    return 1;
-                }
-
-                // The target did not start the move (for example, the whip actor failed).
-                sithWeapon_quickWhipState        = SITHWEAPON_QUICKWHIP_RESTORE;
-                sithWeapon_bQuickWhipMoveStarted = 0;
-            }
-            else
-            {
-                return 0;
-            }
-        }
-    }
-
-    if ( sithWeapon_quickWhipState != SITHWEAPON_QUICKWHIP_RESTORE )
-    {
-        return 0;
-    }
-
+    // A swing or climb owns the player until its move ends, whatever the controls say.
     if ( sithWeapon_IsWhipMoveStatus(pThing->moveStatus) )
     {
         sithWeapon_bQuickWhipMoveStarted = 1;
-        return 0;
+        return 1;
     }
 
-    // A selection or deselection still running means another weapon is on its way.
-    if ( pThing->thingInfo.actorInfo.weaponInfo.selectedWeaponID != SITHWEAPON_NOWEAPONSELECTED
-        || pThing->thingInfo.actorInfo.weaponInfo.deselectedWeaponID != SITHWEAPON_NOWEAPONDESELECTED )
-    {
-        return 0;
-    }
-
-    // The player has another weapon now, so their choice wins over the restore.
+    // The player or a script put another weapon in the hand; their choice wins, but a fired
+    // attack still has to release its script state.
     if ( pThing->thingInfo.actorInfo.weaponInfo.curWeaponID != SITHWEAPON_WHIP )
     {
+        if ( sithWeapon_bQuickWhipAttackFired )
+        {
+            sithWeapon_FinishQuickWhipAttack(pThing);
+        }
+
         sithWeapon_ResetQuickWhipState();
         return 0;
     }
 
+    if ( sithWeapon_bQuickWhipAttackFired )
+    {
+        // The script extends its fire wait while the attack runs; follow it in game time.
+        float attackEndTime = sithWeapon_secQuickWhipAttackEndTime;
+        if ( pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitEndTime != SITHWEAPON_TIMENOTSET
+            && pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitEndTime > attackEndTime )
+        {
+            attackEndTime = pThing->thingInfo.actorInfo.weaponInfo.secActivationWaitEndTime;
+        }
+
+        if ( pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime > attackEndTime )
+        {
+            attackEndTime = pThing->thingInfo.actorInfo.weaponInfo.secAimWaitEndTime;
+        }
+
+        sithWeapon_secQuickWhipAttackEndTime = attackEndTime;
+
+        if ( sithTime_g_secGameTime < (double)attackEndTime
+            && sithTime_g_secGameTime < (double)sithWeapon_secQuickWhipDeadline )
+        {
+            return 1;
+        }
+
+        SITHLOG_STATUS("Quick whip: attack over at %.3f.\n", (double)sithTime_g_secGameTime);
+        sithWeapon_RestoreQuickWhipWeapon(pThing);
+        return 1;
+    }
+
+    // Target case: once a move has started, wait for it to end.
+    if ( sithWeapon_bQuickWhipMoveStarted )
+    {
+        SITHLOG_STATUS("Quick whip: target move over at %.3f.\n", (double)sithTime_g_secGameTime);
+        sithWeapon_RestoreQuickWhipWeapon(pThing);
+        return 1;
+    }
+
+    // The activation did not start a move. Give it the target wait, then restore.
+    if ( sithTime_g_secGameTime < (double)sithWeapon_secQuickWhipDeadline )
+    {
+        return 1;
+    }
+
+    SITHLOG_STATUS("Quick whip: target did not start at %.3f.\n", (double)sithTime_g_secGameTime);
     sithWeapon_RestoreQuickWhipWeapon(pThing);
     return 1;
 }
@@ -1518,19 +1777,25 @@ int J3DAPI sithWeapon_ProcessWeaponControls(SithThing* pThing, float secDeltaTim
         return 0;
     }
 
-    // Added: a quick whip press arms the follow-up instead of drawing the whip as a plain select.
-    if ( sithWeapon_bQuickWhipEnabled && sithWeapon_IsQuickWhipKeyPressed() )
+    // Altered: a quick whip press arms the follow-up instead of drawing the whip as a plain select.
+    // The quick whip binding works wherever the whip can be used normally; the whip's select key
+    // only quick-whips at a swing or climb target and otherwise selects the whip as before.
+    if ( sithWeapon_bQuickWhipEnabled )
     {
-        SithThing* pQuickWhipTarget;
-        int bQuickWhipSwing;
-        if ( sithWeapon_CanQuickWhip(pThing, &pQuickWhipTarget, &bQuickWhipSwing) )
+        const int bQuickWhipKey  = sithWeapon_IsQuickWhipKeyPressed();
+        const int bWhipSelectKey = !bQuickWhipKey && sithWeapon_IsWhipSelectKeyPressed();
+        if ( bQuickWhipKey || bWhipSelectKey )
         {
-            sithWeapon_quickWhipRestoreWeaponID = pThing->thingInfo.actorInfo.weaponInfo.curWeaponID;
-            sithWeapon_SelectWeapon(pThing, SITHWEAPON_WHIP);
-            sithWeapon_quickWhipState        = SITHWEAPON_QUICKWHIP_PENDING;
-            sithWeapon_secQuickWhipDeadline  = sithTime_g_secGameTime + 2.0f;
-            sithWeapon_bQuickWhipMoveStarted = 0;
-            return 0;
+            SithThing* pQuickWhipTarget = NULL;
+            int bQuickWhipSwing = 0;
+            if ( sithWeapon_CanQuickWhip(pThing, &pQuickWhipTarget, &bQuickWhipSwing)
+                && (bQuickWhipKey || pQuickWhipTarget != NULL) )
+            {
+                // Altered: the whip is taken in hand and the attack starts on this press, without
+                // the normal select's draw key or mount wait.
+                sithWeapon_BeginQuickWhip(pThing, pQuickWhipTarget != NULL);
+                return 0;
+            }
         }
     }
 
@@ -2729,8 +2994,10 @@ static int sithWeapon_GetWhipPressTarget(SithThing** ppTarget, int* pbSwing)
     return sithWhip_ChooseWhipPressTarget(sithWhip_GetWhipSwingThing(), sithWhip_GetWhipClimbThing(), ppTarget, pbSwing);
 }
 
-// Added: all the availability conditions of a quick whip press, then the read-only target query.
-// Returns 1 when the press would quick-whip and reports the target and kind it would use.
+// Added: all the availability conditions of a quick whip press. Returns 1 when the quick whip
+// binding would act, wherever the whip can be used normally. The optional target outputs report
+// the swing or climb the press would use; they stay empty away from a whip-aim point, because
+// only there does the drawn whip find and keep a swing or climb target. It changes no state.
 int J3DAPI sithWeapon_CanQuickWhip(SithThing* pThing, SithThing** ppTarget, int* pbSwing)
 {
     if ( ppTarget )
@@ -2770,26 +3037,27 @@ int J3DAPI sithWeapon_CanQuickWhip(SithThing* pThing, SithThing** ppTarget, int*
         return 0;
     }
 
-    if ( !sithWeapon_IsOnWhipAimSurface(pThing) )
+    // The target is only a prompt and keyboard-select concern: the drawn whip refreshes its
+    // swing and climb targets at a whip-aim point, and the press without one fires normally.
+    if ( (ppTarget || pbSwing) && sithWeapon_IsOnWhipAimSurface(pThing) )
     {
-        return 0;
+        SithThing* pTarget;
+        int bSwing;
+        if ( sithWhip_QueryQuickWhipTarget(pThing, &pTarget, &bSwing) && pTarget )
+        {
+            if ( ppTarget )
+            {
+                *ppTarget = pTarget;
+            }
+
+            if ( pbSwing )
+            {
+                *pbSwing = bSwing;
+            }
+        }
     }
 
-    SithThing* pTarget;
-    int bSwing;
-    int bValid = sithWhip_QueryQuickWhipTarget(pThing, &pTarget, &bSwing);
-
-    if ( ppTarget )
-    {
-        *ppTarget = pTarget;
-    }
-
-    if ( pbSwing )
-    {
-        *pbSwing = bSwing;
-    }
-
-    return bValid && pTarget != NULL;
+    return 1;
 }
 
 // Added: 1 when a press of the activation key would start a whip swing (*pbSwing = 1) or whip

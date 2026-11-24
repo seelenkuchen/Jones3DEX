@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 static StdBabylonContext* stdBabylon_pContext = nullptr;
+static bool stdBabylon_bVirtualClockActive = false;
 
 void stdBabylon_SetContext(StdBabylonContext* pContext)
 {
@@ -26,4 +27,14 @@ StdBabylonContext& stdBabylon_RequireContext(const char* pFunction)
     }
 
     return *stdBabylon_pContext;
+}
+
+bool stdBabylon_VirtualClockActive()
+{
+    return stdBabylon_bVirtualClockActive;
+}
+
+void stdBabylon_SetVirtualClockActive(bool bActive)
+{
+    stdBabylon_bVirtualClockActive = bActive;
 }

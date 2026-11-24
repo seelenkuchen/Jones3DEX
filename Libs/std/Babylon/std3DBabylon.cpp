@@ -2526,6 +2526,9 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
     // Added: the depth-of-field stage linearises the depth target with these planes.
     std3D_nearPlane = nearPlane;
     std3D_farPlane  = farPlane;
+
+    // Added: the ambient-occlusion stage reconstructs view-space positions from the projection.
+    stdRenderBabylon_SetProjection(fov, nearPlane, farPlane);
     return 0;
 }
 
@@ -2549,6 +2552,18 @@ void J3DAPI std3D_SetFrameTime(float deltaTime)
     }
 
     stdRenderBabylon_SetFrameTime(deltaTime);
+}
+
+void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut)
+{
+    // Added: the motion-blur stage's per-frame camera input (M9.19); a backend without motion blur
+    // ignores the call.
+    if ( !std3D_pRenderDevice || !stdRenderBabylon_IsOpen() )
+    {
+        return;
+    }
+
+    stdRenderBabylon_SetCameraTransform(aMatrix, bCut);
 }
 
 void J3DAPI std3D_EnableFog(int bEnabled, float density)

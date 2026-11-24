@@ -1,6 +1,6 @@
 # ADR-0039: Fixed simulation tick with interpolated rendering
 
-- **Status:** Proposed
+- **Status:** Accepted (owner, 2026-11-22: 50 Hz, on by default in Enhanced)
 - **Date:** 2026-11-21
 
 ## Context
@@ -22,8 +22,10 @@ the draw phase. Extra rendered frames must not repeat any of that.
 
 ## Decision
 
-- The Enhanced profile runs `sithUpdate` on a fixed simulation tick from an accumulator. 60 Hz is proposed; the
-  exact rate is a single simulation cvar.
+- The Enhanced profile runs `sithUpdate` on a fixed simulation tick from an accumulator. The rate is 50 Hz,
+  matching the physics step that ADR-0030 restored; 50 Hz is the only rate the option offers, and the Retail
+  profile stays off. The owner chose this on 2026-11-22: at 60 Hz every sixth tick has no 20 ms physics step,
+  so airborne motion stutters, while 50 Hz "feels a lot better".
 - Extra frames above the tick rate are draw-only. Thing positions and orientations, the camera, puppet/keyframe
   poses, surface and texture animation, particles and the sound listener are interpolated between the previous
   and current tick for the drawn frame, then the interpolated state is restored.
@@ -38,7 +40,7 @@ the draw phase. Extra rendered frames must not repeat any of that.
 
 ## Consequences
 
-- At 120+ Hz motion is smooth while gameplay runs at 60 Hz. Gameplay feel at the tick rate is a new tuning
+- At 120+ Hz motion is smooth while gameplay runs at 50 Hz. Gameplay feel at the tick rate is a new tuning
   target; the `sithTime_g_fps` uses in `sithPlayerControls` and the projectile `secDeltaTime > 0.02f` branch
   need explicit retuning or removal, and the owner play-tests them.
 - Retail behaviour and traces are preserved by construction; the option lives with the other Enhanced options.
@@ -47,7 +49,7 @@ the draw phase. Extra rendered frames must not repeat any of that.
   interval or accepted at the fixed tick. Enhanced trace references are re-recorded only where the owner
   approves a behavioural change.
 - Physics that still integrates with the frame delta is either moved onto the tick or documented as a known
-  step dependency; otherwise a 60 Hz tick changes trajectories versus today.
+  step dependency; otherwise a 50 Hz tick changes trajectories versus today.
 - Drawing becomes side-effect free for simulation. The camera update moves into the tick; the renderer keeps
   its own per-draw-frame cache tick.
 - CPU cost: a drawn frame still rebuilds the CPU render caches (lighting, culling, transforms). M9.2 measures
@@ -55,11 +57,53 @@ the draw phase. Extra rendered frames must not repeat any of that.
 - Rendering still runs every rendered frame; HUD and subtitle timers that already use wall time stay wall-time
   but run on the drawn frame.
 
+## Implementation status
+
+M9.20 implements the first slice, behind `engine.sim.fixedTick` (int Hz, default
+`J3D_QOL_VALUE(50, 0)`: on in Enhanced, off in Retail and QOL-off builds, which ignore it). Valid values are
+`0` (Off) and `50` (On at the game's physics step); any other positive value, such as an old 30/60/120 from
+an earlier test build, maps to 50, and a negative value keeps the build's default. On, `JonesMain` runs
+`sithUpdate` and the camera update from a
+game-time accumulator at the fixed step, with a catch-up cap. Thing position/orientation and the
+camera position/orientation/FOV/aspect are snapshotted before and after each tick and restored after
+the interpolated draw; teleports and recreated thing slots are never blended. The simulation-facing
+draw work moved onto the tick: the default-FOV visibility marks (`SITH_TF_SEEN`, `SIGHTED`, AI wake,
+`renderFrame`), the AI waypoint lasers, `sithFX_UpdatePolyline` and the out-of-water
+air-destroyed sprite check. `sithTime` stops reading the wall clock while the tick is on and `sithTime_g_clockTime` follows game time. The headless runner has
+`--fixed-tick` and `--draw-step`, and `--frames` counts ticks. The headless runner stays off unless
+`--fixed-tick` asks for a rate, whatever the cfg default, so the v6/Retail trace references and the existing
+headless scripts stay on the measured-frame loop. With the option off the measured-frame loop and the
+v6/Retail traces are unchanged.
+
+M9.22 adds the remaining presentation interpolation: puppet track frames and fade weights (sampled at
+`prev + alpha * step`, with the keyframe node cache reset for the sampled frame; markers and loop resets
+stay on the tick), surface texture scroll and surface/sector/sky light ramps, horizon/ceiling sky scroll
+(offset wraps take the short path), particle growth radius, the sound listener (a draw-frame
+listener-only refresh that moves the driver listener and mix parameters without running fades,
+stopping/restarting/releasing channels or changing channel flags) and a render-time game time for the
+underwater wobble. Page-flip cels, cel
+animation, vertex counts and particle cels stay on the tick. Everything is applied in
+`JonesFixedTick_BeginDraw` and restored in `JonesFixedTick_EndDraw`; the headless key proof and the
+v6/Retail traces are unchanged.
+
+M9.23 adds frame pacing and the option's Options row. `engine.renderer.frameLimit` selects V-Sync (the
+default), a numeric cap or no cap; the Babylon render device exposes V-Sync, immediate and mailbox present
+modes, and a cap presents immediately and waits on a drift-free `time::FrameLimiter` without touching game
+time. The Options > Gameplay **Simulation tick** row is a toggle (Off / On at 50 Hz) that writes
+`engine.sim.fixedTick`; it applies on the next game start. Headless runs drive the same option with
+`--fixed-tick` and `--draw-step`.
+
+The owner accepted the option on 2026-11-22: the Enhanced default is On at 50 Hz, and the row is a toggle
+rather than the 30/50/60/120 choice. The reason is ADR-0030: player physics integrates in fixed 20 ms steps, so
+only a 50 Hz tick gives every tick a physics step; at 60 Hz every sixth tick has none and airborne motion
+stutters. The owner play-tested this and confirmed 50 Hz feels better. Retail and QOL-off builds stay off and
+unchanged.
+
 ## What must be interpolated
 
 - Thing position and orientation, including attached, path-moved and vehicle things.
 - Camera position, orientation, FOV and aspect ratio, including the underwater wobble.
 - Puppet/keyframe joint poses and blend weights; keyframe markers remain on the tick.
-- Surface texture scroll, sky-horizon and ceiling scroll, and page-flip selection.
-- Particles: position, size and current cel.
+- Surface texture scroll and sky-horizon/ceiling scroll; page-flip cels stay on the tick.
+- Particles: position and size; the current cel stays on the tick.
 - Sound listener position and orientation.

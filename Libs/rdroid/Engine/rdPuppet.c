@@ -362,6 +362,30 @@ void J3DAPI rdPuppet_AdvanceTrack(rdPuppet* pPuppet, int32_t track, float frames
     }
 }
 
+void J3DAPI rdPuppet_SetTrackDrawSample(rdPuppet* pPuppet, int32_t track, float frame, float blendWeight)
+{
+    // Added: M9.22. A drawn frame may sample between the last two ticks. BuildJointMatrices only
+    // advances its keyframe node cache forward, so reset the cache here; the next build walks it
+    // to the requested frame exactly as a fresh track does when it loops.
+    RD_ASSERTREL(pPuppet != NULL);
+    RD_ASSERTREL((track >= 0) && (track < STD_ARRAYLEN(pPuppet->aTracks)));
+
+    rdPuppetTrack* pTrack = &pPuppet->aTracks[track];
+    pTrack->curFrame    = frame;
+    pTrack->blendWeight = blendWeight;
+
+    if ( pPuppet->pThing && pPuppet->pThing->data.pModel3
+        && pPuppet->pThing->data.pModel3->numHNodes < STD_ARRAYLEN(pTrack->aCurKfNodeEntryNums) )
+    {
+        STD_ZEROMEM(pTrack->aCurKfNodeEntryNums,
+            sizeof(pTrack->aCurKfNodeEntryNums[0]) * pPuppet->pThing->data.pModel3->numHNodes);
+    }
+    else
+    {
+        STD_ZEROMEM(pTrack->aCurKfNodeEntryNums, sizeof(pTrack->aCurKfNodeEntryNums));
+    }
+}
+
 int J3DAPI rdPuppet_UpdateTracks(rdPuppet* pPuppet, float secDeltaTime)
 {
     RD_ASSERTREL(pPuppet != NULL);
@@ -438,6 +462,42 @@ void J3DAPI rdPuppet_ResetTrack(rdPuppet* pPuppet, int32_t track)
     pPuppet->aTracks[track].status        = RDPUPPET_TRACK_PLAYING | RDPUPPET_TRACK_UNKNOWN_1;
 }
 
+// Added: M9.24. Advance one keyframe's forward-only node cache to the requested drawn frame.
+static void rdPuppet_AdvanceKfNodeCache(const rdKeyframe* pKFTrack, size_t* aNodeEntryNums, float curFrame)
+{
+    for ( size_t jointNum = 0; jointNum < pKFTrack->numJoints; jointNum++ )
+    {
+        bool bFinish = false;
+        const rdKeyframeNode* pKfNode = &pKFTrack->aNodes[jointNum];
+        if ( pKfNode->numEntries )
+        {
+            size_t nodeIdx = aNodeEntryNums[pKfNode->nodeNum];
+            if ( nodeIdx != pKfNode->numEntries - 1
+                && curFrame >= (double)pKfNode->aEntries[nodeIdx + 1].frame )
+            {
+                ++nodeIdx;
+                while ( !bFinish )
+                {
+                    if ( nodeIdx == pKfNode->numEntries - 1 )
+                    {
+                        bFinish = true;
+                    }
+                    else if ( curFrame >= (double)pKfNode->aEntries[nodeIdx + 1].frame )
+                    {
+                        ++nodeIdx;
+                    }
+                    else
+                    {
+                        bFinish = true;
+                    }
+                }
+
+                aNodeEntryNums[pKfNode->nodeNum] = nodeIdx;
+            }
+        }
+    }
+}
+
 void J3DAPI rdPuppet_BuildJointMatrices(rdThing* prdThing, const rdMatrix34* pPlacement)
 {
     rdPuppet* pPuppet = prdThing->pPuppet;
@@ -464,37 +524,7 @@ void J3DAPI rdPuppet_BuildJointMatrices(rdThing* prdThing, const rdMatrix34* pPl
         rdPuppetTrack* pTrack = &pPuppet->aTracks[trackNum];
         if ( pTrack->status )
         {
-            const rdKeyframe* pKFTrack = pTrack->pKFTrack;
-            for ( size_t jointNum = 0; jointNum < pKFTrack->numJoints; jointNum++ )
-            {
-                bool bFinish = false;
-                const rdKeyframeNode* pKfNode = &pKFTrack->aNodes[jointNum];
-                if ( pKfNode->numEntries )
-                {
-                    size_t nodeIdx = pTrack->aCurKfNodeEntryNums[pKfNode->nodeNum];
-                    if ( nodeIdx != pKfNode->numEntries - 1 && pTrack->curFrame >= (double)pKfNode->aEntries[nodeIdx + 1].frame )
-                    {
-                        ++nodeIdx;
-                        while ( !bFinish )
-                        {
-                            if ( nodeIdx == pKfNode->numEntries - 1 )
-                            {
-                                bFinish = true;
-                            }
-                            else if ( pTrack->curFrame >= (double)pKfNode->aEntries[nodeIdx + 1].frame )
-                            {
-                                ++nodeIdx;
-                            }
-                            else
-                            {
-                                bFinish = true;
-                            }
-                        }
-
-                        pTrack->aCurKfNodeEntryNums[pKfNode->nodeNum] = nodeIdx;
-                    }
-                }
-            }
+            rdPuppet_AdvanceKfNodeCache(pTrack->pKFTrack, pTrack->aCurKfNodeEntryNums, pTrack->curFrame);
         }
     }
 

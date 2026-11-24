@@ -466,3 +466,203 @@ tick rendered at 120 Hz costs roughly 8.9 ms of CPU geometry per tick, before an
    review the `secDeltaTime > 0.02f` projectile branch, as the audit already calls out.
 6. Ship it as an Enhanced option with a cvar for the rate, off in the Retail profile; re-record Enhanced traces
    only where the owner approves the tick-change effects.
+
+## M9.20 implementation
+
+M9.20 ships the first slice behind `engine.sim.fixedTick` (int Hz, default `J3D_QOL_VALUE(50, 0)`: on at
+50 Hz in Enhanced, off in Retail and QOL-off builds, which ignore it and keep the measured frame time).
+Valid values are `0` (Off) and `50`; any other positive value, such as an old 30/60/120 from an earlier test
+build, maps to 50, and a negative value keeps the build's default. With `0` the frame loop is the old one and
+the v6/Retail traces are identical. With the tick on (50 Hz; the headless dev override also accepts 30, 60 and
+120 for comparisons) the following move. The owner chose the default on 2026-11-22, because ADR-0030 makes the
+game's physics step 20 ms, so only 50 Hz gives every tick a physics step; at 60 Hz every sixth tick has none and
+airborne motion stutters.
+
+**Tick loop.** `JonesMain_ProcessGame` feeds a game-time accumulator from the measured `stdPlatform_GetTimeMsec`
+delta, clamped to `sithTime`'s 1..200 ms, and runs zero or more ticks, at most 5 catch-up ticks per drawn
+frame (a longer stall drops the backlog). Each tick calls `sithTime_SetFrameTime(1000 / Hz)` then `sithUpdate`,
+the camera update (`sithCamera_Update`, which the draw used to own), the tick-owned draw stage below, and the
+interpolation snapshots. Menus, pause, quicksave, save/load transitions, the HUD and the overlay map stay on
+the drawn frame. Paused drawn frames still run the `sithUpdate` pause branch (sound mixer and control update)
+and never tick. `sithTime_Advance` is a no-op while the tick is on and `sithTime_g_clockTime` follows game
+time, so the simulation does not read the wall clock.
+
+**Interpolation.** Before and after every tick `JonesFixedTick` snapshots each active thing (`pos`, `orient`,
+`flags`, `renderFrame`, `signature`) and the camera (`pos`, `orient`, `fov`, `aspectRatio`). A drawn frame sets
+`prev + alpha * (cur - prev)` with `alpha = accumulator / step`, draws, then restores the exact post-tick
+values. Orientations are blended row-wise and re-orthonormalised with `rdMatrix_Normalize34` (not slerp).
+A thing created between ticks, a changed `signature`, or a move beyond the teleport threshold is drawn at its
+current state, so nothing is blended across two different things or across a teleport. The camera FOV/aspect
+are applied to its `rdCamera` for the draw.
+
+**Tick-owned draw work.** The mark-only pass runs once per tick instead of once per drawn frame: `SITH_TF_SEEN`,
+`SIGHTED` COG messages, AI wake and `renderFrame` come from the default-FOV visibility pass. The AI waypoint
+renderer's laser things, `sithFX_UpdatePolyline` (lightning; consumes `SITH_RAND` and can destroy things)
+and the draw's out-of-water air-destroyed sprite check also run in that tick stage. The draw suppresses
+the marks, the waypoint creation, the polyline update and the sprite destruction on a fixed tick, so a
+draw-only frame cannot change the simulation or the RNG. The render cache tick keeps advancing per draw;
+it is presentation only. With the option off all of these stay exactly where they are today.
+
+**Headless.** A headless run stays off unless `--fixed-tick <hz>` is given, whatever the cfg default, so the
+trace references and existing headless scripts keep the measured-frame loop; `--fixed-tick` overrides the cfg
+and `--draw-step <ms>` (default `--step`, except that an input-script run clamps it to the tick step; see
+M9.24) makes the virtual clock advance by the draw step, so draw-only frames happen without a display. With a
+fixed tick `--frames` and the state file's `frame` line count ticks and the run log ends with
+`fixed tick: N rendered frames for M ticks`. From `game/native/ref/run/Resource`, `--step 33 --fixed-tick 50`
+against the same run with `--draw-step 8`, `16` or `5` produced identical state files, with and without the
+wander input.
+
+## M9.22 implementation
+
+M9.22 interpolates the remaining presentation state on a fixed tick. Everything below is applied in
+`JonesFixedTick_BeginDraw` after the thing/camera blend and restored exactly in `JonesFixedTick_EndDraw`;
+with the option off these paths do not run and the measured-frame loop is unchanged.
+
+- **Puppet poses.** Before and after each tick every thing's puppet tracks are snapshotted (`curFrame`,
+  `blendWeight`, keyframe pointer). A drawn frame samples each track at
+  `prevFrame + alpha * (curFrame - prevFrame)` and blends the fade weight. `rdPuppet_SetTrackDrawSample`
+  resets the keyframe node cache so `rdPuppet_BuildJointMatrices` finds the right segment for the sampled
+  frame. Markers, callbacks, status changes and loop resets stay on the tick. A loop (curFrame behind the
+  previous tick), a replaced track, or a recreated thing snaps to the current tick instead of blending.
+- **Surface and sky scroll.** Every surface's `texVertOffset`/`extraLight`, the world horizon/ceiling sky
+  offsets and every sector's `extraLight` are snapshotted per tick. Scrolling offsets and sky offsets blend
+  with a 1024-unit wrap that takes the short path across a boundary; light ramps blend linearly. Page-flip
+  cels, cel animation and `matCelNum` changes stay on the tick because a cel cannot be blended.
+- **Particles.** Position and orientation come from the thing blend; the particle cloud radius (growth) is
+  blended too. A particle created between ticks is drawn at its current size. Vertex cels and the vertex
+  count stay on the tick.
+- **Sound listener.** `sithSoundMixer_UpdateListener` now runs on each drawn frame after the camera blend and
+  calls the new `Sound_SetListener` path, which moves the driver listener and refreshes only the
+  listener-relative volume/pan/pitch of active 3D channels. It never runs fades, advances play clocks,
+  reads thing positions, stops/restarts/releases channels or changes channel flags or handles. The full
+  `Sound_Update` and the sector/ambient switch stay in `sithSoundMixer_Update` on the tick, so sound state
+  cannot feed the simulation on a draw-only frame.
+- **Underwater wobble.** `sithRender_Draw` reads `sithTime_GetRenderGameTime()`, which is
+  `prevSecGameTime + alpha * step` during a fixed-tick draw and `sithTime_g_secGameTime` otherwise.
+
+Unit tests cover puppet sampling at alpha 0/1 and restore, a replaced puppet track, surface and sky offset
+blend/restore, the short-path scroll wrap, sector and surface light blends, and particle size blend/restore
+including a particle created between ticks. The headless key proof (`--fixed-tick 60 --step 33` against
+`--draw-step 8`, `16` and `5`, with and without the wander input) produces identical state files, and the
+v6/Retail traces are unchanged. `sithTime_g_fps` retuning and the physics-step policy from section 6 are
+still open.
+
+## M9.24 jump/fall jitter findings
+
+The owner still saw jitter in jump and fall animation on a fixed tick. A dev-only headless trace measured it:
+`--draw-trace <file>` writes one line per drawn frame after the scene draw, while the interpolated values are
+still in place. A line carries the tick count, alpha, the player position and left vector, the camera position,
+`lookPos`, and the `sithCamera_g_camSpot`/`camLookSpot` globals, the world positions of Indy's root node (0),
+head, left hand and left shoe (`inhead`, `inlhand`, `inlshoe` in `gen_in_shirt.3do`, nodes 8, 12 and 25, found
+by name so the other costumes work), the player model's joint frame stamp with the current `rdCache` frame and
+skip flag, and every active puppet track's keyframe name, frame and blend weight. The option is
+compiled into every build and is inert unless the file is opened; it works with the fixed tick on or off.
+Trace, `--input` and analysis scripts are run artifacts, not part of the repository.
+
+The measurement used `regress.nds` and a script that walks, jumps forward three times and finishes with a
+controlled fall, at `--fixed-tick 60 --step 33 --draw-step 8`. The analyser took each point's per-draw
+displacement, compared it with the local median and flagged a frame when the displacement was more than twice
+the median. Before the fix it flagged 104 of 713 drawn frames: 95 at tick boundaries, 6 at puppet track
+changes, and 3 camera/joint mixed. Two causes were real presentation snaps:
+
+- **Camera look/focus.** `JonesFixedTick` blended the camera's `pos` and `orient` but not `lookPos`, `focusPos`
+  or the camera-spot globals. The scene draw reads `lookPos` for the sky, backface culling and the depth-of-field
+  focus distance, so those moved in tick-sized steps. `JonesFixedTickCameraState` now captures all three and
+  `BlendCamera`/`RestoreCamera` blend and restore them with the pose.
+- **Replaced, looped and removed tracks.** A track slot replaced in place (stand to walk, walk to jump
+  anticipation, jump forward to fall, fall to land), a loop reset, or a track appearing or disappearing was
+  drawn at the new tick's keyframe, so the pose snapped between two drawn frames. The first fix crossfaded
+  the old keyframe into the new track's local node transforms. It removed the take-off foot jump but could
+  still sample an old keyframe with a different node mapping and left joints outside the segment between the
+  two tick poses; the owner now saw wrong frames. It was replaced by a complete-pose crossfade, described in
+  M9.24b below.
+
+The camera/look/focus fix remains. The first track fix flagged 15 of 713 drawn frames, including the
+take-off foot jump's disappearance; M9.24b supersedes its track part and leaves only the real landing and
+camera accelerations. With the fixed tick off at `--step 8` and the same script scaled to 8 ms frames, the
+draw path takes every frame's tick state directly and has no track or look/focus snap. The off path is
+byte-identical: `--draw-step 8`, `16` and `5` produce identical state files to `--step 33`, plain and with
+the wander input.
+
+## M9.24b complete-pose crossfade and the matching 50 Hz tick
+
+The local-keyframe crossfade could put a joint outside the segment between its previous-tick and
+current-tick positions. For example, at the fall-to-land change the left hand was 1.13 cm off the segment,
+because the old keyframe's node mapping can differ and because interpolating local bone transforms does not
+interpolate world joint positions linearly. It also carried draw-only crossfade state in `rdPuppetTrack`,
+which could outlive a tick.
+
+The replacement builds the complete previous- and current-tick skeletons, then linearly blends their world
+joint matrices by the draw alpha. The translation is linear, so every drawn joint lies exactly on the tick
+segment; the rotation is re-orthonormalised after the row blend. It is used only on a discontinuity, when a
+track was replaced, appeared, was removed, or looped (`curFrame` went backwards). The normal same-track frame
+interpolation is unchanged. If the old frame is unknown or out of range, the model changed between ticks, the
+node count exceeds the puppet cache, or the model skips building joints, the case snaps to the current tick
+pose instead. The world-space crossfade touches presentation only: simulation state, callbacks, markers and
+loop bookkeeping stay on the tick, and the live puppet is copied for the two builds.
+
+The trace was extended with the previous- and current-tick positions of the three sample joints, so the
+analyser can check each drawn sample joint against the segment. "Wrong frame" means a joint farther than a
+small tolerance from that segment. With 1 mm tolerance the jump/fall script had 11 joint-draws on 10 frames before
+the fix (maximum 11.3 mm) and has 2 joint-draws on 2 frames after it (maximum 1.57 mm). Those two are ordinary
+same-track frame interpolation during a fast foot swing, not a track change; with 2 mm tolerance the count is
+5 frames before and 0 after. The displacement table below uses the same per-draw median test as M9.24, and a
+track change is categorised per tick rather than per draw, so both draws of a transition tick are attributed
+to the transition:
+
+| fixed tick | drawn frames | flagged | track change | tick boundary | camera only | mixed | joint only | sample joints >2 mm off |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 60 Hz | 713 | 15 | 8 | 4 | 2 | 1 | 0 | 0 |
+| 50 Hz | 890 | 11 | 6 | 3 | 2 | 0 | 0 | 0 |
+| off, `--step 8` | 800 | 92 | 0 | 0 | 1 | 85 | 6 | n/a |
+
+The 60 Hz and 50 Hz runs used `--step 33 --draw-step 8` and the tick-scaled jump script; the off run used
+`--step 8` and the 8 ms-scaled script. The 85 mixed off-path flags are the physics substep beat, not
+animation: player physics integrates in fixed 20 ms (50 Hz) substeps, so an 8 ms or 60 Hz frame sometimes has
+no substep and the player stalls for one frame. The fixed-tick interpolation cannot remove that, because the
+tick pose itself is the stalled one. At a 50 Hz tick the substep is exactly one tick, the beat disappears,
+and the table drops from 92 flagged frames to 11; the remaining flags are track changes and real camera
+accelerations. That makes 50 Hz the tick rate that matches the simulation's physics step. Key proof: at both
+60 and 50 Hz, `--step 33` against `--draw-step 8`, `16` and `5` produces identical state files, plain and with
+the wander input.
+
+One runner detail surfaced while checking the key proof: with `--step` larger than the tick step, one headless
+process call runs several ticks, but `--input` was sampled once per call. A jump key held for a few ticks
+therefore behaved differently at 33 ms frames than at 8 ms frames. When a fixed-tick run has an input script
+and no explicit `--draw-step`, the runner now clamps the implicit draw step to the tick step, so every tick
+samples the script at its own frame and the state files match across draw steps. An explicit `--draw-step`
+still wins, and runs without an input script keep the old default.
+
+## M9.24c drawn joints rebuilt from the interpolated placement
+
+The owner saw Indy drawn briefly at another place during jumps and upward moves with the fixed tick on.
+`rdModel3` keeps a thing's world-space joint matrices and rebuilds them only when
+`rdThing.rdFrameNum != rdCache_GetFrameNum()` (`rdModel3.c`). The simulation also builds them at the tick
+placement for path movement and force moves (`sithPuppet_UpdatePuppet`, `sithPuppet_FinishForceMove`), and a
+path/force-move tick leaves `bSkipBuildingJoints` set. A drawn frame between two ticks then either reused a
+stamp the tick had written or, with the skip flag, never rebuilt at all: the mesh stayed at the tick pose while
+the camera and every other thing were interpolated.
+
+The dev-only `--draw-trace` hook had hidden this. It built the tick endpoint skeletons for the trace and then
+set `pPlayer->renderData.rdFrameNum = -1` to force the scene draw to rebuild, so every trace run drew at the
+interpolated placement regardless of what a run without the trace did. The hook now saves the model's joint
+matrices and stamp around its own builds and puts both back, so the trace leaves the drawn state exactly as it
+was and the analyser compares the real scene draw with the alpha blend of the two tick skeletons.
+
+`JonesFixedTick_BeginDraw` now keeps, for every active model thing, the joint matrices, `rdFrameNum` and
+`bSkipBuildingJoints` the tick left. After the pose blend, unless a whole-pose crossfade already built the
+interpolated skeleton for this draw (the crossfade reports it explicitly; the stamp alone cannot tell, because
+a tick build in the same cache frame matches it too), a normal model thing's stamp is invalidated so the scene
+draw rebuilds its joints from the interpolated placement and the sampled pose. A thing with
+`bSkipBuildingJoints` set is different: the path/force-move build placed the joints at the origin and then
+shifted the root joint onto the thing position, consuming the animation's root motion, so clearing the flag
+and rebuilding with the thing position as the placement would add that root offset again and draw Indy
+displaced by it. Its skip flag stays set for the draw and the stored world matrices are moved from the tick
+placement to the drawn one instead: rotated about the tick root by `R_draw * inverse(R_tick)` and translated
+so the root lands on the interpolated position. `JonesFixedTick_EndDraw` puts the matrices, stamp and flag back
+unchanged, because the next tick may read them (path movement, attached meshes, the internal camera and weapon
+fire all do). Unit tests build a thing's joints at the tick placement in the draw's cache frame, and a
+force-move-style variant with a root animation offset, then check the drawn rebuild and the moved skipped pose;
+they fail with the old clear-skip handling. The jump/fall harness used for the earlier pose work does not hit
+the path/force-move skip path in the recorded save, so it reports no displaced sample joints with or without
+this change; the climb/pull-up moves are the case to replay on a real display.

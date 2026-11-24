@@ -9,8 +9,10 @@ float sithTime_g_frameTimeFlex;
 float sithTime_g_fps;
 uint32_t sithTime_g_msecGameTime;
 float sithTime_g_secGameTime;
+float sithTime_g_secRenderGameTime; // Added: M9.22 fixed-tick render-time game time
 uint32_t sithTime_g_clockTime;
 int sithTime_g_bPaused;
+int sithTime_g_bFixedStep; // Added: M9.20 fixed simulation tick (ADR-0039)
 
 #define SITHTIME_MAXFRAMETIME 200 // 200ms
 
@@ -23,13 +25,28 @@ void sithTime_ResetGlobals(void)
     memset(&sithTime_g_fps, 0, sizeof(sithTime_g_fps));
     memset(&sithTime_g_msecGameTime, 0, sizeof(sithTime_g_msecGameTime));
     memset(&sithTime_g_secGameTime, 0, sizeof(sithTime_g_secGameTime));
+    memset(&sithTime_g_secRenderGameTime, 0, sizeof(sithTime_g_secRenderGameTime));
     memset(&sithTime_g_clockTime, 0, sizeof(sithTime_g_clockTime));
     memset(&sithTime_g_bPaused, 0, sizeof(sithTime_g_bPaused));
+    memset(&sithTime_g_bFixedStep, 0, sizeof(sithTime_g_bFixedStep));
     sithTime_msecPauseStartTime = 0;
+}
+
+void J3DAPI sithTime_SetFixedStep(int bFixedStep)
+{
+    // Added: M9.20. The fixed tick supplies the step through sithTime_SetFrameTime; sampling the
+    // wall clock here would overwrite it, so sithTime_Advance becomes a no-op while it is set.
+    sithTime_g_bFixedStep = bFixedStep;
 }
 
 void sithTime_Advance(void)
 {
+    // Added: M9.20 fixed simulation tick. The caller supplies the constant step.
+    if ( sithTime_g_bFixedStep )
+    {
+        return;
+    }
+
     if ( !sithTime_g_clockTime || sithTime_g_bPaused )
     {
         return;
@@ -88,7 +105,10 @@ void J3DAPI sithTime_SetFrameTime(uint32_t frameTime)
     SITH_ASSERTREL(sithTime_g_clockTime != 0);
     sithTime_g_frameTime = frameTime;
     sithTime_g_clockTime = stdPlatform_GetTimeMsec();
-    sithTime_g_frameTime = sithTime_g_frameTime = STDMATH_CLAMP(sithTime_g_frameTime, 10, SITHTIME_MAXFRAMETIME); // min 10ms;
+    // Altered: M9.20. The fixed tick allows steps below 10 ms so 120 Hz (8 ms) is not clamped;
+    // the measured-time path keeps its original 10 ms floor.
+    const uint32_t minFrameTime = sithTime_g_bFixedStep ? 1 : 10;
+    sithTime_g_frameTime = sithTime_g_frameTime = STDMATH_CLAMP(sithTime_g_frameTime, minFrameTime, SITHTIME_MAXFRAMETIME);
 
     sithTime_g_frameTimeFlex = sithTime_g_frameTime * 0.001f;
     SITH_ASSERTREL(sithTime_g_frameTimeFlex > 0.0f);
@@ -96,12 +116,22 @@ void J3DAPI sithTime_SetFrameTime(uint32_t frameTime)
     sithTime_g_fps           = 1.0f / sithTime_g_frameTimeFlex;
     sithTime_g_msecGameTime += sithTime_g_frameTime;
     sithTime_g_secGameTime   = (float)sithTime_g_msecGameTime * 0.001f;
+    sithTime_g_secRenderGameTime = sithTime_g_secGameTime;
+
+    // Added: M9.20. A few simulation throttles still read sithTime_g_clockTime. On a fixed tick
+    // it follows game time, so they see the same value at the same tick however many draw-only
+    // frames lie between ticks, and the simulation no longer reads the wall clock.
+    if ( sithTime_g_bFixedStep )
+    {
+        sithTime_g_clockTime = sithTime_g_msecGameTime;
+    }
 }
 
 void sithTime_Reset(void)
 {
     sithTime_g_msecGameTime  = 0;
     sithTime_g_secGameTime   = 0.0f;
+    sithTime_g_secRenderGameTime = 0.0f;
     sithTime_g_frameTime     = 0;
     sithTime_g_frameTimeFlex = 0.0f;
     sithTime_g_fps           = 0.0f;
@@ -112,6 +142,7 @@ void J3DAPI sithTime_SetGameTime(uint32_t msecTime)
 {
     sithTime_g_msecGameTime  = msecTime;
     sithTime_g_secGameTime   = (float)msecTime * 0.001f;
+    sithTime_g_secRenderGameTime = sithTime_g_secGameTime;
     sithTime_g_frameTime     = 0;
     sithTime_g_frameTimeFlex = 0.0f;
     sithTime_g_fps           = 0.0f;
@@ -121,4 +152,17 @@ void J3DAPI sithTime_SetGameTime(uint32_t msecTime)
 int J3DAPI sithTime_IsPaused()
 {
     return sithTime_g_bPaused;
+}
+
+void sithTime_SetRenderGameTime(float secTime)
+{
+    // Added: M9.22. Only the fixed-tick draw path calls this; it is presentation only and is
+    // reset to game time after the drawn frame.
+    sithTime_g_secRenderGameTime = secTime;
+}
+
+float sithTime_GetRenderGameTime(void)
+{
+    // Added: M9.22. The measured-frame loop keeps its original game time.
+    return sithTime_g_bFixedStep ? sithTime_g_secRenderGameTime : sithTime_g_secGameTime;
 }

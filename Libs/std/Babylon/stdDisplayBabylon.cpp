@@ -31,6 +31,7 @@
 
 #include <std/General/std.h>
 #include <std/General/stdColor.h>
+#include <std/General/stdConfig.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
 #include <std/Null/stdPlatformNull.h>
@@ -38,20 +39,24 @@
 #include <babylon/platform/Window.h>
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
+#include <babylon/time/FrameLimiter.h>
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <span>
 #include <vector>
 
 #include "stdBabylon.h"
 #include "stdBabylonTour.h"
+#include "stdDisplayBabylon.h"
 #include "stdRenderBabylon.h"
 
 namespace render = babylon::render;
+namespace babylontime = babylon::time;
 
 tVBuffer stdDisplay_g_frontBuffer;
 tVBuffer stdDisplay_g_backBuffer;
@@ -96,6 +101,12 @@ namespace
         bool bModeSet    = false;
         bool bFullscreen = false;
         bool bNoSync     = false;
+
+        // Added: M9.23 frame pacing. frameLimit is STDDISPLAY_CFG_FRAMELIMIT:
+        // 0 V-Sync, positive cap, -1 unlimited. bNoSync is the loading fast
+        // path; the limiter waits only when both say a wait is wanted.
+        int frameLimit = 0;
+        std::unique_ptr<babylontime::FrameLimiter> pFrameLimiter;
 
         render::Device* pDevice = nullptr; // the context's, from Startup to Shutdown
         bool bWindowed          = false;   // the context has a game window
@@ -799,6 +810,68 @@ namespace
         pContext->pRenderDevice->destroyTexture(target);
         return ok;
     }
+
+    // Added: M9.23. The rates the Display row offers; any other cfg value
+    // falls back to V-Sync.
+    int stdDisplay_ClampFrameLimit(int frameLimit)
+    {
+        switch ( frameLimit )
+        {
+            case 0:
+            case -1:
+            case 30:
+            case 60:
+            case 120:
+            case 144:
+            case 240:
+                return frameLimit;
+            default:
+                return 0;
+        }
+    }
+
+    const char* stdDisplay_PresentModeName(render::PresentMode mode)
+    {
+        switch ( mode )
+        {
+            case render::PresentMode::Vsync: return "vsync";
+            case render::PresentMode::Immediate: return "immediate";
+            case render::PresentMode::Mailbox: return "mailbox";
+        }
+        return "unknown";
+    }
+
+    // Added: M9.23. Applies frameLimit and the loading flag to the device and
+    // the limiter. A numeric cap turns V-Sync off (immediate present); V-Sync
+    // is the only mode used when the limit is 0 and loading is done.
+    void stdDisplay_ApplyFramePacing()
+    {
+        if ( !stdDisplay_state.pDevice )
+        {
+            return;
+        }
+
+        const bool bVsync = stdDisplay_state.frameLimit == 0 && !stdDisplay_state.bNoSync;
+        const render::PresentMode wanted = bVsync ? render::PresentMode::Vsync
+            : render::PresentMode::Immediate;
+        if ( stdDisplay_state.pDevice->presentMode() != wanted )
+        {
+            // A mode the device lacks falls back to V-Sync with its own log line.
+            static_cast<void>(stdDisplay_state.pDevice->setPresentMode(wanted));
+        }
+
+        if ( stdDisplay_state.pFrameLimiter )
+        {
+            const bool bWait = stdDisplay_state.frameLimit > 0 && !stdDisplay_state.bNoSync;
+            stdDisplay_state.pFrameLimiter->setRate(
+                bWait ? stdDisplay_state.frameLimit : 0);
+        }
+
+        STDLOG_STATUS("display: frame limit %d, presenting %s.\n",
+            stdDisplay_state.frameLimit,
+            stdDisplay_PresentModeName(stdDisplay_state.pDevice->presentMode()));
+    }
+
 }
 
 void stdDisplay_ResetGlobals(void)
@@ -830,6 +903,17 @@ int stdDisplay_Startup(void)
 
     stdDisplay_state.pDevice   = pContext->pRenderDevice;
     stdDisplay_state.bWindowed = pContext->pWindow != nullptr;
+
+    // Added: M9.23. The frame limit is a presentation setting, read here after
+    // Jones.cfg is open; the limiter runs on the real clock and stays off on
+    // the headless virtual one.
+    stdDisplay_state.frameLimit = stdDisplay_ClampFrameLimit(
+        stdConfig_HasStarted() ? stdConfig_GetInt(STDDISPLAY_CFG_FRAMELIMIT, 0) : 0);
+    if ( pContext->pClock )
+    {
+        stdDisplay_state.pFrameLimiter =
+            std::make_unique<babylontime::FrameLimiter>(*pContext->pClock);
+    }
 
     // stdDisplayDX9.c's EnumerateDevices: one adapter, the render device, a HAL device that renders
     // windowed, its memory worked out from the largest texture like the DX9 caps were.
@@ -902,6 +986,7 @@ int J3DAPI stdDisplay_Open(size_t deviceNum)
     stdDisplay_state.curDevice = deviceNum;
     stdDisplay_EnumerateVideoModes();
     stdDisplay_state.bOpen = true;
+    stdDisplay_ApplyFramePacing();
     return 1;
 }
 
@@ -934,6 +1019,18 @@ void stdDisplay_Close(void)
     stdDisplay_state.pfPreResetCallback  = nullptr;
     stdDisplay_state.pfPostResetCallback = nullptr;
     stdDisplay_state.pfReleaseCallback   = nullptr;
+
+    // Added: M9.23. Stop pacing and leave the device on V-Sync while the
+    // display is closed; the next Open applies the configured limit again.
+    if ( stdDisplay_state.pFrameLimiter )
+    {
+        stdDisplay_state.pFrameLimiter->setRate(0);
+    }
+    if ( stdDisplay_state.pDevice
+        && stdDisplay_state.pDevice->presentMode() != render::PresentMode::Vsync )
+    {
+        static_cast<void>(stdDisplay_state.pDevice->setPresentMode(render::PresentMode::Vsync));
+    }
 
     stdRenderBabylon_Close();
 
@@ -970,9 +1067,20 @@ int J3DAPI stdDisplay_CreateZBuffer(const tSysPixelFormat* pPixelFormat, int bSy
 
 void stdDisplay_DisableVSync(bool bDisable)
 {
-    // stdDisplayDX9.c reset the device with the other present interval; the render interface
-    // presents at the device's own pace, so the setting is only remembered.
+    // stdDisplayDX9.c reset the device with the other present interval. Here the
+    // request switches the swapchain to immediate presenting (or back to the
+    // configured mode) and bypasses the frame cap while level loading runs.
     stdDisplay_state.bNoSync = bDisable;
+    stdDisplay_ApplyFramePacing();
+}
+
+void stdDisplayBabylon_SetFrameLimit(int frameLimit)
+{
+    stdDisplay_state.frameLimit = stdDisplay_ClampFrameLimit(frameLimit);
+    if ( stdDisplay_state.bStartup )
+    {
+        stdDisplay_ApplyFramePacing();
+    }
 }
 
 int stdDisplay_Update(void)
@@ -1001,6 +1109,16 @@ int stdDisplay_Update(void)
         {
             STDLOG_WARNING("stdDisplay: could not write the screenshot '%s'.\n", pScreenshotPath);
         }
+    }
+
+    // Added: M9.23 frame limiter. It runs after the present and uses only the
+    // wall clock, never game time. Level loading (bNoSync), the virtual clock
+    // and a device without a swapchain never wait.
+    if ( stdDisplay_state.pFrameLimiter && stdDisplay_state.pDevice
+        && stdDisplay_state.pDevice->info().hasSwapchain && !stdDisplay_state.bNoSync
+        && !stdBabylon_VirtualClockActive() )
+    {
+        stdDisplay_state.pFrameLimiter->wait();
     }
 
     return 0;

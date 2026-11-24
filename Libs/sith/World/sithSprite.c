@@ -6,6 +6,7 @@
 #include <rdroid/Primitives/rdModel3.h>
 #include <rdroid/Primitives/rdSprite.h>
 
+#include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithThing.h>
 #include <sith/World/sithWorld.h>
 
@@ -92,6 +93,24 @@ void J3DAPI sithSprite_Update(SithThing* pThing, uint32_t secDeltaTime)
     }
 }
 
+int J3DAPI sithSprite_DestroyIfAirDestroyed(SithThing* pThing)
+{
+    // Added: M9.20. Shared by the draw and the fixed tick's mark pass so the destruction check
+    // lives in one place.
+    if ( !pThing->renderData.data.pSprite3 )
+    {
+        return 0;
+    }
+
+    if ( (pThing->flags & SITH_TF_AIRDESTROYED) != 0 && pThing->pInSector && (pThing->pInSector->flags & SITH_SECTOR_UNDERWATER) == 0 )
+    {
+        sithThing_DestroyThing(pThing);
+        return 1;
+    }
+
+    return 0;
+}
+
 int J3DAPI sithSprite_Draw(SithThing* pThing)
 {
     if ( !pThing->renderData.data.pSprite3 )
@@ -100,9 +119,10 @@ int J3DAPI sithSprite_Draw(SithThing* pThing)
         return 0;
     }
 
-    if ( (pThing->flags & SITH_TF_AIRDESTROYED) != 0 && pThing->pInSector && (pThing->pInSector->flags & SITH_SECTOR_UNDERWATER) == 0 )
+    // Altered: M9.20. On a fixed tick the mark pass owns the air-destroyed check, so a draw-only
+    // frame cannot destroy a thing.
+    if ( !sithTime_g_bFixedStep && sithSprite_DestroyIfAirDestroyed(pThing) )
     {
-        sithThing_DestroyThing(pThing);
         return 0;
     }
 

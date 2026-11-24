@@ -23,6 +23,7 @@ void stdPlatformNull_UseVirtualClock(tStdTime startMsec)
     // The virtual clock starts at zero, so latching at startMsec means advancing by startMsec.
     static_cast<void>(rContext.pVirtualClock->advance(std::chrono::milliseconds(static_cast<uint64_t>(startMsec))));
     stdPlatformTimeBabylon_bVirtualClock = true;
+    stdBabylon_SetVirtualClockActive(true);
 }
 
 void stdPlatformNull_AdvanceClock(uint32_t msec)
@@ -66,5 +67,6 @@ void J3DAPI stdPlatform_Sleep(uint32_t msec)
 void stdPlatformTimeBabylon_ResetForTest()
 {
     stdPlatformTimeBabylon_bVirtualClock = false;
+    stdBabylon_SetVirtualClockActive(false);
 }
 #endif
