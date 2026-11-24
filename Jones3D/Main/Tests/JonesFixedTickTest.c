@@ -1149,6 +1149,83 @@ TEST(JonesFixedTick, ForceMoveStartDrawsTheTickJointsNotTheInterpolatedPosition)
 #endif
 }
 
+TEST(JonesFixedTick, ForceMovePoseBlendsBetweenTicks)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // A force-move skeleton only changes when a tick rebuilds it. The drawn frame must blend the
+    // previous and current tick skeletons, so the limbs move every frame instead of stepping at the
+    // tick rate (owner trace, 2026-11-24: jitter while pulling up onto a block).
+    rdModel3      model;
+    rdModel3HNode nodes[2];
+    rdMatrix34    joints[2];
+    SithWorld     world;
+    SithThing     thing;
+    memset(&model, 0, sizeof(model));
+    memset(&nodes, 0, sizeof(nodes));
+    memset(&joints, 0, sizeof(joints));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+
+    model.numHNodes       = 2;
+    model.aHierarchyNodes = nodes;
+    nodes[0].meshIdx      = -1;
+    nodes[1].meshIdx      = -1;
+    nodes[1].num          = 1;
+
+    thing.type                           = SITH_THING_ACTOR;
+    thing.signature                      = 8;
+    thing.orient                         = JonesFixedTickTest_Identity();
+    thing.renderData.type                = RD_THING_MODEL3;
+    thing.renderData.data.pModel3        = &model;
+    thing.renderData.paJointMatrices     = joints;
+    thing.renderData.bSkipBuildingJoints = 1;
+
+    world.aThings   = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+
+    // Previous force-move tick: the root on the position, the hand 1 unit up.
+    joints[0] = JonesFixedTickTest_Identity();
+    joints[1] = JonesFixedTickTest_Identity();
+    joints[1].dvec.z = 1.0f;
+
+    JonesFixedTick_BeforeTick();
+
+    // Current tick: the thing moved 2 units along x and the hand rose to 3 units.
+    thing.pos.x = 2.0f;
+    joints[0].dvec.x = 2.0f;
+    joints[1].dvec.x = 2.0f;
+    joints[1].dvec.z = 3.0f;
+    const int tickFrameNum = (int)rdCache_GetFrameNum();
+    thing.renderData.rdFrameNum = tickFrameNum;
+
+    JonesFixedTick_AfterTick();
+
+    JonesFixedTick_SetDrawAlpha(0.5f);
+    JonesFixedTick_BeginDraw();
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[1].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[1].dvec.z); // halfway, not the current 3
+    TEST_ASSERT_EQUAL_INT(1, thing.renderData.bSkipBuildingJoints);
+    JonesFixedTick_EndDraw();
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[1].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 3.0f, joints[1].dvec.z);
+    TEST_ASSERT_EQUAL_INT(tickFrameNum, thing.renderData.rdFrameNum);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
@@ -1184,4 +1261,5 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlacement);
     RUN_TEST_CASE(JonesFixedTick, PoseCrossfadeFromAForceMovePoseKeepsItsRootOnThePosition);
     RUN_TEST_CASE(JonesFixedTick, ForceMoveStartDrawsTheTickJointsNotTheInterpolatedPosition);
+    RUN_TEST_CASE(JonesFixedTick, ForceMovePoseBlendsBetweenTicks);
 }
