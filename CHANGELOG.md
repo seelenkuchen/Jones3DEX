@@ -14,6 +14,9 @@
     target it still swings or climbs and switches back, and the keyboard whip-select key still quick-whips
     only at a target before selecting the whip. Normal weapon selection and changes keep their animations,
     and the prompt is unchanged (ADR-0038).
+  - **Fixed:** after loading a saved game, putting the whip or a gun away left Indy without the holstered
+    model (the whip vanished from his hip after a quick whip). The savegame lost the holster models because
+    their static-data index was read back sign-extended.
 #### Image quality
   - **Options > Display** has a **Render scale** row (`engine.renderer.renderScale`): the 3D scene renders at
     50, 67, 75, 100 (default), 125, 150 or 200% of the game's resolution, so values above 100% supersample

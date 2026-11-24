@@ -8,6 +8,7 @@ set(SITH_TEST_SOURCES
     ../Engine/Tests/sithModernCameraTest.c
     ../Engine/Tests/sithPhysicsTest.c
     ../Engine/Tests/sithRenderTest.c
+    ../World/Tests/sithModelTest.c
     ../World/Tests/sithTemplateTest.c
     ../World/Tests/sithThingTest.c
     ../World/Tests/sithVoiceTest.c

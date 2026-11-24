@@ -326,6 +326,12 @@ int J3DAPI sithModel_AllocWorldModels(SithWorld* pWorld, size_t size)
 
 rdModel3* J3DAPI sithModel_GetModelByIndex(size_t modelIdx)
 {
+    // Fixed: the original takes a 16-bit index. Savegame readers pop it as int16_t, so a static-world
+    // index (0x8000 bit set) arrives sign-extended; without the truncation it matched nothing and
+    // every loaded game lost its holster models (the whip vanished from Indy's hip on the next
+    // put-away) and the hit ledge model.
+    modelIdx = (uint16_t)modelIdx;
+
     SithWorld* pWorld = sithWorld_g_pCurrentWorld;
     if ( SITHWORLD_IS_STATICINDEX(modelIdx) )
     {
