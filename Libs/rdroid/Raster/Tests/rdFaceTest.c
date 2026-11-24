@@ -332,6 +332,11 @@ TEST(rdFace, BadArgumentsWriteNothing)
     rdFaceTest_apFaces[1] = NULL;
     TEST_ASSERT_FALSE(rdFace_CalcSmoothNormals(rdFaceTest_apFaces, NULL, 2u, 4u, 45.0f, rdFaceTest_aFirstCorner, rdFaceTest_aCorners));
 
+    // A face with vertices but no vertex array is rejected instead of read.
+    rdFaceTest_apFaces[1]          = &rdFaceTest_aFaces[1];
+    rdFaceTest_aFaces[0].aVertices = NULL;
+    TEST_ASSERT_FALSE(rdFace_CalcSmoothNormals(rdFaceTest_apFaces, NULL, 2u, 4u, 45.0f, rdFaceTest_aFirstCorner, rdFaceTest_aCorners));
+
     uint8_t aPattern[sizeof(rdFaceTest_aCorners)];
     memset(aPattern, 0xA5, sizeof(aPattern));
     TEST_ASSERT_EQUAL_MEMORY(aPattern, rdFaceTest_aCorners, sizeof(rdFaceTest_aCorners));

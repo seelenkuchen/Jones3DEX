@@ -28,8 +28,9 @@ void rdFace_ResetGlobals(void);
 // outside [0, numVertices) joins nothing: that corner gets the face normal. The normals are in the
 // faces' space; a zero face normal gives zero corners.
 // Returns false and writes nothing when an argument is NULL (apFaces, an entry of it, aFirstCorner
-// or aCornerNormals, unless numFaces is 0) or the temporary vertex-to-face table can't be allocated
-// (STDMALLOC, freed before returning). Nothing else is read or changed.
+// or aCornerNormals, unless numFaces is 0), when a face has vertices but no aVertices array, or when
+// the temporary vertex-to-face table can't be allocated (STDMALLOC, freed before returning). Nothing
+// else is read or changed.
 bool rdFace_CalcSmoothNormals(const rdFace* const* apFaces, const bool* abExcluded, size_t numFaces, size_t numVertices, float maxAngle, size_t* aFirstCorner, rdVector3* aCornerNormals);
 
 J3D_EXTERN_C_END
