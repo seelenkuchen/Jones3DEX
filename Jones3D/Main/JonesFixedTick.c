@@ -1223,8 +1223,27 @@ static void JonesFixedTick_EndDrawJoints(SithThing* pThings, size_t numThings)
             continue;
         }
 
-        memcpy(pRender->paJointMatrices, &jonesFixedTick_pSavedJointPool[pSaved->poolOffset],
-            pSaved->numJoints * sizeof(rdMatrix34));
+        // Added: a normal model's joints are built only by the draw, and the simulation reads the
+        // last built ones (attached things such as the whip in Indy's hand, the internal camera).
+        // The original draw built them at the tick placement, so when the scene draw rebuilt them
+        // from the interpolated placement, rebuild them at the tick placement (RestoreThing has
+        // put it back) instead of restoring the copy saved before the draw, which can be many
+        // frames old. Skipped-joint models are built by the simulation and get its exact copy.
+        const bool bDrawnThisFrame = pRender->rdFrameNum == (int)rdCache_GetFrameNum();
+        if ( bDrawnThisFrame && !pSaved->bSkipBuildingJoints )
+        {
+            SithThing* pThing = &pThings[i];
+            rdMatrix34 placement = pThing->orient;
+            placement.dvec       = pThing->pos;
+            pRender->bSkipBuildingJoints = 0;
+            rdPuppet_BuildJointMatrices(pRender, &placement);
+        }
+        else
+        {
+            memcpy(pRender->paJointMatrices, &jonesFixedTick_pSavedJointPool[pSaved->poolOffset],
+                pSaved->numJoints * sizeof(rdMatrix34));
+        }
+
         pRender->rdFrameNum          = pSaved->rdFrameNum;
         pRender->bSkipBuildingJoints = pSaved->bSkipBuildingJoints;
     }

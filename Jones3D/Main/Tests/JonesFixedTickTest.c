@@ -1226,6 +1226,78 @@ TEST(JonesFixedTick, ForceMovePoseBlendsBetweenTicks)
 #endif
 }
 
+TEST(JonesFixedTick, DrawLeavesNormalJointsAtTheTickPlacement)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // A normal model's joints are built only by the draw; the simulation reads the last built ones
+    // (the whip attached to Indy's hand). After a drawn frame they must be the tick placement's,
+    // not the copy saved before the draw, which can be many frames old (owner, 2026-11-24: the
+    // whip came loose from Indy's hand).
+    rdModel3      model;
+    rdModel3HNode node;
+    rdMatrix34    joints[1];
+    SithWorld     world;
+    SithThing     thing;
+    memset(&model, 0, sizeof(model));
+    memset(&node, 0, sizeof(node));
+    memset(&joints, 0, sizeof(joints));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+
+    model.numHNodes       = 1;
+    model.aHierarchyNodes = &node;
+    node.meshIdx          = -1;
+    node.meshOrient       = JonesFixedTickTest_Identity();
+
+    thing.type                           = SITH_THING_ACTOR;
+    thing.signature                      = 9;
+    thing.orient                         = JonesFixedTickTest_Identity();
+    thing.renderData.type                = RD_THING_MODEL3;
+    thing.renderData.data.pModel3        = &model;
+    thing.renderData.paJointMatrices     = joints;
+    thing.renderData.bSkipBuildingJoints = 0;
+
+    // Joints a draw built long ago, far away.
+    joints[0]        = JonesFixedTickTest_Identity();
+    joints[0].dvec.x = -5.0f;
+    thing.renderData.rdFrameNum = -1;
+
+    world.aThings   = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+
+    JonesFixedTick_BeforeTick();
+    thing.pos.x = 2.0f; // the tick moves the thing without building joints
+    JonesFixedTick_AfterTick();
+
+    JonesFixedTick_SetDrawAlpha(0.5f);
+    JonesFixedTick_BeginDraw();
+
+    // The scene draw rebuilds the joints from the interpolated placement.
+    rdMatrix34 placed = thing.orient;
+    placed.dvec = thing.pos;
+    rdPuppet_BuildJointMatrices(&thing.renderData, &placed);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.x);
+
+    JonesFixedTick_EndDraw();
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, thing.pos.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[0].dvec.x); // the tick placement, not the stale -5
+    TEST_ASSERT_EQUAL_INT(0, thing.renderData.bSkipBuildingJoints);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
@@ -1262,4 +1334,5 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, PoseCrossfadeFromAForceMovePoseKeepsItsRootOnThePosition);
     RUN_TEST_CASE(JonesFixedTick, ForceMoveStartDrawsTheTickJointsNotTheInterpolatedPosition);
     RUN_TEST_CASE(JonesFixedTick, ForceMovePoseBlendsBetweenTicks);
+    RUN_TEST_CASE(JonesFixedTick, DrawLeavesNormalJointsAtTheTickPlacement);
 }
