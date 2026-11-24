@@ -491,6 +491,7 @@ void JonesFixedTick_CaptureThing(JonesFixedTickThingState* pDst, const SithThing
 
     // Added: M9.22. Puppet pose, particle size and thing light for a drawn frame.
     JonesFixedTick_CapturePuppet(&pDst->puppet, pThing->renderData.pPuppet);
+    pDst->bSkipBuildingJoints = pThing->renderData.bSkipBuildingJoints != 0;
 
     pDst->bParticle = pThing->type == SITH_THING_PARTICLE && pThing->renderData.data.pParticle != NULL;
     pDst->particleRadius = pDst->bParticle ? pThing->renderData.data.pParticle->radius : 0.0f;
@@ -790,8 +791,13 @@ static void JonesFixedTick_BuildPuppetSnapshotPose(const JonesFixedTickPuppetSta
     rdPuppet snapshotPuppet = *pLive;
     JonesFixedTick_SetPuppetToSnapshot(&snapshotPuppet, pPose);
 
+    // Added: a force-move or path pose (skipped joints) was built by the simulation at the origin
+    // and shifted so its root joint sits on the thing position; the animation's root motion is
+    // already in the position. Building it at the position would add that offset a second time and
+    // draw the old pose displaced (Indy pops up when a ledge hang or climb ends), so rebuild it the
+    // same way.
     rdMatrix34 placement = pThingState->orient;
-    placement.dvec       = pThingState->pos;
+    placement.dvec       = pThingState->bSkipBuildingJoints ? rdroid_g_zeroVector3 : pThingState->pos;
 
     const int bSkipBuildingJoints = pRender->bSkipBuildingJoints;
     pRender->pPuppet              = &snapshotPuppet;
@@ -799,6 +805,16 @@ static void JonesFixedTick_BuildPuppetSnapshotPose(const JonesFixedTickPuppetSta
     rdPuppet_BuildJointMatrices(pRender, &placement);
     pRender->bSkipBuildingJoints = bSkipBuildingJoints;
     pRender->pPuppet             = pLive;
+
+    if ( pThingState->bSkipBuildingJoints && pRender->data.pModel3 )
+    {
+        rdVector3 rootShift;
+        rdVector_Sub3(&rootShift, &pThingState->pos, &pRender->paJointMatrices[0].dvec);
+        for ( size_t jointNum = 0; jointNum < pRender->data.pModel3->numHNodes; ++jointNum )
+        {
+            rdVector_Add3Acc(&pRender->paJointMatrices[jointNum].dvec, &rootShift);
+        }
+    }
 }
 
 // Added: M9.24b. Draw the complete previous and current tick skeletons and blend their world

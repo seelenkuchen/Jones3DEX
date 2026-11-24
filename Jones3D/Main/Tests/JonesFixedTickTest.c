@@ -967,6 +967,109 @@ TEST(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlace
 #endif
 }
 
+TEST(JonesFixedTick, PoseCrossfadeFromAForceMovePoseKeepsItsRootOnThePosition)
+{
+#ifdef J3D_QOL_IMPROVEMENTS
+    // A force-move tick (a ledge hang or climb) builds the joints at the origin and shifts the root
+    // onto the thing position, consuming the animation's root offset. When the next tick ends the
+    // force move and changes the tracks, the drawn frame crossfades the two tick skeletons. The old
+    // skeleton must be rebuilt the same way; building it at the position adds the root offset
+    // again and Indy pops up for a frame (owner video, 2026-11-24).
+    rdKeyframeNode kfNode;
+    rdKeyframe     keyframe;
+    memset(&kfNode, 0, sizeof(kfNode));
+    memset(&keyframe, 0, sizeof(keyframe));
+    keyframe.numFrames = 100;
+    keyframe.numJoints = 1;
+    keyframe.aNodes    = &kfNode;
+    keyframe.fps       = 30.0f;
+
+    rdModel3      model;
+    rdModel3HNode node;
+    rdMatrix34    joints[1];
+    rdVector3     tweaks[1];
+    SithWorld     world;
+    SithThing     thing;
+    rdPuppet      puppet;
+    memset(&model, 0, sizeof(model));
+    memset(&node, 0, sizeof(node));
+    memset(&joints, 0, sizeof(joints));
+    memset(&tweaks, 0, sizeof(tweaks));
+    memset(&world, 0, sizeof(world));
+    memset(&thing, 0, sizeof(thing));
+    memset(&puppet, 0, sizeof(puppet));
+
+    // The root node sits 5 units up, like a hang pose's root above the start position.
+    node.pos.y                = 5.0f;
+    node.meshOrient           = JonesFixedTickTest_Identity();
+    node.meshOrient.dvec.y    = 5.0f;
+    node.num                  = 0;
+    node.meshIdx              = -1;
+    model.numHNodes           = 1;
+    model.aHierarchyNodes     = &node;
+    joints[0]                 = JonesFixedTickTest_Identity();
+
+    thing.type                            = SITH_THING_ACTOR;
+    thing.signature                       = 6;
+    thing.orient                          = JonesFixedTickTest_Identity();
+    thing.renderData.type                 = RD_THING_MODEL3;
+    thing.renderData.data.pModel3         = &model;
+    thing.renderData.paJointMatrices      = joints;
+    thing.renderData.apTweakedAngles      = tweaks;
+    thing.renderData.pPuppet              = &puppet;
+    puppet.pThing                         = &thing.renderData;
+
+    world.aThings   = &thing;
+    world.numThings = 1;
+
+    SithWorld*  pSavedWorld  = sithWorld_g_pCurrentWorld;
+    SithCamera* pSavedCamera = sithCamera_g_pCurCamera;
+    sithWorld_g_pCurrentWorld = &world;
+    sithCamera_g_pCurCamera   = NULL;
+
+    JonesFixedTick_SetRateOverride(50);
+    JonesFixedTick_Configure();
+    TEST_ASSERT_TRUE(JonesFixedTick_IsEnabled());
+
+    // Force-move tick: a playing track, root shifted onto the position at the origin.
+    puppet.aTracks[0].status        = RDPUPPET_TRACK_PLAYING;
+    puppet.aTracks[0].pKFTrack      = &keyframe;
+    puppet.aTracks[0].curFrame      = 1.0f;
+    puppet.aTracks[0].blendWeight   = 1.0f;
+    puppet.aTracks[0].playbackSpeed = 1.0f;
+    JonesFixedTickTest_BuildSkippedJoints(&thing, joints, STD_ARRAYLEN(joints), 0.0f);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, joints[0].dvec.y);
+
+    JonesFixedTick_BeforeTick();
+
+    // Next tick: the force move ends, its track is gone and the joints are built normally.
+    memset(&puppet.aTracks[0], 0, sizeof(puppet.aTracks[0]));
+    thing.pos.x = 2.0f;
+    rdMatrix34 placement = thing.orient;
+    placement.dvec       = thing.pos;
+    thing.renderData.bSkipBuildingJoints = 0;
+    rdPuppet_BuildJointMatrices(&thing.renderData, &placement);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 5.0f, joints[0].dvec.y);
+
+    JonesFixedTick_AfterTick();
+
+    // Halfway: the root lies between the old root (0, 0) and the new one (2, 5), not at y = 5.
+    JonesFixedTick_SetDrawAlpha(0.5f);
+    JonesFixedTick_BeginDraw();
+    TEST_ASSERT_EQUAL_INT((int)rdCache_GetFrameNum(), thing.renderData.rdFrameNum);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.5f, joints[0].dvec.y);
+    JonesFixedTick_EndDraw();
+
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 2.0f, joints[0].dvec.x);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 5.0f, joints[0].dvec.y);
+    TEST_ASSERT_EQUAL_INT(0, thing.renderData.bSkipBuildingJoints);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+    sithCamera_g_pCurCamera   = pSavedCamera;
+#endif
+}
+
 TEST_GROUP_RUNNER(JonesFixedTick)
 {
     RUN_TEST_CASE(JonesFixedTick, RateMapsToOffOrFifty);
@@ -1000,4 +1103,5 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, ParticleCreatedBetweenTicksIsNotBlended);
     RUN_TEST_CASE(JonesFixedTick, DrawRebuildsJointsBuiltAtTheTickPlacement);
     RUN_TEST_CASE(JonesFixedTick, SkippedJointThingKeepsItsPoseAndFollowsTheInterpolatedPlacement);
+    RUN_TEST_CASE(JonesFixedTick, PoseCrossfadeFromAForceMovePoseKeepsItsRootOnThePosition);
 }
