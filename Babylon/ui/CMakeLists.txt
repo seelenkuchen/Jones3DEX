@@ -4,7 +4,9 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 babylon_add_module(ui
-    SOURCES src/Ui.cpp src/NullPainter.cpp
+    SOURCES src/Ui.cpp src/UiState.h src/UiLayout.cpp src/UiDraw.cpp
+        src/UiFocus.cpp src/UiText.cpp src/UiInput.cpp src/UiScreens.cpp
+        src/NullPainter.cpp
     DEPS log
     PUBLIC_DEPS cvars platform)
 babylon_add_module_tests(ui
