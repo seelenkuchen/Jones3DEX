@@ -244,44 +244,88 @@ TEST(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao)
         }
     }
 
-    // The contact-shadow pass binds the scene, depth and normals in slots 0, 1 and 2.
-    size_t contactIndex = aPasses.size();
-    for ( size_t i = 0; i < aPasses.size(); ++i )
+    TEST_ASSERT_TRUE(waterIndex < aPasses.size());
+
+    // The contact-shadow mask pass reads depth and normals and writes a scratch mask.
+    size_t maskIndex = aPasses.size();
+    for ( size_t i = waterIndex + 1u; i < aPasses.size(); ++i )
     {
         const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
-        if ( aTextures.size() == 3u && aTextures[1].texture == depthTarget
-            && aTextures[2].texture == normalTarget && aTextures[0].texture != depthTarget )
+        if ( aTextures.size() == 2u && aTextures[0].texture == depthTarget
+            && aTextures[1].texture == normalTarget )
+        {
+            maskIndex = i;
+            break;
+        }
+    }
+
+    TEST_ASSERT_TRUE(maskIndex < aPasses.size());
+    const render::TextureHandle maskOutput = PassTarget(aPasses[maskIndex]);
+    TEST_ASSERT_FALSE(maskOutput.isNull());
+
+    // The blur pass reads that mask and depth and writes a second scratch mask.
+    size_t blurIndex = aPasses.size();
+    for ( size_t i = maskIndex + 1u; i < aPasses.size(); ++i )
+    {
+        const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
+        if ( aTextures.size() == 2u && aTextures[0].texture == maskOutput
+            && aTextures[1].texture == depthTarget )
+        {
+            blurIndex = i;
+            break;
+        }
+    }
+
+    TEST_ASSERT_TRUE(blurIndex < aPasses.size());
+    const render::TextureHandle blurOutput = PassTarget(aPasses[blurIndex]);
+    TEST_ASSERT_FALSE(blurOutput.isNull());
+
+    // The composite pass reads depth, normals, the water output and the blurred mask, and writes
+    // the stage's target.
+    const render::TextureHandle waterOutput = PassTarget(aPasses[waterIndex]);
+    size_t contactIndex = aPasses.size();
+    for ( size_t i = blurIndex + 1u; i < aPasses.size(); ++i )
+    {
+        const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
+        if ( aTextures.size() == 4u && aTextures[0].texture == depthTarget
+            && aTextures[1].texture == normalTarget && aTextures[2].texture == waterOutput
+            && aTextures[3].texture == blurOutput )
         {
             contactIndex = i;
             break;
         }
     }
 
-    TEST_ASSERT_TRUE(waterIndex < aPasses.size());
     TEST_ASSERT_TRUE(contactIndex < aPasses.size());
-
-    // Contact shadows read the water output and write the image the ambient-occlusion composite
-    // then samples in slot 0, with the normals in slot 2.
     const render::TextureHandle contactOutput = PassTarget(aPasses[contactIndex]);
-    size_t compositeIndex = aPasses.size();
+
+    // The ambient-occlusion composite then samples the contact-shadow output in slot 0, with the
+    // normals in slot 2.
+    size_t ssaoCompositeIndex = aPasses.size();
     for ( size_t i = contactIndex + 1u; i < aPasses.size(); ++i )
     {
         const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
         if ( aTextures.size() == 3u && aTextures[0].texture == contactOutput
             && aTextures[2].texture == normalTarget )
         {
-            compositeIndex = i;
+            ssaoCompositeIndex = i;
             break;
         }
     }
 
-    TEST_ASSERT_TRUE(compositeIndex < aPasses.size());
-    TEST_ASSERT_TRUE(waterIndex < contactIndex);
-    TEST_ASSERT_TRUE(contactIndex < compositeIndex);
-    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[0].texture == PassTarget(aPasses[waterIndex]));
-    TEST_ASSERT_FALSE(contactOutput == PassTarget(aPasses[waterIndex]));
-    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[1].texture == depthTarget);
-    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[2].texture == normalTarget);
+    TEST_ASSERT_TRUE(ssaoCompositeIndex < aPasses.size());
+    TEST_ASSERT_TRUE(waterIndex < maskIndex);
+    TEST_ASSERT_TRUE(maskIndex < blurIndex);
+    TEST_ASSERT_TRUE(blurIndex < contactIndex);
+    TEST_ASSERT_TRUE(contactIndex < ssaoCompositeIndex);
+    TEST_ASSERT_TRUE(aPasses[maskIndex].aTextures[0].texture == depthTarget);
+    TEST_ASSERT_TRUE(aPasses[maskIndex].aTextures[1].texture == normalTarget);
+    TEST_ASSERT_TRUE(aPasses[blurIndex].aTextures[0].texture == maskOutput);
+    TEST_ASSERT_TRUE(aPasses[blurIndex].aTextures[1].texture == depthTarget);
+    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[2].texture == waterOutput);
+    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[3].texture == blurOutput);
+    TEST_ASSERT_FALSE(contactOutput == waterOutput);
+    TEST_ASSERT_FALSE(maskOutput == blurOutput);
 }
 
 TEST(std3DBabylonGpu, ContactShadowsDarkenTheFloorBesideABox)
