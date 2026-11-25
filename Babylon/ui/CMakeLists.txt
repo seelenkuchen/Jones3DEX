@@ -11,4 +11,5 @@ babylon_add_module(ui
     PUBLIC_DEPS cvars platform)
 babylon_add_module_tests(ui
     DEPS log cvars platform
-    SOURCES tests/UiTest.cpp)
+    SOURCES tests/UiFocusTest.cpp tests/UiBindingTest.cpp tests/UiTextTest.cpp
+        tests/UiInputTest.cpp tests/UiLayoutTest.cpp tests/UiDrawTest.cpp)
