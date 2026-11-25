@@ -1,3 +1,5 @@
+// Shared state, types and helpers of the Babylon display adapter.
+// Part of the Babylon column's display adapter; see stdDisplayBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
 #pragma once
 
 #include <std/General/stdColor.h>

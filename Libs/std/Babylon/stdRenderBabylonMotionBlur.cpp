@@ -1,25 +1,5 @@
-// Added: the Babylon column's render frame owner (stdRenderBabylon.h). Adapter code: no Fixed/Added
-// markers inside.
-//
-// The back buffer reaches the window through a pass to the swapchain that draws one full-screen
-// triangle sampling the color target (Shaders/present.*.hlsl). Babylon's copyTexture can't name the
-// swapchain (its null handle means the swapchain only as a pass attachment), so a pass is the only
-// way the render interface offers to put an offscreen target on the screen.
-//
-// A presenting submit runs the post-processing chain first: each pass draws the same full-screen
-// triangle with its own fragment shader into one of two targets the chain owns, in the scene color
-// format, so an Rgba16F scene keeps HDR values through the passes, reading the output of the pass
-// before (the back buffer color for the first) and, as its shader declares, the normal and depth
-// targets. The final tone-map pass then samples the last output instead of the back buffer and
-// writes the frame (the swapchain, or the target of RenderPresentToTexture). Its shader and
-// present.vert are the plain present pass plus exposure and the operator (0 clamp, 1 PBR Neutral,
-// 2 ACES fitted); at exposure 1 and operator 0 it clamps to 0..1 and presents the same image as the
-// pre-M9.3 present. The back buffer itself is never written by the chain or the final pass.
-//
-// The scene color target is Rgba16F on a device that can render and sample it, else Bgra8, so
-// shaders may write values outside 0..1 for a later tone map. ReadBackBuffer and WriteBackBuffer
-// translate between that target and the Bgra8 bytes the game and stdDisplay use.
 // The camera motion-blur stage of the Babylon render adapter.
+// Part of the Babylon column's render frame owner; see stdRenderBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>

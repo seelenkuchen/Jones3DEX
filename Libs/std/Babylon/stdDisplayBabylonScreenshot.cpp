@@ -1,31 +1,5 @@
-// Added: the Babylon column's stdDisplay backend on the Babylon render device of the adapter context
-// (ADR-0025), replacing std/Null/stdDisplayNull.c in that column. It defines the stdDisplayBackend_*
-// functions through stdRenderBackend.h, so the capture forwarders of stdDisplayCapture.c stay in
-// front (ADR-0024). The behavior reference is the removed DirectX 9 backend
-// (std/Win95/DX9/stdDisplayDX9.c before 82b8f607): the device and video mode lists, SetMode and
-// ClearMode, the back buffer and its locks, the VBuffers, the fills, the present and the memory
-// answers follow it, with the render device and stdRenderBabylon.cpp's back buffer where it held a
-// Direct3D 9 device and its swap chain. Adapter code: no Fixed/Added markers inside; divergences
-// from stdDisplayDX9.c say so where they are.
-//
-// The back buffer lives on the GPU (stdRenderBabylon's color target), where std3D draws. Its CPU
-// side is a copy in the video mode's pixel format that LockBackBuffer hands out, as DX9 handed out
-// its lockable back buffer:
-// - a lock reads the GPU back buffer into the copy only when the GPU changed it since the copy was
-//   last read or written (stdRenderBabylon_GetBackBufferVersion), so the intro movie, which locks,
-//   writes every pixel, unlocks and presents, never reads back after its first frame, and a lock
-//   for the save game thumbnail or a screenshot sees the 3D frame;
-// - the last unlock of a write lock uploads the copy, after the frame recorded so far
-//   (stdRenderBabylon_WriteBackBuffer), so later draws come on top of the CPU pixels;
-// - a read-only lock uploads nothing.
-// Fills of the whole back buffer are clear passes; fills of a part go through the copy.
-//
-// stdDisplay_Update ends the frame: stdRenderBabylon_PresentFrame submits what std3D and the
-// display recorded and, on a device with a swapchain, presents the back buffer.
-//
-// The display opens stdRenderBabylon at stdDisplay_Open and closes it at stdDisplay_Close; std3D
-// draws through it while both are open.
 // The BMP writers and stdDisplay_SaveScreen.
+// Part of the Babylon column's display adapter; see stdDisplayBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
 #include <std/General/stdRenderBackend.h>
 #include <std/General/std3D.h>
 #include <std/General/stdDisplay.h>
