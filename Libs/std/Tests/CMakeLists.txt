@@ -272,6 +272,16 @@ if (J3D_PLATFORM_BABYLON)
         stdGeneralTest.c
         stdRenderReplayTest.c
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonTestSupport.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonTestSupport.h"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonDrawTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonPostTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/stdRenderBabylonOptionTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuToneMapTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuEffectsTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuSsaoMotionTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuShaftsCameraFxTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/stdDisplayBabylonTest.cpp"
         ${STD3D_BABYLON_TESTED_SOURCES}
     )
