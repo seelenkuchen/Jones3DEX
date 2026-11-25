@@ -60,6 +60,13 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonWaterRipples.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderReplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonCamera.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonDraw.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonFormats.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonLighting.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonSamplers.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonScene.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonTextures.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylon.cpp"
     )
 

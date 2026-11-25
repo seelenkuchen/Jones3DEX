@@ -252,6 +252,13 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonWaterRipples.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderReplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylon.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonCamera.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonDraw.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonFormats.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonLighting.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonSamplers.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonScene.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/std3DBabylonTextures.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     )
