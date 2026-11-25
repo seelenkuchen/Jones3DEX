@@ -24,9 +24,9 @@ namespace babylon::postfx
 
     struct ContactShadowSettings
     {
-        float strength = 0.6f;       // 0 (off) to 1: how dark a fully blocked pixel gets (1 - strength)
-        float length = 0.12f;        // ray length in view-space units
-        float thickness = 0.03f;     // a depth sample this far in front of the ray still blocks; farther is a gap
+        float strength = 0.7f;       // 0 (off) to 1: how dark a fully blocked pixel gets (1 - strength)
+        float length = 0.2f;         // ray length in view-space units
+        float thickness = 0.04f;     // a depth sample this far in front of the ray still blocks; farther is a gap
         std::uint32_t steps = 16;    // 4..32 ray-march steps
         std::uint32_t receiverClasses = 0x8; // bit i set: pixels whose normals alpha is class i receive shadow
         float fadeStart = 30.0f;     // view distance where shadows start to fade out
@@ -37,7 +37,11 @@ namespace babylon::postfx
     // the depth buffer. The normals target's alpha carries one of four classes 0, 1/3, 2/3, 1
     // (class = round(alpha * 3)); a pixel receives when its bit is in receiverClasses. With
     // receiverClasses 0xF every pixel receives and the normals target is not needed. The light
-    // direction is the direction toward the light, in view space. One Hdr pass.
+    // direction is the direction toward the light, in view space. Three Hdr passes: a ray-march
+    // mask into a scratch target, a depth-aware 4x4 blur of that mask (receiver taps only) into a
+    // second scratch target, then the darkened composite into the output. The composite repeats the
+    // receiver test, so non-receiver pixels keep their exact input colour. The ordered jitter and
+    // the blur make the result smooth; a blocker at the far end of the ray still gives half shadow.
     class ContactShadowEffect final : public Effect
     {
     public:
@@ -61,9 +65,11 @@ namespace babylon::postfx
 
         ContactShadowSettings m_settings;
         float m_lightDirection[3] = { 0.0f, 1.0f, 0.0f };
-        // one pipeline per output format, made with the Resources' device on first use
+        // one pipeline per pass and output format, made with the Resources' device on first use
         render::Device* m_device = nullptr;
-        std::vector<std::pair<render::TextureFormat, render::PipelineHandle>> m_pipelines;
+        std::vector<std::pair<render::TextureFormat, render::PipelineHandle>> m_maskPipelines;
+        std::vector<std::pair<render::TextureFormat, render::PipelineHandle>> m_blurPipelines;
+        std::vector<std::pair<render::TextureFormat, render::PipelineHandle>> m_compositePipelines;
     };
 
 }

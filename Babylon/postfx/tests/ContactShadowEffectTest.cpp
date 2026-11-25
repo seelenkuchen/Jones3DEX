@@ -37,13 +37,12 @@ namespace
         return std::vector<std::byte>(bytes.begin(), bytes.end());
     }
 
-    // The cbuffer of shaders/contact_shadow.frag.hlsl, byte for byte.
-    struct alignas(16) ExpectedContactShadowUniforms
+    // The cbuffer of shaders/contact_shadow_mask.frag.hlsl, byte for byte.
+    struct alignas(16) ExpectedContactShadowMaskUniforms
     {
         float lightDirection[3];
         float length;
         float thickness;
-        float strength;
         std::uint32_t steps;
         std::uint32_t receiverClasses;
         float fadeStart;
@@ -56,9 +55,32 @@ namespace
         float tanHalfFovY;
         float inputWidth;
         float inputHeight;
+        float padding[3];
+    };
+    static_assert(sizeof(ExpectedContactShadowMaskUniforms) == 80);
+
+    // The cbuffer of shaders/contact_shadow_blur.frag.hlsl, byte for byte.
+    struct alignas(16) ExpectedContactShadowBlurUniforms
+    {
+        float nearPlane;
+        float farPlane;
+        float depthNear;
+        float depthFar;
+        float inputWidth;
+        float inputHeight;
         float padding[2];
     };
-    static_assert(sizeof(ExpectedContactShadowUniforms) == 80);
+    static_assert(sizeof(ExpectedContactShadowBlurUniforms) == 32);
+
+    // The cbuffer of shaders/contact_shadow_composite.frag.hlsl, byte for byte.
+    struct alignas(16) ExpectedContactShadowCompositeUniforms
+    {
+        float strength;
+        std::uint32_t receiverClasses;
+        float depthNear;
+        float depthFar;
+    };
+    static_assert(sizeof(ExpectedContactShadowCompositeUniforms) == 16);
 
     struct PassRecord
     {
@@ -189,9 +211,9 @@ TEST_CASE("Contact shadow settings clamp and control active and needs")
     CHECK(effect.name() == "contact shadows");
     CHECK(effect.stage() == Stage::Hdr);
     CHECK(effect.active());
-    CHECK(effect.settings().strength == doctest::Approx(0.6f));
-    CHECK(effect.settings().length == doctest::Approx(0.12f));
-    CHECK(effect.settings().thickness == doctest::Approx(0.03f));
+    CHECK(effect.settings().strength == doctest::Approx(0.7f));
+    CHECK(effect.settings().length == doctest::Approx(0.2f));
+    CHECK(effect.settings().thickness == doctest::Approx(0.04f));
     CHECK(effect.settings().steps == 16);
     CHECK(effect.settings().receiverClasses == 0x8u);
     CHECK(effect.settings().fadeStart == doctest::Approx(30.0f));
@@ -282,11 +304,11 @@ TEST_CASE("The chain skips contact shadows until the frame has depth and normals
     frame.normals = makeNormals(device, 16, 16);
     REQUIRE_FALSE(frame.normals.isNull());
     recordChain(chain, device, frame, output);
-    CHECK(passRecords(device.recorded()).size() == 2);
+    CHECK(passRecords(device.recorded()).size() == 4);
     checkNames(chain, { "contact shadows", "copy" });
 }
 
-TEST_CASE("The contact shadow effect binds colour, depth and normals and pushes its uniforms")
+TEST_CASE("The contact shadow effect records mask, blur and composite passes")
 {
     NullDevice device;
     Chain chain(device);
@@ -314,41 +336,87 @@ TEST_CASE("The contact shadow effect binds colour, depth and normals and pushes 
 
     recordChain(chain, device, frame, output);
 
+    // Mask into scratch A, blur A into scratch B, composite B into the effect's
+    // output, then the built-in copy into the caller's output.
     const std::vector<PassRecord> passes = passRecords(device.recorded());
-    REQUIRE(passes.size() == 2);
-    CHECK(passes[0].target != target);
-    CHECK(passes[1].target == target);
+    REQUIRE(passes.size() == 4);
+    const TextureHandle maskTarget = passes[0].target;
+    const TextureHandle blurTarget = passes[1].target;
+    CHECK_FALSE(maskTarget.isNull());
+    CHECK_FALSE(blurTarget.isNull());
+    CHECK(maskTarget != blurTarget);
+    CHECK(maskTarget != passes[2].target);
+    CHECK(blurTarget != passes[2].target);
+    CHECK(passes[2].target != target);
+    CHECK(passes[3].target == target);
 
-    REQUIRE(passes[0].textures.size() == 3);
-    for ( std::size_t slot = 0; slot < passes[0].textures.size(); ++slot )
+    // Every pass binds its textures to fragment slots 0..n-1 with the nearest
+    // clamped sampler.
+    for ( std::size_t passIndex = 0; passIndex < 3; ++passIndex )
     {
-        const BindTexture& bind = passes[0].textures[slot];
-        CHECK(bind.stage == ShaderStage::Fragment);
-        CHECK(bind.slot == slot);
-        const std::optional<SamplerDesc> sampler = device.samplerDesc(bind.sampler);
-        REQUIRE(sampler.has_value());
-        CHECK(sampler->minFilter == Filter::Nearest);
-        CHECK(sampler->magFilter == Filter::Nearest);
-        CHECK(sampler->addressU == AddressMode::ClampToEdge);
-        CHECK(sampler->addressV == AddressMode::ClampToEdge);
+        const PassRecord& pass = passes[passIndex];
+        for ( std::size_t slot = 0; slot < pass.textures.size(); ++slot )
+        {
+            const BindTexture& bind = pass.textures[slot];
+            CHECK(bind.stage == ShaderStage::Fragment);
+            CHECK(bind.slot == slot);
+            const std::optional<SamplerDesc> sampler = device.samplerDesc(bind.sampler);
+            REQUIRE(sampler.has_value());
+            CHECK(sampler->minFilter == Filter::Nearest);
+            CHECK(sampler->magFilter == Filter::Nearest);
+            CHECK(sampler->addressU == AddressMode::ClampToEdge);
+            CHECK(sampler->addressV == AddressMode::ClampToEdge);
+        }
     }
-    CHECK(passes[0].textures[0].texture == color);
-    CHECK(passes[0].textures[1].texture == depth);
-    CHECK(passes[0].textures[2].texture == normals);
 
+    // Mask: depth and normals in, the shadow amount out.
+    REQUIRE(passes[0].textures.size() == 2);
+    CHECK(passes[0].textures[0].texture == depth);
+    CHECK(passes[0].textures[1].texture == normals);
     REQUIRE(passes[0].uniforms.size() == 1);
-    const PushUniforms& push = passes[0].uniforms.front();
-    CHECK(push.stage == ShaderStage::Fragment);
-    CHECK(push.slot == 0);
-    const ExpectedContactShadowUniforms expected{
+    const PushUniforms& maskPush = passes[0].uniforms.front();
+    CHECK(maskPush.stage == ShaderStage::Fragment);
+    CHECK(maskPush.slot == 0);
+    const ExpectedContactShadowMaskUniforms expectedMask{
         { 0.6f, 0.8f, 0.0f },
-        0.2f, 0.04f, 0.75f, 12u, 0x8u, 12.0f, 24.0f,
-        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 16.0f, 16.0f, { 0.0f, 0.0f } };
-    CHECK(push.data == bytesOf(expected));
+        0.2f, 0.04f, 12u, 0x8u, 12.0f, 24.0f,
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 16.0f, 16.0f,
+        { 0.0f, 0.0f, 0.0f } };
+    CHECK(maskPush.data == bytesOf(expectedMask));
 
-    REQUIRE(passes[0].draws.size() == 1);
-    CHECK(passes[0].draws.front().vertexCount == 3);
-    CHECK(passes[0].draws.front().firstVertex == 0);
+    // Blur: the mask and the depth that weights its taps in.
+    REQUIRE(passes[1].textures.size() == 2);
+    CHECK(passes[1].textures[0].texture == maskTarget);
+    CHECK(passes[1].textures[1].texture == depth);
+    REQUIRE(passes[1].uniforms.size() == 1);
+    const PushUniforms& blurPush = passes[1].uniforms.front();
+    CHECK(blurPush.stage == ShaderStage::Fragment);
+    CHECK(blurPush.slot == 0);
+    const ExpectedContactShadowBlurUniforms expectedBlur{
+        0.2f, 500.0f, 0.05f, 0.95f, 16.0f, 16.0f, { 0.0f, 0.0f } };
+    CHECK(blurPush.data == bytesOf(expectedBlur));
+
+    // Composite: depth and normals in the mask pass's slots, then the input colour
+    // and the blurred mask.
+    REQUIRE(passes[2].textures.size() == 4);
+    CHECK(passes[2].textures[0].texture == depth);
+    CHECK(passes[2].textures[1].texture == normals);
+    CHECK(passes[2].textures[2].texture == color);
+    CHECK(passes[2].textures[3].texture == blurTarget);
+    REQUIRE(passes[2].uniforms.size() == 1);
+    const PushUniforms& compositePush = passes[2].uniforms.front();
+    CHECK(compositePush.stage == ShaderStage::Fragment);
+    CHECK(compositePush.slot == 0);
+    const ExpectedContactShadowCompositeUniforms expectedComposite{
+        0.75f, 0x8u, 0.05f, 0.95f };
+    CHECK(compositePush.data == bytesOf(expectedComposite));
+
+    for ( std::size_t index = 0; index < 3; ++index )
+    {
+        REQUIRE(passes[index].draws.size() == 1);
+        CHECK(passes[index].draws.front().vertexCount == 3);
+        CHECK(passes[index].draws.front().firstVertex == 0);
+    }
 
     checkNames(chain, { "contact shadows", "copy" });
 
@@ -357,7 +425,7 @@ TEST_CASE("The contact shadow effect binds colour, depth and normals and pushes 
     chain.close();
 }
 
-TEST_CASE("With every receiver class the contact shadow pass binds depth at slot 2")
+TEST_CASE("With every receiver class the mask pass binds depth in both texture slots")
 {
     NullDevice device;
     Chain chain(device);
@@ -378,10 +446,13 @@ TEST_CASE("With every receiver class the contact shadow pass binds depth at slot
     recordChain(chain, device, frame, output);
 
     const std::vector<PassRecord> passes = passRecords(device.recorded());
-    REQUIRE(passes.size() == 2);
-    REQUIRE(passes[0].textures.size() == 3);
-    CHECK(passes[0].textures[0].texture == color);
+    REQUIRE(passes.size() == 4);
+    REQUIRE(passes[0].textures.size() == 2);
+    CHECK(passes[0].textures[0].texture == depth);
     CHECK(passes[0].textures[1].texture == depth);
-    CHECK(passes[0].textures[2].texture == depth);
+    REQUIRE(passes[2].textures.size() == 4);
+    CHECK(passes[2].textures[0].texture == depth);
+    CHECK(passes[2].textures[1].texture == depth);
+    CHECK(passes[2].textures[2].texture == color);
     checkNames(chain, { "contact shadows", "copy" });
 }
