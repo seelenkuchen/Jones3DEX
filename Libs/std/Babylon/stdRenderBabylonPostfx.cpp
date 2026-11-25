@@ -1,5 +1,6 @@
 // The Babylon postfx objects behind the adapter's M9.18 vignette and film grain.
 // Part of the Babylon column's render frame owner; see stdRenderBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
+#include <babylon/postfx/ContactShadowEffect.h>
 #include <babylon/postfx/Effect.h>
 #include <babylon/postfx/FilmGrainEffect.h>
 #include <babylon/postfx/FrameInputs.h>
@@ -58,6 +59,8 @@ namespace stdRenderBabylonInternal
             std::make_unique<postfx::TargetPool>(*stdRenderBabylon_state.pDevice);
         stdRenderBabylon_state.pPostfxVignette = std::make_unique<postfx::VignetteEffect>();
         stdRenderBabylon_state.pPostfxGrain    = std::make_unique<postfx::FilmGrainEffect>();
+        stdRenderBabylon_state.pPostfxContactShadows =
+            std::make_unique<postfx::ContactShadowEffect>();
         return true;
     }
 
@@ -73,6 +76,10 @@ namespace stdRenderBabylonInternal
         {
             stdRenderBabylon_state.pPostfxGrain->releaseResources();
         }
+        if ( stdRenderBabylon_state.pPostfxContactShadows )
+        {
+            stdRenderBabylon_state.pPostfxContactShadows->releaseResources();
+        }
         if ( stdRenderBabylon_state.pPostfxTargets )
         {
             stdRenderBabylon_state.pPostfxTargets->releaseAll();
@@ -84,6 +91,7 @@ namespace stdRenderBabylonInternal
 
         stdRenderBabylon_state.pPostfxVignette.reset();
         stdRenderBabylon_state.pPostfxGrain.reset();
+        stdRenderBabylon_state.pPostfxContactShadows.reset();
         stdRenderBabylon_state.pPostfxTargets.reset();
         stdRenderBabylon_state.pPostfxResources.reset();
     }

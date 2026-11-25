@@ -2,6 +2,7 @@
 // Part of the Babylon column's render frame owner; see stdRenderBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
 #pragma once
 
+#include <babylon/postfx/ContactShadowEffect.h>
 #include <babylon/postfx/FilmGrainEffect.h>
 #include <babylon/postfx/Resources.h>
 #include <babylon/postfx/TargetPool.h>
@@ -111,8 +112,16 @@ namespace stdRenderBabylonInternal
     inline constexpr int stdRenderBabylon_kLightShaftsMaxLevel =
         (int)(sizeof(stdRenderBabylon_aLightShaftStrength) / sizeof(stdRenderBabylon_aLightShaftStrength[0])) - 1;
 
-    // Added: the built-in screen-space ambient occlusion stage (M9.17b), after the water ripples and
-    // before depth of field. engine.renderer.ssao is 0 off, 1 Low, 2 Medium, 3 High. Each level's
+    // Added: the M11.1 contact-shadow stage after the water ripples and before ambient occlusion
+    // (engine.renderer.contactShadows). One fixed overhead light, 35 degrees from vertical and 30
+    // degrees in azimuth in the Z-up world, converted to the shader camera's view space. Babylon's
+    // postfx ContactShadowEffect draws it; receiverClasses 0x8 means only ordinary surfaces receive,
+    // and the first-person overlay (scene depth below 0.1) is left alone. Values are presentation
+    // only.
+    inline constexpr const char* stdRenderBabylon_kContactShadowsKey = "engine.renderer.contactShadows";
+
+    // Added: the built-in screen-space ambient occlusion stage (M9.17b), after the contact shadows
+    // and before depth of field. engine.renderer.ssao is 0 off, 1 Low, 2 Medium, 3 High. Each level's
     // sample count, world-space radius, self-occlusion bias and intensity live here in one table;
     // the pass runs at half the scene size, is blurred by a 4 x 4 depth-aware bilateral filter and
     // composited at the scene size. Values are presentation only.
@@ -261,6 +270,8 @@ namespace stdRenderBabylonInternal
         std::unique_ptr<postfx::TargetPool> pPostfxTargets;
         std::unique_ptr<postfx::VignetteEffect> pPostfxVignette;
         std::unique_ptr<postfx::FilmGrainEffect> pPostfxGrain;
+        // Added: the M11.1 contact-shadow effect, made and released with the other postfx objects.
+        std::unique_ptr<postfx::ContactShadowEffect> pPostfxContactShadows;
 
         // Added: the built-in bloom stage before the tone map. The prefilter target is half the
         // scene size; downsamples go to 1/4, 1/8, 1/16 and 1/32, then additive tent upsamples run
@@ -345,7 +356,19 @@ namespace stdRenderBabylonInternal
         uint32_t flareHeight = 0;
         render::PipelineHandle flarePipeline;
 
-        // Added: the built-in screen-space ambient occlusion stage after the water ripples and
+        // Added: the M11.1 contact-shadow stage after the water ripples and before ambient
+        // occlusion. Its one scene-sized target holds the result in the scene color format and is
+        // recreated when the scene size or render scale changes. bContactShadows is the option;
+        // bContactShadowsRan tells the ambient-occlusion stage to read the result. The fixed
+        // overhead light and the receiver classes are constants in the stage file.
+        bool bContactShadows              = false;
+        bool bContactShadowsSetupFailed   = false;
+        bool bContactShadowsRan           = false;
+        render::TextureHandle contactShadowColorTarget;
+        uint32_t contactShadowWidth  = 0;
+        uint32_t contactShadowHeight = 0;
+
+        // Added: the built-in screen-space ambient occlusion stage after the contact shadows and
         // before depth of field. The raw and blurred occlusion terms are half the scene size, the
         // composite is scene sized. The stage reads the depth and normal targets; it needs a
         // sampled depth target. ssao is 0 off, 1 Low, 2 Medium, 3 High.
@@ -468,6 +491,7 @@ namespace stdRenderBabylonInternal
     void stdRenderBabylon_FreeBloomTargets();
     void stdRenderBabylon_FreeDoFTargets();
     void stdRenderBabylon_FreeWaterTargets();
+    void stdRenderBabylon_FreeContactShadowTargets();
     void stdRenderBabylon_FreeSsaoTargets();
     void stdRenderBabylon_FreeMotionBlurTarget();
     void stdRenderBabylon_FreeShaftTargets();
@@ -494,6 +518,7 @@ namespace stdRenderBabylonInternal
     bool stdRenderBabylon_RecordBloom(render::CommandList& list);
     bool stdRenderBabylon_RecordDoF(render::CommandList& list);
     bool stdRenderBabylon_RecordWaterRipples(render::CommandList& list);
+    bool stdRenderBabylon_RecordContactShadows(render::CommandList& list);
     bool stdRenderBabylon_RecordSsao(render::CommandList& list);
     bool stdRenderBabylon_RecordMotionBlur(render::CommandList& list);
     bool stdRenderBabylon_RecordShaftMaskCentroid(render::CommandList& list);

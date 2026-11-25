@@ -286,8 +286,8 @@ bool stdRenderBabylon_GetFilmGrain();
 bool stdRenderBabylon_SetWaterRipples(bool bEnabled);
 bool stdRenderBabylon_GetWaterRipples();
 
-// Added: the built-in screen-space ambient occlusion stage over the HDR scene, after the water
-// ripples and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the sample
+// Added: the built-in screen-space ambient occlusion stage over the HDR scene, after the contact
+// shadows and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the sample
 // count, world-space radius, bias and intensity of each level live with the stage's other constants
 // in stdRenderBabylon.cpp. On: view-space positions and normals are reconstructed from the depth
 // target (the classic draws write a constant normal), an 8, 12 or 16 sample normal-oriented
@@ -301,6 +301,22 @@ bool stdRenderBabylon_GetWaterRipples();
 // targets and pipelines.
 bool stdRenderBabylon_SetSsao(int level);
 int stdRenderBabylon_GetSsao();
+
+// Added: the built-in screen-space contact-shadow stage over the HDR scene, after the water
+// ripples and before the ambient-occlusion stage, so ambient occlusion and every later stage read
+// its result. Babylon's postfx `ContactShadowEffect` (ADR-0043) draws it. One fixed overhead light,
+// 35 degrees from vertical and 30 degrees in azimuth in the Z-up game world, is converted to the
+// shader camera's view space from the transform given to std3D_SetCameraTransform; without a
+// camera transform the stage is skipped. A short ray is marched through the depth target toward
+// the light, and only ordinary surfaces (the normal target's alpha is the ordinary surface tag,
+// class 3) are darkened; sky-tagged, water-tagged, empty and the 0..0.1 first-person overlay pixels
+// are returned unchanged, as are the HUD, 2D layer, menus and prompts. Off, or a failure, records
+// no pass and the image is byte-identical to the path without the option. A setter before the
+// frame owner is open fails, logging why; closing frees the stage's target and the effect's
+// resources. Opening reads engine.renderer.contactShadows (default on in Enhanced builds, off in
+// Retail/QOL-off ones); this setter changes it until the next open.
+bool stdRenderBabylon_SetContactShadows(bool bEnabled);
+bool stdRenderBabylon_GetContactShadows();
 
 // Added: the built-in camera motion-blur stage over the HDR scene, after the ambient-occlusion
 // stage and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); each level's
@@ -511,6 +527,12 @@ bool stdRenderBabylon_GetLightShaftValueForTest(std::uint32_t x, std::uint32_t y
 // Added: test-only. Writes the ambient-occlusion reconstruction's horizontal and vertical tangent
 // scales for the current scene size and projection. Returns false when not open.
 bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalfY);
+
+// Added: test-only. Converts the fixed overhead contact-shadow light from the shader camera basis
+// (right, up and forward in elements 0-2, 4-6 and 8-10) and writes the view-space direction toward
+// the light. Returns false for a null matrix. Production builds don't compile it.
+bool stdRenderBabylon_GetContactLightDirectionForTest(const float aCamera[12], float* pX,
+    float* pY, float* pZ);
 // Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
 // whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
 // Returns false without such a submit. Production builds don't compile it.

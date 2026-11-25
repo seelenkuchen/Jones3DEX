@@ -476,6 +476,11 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         stdRenderBabylon_state.bWaterRipples =
             stdConfig_GetBool(stdRenderBabylon_kWaterRipplesKey, J3D_QOL_VALUE(1, 0) != 0);
 
+        // Added: contact shadows are on by default in Enhanced builds and off in Retail/QOL-off
+        // ones, after the water ripples and before ambient occlusion.
+        stdRenderBabylon_state.bContactShadows =
+            stdConfig_GetBool(stdRenderBabylon_kContactShadowsKey, J3D_QOL_VALUE(1, 0) != 0);
+
         // Added: ambient occlusion is Low (1) by default in Enhanced builds and off in
         // Retail/QOL-off ones. An unknown level is clamped to the highest one.
         stdRenderBabylon_state.ssao = std::clamp(stdConfig_GetInt(
@@ -627,6 +632,7 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_FreeBloomTargets();
     stdRenderBabylon_FreeDoFTargets();
     stdRenderBabylon_FreeWaterTargets();
+    stdRenderBabylon_FreeContactShadowTargets();
     stdRenderBabylon_FreeSsaoTargets();
     stdRenderBabylon_FreeMotionBlurTarget();
     stdRenderBabylon_FreeShaftTargets();

@@ -94,9 +94,22 @@ namespace
                     stdRenderBabylon_state.bWaterSetupFailed = true;
                 }
 
-                // Added: the screen-space ambient-occlusion stage after the water ripples and before
-                // depth of field. Off, or a failure, skips every pass so the image is byte-identical
-                // to the path without it.
+                // Added: the screen-space contact-shadow stage after the water ripples and before
+                // ambient occlusion. Off, without a camera transform, or a failure, skips the pass
+                // so the image is byte-identical to the path without it.
+                stdRenderBabylon_state.bContactShadowsRan = false;
+                if ( stdRenderBabylon_state.bContactShadows
+                    && !stdRenderBabylon_state.bContactShadowsSetupFailed
+                    && stdRenderBabylon_state.bHasCameraTransform
+                    && !stdRenderBabylon_RecordContactShadows(list) )
+                {
+                    STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the contact-shadow stage; presenting without it.\n");
+                    stdRenderBabylon_state.bContactShadowsSetupFailed = true;
+                }
+
+                // Added: the screen-space ambient-occlusion stage after the contact shadows and
+                // before depth of field. Off, or a failure, skips every pass so the image is
+                // byte-identical to the path without it.
                 stdRenderBabylon_state.bSsaoRan = false;
                 if ( stdRenderBabylon_state.ssao > 0
                     && !stdRenderBabylon_state.bSsaoSetupFailed

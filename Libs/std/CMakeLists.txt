@@ -46,6 +46,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonBloom.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonCameraFx.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonColorGrading.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonContactShadows.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonDepthOfField.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonHud.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonLensFlare.cpp"
