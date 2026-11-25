@@ -142,7 +142,6 @@ namespace stdRenderBabylonInternal
                 width, height, render::TextureFormat::Rgba8);
             if ( scratch.isNull() )
             {
-                stdRenderBabylon_state.pPostfxTargets->endFrame();
                 return false;
             }
 
@@ -162,7 +161,6 @@ namespace stdRenderBabylonInternal
                 bGrain = stdRenderBabylon_state.pPostfxGrain->record(grainPass);
             }
 
-            stdRenderBabylon_state.pPostfxTargets->endFrame();
             return bVignette && bGrain;
         }
 
@@ -186,9 +184,6 @@ namespace stdRenderBabylonInternal
             bRecorded = pEffect->record(pass);
         }
 
-        // Added: return any scratch target the previous frame held, even on a frame with no or one
-        // effect, so a size change or switching effects frees it after one idle frame.
-        stdRenderBabylon_state.pPostfxTargets->endFrame();
         return bRecorded;
     }
 }

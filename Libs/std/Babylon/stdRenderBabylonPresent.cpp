@@ -373,6 +373,14 @@ namespace
                         }
                     }
                 }
+
+                // Added: return the postfx scratch targets once every effect that draws with them
+                // has recorded, so they are reused and an idle one is freed after a frame. This is
+                // the one end-of-frame call; the effects' record functions only acquire.
+                if ( stdRenderBabylon_state.pPostfxTargets )
+                {
+                    stdRenderBabylon_state.pPostfxTargets->endFrame();
+                }
             }
 
             const bool bDrawsBackBuffer = stdRenderBabylon_DrawsBackBuffer(list);
@@ -617,7 +625,18 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
             render::TextureFormat::Bgra8, width, height) )
     {
         STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the camera effects.\n");
+        if ( stdRenderBabylon_state.pPostfxTargets )
+        {
+            stdRenderBabylon_state.pPostfxTargets->endFrame();
+        }
         return false;
+    }
+
+    // Added: the camera effects are this path's only postfx pool user; return their scratch target
+    // after they record. With them off the previous frame's idle targets stay for the next present.
+    if ( bFx && stdRenderBabylon_state.pPostfxTargets )
+    {
+        stdRenderBabylon_state.pPostfxTargets->endFrame();
     }
 
     // Added: the captured presented frame includes the HUD layer, before the prompt and menu
