@@ -216,15 +216,14 @@ namespace
                     }
 
                     // Added: the vignette and film grain write after SMAA and sharpening, into their
-                    // own Bgra8 source, and the effect pass then writes the swapchain. Both off skip
-                    // the target and pass, so the existing path is byte-identical.
+                    // own Bgra8 source, and the Babylon postfx effects then write the swapchain. Both
+                    // off skip the target and passes, so the existing path is byte-identical.
                     bool bFx = ( stdRenderBabylon_state.bVignette
                             || stdRenderBabylon_state.bFilmGrain )
                         && !stdRenderBabylon_state.bFxSetupFailed;
                     if ( bFx
                         && ( !stdRenderBabylon_EnsureFxTarget(width, height)
                             || !stdRenderBabylon_EnsureFxToneMapPipeline()
-                            || !stdRenderBabylon_EnsureFxPipeline(true, swapchainFormat)
                             || !stdRenderBabylon_EnsurePresentSampler() ) )
                     {
                         STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not set up the camera effects; presenting without them.\n");
@@ -526,14 +525,13 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
     }
 
     // Added: the vignette and film grain write after SMAA and sharpening, into their own Bgra8
-    // source, and the effect pass then writes the capture target. Both off skip the target and
-    // pass, so the existing capture path is byte-identical.
+    // source, and the Babylon postfx effects then write the capture target. Both off skip the
+    // target and passes, so the existing capture path is byte-identical.
     bool bFx = ( stdRenderBabylon_state.bVignette || stdRenderBabylon_state.bFilmGrain )
         && !stdRenderBabylon_state.bFxSetupFailed;
     if ( bFx
         && ( !stdRenderBabylon_EnsureFxTarget(width, height)
             || !stdRenderBabylon_EnsureFxToneMapPipeline()
-            || !stdRenderBabylon_EnsureFxPipeline(false, render::TextureFormat::Bgra8)
             || !stdRenderBabylon_EnsurePresentSampler() ) )
     {
         STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not set up the camera effects; capturing without them.\n");

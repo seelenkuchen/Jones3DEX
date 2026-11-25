@@ -542,6 +542,10 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         }
     }
 
+    // Added: the Babylon postfx objects the vignette and film grain draw with. A failure logs and
+    // leaves the effects unavailable; it does not fail the open.
+    static_cast<void>(stdRenderBabylon_OpenPostfx());
+
     return true;
 }
 
@@ -551,6 +555,9 @@ void stdRenderBabylon_Close()
     {
         return;
     }
+
+    // Added: release the camera effects' postfx objects before the device goes.
+    stdRenderBabylon_ClosePostfx();
 
     stdRenderBabylon_state.frame.reset();
     stdRenderBabylon_ClearPostPasses();
@@ -582,8 +589,6 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftBlurPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftCompositePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.flarePipeline);
-    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxPipeline);
-    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxCapturePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxToneMapPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.waterRipplesPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoPipeline);

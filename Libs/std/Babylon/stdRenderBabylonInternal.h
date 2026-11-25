@@ -2,6 +2,10 @@
 // Part of the Babylon column's render frame owner; see stdRenderBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
 #pragma once
 
+#include <babylon/postfx/FilmGrainEffect.h>
+#include <babylon/postfx/Resources.h>
+#include <babylon/postfx/TargetPool.h>
+#include <babylon/postfx/VignetteEffect.h>
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
 #include <babylon/render/Handle.h>
@@ -11,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -19,6 +24,7 @@
 namespace stdRenderBabylonInternal
 {
     namespace render = babylon::render;
+    namespace postfx = babylon::postfx;
 
     // Added: SMAA 1x (0 off, 1 on) of the 3D scene, read when the frame owner opens.
     inline constexpr const char* stdRenderBabylon_kAntiAliasingKey = "engine.renderer.antiAliasing";
@@ -172,7 +178,7 @@ namespace stdRenderBabylonInternal
     // the line from the light through the screen centre: t is the fraction of that line (1 is the
     // centre), radius is in screen-height units and tint is the rgb the ghost adds. The halo is a
     // soft disc around the light. Vignette and film grain are toggles on the presented LDR image;
-    // their tuning lives here too. All values are presentation only.
+    // the Babylon postfx effects draw them. All values are presentation only.
     inline constexpr const char* stdRenderBabylon_kLensFlareKey = "engine.renderer.lensFlare";
     inline constexpr const char* stdRenderBabylon_kVignetteKey  = "engine.renderer.vignette";
     inline constexpr const char* stdRenderBabylon_kFilmGrainKey = "engine.renderer.filmGrain";
@@ -238,9 +244,9 @@ namespace stdRenderBabylonInternal
 
         // Added: the M9.18 vignette and film grain on the presented-size LDR image, after SMAA and
         // sharpening and before the HUD composite. fxSourceTarget is the image the existing chain
-        // leaves for the effect pass (Bgra8); the effect pass then writes the swapchain or a Bgra8
-        // capture target. bFxSetupFailed stops repeated log lines. grainFrame advances with the
-        // game time received through stdRenderBabylon_SetFrameTime, never with wall-clock time.
+        // leaves for the effect pass (Bgra8); the Babylon postfx effects then write the swapchain or
+        // a Bgra8 capture target. bFxSetupFailed stops repeated log lines. grainFrame advances with
+        // the game time received through stdRenderBabylon_SetFrameTime, never with wall-clock time.
         bool bVignette      = false;
         bool bFilmGrain     = false;
         bool bFxSetupFailed = false;
@@ -248,9 +254,13 @@ namespace stdRenderBabylonInternal
         render::TextureHandle fxSourceTarget;
         uint32_t fxWidth  = 0;
         uint32_t fxHeight = 0;
-        render::PipelineHandle fxPipeline;        // to the swapchain
-        render::PipelineHandle fxCapturePipeline; // to a Bgra8 capture target
         render::PipelineHandle fxToneMapPipeline; // the tone map into fxSourceTarget (Bgra8)
+        // Added: the postfx objects that draw the vignette and film grain. Made by OpenPostfx when
+        // the device is set and freed by ClosePostfx before it goes; null when they could not be made.
+        std::unique_ptr<postfx::Resources> pPostfxResources;
+        std::unique_ptr<postfx::TargetPool> pPostfxTargets;
+        std::unique_ptr<postfx::VignetteEffect> pPostfxVignette;
+        std::unique_ptr<postfx::FilmGrainEffect> pPostfxGrain;
 
         // Added: the built-in bloom stage before the tone map. The prefilter target is half the
         // scene size; downsamples go to 1/4, 1/8, 1/16 and 1/32, then additive tent upsamples run
@@ -469,7 +479,10 @@ namespace stdRenderBabylonInternal
     bool stdRenderBabylon_EnsureCasToneMapPipeline();
     bool stdRenderBabylon_EnsureFxTarget(uint32_t width, uint32_t height);
     bool stdRenderBabylon_EnsureFxToneMapPipeline();
-    bool stdRenderBabylon_EnsureFxPipeline(bool bSwapchain, render::TextureFormat format);
+    // The Babylon postfx objects the camera effects draw with, made when the frame owner opens and
+    // freed before the device goes. OpenPostfx logs and leaves the effects unavailable on failure.
+    bool stdRenderBabylon_OpenPostfx();
+    void stdRenderBabylon_ClosePostfx();
 
     // The stage record functions the presenting submit and the capture call.
     bool stdRenderBabylon_RecordSmaa(render::CommandList& list, render::TextureHandle target,

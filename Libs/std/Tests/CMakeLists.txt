@@ -244,6 +244,7 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonLightShafts.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonMotionBlur.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonPostChain.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonPostfx.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonPresent.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonResample.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonSharpening.cpp"
@@ -302,6 +303,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::input
         babylon::cvars
         babylon::render
+        babylon::postfx
         babylon::log
         stdBabylonShaders
         # Added: the tests read BABYLON_REQUIRE_GPU through SDL_getenv. Babylon links SDL privately, so
