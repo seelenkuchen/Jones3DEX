@@ -21,3 +21,4 @@ audio: log miniaudio
 render: log platform SDL3-static
 ui: log cvars platform
 uirender: ui render font image log
+postfx: render log
