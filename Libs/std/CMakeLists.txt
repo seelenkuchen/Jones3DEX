@@ -68,6 +68,11 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonScene.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonTextures.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonBackBuffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonFramePacing.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonModes.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonScreenshot.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonVBuffer.cpp"
     )
 
     # Added: the shaders of the Babylon render adapter, compiled at build time (ADR-0022) into their own

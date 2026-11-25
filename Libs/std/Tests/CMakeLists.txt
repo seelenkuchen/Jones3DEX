@@ -260,6 +260,11 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylonScene.cpp"
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylonTextures.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylon.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonBackBuffer.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonFramePacing.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonModes.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonScreenshot.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonVBuffer.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
     )
 
