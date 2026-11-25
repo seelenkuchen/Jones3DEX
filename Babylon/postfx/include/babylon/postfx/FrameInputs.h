@@ -21,6 +21,13 @@ namespace babylon::postfx
         float farPlane = 1000.0f;
         float tanHalfFovX = 1.0f;   // tan of half the horizontal field of view
         float tanHalfFovY = 0.75f;  // tan of half the vertical field of view
+
+        // The depth texel at the near and at the far plane; depth is affine in 1/z between them
+        // (true of every perspective depth buffer). Standard: 0 and 1. A texel nearer than
+        // depthNear (or farther than depthFar) is no scene surface (for example a first-person
+        // overlay drawn in front) and effects that reconstruct positions leave it unchanged.
+        float depthNear = 0.0f;
+        float depthFar = 1.0f;
     };
 
     // What one frame gives the chain. color is the rendered scene, sampled and never written by
