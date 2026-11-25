@@ -5,16 +5,19 @@
 
 babylon_add_module(postfx
     SOURCES src/Resources.cpp src/TargetPool.cpp src/Effect.cpp src/Chain.cpp src/CopyEffect.cpp
+        src/VignetteEffect.cpp src/FilmGrainEffect.cpp
     DEPS log
     PUBLIC_DEPS render)
 
 babylon_add_shaders(babylon_postfx
     NAMESPACE babylon::postfx::shaders
-    SOURCES shaders/fullscreen.vert.hlsl shaders/copy.frag.hlsl)
+    SOURCES shaders/fullscreen.vert.hlsl shaders/copy.frag.hlsl shaders/vignette.frag.hlsl
+        shaders/film_grain.frag.hlsl)
 
 babylon_add_module_tests(postfx
     DEPS log render
-    SOURCES tests/TargetPoolTest.cpp tests/ChainTest.cpp tests/ChainGpuTest.cpp)
+    SOURCES tests/TargetPoolTest.cpp tests/ChainTest.cpp tests/ChainGpuTest.cpp
+        tests/VignetteEffectTest.cpp tests/FilmGrainEffectTest.cpp tests/StockEffectsGpuTest.cpp)
 
 if (TARGET babylon_postfx_tests)
     # The GPU case starts SDL's video subsystem; the offscreen driver needs
