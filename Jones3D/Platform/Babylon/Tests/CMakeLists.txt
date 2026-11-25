@@ -34,6 +34,9 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiStore.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiControls.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiButtonLayout.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiButtonLayoutControls.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiButtonLayoutModel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiButtonLayoutDraw.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiOptions.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesBabylonMainSys.cpp"
     # Added: the control-scheme module the Controls screen reads and writes (M7.17a). It is part of
