@@ -40,9 +40,10 @@ namespace babylon::render
     // Formats: B4G4R4A4 is never a color target here, because Vulkan stores
     // it with the components in other bits and only fixes that up when
     // sampling; every other format and usage is what the driver reports.
-    // Limits: maxTextureDimension 8192 and maxBufferSize 128 MiB on every
-    // driver. Uploads and readbacks each run in their own command buffer,
-    // in order with submits; readbacks wait for the GPU.
+    // Limits: maxTextureDimension 8192, maxTextureLayers 256 and
+    // maxBufferSize 128 MiB on every driver. Uploads and readbacks each run
+    // in their own command buffer, in order with submits; readbacks wait for
+    // the GPU.
     //
     // Returns nullptr and logs one warning when no GPU device can be created
     // (no Vulkan, Direct3D 12 or Metal driver), when SDL video can't start,

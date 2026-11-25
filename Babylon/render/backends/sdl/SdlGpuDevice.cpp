@@ -48,6 +48,7 @@ namespace
     // within what every Direct3D 12, Metal and desktop Vulkan device gives,
     // and 128 MiB is the smallest storage buffer range Vulkan allows.
     constexpr std::uint32_t kMaxTextureDimension = 8192;
+    constexpr std::uint32_t kMaxTextureLayers = 256;
     constexpr std::uint32_t kMaxBufferSize = 128u * 1024u * 1024u;
 
     // SDL's format with the same bit layout as the one in Texture.h. SDL
@@ -460,13 +461,22 @@ namespace
 
         TextureHandle doCreateTexture(const TextureDesc& desc) override
         {
+            const SDL_GPUTextureType type = desc.layers > 1 ? SDL_GPU_TEXTURETYPE_2D_ARRAY
+                : SDL_GPU_TEXTURETYPE_2D;
+            if ( desc.layers > 1 && !SDL_GPUTextureSupportsFormat(m_device, toSdl(desc.format),
+                type, toSdl(desc.usage)) )
+            {
+                log::warning("render: createTexture: format {} is not supported for a 2D "
+                    "array on this device", static_cast<int>(desc.format));
+                return {};
+            }
             SDL_GPUTextureCreateInfo create{};
-            create.type = SDL_GPU_TEXTURETYPE_2D;
+            create.type = type;
             create.format = toSdl(desc.format);
             create.usage = toSdl(desc.usage);
             create.width = desc.width;
             create.height = desc.height;
-            create.layer_count_or_depth = 1;
+            create.layer_count_or_depth = desc.layers;
             create.num_levels = desc.mipLevels;
             create.sample_count = SDL_GPU_SAMPLECOUNT_1;
             SDL_GPUTexture* const texture = SDL_CreateGPUTexture(m_device, &create);
@@ -618,7 +628,9 @@ namespace
             create.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
             create.max_anisotropy = anisotropy;
             create.enable_anisotropy = anisotropy > 1.0f;
-            create.compare_op = SDL_GPU_COMPAREOP_ALWAYS;
+            create.compare_op = desc.compare.has_value() ? toSdl(*desc.compare)
+                : SDL_GPU_COMPAREOP_ALWAYS;
+            create.enable_compare = desc.compare.has_value();
             create.min_lod = 0.0f;
             create.max_lod = 1000.0f;   // every mip the texture has
             SDL_GPUSampler* const sampler = SDL_CreateGPUSampler(m_device, &create);
@@ -725,6 +737,11 @@ namespace
             create.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
             create.rasterizer_state.cull_mode = toSdl(desc.cull);
             create.rasterizer_state.front_face = toSdl(desc.frontFace);
+            create.rasterizer_state.depth_bias_constant_factor = desc.depth.depthBiasConstant;
+            create.rasterizer_state.depth_bias_clamp = desc.depth.depthBiasClamp;
+            create.rasterizer_state.depth_bias_slope_factor = desc.depth.depthBiasSlope;
+            create.rasterizer_state.enable_depth_bias = desc.depth.depthBiasConstant != 0.0f
+                || desc.depth.depthBiasSlope != 0.0f || desc.depth.depthBiasClamp != 0.0f;
             create.rasterizer_state.enable_depth_clip = true;
             create.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
             // Stencil is not part of the interface: always pass, keep.
@@ -1025,6 +1042,7 @@ namespace
                     color.texture = attachment.target.isNull() ? swapchain
                         : m_textures.find(attachment.target)->texture;
                     color.mip_level = attachment.mip;
+                    color.layer_or_depth_plane = attachment.layer;
                     color.clear_color = SDL_FColor{ attachment.clear.r, attachment.clear.g,
                         attachment.clear.b, attachment.clear.a };
                     color.load_op = toSdl(attachment.load);
@@ -1037,6 +1055,7 @@ namespace
                     const DepthAttachment& attachment = *begin->desc.depthTarget;
                     const SdlTexture& texture = *m_textures.find(attachment.target);
                     depth.texture = texture.texture;
+                    depth.layer = static_cast<Uint8>(attachment.layer);
                     depth.clear_depth = attachment.clearDepth;
                     depth.load_op = toSdl(attachment.load);
                     depth.store_op = toSdl(attachment.store);
@@ -1246,7 +1265,7 @@ namespace
         info.shaderFormats = fromSdl(SDL_GetGPUShaderFormats(device));
         info.hasSwapchain = sdlWindow != nullptr;
         info.swapchainFormat = TextureFormat::Bgra8;
-        info.limits = DeviceLimits{ kMaxTextureDimension, kMaxBufferSize };
+        info.limits = DeviceLimits{ kMaxTextureDimension, kMaxTextureLayers, kMaxBufferSize };
         if ( sdlWindow != nullptr )
         {
             if ( !SDL_ClaimWindowForGPUDevice(device, sdlWindow) )

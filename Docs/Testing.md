@@ -552,7 +552,7 @@ needs shaders.
 
 #### 🧪 std3D And stdDisplay On Babylon Tests
 
-`std.std3DOnBabylon` builds `std3DBabylonTests` from `Libs/std/Babylon/Tests/std3DBabylonTest.cpp`,
+`std.std3DOnBabylon` builds `std3DBabylonTests` from `Libs/std/Babylon/Tests/std3DBabylon*Test.cpp` and `stdRenderBabylonOptionTest.cpp` (one file per area, shared fixtures in `std3DBabylonTestSupport.*`),
 `Libs/std/Babylon/Tests/stdDisplayBabylonTest.cpp` and the C replay suite `stdRenderReplayTest.c`, against
 `std3DBabylon.cpp`, `stdDisplayBabylon.cpp`, `stdRenderBabylon.cpp` and `stdRenderReplayBabylon.cpp`. The
 `std3DBabylon` Null group drives the public `std3D_*` calls and the capture forwarders on a

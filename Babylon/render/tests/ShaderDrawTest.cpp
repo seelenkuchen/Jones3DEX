@@ -56,6 +56,7 @@ namespace
 
     using Rgba = std::array<int, 4>;
     constexpr Rgba kBlack{ 0, 0, 0, 255 };
+    constexpr Rgba kWhite{ 255, 255, 255, 255 };
     constexpr Rgba kRed{ 255, 0, 0, 255 };
     constexpr Rgba kGreen{ 0, 255, 0, 255 };
     constexpr Rgba kBlue{ 0, 0, 255, 255 };
@@ -99,6 +100,16 @@ namespace
         float v;
     };
     static_assert(sizeof(TexturedVertex) == 16);
+
+    // The vertex of shadowcast.vert.hlsl: a clip-space position whose z is
+    // the depth the caster writes.
+    struct ShadowCasterVertex
+    {
+        float x;
+        float y;
+        float z;
+    };
+    static_assert(sizeof(ShadowCasterVertex) == 12);
 
     ColorVertex colorVertex(float x, float y, float z, const Rgba& color)
     {
@@ -453,6 +464,123 @@ namespace
         return blue ? bytes({ 0x00, 0x00, 0xFF, 0xFF }) : bytes({ 0x00, 0xFF, 0x00, 0x00 });
     }
 
+    // Renders one comparison-sampler shadow scene: a 64x64 D32F array of two
+    // layers. Layer 0 is cleared to 1.0, layer 1 is cleared to 1.0 and gets a
+    // caster quad at depth 0.25 over its left half. Two receiver passes then
+    // sample layer 1 into target and layer 0 into second with reference 0.5
+    // and LessOrEqual, white where lit and black where shadowed. With bias
+    // the caster pipeline carries a large positive depth bias, so the stored
+    // depth is behind the reference everywhere and nothing is shadowed.
+    Drawn drawShadowComparison(Device& device, bool bias)
+    {
+        Drawn drawn;
+        drawn.target = colorTarget(device);
+        drawn.second = colorTarget(device);
+
+        TextureDesc arrayDesc{ kSize, kSize, 1, TextureFormat::D32F,
+            TextureUsage::DepthTarget | TextureUsage::Sampled };
+        arrayDesc.layers = 2;
+        const TextureHandle array = device.createTexture(arrayDesc);
+        REQUIRE_FALSE(array.isNull());
+
+        const std::vector<ShadowCasterVertex> caster = {
+            { -1.0f, -1.0f, 0.25f }, { 0.0f, -1.0f, 0.25f }, { -1.0f, 1.0f, 0.25f },
+            { -1.0f, 1.0f, 0.25f }, { 0.0f, -1.0f, 0.25f }, { 0.0f, 1.0f, 0.25f },
+        };
+        const BufferHandle casterBuffer = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(caster.size() * sizeof(ShadowCasterVertex)),
+            BufferUsage::Vertex });
+        REQUIRE_FALSE(casterBuffer.isNull());
+        REQUIRE(device.uploadBuffer(casterBuffer, 0, bytesOf(caster)));
+
+        PipelineDesc casterDesc;
+        casterDesc.vertexShader = shaders::shadowcastVert();
+        casterDesc.fragmentShader = shaders::shadowcastFrag();
+        casterDesc.vertexLayout.bufferStrides = { sizeof(ShadowCasterVertex) };
+        casterDesc.vertexLayout.attributes = {
+            VertexAttribute{ 0, 0, VertexFormat::Float3, 0 },
+        };
+        casterDesc.depthFormat = TextureFormat::D32F;
+        casterDesc.depth = DepthState{ true, true, CompareOp::LessOrEqual };
+        if ( bias )
+        {
+            casterDesc.depth.depthBiasConstant = 1.0e8f;
+        }
+        const PipelineHandle casterPipeline = createPipeline(device, drawn, casterDesc);
+
+        SamplerDesc samplerDesc{ Filter::Nearest, Filter::Nearest, Filter::Nearest,
+            AddressMode::ClampToEdge, AddressMode::ClampToEdge };
+        samplerDesc.compare = CompareOp::LessOrEqual;
+        const SamplerHandle compareSampler = device.createSampler(samplerDesc);
+        REQUIRE_FALSE(compareSampler.isNull());
+
+        const std::vector<TexturedVertex> quad = {
+            { -1.0f, 1.0f, 0.0f, 0.0f },
+            { 1.0f, 1.0f, 1.0f, 0.0f },
+            { -1.0f, -1.0f, 0.0f, 1.0f },
+            { 1.0f, -1.0f, 1.0f, 1.0f },
+        };
+        const std::vector<std::uint16_t> indices = { 0, 1, 2, 2, 1, 3 };
+        const BufferHandle vertexBuffer = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(quad.size() * sizeof(TexturedVertex)), BufferUsage::Vertex });
+        const BufferHandle indexBuffer = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(indices.size() * sizeof(std::uint16_t)), BufferUsage::Index });
+        REQUIRE_FALSE(vertexBuffer.isNull());
+        REQUIRE_FALSE(indexBuffer.isNull());
+        REQUIRE(device.uploadBuffer(vertexBuffer, 0, bytesOf(quad)));
+        REQUIRE(device.uploadBuffer(indexBuffer, 0, bytesOf(indices)));
+
+        PipelineDesc receiveDesc;
+        receiveDesc.vertexShader = shaders::texturedVert();
+        receiveDesc.fragmentShader = shaders::shadowreceiveFrag();
+        receiveDesc.vertexLayout.bufferStrides = { sizeof(TexturedVertex) };
+        receiveDesc.vertexLayout.attributes = {
+            VertexAttribute{ 0, 0, VertexFormat::Float2, 0 },
+            VertexAttribute{ 1, 0, VertexFormat::Float2, 8 },
+        };
+        receiveDesc.colorTargets = { ColorTargetDesc{ TextureFormat::Rgba8, {} } };
+        const PipelineHandle receivePipeline = createPipeline(device, drawn, receiveDesc);
+
+        CommandList list = device.beginFrame();
+        PassDesc clearLayer0;
+        clearLayer0.depthTarget = DepthAttachment{ array, LoadOp::Clear, StoreOp::Store,
+            1.0f, 0, 0 };
+        REQUIRE(list.beginPass(clearLayer0));
+        REQUIRE(list.endPass());
+
+        PassDesc clearLayer1;
+        clearLayer1.depthTarget = DepthAttachment{ array, LoadOp::Clear, StoreOp::Store,
+            1.0f, 0, 1 };
+        REQUIRE(list.beginPass(clearLayer1));
+        list.setPipeline(casterPipeline);
+        list.bindVertexBuffer(0, casterBuffer);
+        list.draw(6);
+        REQUIRE(list.endPass());
+
+        const std::vector<float> layerOne = { 1.0f, 0.5f, 0.0f, 1.0f };
+        REQUIRE(list.beginPass(clearedPass(drawn.target)));
+        list.setPipeline(receivePipeline);
+        list.bindVertexBuffer(0, vertexBuffer);
+        list.bindIndexBuffer(indexBuffer, IndexType::Uint16);
+        list.bindTexture(ShaderStage::Fragment, 0, array, compareSampler);
+        list.pushUniforms(ShaderStage::Fragment, 0, bytesOf(layerOne));
+        list.drawIndexed(6);
+        REQUIRE(list.endPass());
+
+        const std::vector<float> layerZero = { 0.0f, 0.5f, 0.0f, 1.0f };
+        REQUIRE(list.beginPass(clearedPass(drawn.second)));
+        list.setPipeline(receivePipeline);
+        list.bindVertexBuffer(0, vertexBuffer);
+        list.bindIndexBuffer(indexBuffer, IndexType::Uint16);
+        list.bindTexture(ShaderStage::Fragment, 0, array, compareSampler);
+        list.pushUniforms(ShaderStage::Fragment, 0, bytesOf(layerZero));
+        list.drawIndexed(6);
+        REQUIRE(list.endPass());
+
+        submit(device, list, drawn, 1);
+        return drawn;
+    }
+
     // Checks the second target of drawTwoTargets() texel by texel: blue
     // inside the quad when drawn, the clear everywhere else.
     void checkSecondTarget(const std::vector<std::byte>& bytes, TextureFormat format, bool drawn)
@@ -609,6 +737,9 @@ TEST_CASE("babylon_add_shaders reflects the resource counts and builds every for
         { "texturedFrag", shaders::texturedFrag(), 1, 1, 0 },
         { "twotargetsFrag", shaders::twotargetsFrag(), 0, 0, 0 },
         { "storageFrag", shaders::storageFrag(), 1, 0, 1 },
+        { "shadowcastVert", shaders::shadowcastVert(), 0, 0, 0 },
+        { "shadowcastFrag", shaders::shadowcastFrag(), 0, 0, 0 },
+        { "shadowreceiveFrag", shaders::shadowreceiveFrag(), 1, 1, 0 },
     };
     for ( const Expected& expected : shadersExpected )
     {
@@ -781,6 +912,52 @@ TEST_CASE("SDL GPU draws into two color targets in one pass")
     }, 0);
     MESSAGE("second target format " << static_cast<int>(secondTargetFormat(*device)));
     checkSecondTarget(second, secondTargetFormat(*device), true);
+}
+
+TEST_CASE("SDL GPU samples a layered shadow map with a comparison sampler")
+{
+    test::keepGpuDriverLoaded();
+    CaptureSink sink;
+    const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+    if ( device == nullptr )
+    {
+        test::noGpuDevice("no GPU device: " + joined(sink));
+        return;
+    }
+    const Drawn drawn = drawShadowComparison(*device, false);
+    const Image layerOne{ device->readTexture(drawn.target, 0) };
+    const Image layerZero{ device->readTexture(drawn.second, 0) };
+    INFO("captured log: " << joined(sink));
+    CHECK(sink.records().empty());
+
+    // Layer 1 stores the caster at 0.25 over its left half; with reference
+    // 0.5 and LessOrEqual that half fails the comparison and is black, the
+    // untouched right half passes and is white.
+    checkImage(layerOne, [](std::uint32_t x, std::uint32_t) {
+        return x < kSize / 2 ? kBlack : kWhite; }, 0);
+    // Layer 0 was cleared to 1.0 everywhere and passes, so it is all white.
+    checkImage(layerZero, [](std::uint32_t, std::uint32_t) { return kWhite; }, 0);
+}
+
+TEST_CASE("SDL GPU depth bias moves a shadow caster behind the comparison")
+{
+    test::keepGpuDriverLoaded();
+    CaptureSink sink;
+    const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+    if ( device == nullptr )
+    {
+        test::noGpuDevice("no GPU device: " + joined(sink));
+        return;
+    }
+    const Drawn drawn = drawShadowComparison(*device, true);
+    const Image layerOne{ device->readTexture(drawn.target, 0) };
+    const Image layerZero{ device->readTexture(drawn.second, 0) };
+    INFO("captured log: " << joined(sink));
+    CHECK(sink.records().empty());
+    // The biased caster is stored behind the reference, so both layers pass
+    // everywhere.
+    checkImage(layerOne, [](std::uint32_t, std::uint32_t) { return kWhite; }, 0);
+    checkImage(layerZero, [](std::uint32_t, std::uint32_t) { return kWhite; }, 0);
 }
 
 namespace

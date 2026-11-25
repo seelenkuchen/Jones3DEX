@@ -67,8 +67,8 @@ namespace babylon::render
     // rasterize: draws change no contents. It is headless (no swapchain), accepts blobs in every shader
     // format without looking at the code, supports every format for every
     // usage its kind allows except NullDeviceDesc::unsupportedFormats, and
-    // reports maxTextureDimension 8192 and maxBufferSize 256 MiB. New
-    // textures and buffers are zero-filled.
+    // reports maxTextureDimension 8192, maxTextureLayers 256 and
+    // maxBufferSize 256 MiB. New textures and buffers are zero-filled.
     //
     // Every pipeline creation and every executed command of a submitted
     // list is appended to recorded(), in order, followed by a FrameSubmitted

@@ -30,8 +30,14 @@ namespace
     struct NullTexture
     {
         TextureDesc desc;
-        std::vector<std::vector<std::byte>> mips;   // tightly packed rows per level
+        // Tightly packed rows per level, layer by layer: layer * mipLevels + mip.
+        std::vector<std::vector<std::byte>> mips;
     };
+
+    std::size_t mipIndex(const TextureDesc& desc, std::uint32_t layer, std::uint32_t mip)
+    {
+        return std::size_t{ layer } * desc.mipLevels + mip;
+    }
 
     struct NullBuffer
     {
@@ -202,7 +208,7 @@ namespace
         m_state->info.shaderFormats = ShaderFormat::SpirV | ShaderFormat::Dxil | ShaderFormat::Msl;
         m_state->info.hasSwapchain = false;
         m_state->info.swapchainFormat = TextureFormat::Bgra8;
-        m_state->info.limits = DeviceLimits{ 8192, 256u * 1024u * 1024u };
+        m_state->info.limits = DeviceLimits{ 8192, 256, 256u * 1024u * 1024u };
         m_state->unsupportedFormats = desc.unsupportedFormats;
         m_state->record = desc.record;
     }
@@ -297,9 +303,13 @@ namespace
     TextureHandle NullDevice::doCreateTexture(const TextureDesc& desc)
     {
         NullTexture texture{ desc, {} };
-        for ( std::uint32_t mip = 0; mip < desc.mipLevels; ++mip )
+        texture.mips.reserve(std::size_t{ desc.layers } * desc.mipLevels);
+        for ( std::uint32_t layer = 0; layer < desc.layers; ++layer )
         {
-            texture.mips.emplace_back(rowBytes(desc, mip) * mipDimension(desc.height, mip));
+            for ( std::uint32_t mip = 0; mip < desc.mipLevels; ++mip )
+            {
+                texture.mips.emplace_back(rowBytes(desc, mip) * mipDimension(desc.height, mip));
+            }
         }
         const std::optional<TextureHandle> handle = m_state->textures.insert(std::move(texture));
         if ( !handle.has_value() )
@@ -322,7 +332,7 @@ namespace
         const std::size_t stride = rowBytes(target.desc, region.mip);
         const std::size_t texel = bytesPerTexel(target.desc.format);
         const std::size_t length = std::size_t{ region.width } * texel;
-        std::vector<std::byte>& bytes = target.mips[region.mip];
+        std::vector<std::byte>& bytes = target.mips[mipIndex(target.desc, 0, region.mip)];
         for ( std::uint32_t row = 0; row < region.height; ++row )
         {
             std::memcpy(bytes.data() + (region.y + row) * stride + region.x * texel,
@@ -333,7 +343,8 @@ namespace
 
     std::vector<std::byte> NullDevice::doReadTexture(TextureHandle texture, std::uint32_t mip)
     {
-        return m_state->textures.find(texture)->mips[mip];
+        const NullTexture* const source = m_state->textures.find(texture);
+        return source->mips[mipIndex(source->desc, 0, mip)];
     }
 
     BufferHandle NullDevice::doCreateBuffer(const BufferDesc& desc)
@@ -434,7 +445,8 @@ namespace
                     const std::array<std::byte, 8> texel =
                         encodeTexel(target.desc.format, attachment.clear);
                     const std::size_t size = bytesPerTexel(target.desc.format);
-                    std::vector<std::byte>& bytes = target.mips[attachment.mip];
+                    std::vector<std::byte>& bytes =
+                        target.mips[mipIndex(target.desc, attachment.layer, attachment.mip)];
                     for ( std::size_t at = 0; at < bytes.size(); at += size )
                     {
                         std::memcpy(bytes.data() + at, texel.data(), size);
@@ -451,8 +463,10 @@ namespace
                 const std::size_t sourceStride = rowBytes(source.desc, region.mip);
                 const std::size_t destinationStride =
                     rowBytes(destination.desc, copy->destinationMip);
-                const std::vector<std::byte>& from = source.mips[region.mip];
-                std::vector<std::byte>& to = destination.mips[copy->destinationMip];
+                const std::vector<std::byte>& from =
+                    source.mips[mipIndex(source.desc, 0, region.mip)];
+                std::vector<std::byte>& to =
+                    destination.mips[mipIndex(destination.desc, 0, copy->destinationMip)];
                 for ( std::uint32_t row = 0; row < region.height; ++row )
                 {
                     std::memcpy(

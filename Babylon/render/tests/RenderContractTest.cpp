@@ -176,6 +176,7 @@ TEST_CASE("A render device reports what it is and what it accepts")
         CHECK(info.shaderFormats != ShaderFormat::None);
         // The floors every backend must reach, so callers can rely on them.
         CHECK(info.limits.maxTextureDimension >= 4096);
+        CHECK(info.limits.maxTextureLayers >= 256);
         CHECK(info.limits.maxBufferSize >= 16u * 1024u * 1024u);
         CHECK(isColorFormat(info.swapchainFormat));
         CHECK(device.supportsFormat(info.swapchainFormat, TextureUsage::ColorTarget));
@@ -341,6 +342,141 @@ TEST_CASE("Invalid texture descs are refused with one warning each")
         noWarning(sink);
         device.destroyTexture(widest);
         device.destroyTexture(fullChain);
+    });
+}
+
+TEST_CASE("A 2D array texture is created within the layer limit")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const std::uint32_t maxLayers = device.info().limits.maxTextureLayers;
+        const TextureUsage usage = TextureUsage::DepthTarget | TextureUsage::Sampled;
+        const TextureFormat format = device.supportsFormat(TextureFormat::D32F, usage)
+            ? TextureFormat::D32F : TextureFormat::D24S8;
+        REQUIRE(device.supportsFormat(format, usage));
+
+        TextureDesc desc{ 8, 8, 1, format, usage };
+        desc.layers = 2;
+        const TextureHandle two = device.createTexture(desc);
+        CHECK_FALSE(two.isNull());
+        desc.layers = maxLayers;
+        const TextureHandle full = device.createTexture(desc);
+        CHECK_FALSE(full.isNull());
+        noWarning(sink);
+
+        // 0 layers and past the limit are refused with one warning each.
+        desc.layers = 0;
+        CHECK(device.createTexture(desc).isNull());
+        oneWarning(sink);
+        desc.layers = maxLayers + 1;
+        CHECK(device.createTexture(desc).isNull());
+        oneWarning(sink);
+
+        device.destroyTexture(two);
+        device.destroyTexture(full);
+        noWarning(sink);
+    });
+}
+
+TEST_CASE("Attachments name a layer within the texture's layers")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const TextureUsage depthUsage = TextureUsage::DepthTarget | TextureUsage::Sampled;
+        const TextureFormat depthFormat = device.supportsFormat(TextureFormat::D32F, depthUsage)
+            ? TextureFormat::D32F : TextureFormat::D24S8;
+        const TextureUsage colorUsage = TextureUsage::ColorTarget | TextureUsage::Sampled;
+        REQUIRE(device.supportsFormat(depthFormat, depthUsage));
+        REQUIRE(device.supportsFormat(TextureFormat::Rgba8, colorUsage));
+
+        TextureDesc depthDesc{ 8, 8, 1, depthFormat, depthUsage };
+        depthDesc.layers = 2;
+        TextureDesc colorDesc{ 8, 8, 1, TextureFormat::Rgba8, colorUsage };
+        colorDesc.layers = 2;
+        const TextureHandle depth = device.createTexture(depthDesc);
+        const TextureHandle color = device.createTexture(colorDesc);
+        REQUIRE_FALSE(depth.isNull());
+        REQUIRE_FALSE(color.isNull());
+        noWarning(sink);
+
+        // A layer within range runs; a layer past the texture's layers drops
+        // the pass with one warning, like the other invalid passes.
+        CommandList accepted = device.beginFrame();
+        PassDesc inRange;
+        inRange.colorTargets = { ColorAttachment{ color, 0, LoadOp::Clear, StoreOp::Store,
+            ClearColor{}, 1 } };
+        inRange.depthTarget = DepthAttachment{ depth, LoadOp::Clear, StoreOp::Store, 1.0f, 0, 1 };
+        REQUIRE(accepted.beginPass(inRange));
+        REQUIRE(accepted.endPass());
+        CHECK(device.submit(accepted));
+        noWarning(sink);
+
+        CommandList badDepth = device.beginFrame();
+        PassDesc depthOutOfRange;
+        depthOutOfRange.depthTarget = DepthAttachment{ depth, LoadOp::Clear, StoreOp::Store,
+            1.0f, 0, 2 };
+        REQUIRE(badDepth.beginPass(depthOutOfRange));
+        REQUIRE(badDepth.endPass());
+        CHECK(device.submit(badDepth));
+        oneWarning(sink);
+
+        CommandList badColor = device.beginFrame();
+        PassDesc colorOutOfRange;
+        colorOutOfRange.colorTargets = { ColorAttachment{ color, 0, LoadOp::Clear,
+            StoreOp::Store, ClearColor{}, 2 } };
+        REQUIRE(badColor.beginPass(colorOutOfRange));
+        REQUIRE(badColor.endPass());
+        CHECK(device.submit(badColor));
+        oneWarning(sink);
+
+        device.destroyTexture(depth);
+        device.destroyTexture(color);
+        noWarning(sink);
+    });
+}
+
+TEST_CASE("Upload, readback and copies refuse layered textures")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const TextureUsage usage = TextureUsage::ColorTarget | TextureUsage::Sampled;
+        TextureDesc arrayDesc{ 8, 8, 1, TextureFormat::Rgba8, usage };
+        arrayDesc.layers = 2;
+        const TextureHandle array = device.createTexture(arrayDesc);
+        const TextureHandle single = device.createTexture(TextureDesc{ 8, 8, 1,
+            TextureFormat::Rgba8, usage });
+        REQUIRE_FALSE(array.isNull());
+        REQUIRE_FALSE(single.isNull());
+        const std::vector<std::byte> bytes = pattern(8 * 8 * 4, 21);
+        REQUIRE(device.uploadTexture(single, 0, bytes));
+        noWarning(sink);
+
+        CHECK_FALSE(device.uploadTexture(array, 0, bytes));
+        oneWarning(sink);
+        CHECK(device.readTexture(array, 0).empty());
+        oneWarning(sink);
+        CHECK(device.readTexture(single, 0) == bytes);
+
+        // A copy from or to a layered texture is dropped at submit with one
+        // warning and changes nothing.
+        CommandList fromArray = device.beginFrame();
+        fromArray.copyTexture(array, TextureRegion{ 0, 0, 0, 2, 2 }, single, 0, 0, 0);
+        CHECK(device.submit(fromArray));
+        oneWarning(sink);
+        CHECK(device.readTexture(single, 0) == bytes);
+
+        CommandList toArray = device.beginFrame();
+        toArray.copyTexture(single, TextureRegion{ 0, 0, 0, 2, 2 }, array, 0, 0, 0);
+        CHECK(device.submit(toArray));
+        oneWarning(sink);
+        CHECK(device.readTexture(single, 0) == bytes);
+
+        device.destroyTexture(array);
+        device.destroyTexture(single);
+        noWarning(sink);
     });
 }
 
@@ -702,6 +838,27 @@ TEST_CASE("Samplers accept every filter combination and anisotropy level")
 
         device.destroySampler(sampler);
         noWarning(sink);
+    });
+}
+
+TEST_CASE("Comparison samplers are created with every compare operation")
+{
+    forEachDevice([](Device& device)
+    {
+        CaptureSink sink;
+        const CompareOp ops[] = { CompareOp::Never, CompareOp::Less, CompareOp::Equal,
+            CompareOp::LessOrEqual, CompareOp::Greater, CompareOp::NotEqual,
+            CompareOp::GreaterOrEqual, CompareOp::Always };
+        for ( const CompareOp op : ops )
+        {
+            SamplerDesc desc;
+            desc.compare = op;
+            const SamplerHandle sampler = device.createSampler(desc);
+            CHECK_FALSE(sampler.isNull());
+            noWarning(sink);
+            device.destroySampler(sampler);
+            noWarning(sink);
+        }
     });
 }
 

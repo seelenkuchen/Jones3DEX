@@ -88,11 +88,18 @@ namespace babylon::render
             == static_cast<std::uint8_t>(flags);
     }
 
-    // One 2D texture with a full or partial mip chain. Mip 0 is width x
-    // height; each further level halves both, rounding down, but never below
-    // 1. Device::createTexture() refuses a size of 0, a dimension above
+    // One 2D texture with a full or partial mip chain, or with layers
+    // greater than 1 a 2D array of that many layers (HLSL Texture2DArray).
+    // Mip 0 is width x height; each further level halves both, rounding
+    // down, but never below 1, and every layer has the same mip chain.
+    // Device::createTexture() refuses a size of 0, a dimension above
     // DeviceInfo::limits.maxTextureDimension, mipLevels of 0 or above
-    // maxMipLevels(), and a format the device doesn't support for the usage.
+    // maxMipLevels(), layers of 0 or above maxTextureLayers, and a format
+    // the device doesn't support for the usage.
+    //
+    // Arrays are render targets and sampled resources only for now:
+    // uploadTexture(), readTexture() and copyTexture() work on single-layer
+    // textures only and refuse a layered one.
     struct TextureDesc
     {
         std::uint32_t width = 0;
@@ -100,6 +107,9 @@ namespace babylon::render
         std::uint32_t mipLevels = 1;
         TextureFormat format = TextureFormat::Rgba8;
         TextureUsage usage = TextureUsage::Sampled;
+
+        // 1 for a plain 2D texture, more for a 2D array.
+        std::uint32_t layers = 1;
 
         bool operator==(const TextureDesc&) const = default;
     };

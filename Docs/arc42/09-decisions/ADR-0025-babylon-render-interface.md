@@ -93,3 +93,24 @@ honors the whole contract, and contract tests that run against every backend
   existing formats don't change.
 - Contract and shader-draw tests cover creating, clearing, uploading, reading and sampling it on both
   backends, as they do for the other color formats.
+
+## Amendment (2026-11-24): comparison samplers, 2D arrays and depth bias
+
+- `CompareOp` moves to its own header, `CompareOp.h`, which `Pipeline.h` and `Sampler.h` include, so a
+  `SamplerDesc` can name a comparison operation without a pipeline. `SamplerDesc::compare` is an optional
+  `CompareOp`: when set, the sampler reads a depth texture through the shader's `SampleCmp` or
+  `SampleCmpLevelZero`, comparing the texel with the reference the shader passes and returning the filtered
+  0..1 result, so Linear filters give hardware PCF. Empty samples normally; the comparison is only
+  meaningful on depth textures.
+- `TextureDesc::layers` is 1 for a plain 2D texture and more for a 2D array (HLSL `Texture2DArray`), with
+  the same mip chain on every layer. `DeviceLimits::maxTextureLayers` is 256 on both backends, the minimum
+  every backend guarantees. `Device::createTexture()` refuses layers 0 and above the limit. A pass names the
+  layer of a 2D array target with `ColorAttachment::layer` and `DepthAttachment::layer` and is dropped when
+  the layer is out of range. Arrays are render targets and sampled resources for now: upload, readback and
+  copy refuse a layered texture with one warning, as they did for depth textures.
+- `DepthState` gains `depthBiasConstant`, `depthBiasSlope` and `depthBiasClamp`; any non-zero value enables
+  the bias, and `Device::createPipeline()` refuses non-finite values and bias without a depth format. The
+  SDL GPU backend maps them to the rasterizer's depth-bias factors.
+- Contract tests cover the new fields on Null and SDL GPU, and a shader-draw test renders a depth-only
+  caster into one layer of a D32F array, samples it through a comparison sampler, and shows a second
+  pipeline whose depth bias moves the caster behind the reference.
