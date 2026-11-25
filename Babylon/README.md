@@ -56,6 +56,14 @@ pipeline per frame, turns the clip stack into scissor rectangles, and can target
 the swapchain or an offscreen color target. Its shaders are compiled at build
 time, so the module is built only when `BABYLON_BUILD_SHADERS` is on.
 
+`postfx` runs a chain of full-screen post-processing effects over a rendered scene (ADR-0043). An
+`Effect` records its passes from one input texture into one output texture, given the frame's color,
+optional depth and normals, size, projection and game time; `Chain` runs the HDR effects, the resolve
+tone map and the LDR effects in order over pooled scratch targets, and a `Resources` holds the shared
+clamping samplers and full-screen vertex shader. Effects own their pipelines and can also be recorded
+alone, without the chain. Its shaders are compiled at build time, so it too needs
+`BABYLON_BUILD_SHADERS`.
+
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`
 (passes, bindings, draws, copies) and submitted once, and `Device::submit`
