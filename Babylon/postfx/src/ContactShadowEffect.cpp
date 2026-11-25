@@ -6,6 +6,7 @@
 #include <babylon/postfx/ContactShadowEffect.h>
 
 #include <babylon/postfx/Resources.h>
+#include <babylon/postfx/TargetPool.h>
 
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
@@ -24,13 +25,12 @@ namespace babylon::postfx
 {
     namespace
     {
-        // Matches the cbuffer in shaders/contact_shadow.frag.hlsl.
-        struct alignas(16) ContactShadowUniforms
+        // Matches the cbuffer in shaders/contact_shadow_mask.frag.hlsl.
+        struct alignas(16) ContactShadowMaskUniforms
         {
             float lightDirection[3];
             float length;
             float thickness;
-            float strength;
             std::uint32_t steps;
             std::uint32_t receiverClasses;
             float fadeStart;
@@ -43,9 +43,32 @@ namespace babylon::postfx
             float tanHalfFovY;
             float inputWidth;
             float inputHeight;
+            float padding[3];
+        };
+        static_assert(sizeof(ContactShadowMaskUniforms) == 80);
+
+        // Matches the cbuffer in shaders/contact_shadow_blur.frag.hlsl.
+        struct alignas(16) ContactShadowBlurUniforms
+        {
+            float nearPlane;
+            float farPlane;
+            float depthNear;
+            float depthFar;
+            float inputWidth;
+            float inputHeight;
             float padding[2];
         };
-        static_assert(sizeof(ContactShadowUniforms) == 80);
+        static_assert(sizeof(ContactShadowBlurUniforms) == 32);
+
+        // Matches the cbuffer in shaders/contact_shadow_composite.frag.hlsl.
+        struct alignas(16) ContactShadowCompositeUniforms
+        {
+            float strength;
+            std::uint32_t receiverClasses;
+            float depthNear;
+            float depthFar;
+        };
+        static_assert(sizeof(ContactShadowCompositeUniforms) == 16);
 
         constexpr float kSmallestLength = 1.0e-4f;
     }
@@ -103,12 +126,22 @@ namespace babylon::postfx
     {
         if ( m_device != nullptr )
         {
-            for ( const auto& entry : m_pipelines )
+            for ( const auto& entry : m_maskPipelines )
+            {
+                m_device->destroyPipeline(entry.second);
+            }
+            for ( const auto& entry : m_blurPipelines )
+            {
+                m_device->destroyPipeline(entry.second);
+            }
+            for ( const auto& entry : m_compositePipelines )
             {
                 m_device->destroyPipeline(entry.second);
             }
         }
-        m_pipelines.clear();
+        m_maskPipelines.clear();
+        m_blurPipelines.clear();
+        m_compositePipelines.clear();
         m_device = nullptr;
     }
 
@@ -127,41 +160,79 @@ namespace babylon::postfx
             return false;
         }
 
-        render::PipelineHandle pipeline;
-        for ( const auto& entry : m_pipelines )
+        // Two scene-sized scratch targets: the mask and its blur.
+        const render::TextureHandle maskTarget = ctx.targets.acquire(ctx.inputWidth,
+            ctx.inputHeight, render::TextureFormat::Rgba8);
+        if ( maskTarget.isNull() )
         {
-            if ( entry.first == ctx.outputFormat )
-            {
-                pipeline = entry.second;
-                break;
-            }
+            log::warning("postfx: contact shadows: the mask target could not be acquired");
+            return false;
         }
 
-        if ( pipeline.isNull() )
+        const render::TextureHandle blurTarget = ctx.targets.acquire(ctx.inputWidth,
+            ctx.inputHeight, render::TextureFormat::Rgba8);
+        if ( blurTarget.isNull() )
         {
+            log::warning("postfx: contact shadows: the blur target could not be acquired");
+            return false;
+        }
+
+        const auto getPipeline = [this, &ctx](
+            std::vector<std::pair<render::TextureFormat, render::PipelineHandle>>& pipelines,
+            render::TextureFormat format, const render::ShaderDesc& fragmentShader)
+        {
+            for ( const auto& entry : pipelines )
+            {
+                if ( entry.first == format )
+                {
+                    return entry.second;
+                }
+            }
+
             render::PipelineDesc desc;
             desc.vertexShader   = Resources::fullscreenVertexShader();
-            desc.fragmentShader = shaders::contactShadowFrag();
+            desc.fragmentShader = fragmentShader;
             desc.primitive      = render::PrimitiveType::TriangleList;
-            desc.colorTargets   = { render::ColorTargetDesc{ ctx.outputFormat,
-                render::BlendState{} } };
+            desc.colorTargets   = { render::ColorTargetDesc{ format, render::BlendState{} } };
 
             m_device = &ctx.resources.device();
-            pipeline = m_device->createPipeline(desc);
-            if ( pipeline.isNull() )
+            const render::PipelineHandle pipeline = m_device->createPipeline(desc);
+            if ( !pipeline.isNull() )
             {
-                log::warning("postfx: contact shadows: the pipeline could not be created");
-                return false;
+                pipelines.emplace_back(format, pipeline);
             }
-            m_pipelines.emplace_back(ctx.outputFormat, pipeline);
+            return pipeline;
+        };
+
+        const render::PipelineHandle maskPipeline = getPipeline(m_maskPipelines,
+            render::TextureFormat::Rgba8, shaders::contactShadowMaskFrag());
+        if ( maskPipeline.isNull() )
+        {
+            log::warning("postfx: contact shadows: the mask pipeline could not be created");
+            return false;
+        }
+
+        const render::PipelineHandle blurPipeline = getPipeline(m_blurPipelines,
+            render::TextureFormat::Rgba8, shaders::contactShadowBlurFrag());
+        if ( blurPipeline.isNull() )
+        {
+            log::warning("postfx: contact shadows: the blur pipeline could not be created");
+            return false;
+        }
+
+        const render::PipelineHandle compositePipeline = getPipeline(m_compositePipelines,
+            ctx.outputFormat, shaders::contactShadowCompositeFrag());
+        if ( compositePipeline.isNull() )
+        {
+            log::warning("postfx: contact shadows: the composite pipeline could not be created");
+            return false;
         }
 
         const Projection& projection = ctx.frame.projection;
-        const ContactShadowUniforms uniforms{
+        const ContactShadowMaskUniforms maskUniforms{
             { m_lightDirection[0], m_lightDirection[1], m_lightDirection[2] },
             m_settings.length,
             m_settings.thickness,
-            m_settings.strength,
             m_settings.steps,
             m_settings.receiverClasses,
             m_settings.fadeStart,
@@ -174,13 +245,49 @@ namespace babylon::postfx
             projection.tanHalfFovY,
             static_cast<float>(ctx.inputWidth),
             static_cast<float>(ctx.inputHeight),
+            { 0.0f, 0.0f, 0.0f } };
+
+        const ContactShadowBlurUniforms blurUniforms{
+            projection.nearPlane,
+            projection.farPlane,
+            projection.depthNear,
+            projection.depthFar,
+            static_cast<float>(ctx.inputWidth),
+            static_cast<float>(ctx.inputHeight),
             { 0.0f, 0.0f } };
 
-        const render::TextureHandle textures[3] = { ctx.input, ctx.frame.depth,
+        const ContactShadowCompositeUniforms compositeUniforms{
+            m_settings.strength,
+            m_settings.receiverClasses,
+            projection.depthNear,
+            projection.depthFar };
+
+        // Mask: depth and normals in, the shadow amount out.
+        const render::TextureHandle maskTextures[2] = { ctx.frame.depth,
             needsNormals ? ctx.frame.normals : ctx.frame.depth };
-        return Resources::recordFullscreenPass(ctx.list, ctx.output, pipeline,
-            std::span<const render::TextureHandle>(textures, 3), ctx.resources.nearestClamp(),
-            std::as_bytes(std::span(&uniforms, 1)));
+        if ( !Resources::recordFullscreenPass(ctx.list, maskTarget, maskPipeline,
+            std::span<const render::TextureHandle>(maskTextures, 2),
+            ctx.resources.nearestClamp(), std::as_bytes(std::span(&maskUniforms, 1))) )
+        {
+            return false;
+        }
+
+        // Blur: the mask and the depth to weight its taps in, a smoothed mask out.
+        const render::TextureHandle blurTextures[2] = { maskTarget, ctx.frame.depth };
+        if ( !Resources::recordFullscreenPass(ctx.list, blurTarget, blurPipeline,
+            std::span<const render::TextureHandle>(blurTextures, 2),
+            ctx.resources.nearestClamp(), std::as_bytes(std::span(&blurUniforms, 1))) )
+        {
+            return false;
+        }
+
+        // Composite: depth and normals in the mask pass's slots, then the input colour
+        // and the blurred mask. It repeats the receiver test so non-receivers stay exact.
+        const render::TextureHandle compositeTextures[4] = { ctx.frame.depth,
+            needsNormals ? ctx.frame.normals : ctx.frame.depth, ctx.input, blurTarget };
+        return Resources::recordFullscreenPass(ctx.list, ctx.output, compositePipeline,
+            std::span<const render::TextureHandle>(compositeTextures, 4),
+            ctx.resources.nearestClamp(), std::as_bytes(std::span(&compositeUniforms, 1)));
     }
 
 }

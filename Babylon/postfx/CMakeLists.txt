@@ -12,7 +12,8 @@ babylon_add_module(postfx
 babylon_add_shaders(babylon_postfx
     NAMESPACE babylon::postfx::shaders
     SOURCES shaders/fullscreen.vert.hlsl shaders/copy.frag.hlsl shaders/vignette.frag.hlsl
-        shaders/film_grain.frag.hlsl shaders/contact_shadow.frag.hlsl)
+        shaders/film_grain.frag.hlsl shaders/contact_shadow_mask.frag.hlsl
+        shaders/contact_shadow_blur.frag.hlsl shaders/contact_shadow_composite.frag.hlsl)
 
 babylon_add_module_tests(postfx
     DEPS log render

@@ -39,25 +39,30 @@ namespace
     using namespace babylon::render;
 
     constexpr std::uint32_t kSize = 64;
-    constexpr float kHalfFovX = 0.75f;
-    constexpr float kHalfFovY = 0.75f;
-    constexpr float kNear = 0.1f;
+    constexpr float kHalfFovX = 1.245f;
+    constexpr float kHalfFovY = 20.0f;
+    constexpr float kNear = 0.01f;
     constexpr float kFar = 100.0f;
     constexpr float kDepthNear = 0.1f;
     constexpr float kDepthFar = 1.0f;
     constexpr float kFloorY = -1.0f;
-    constexpr float kBoxMinX = 0.0f;
-    constexpr float kBoxMaxX = 0.3f;
+    constexpr float kBoxMinX = 0.05f;
+    constexpr float kBoxMaxX = 0.07f;
     constexpr float kBoxTopY = -0.3f;
 
-    // The test row just above the box's bottom edge. The floor there lies a
-    // little behind the box's front face, inside the default thickness, so the
-    // pixel just left of the box base is a contact shadow.
+    // The box front sits in front of the floor by less than the default
+    // thickness over a band of rows, so the floor to its left is a wide contact
+    // shadow. The test row runs through the middle of that band.
     constexpr std::uint32_t kFloorRow = 50;
-    constexpr std::uint32_t kShadowedColumn = 31;   // just left of the box
+    constexpr std::uint32_t kShadowedColumn = 20;   // left of the box
     constexpr std::uint32_t kFarFloorColumn = 5;
-    constexpr std::uint32_t kBoxTopColumn = 34;
-    constexpr std::uint32_t kBoxTopRow = 37;
+    constexpr std::uint32_t kBoxTopColumn = 54;
+    constexpr std::uint32_t kBoxTopRow = 38;
+
+    // An 8x8 block well inside the shadow, for the smoothness check.
+    constexpr std::uint32_t kSmoothColumn = 20;
+    constexpr std::uint32_t kSmoothRow = 47;
+    constexpr std::uint32_t kSmoothSize = 8;
 
     std::string joined(const babylon::log::CaptureSink& sink)
     {
@@ -122,6 +127,32 @@ namespace
         return texture;
     }
 
+    // An Rgba8 normals texture that tags the left half of the screen class 3
+    // (an ordinary receiver) and the right half class 2 (sky in the receiver
+    // mask), so the tagged half is adjacent to the shadowed ordinary floor.
+    TextureHandle makeMixedNormals(Device& device, std::uint32_t width, std::uint32_t height)
+    {
+        std::vector<std::byte> texels(static_cast<std::size_t>(width) * height * 4u);
+        for ( std::uint32_t y = 0; y < height; ++y )
+        {
+            for ( std::uint32_t x = 0; x < width; ++x )
+            {
+                const std::size_t index = (static_cast<std::size_t>(y) * width + x) * 4u;
+                const bool receiver     = x < width / 2u;
+                texels[index + 0u] = std::byte{ 128 };
+                texels[index + 1u] = std::byte{ 128 };
+                texels[index + 2u] = std::byte{ 255 };
+                texels[index + 3u] = receiver ? std::byte{ 255 } : std::byte{ 170 };
+            }
+        }
+
+        const TextureHandle texture = device.createTexture(TextureDesc{ width, height, 1,
+            TextureFormat::Rgba8, TextureUsage::Sampled });
+        REQUIRE_FALSE(texture.isNull());
+        REQUIRE(device.uploadTexture(texture, 0, texels));
+        return texture;
+    }
+
     // Matches the cbuffer in tests/shaders/scene_depth.frag.hlsl.
     struct alignas(16) SceneUniforms
     {
@@ -141,9 +172,9 @@ namespace
     };
     static_assert(sizeof(SceneUniforms) == 64);
 
-    // The box front sits slightly in front of the floor depth at kFloorRow, so
-    // a floor pixel just left of the base has the box front close enough in
-    // depth to count as a blocker rather than a gap.
+    // The box front sits in front of the floor depth at kFloorRow by less than
+    // the default thickness, so a floor pixel left of the base has the box
+    // front close enough in depth to count as a blocker rather than a gap.
     float floorDepthAtRow(std::uint32_t row)
     {
         const float v = (static_cast<float>(row) + 0.5f) / static_cast<float>(kSize);
@@ -152,15 +183,15 @@ namespace
 
     float boxFrontDepth()
     {
-        return floorDepthAtRow(kFloorRow) - 0.01f;
+        return floorDepthAtRow(kFloorRow) - 0.02f;
     }
 
     // Renders the synthetic scene's depth into depth with a depth-only
-    // full-screen pass. The scene is an infinite floor plane at y = -1 and an
-    // axis-aligned box standing on it, x in [0, 0.3], y in [-1, -0.3], z in
-    // [front, front + 0.3]. The camera is at the origin looking along +z. The
-    // top-left 8x8 pixels get a depth in front of the near plane (an overlay)
-    // and the sky gets the clear depth.
+    // full-screen pass. The scene is an infinite floor plane at y = kFloorY
+    // and an axis-aligned box standing on it, x in [kBoxMinX, kBoxMaxX], y in
+    // [kFloorY, kBoxTopY], z in [front, front + 0.3]. The camera is at the
+    // origin looking along +z. The top-left 8x8 pixels get a depth in front of
+    // the near plane (an overlay) and the sky gets the clear depth.
     void renderDepthScene(Device& device, TextureHandle depth, TextureFormat depthFormat)
     {
         const float front = boxFrontDepth();
@@ -295,6 +326,25 @@ namespace
         CHECK(ran[0] == "contact shadows");
         CHECK(ran[1] == "copy");
 
+        // The mask is smoothed by the blur, so the shadow over an 8x8 block in
+        // its middle has no dither pattern left: a low standard deviation.
+        double sum = 0.0;
+        double sumSquares = 0.0;
+        for ( std::uint32_t y = kSmoothRow; y < kSmoothRow + kSmoothSize; ++y )
+        {
+            for ( std::uint32_t x = kSmoothColumn; x < kSmoothColumn + kSmoothSize; ++x )
+            {
+                const double value = static_cast<double>(pixelAt(pixels, kSize, x, y)[0]) / 255.0;
+                sum += value;
+                sumSquares += value * value;
+            }
+        }
+        const double count = static_cast<double>(kSmoothSize * kSmoothSize);
+        const double mean = sum / count;
+        const double variance = sumSquares / count - mean * mean;
+        CHECK(mean < 0.5);
+        CHECK(std::sqrt(std::max(0.0, variance)) < 0.02);
+
         // Just left of the box base, on the side away from the light: the ray
         // starts toward the box and is blocked by its front face.
         const std::array<int, 4> shadowed = pixelAt(pixels, kSize, kShadowedColumn, kFloorRow);
@@ -305,12 +355,38 @@ namespace
         }
         CHECK(shadowed[3] == 255);
 
-        // The floor away from the box, the box top and the two kinds of
-        // non-scene depth are unchanged.
+        // The floor away from the box and the box top are unchanged; the two
+        // kinds of non-scene depth stay byte-exact.
         checkUnchanged(pixelAt(pixels, kSize, kFarFloorColumn, kFloorRow));
         checkUnchanged(pixelAt(pixels, kSize, kBoxTopColumn, kBoxTopRow));
-        checkUnchanged(pixelAt(pixels, kSize, 2, 2));   // overlay depth below depthNear
-        checkUnchanged(pixelAt(pixels, kSize, 40, 4));  // cleared depth
+        CHECK(pixelAt(pixels, kSize, 2, 2) == std::array<int, 4>{ 128, 128, 128, 255 });
+        CHECK(pixelAt(pixels, kSize, 40, 4) == std::array<int, 4>{ 128, 128, 128, 255 });
+
+        // Half the screen is tagged class 2 (sky) in the normals alpha, next to
+        // the shadowed ordinary floor. The tagged half takes no shadow at all,
+        // byte for byte, even where the blur carries a shadow across the edge.
+        const TextureHandle mixedNormals = makeMixedNormals(*device, kSize, kSize);
+        std::vector<std::string_view> mixedRan;
+        const std::vector<std::byte> mixed =
+            runScene(*device, &effect, color, depth, mixedNormals, projection, &mixedRan);
+        REQUIRE(mixed.size() == std::size_t{ kSize } * kSize * 4u);
+        REQUIRE(mixedRan.size() == 2);
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = kSize / 2u; x < kSize; ++x )
+            {
+                CHECK(pixelAt(mixed, kSize, x, y) == std::array<int, 4>{ 128, 128, 128, 255 });
+            }
+        }
+
+        // Just left of the tag edge the ordinary floor still takes its shadow:
+        // the tagged taps weigh nothing and cannot lighten it.
+        const std::array<int, 4> edgeShadow = pixelAt(mixed, kSize, kSize / 2u - 1u, kFloorRow);
+        for ( std::size_t channel = 0; channel < 3; ++channel )
+        {
+            const float value = static_cast<float>(edgeShadow[channel]) / 255.0f;
+            CHECK(value <= 0.5f * (1.0f - 0.5f * effect.settings().strength) + 1.0f / 255.0f);
+        }
 
         // Strength 0 skips the effect, leaving a byte-identical copy.
         ContactShadowEffect inactive;
@@ -332,6 +408,7 @@ namespace
 
         device->destroyTexture(color);
         device->destroyTexture(normals);
+        device->destroyTexture(mixedNormals);
         device->destroyTexture(depth);
     }
 }

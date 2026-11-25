@@ -3,29 +3,28 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-// Screen-space contact shadows: marches a short ray from each pixel toward a
-// directional light through the depth buffer. A sample blocks when the stored
-// surface is in front of the ray point, but not by more than the thickness, so
-// a thin object does not cast from a gap behind it. The result darkens the
-// input colour where the ray is blocked.
+// Screen-space contact shadows, mask pass: marches a short ray from each
+// receiver toward a directional light through the depth buffer and writes the
+// shadow amount to red. A sample blocks when the stored surface is in front of
+// the ray point, but not by more than the thickness, so a thin object does not
+// cast from a gap behind it. Green is 1 for a receiver and 0 otherwise, so the
+// blur can ignore taps that do not receive shadows. Pixels that are not
+// receivers write 0 to both channels.
 
-Texture2D<float4> gColor : register(t0, space2);
-Texture2D<float> gDepth : register(t1, space2);
-Texture2D<float4> gNormals : register(t2, space2);
+Texture2D<float> gDepth : register(t0, space2);
+Texture2D<float4> gNormals : register(t1, space2);
 // One sampler state per texture: SDL_shadercross's reflection counts a
 // sampler shared by several textures as storage textures, which the shader
 // build refuses. The pass binds the same nearest, clamped sampler to every
 // slot, so the filtering is identical.
-SamplerState gColorSampler : register(s0, space2);
-SamplerState gDepthSampler : register(s1, space2);
-SamplerState gNormalsSampler : register(s2, space2);
+SamplerState gDepthSampler : register(s0, space2);
+SamplerState gNormalsSampler : register(s1, space2);
 
-cbuffer ContactShadowParams : register(b0, space3)
+cbuffer ContactShadowMaskParams : register(b0, space3)
 {
     float3 gLightDirection;
     float gLength;
     float gThickness;
-    float gStrength;
     uint gSteps;
     uint gReceiverClasses;
     float gFadeStart;
@@ -36,8 +35,9 @@ cbuffer ContactShadowParams : register(b0, space3)
     float gDepthFar;
     float gTanHalfFovX;
     float gTanHalfFovY;
-    float2 gInputSize;
-    float2 gPadding;
+    float gInputWidth;
+    float gInputHeight;
+    float3 gPadding;
 };
 
 // The positive view-space distance along the view axis of a depth texel.
@@ -61,21 +61,28 @@ bool isSceneDepth(float depthTexel)
     return depthTexel >= gDepthNear && depthTexel < gDepthFar - 1.0e-6;
 }
 
-// Interleaved-gradient noise in [0,1): a deterministic hash of the pixel
-// position, so the ray start jitter hides banding without any time input.
-float pixelJitter(float2 pixel)
+// The Bayer 4x4 ordered matrix, 0..15 in reading order. Its values, divided by
+// 16 and shifted by half a step, give the fixed 4x4 jitter tile the blur
+// averages exactly. Deterministic, with no time input.
+static const uint kBayer4x4[16] = {
+    0, 8, 2, 10,
+    12, 4, 14, 6,
+    3, 11, 1, 9,
+    15, 7, 13, 5
+};
+
+float orderedJitter(float2 pixel)
 {
-    return frac(52.9829189 * frac(0.06711056 * pixel.x + 0.00583715 * pixel.y));
+    uint2 tile = uint2(pixel) % 4u;
+    return (float(kBayer4x4[tile.y * 4u + tile.x]) + 0.5) / 16.0;
 }
 
 float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
 {
-    float4 color = gColor.Sample(gColorSampler, uv);
-
     float depth = gDepth.Sample(gDepthSampler, uv);
     if ( !isSceneDepth(depth) )
     {
-        return color;
+        return float4(0.0, 0.0, 0.0, 1.0);
     }
 
     if ( gReceiverClasses != 0xF )
@@ -83,14 +90,14 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
         uint receiverClass = (uint)round(saturate(gNormals.Sample(gNormalsSampler, uv).a) * 3.0);
         if ( ((gReceiverClasses >> receiverClass) & 1u) == 0u )
         {
-            return color;
+            return float4(0.0, 0.0, 0.0, 1.0);
         }
     }
 
     float z = linearViewDepth(depth);
     if ( z <= 0.0 )
     {
-        return color;
+        return float4(0.0, 0.0, 0.0, 1.0);
     }
 
     // Reconstruct the view-space position: x right, y up, z forward.
@@ -105,7 +112,7 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
         viewFade = 1.0 - smoothstep(gFadeStart, gFadeEnd, z);
     }
 
-    float jitter = pixelJitter(position.xy);
+    float jitter = orderedJitter(position.xy);
     float shadow = 0.0;
 
     for ( uint i = 0; i < gSteps; ++i )
@@ -141,12 +148,13 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
         float difference = samplePoint.z - sampleZ;
         if ( difference > 0.002 * samplePoint.z && difference <= gThickness )
         {
-            float rayFade = 1.0 - float(i) / float(gSteps);
+            // A later blocker still gives half shadow, so the fade along the
+            // ray does not hide the shadow at the far end.
+            float rayFade = 1.0 - 0.5 * float(i) / float(gSteps);
             shadow = rayFade * edgeFade * viewFade;
             break;
         }
     }
 
-    float3 rgb = color.rgb * (1.0 - gStrength * shadow);
-    return float4(rgb, color.a);
+    return float4(shadow, 1.0, 0.0, 1.0);
 }
