@@ -40,12 +40,16 @@ namespace babylon::shadow
     // towardLightReach extends the depth range toward the light beyond that
     // box, so a tall static caster can sit between the light and the dynamic
     // casters without being clipped. The larger range spends depth precision
-    // over a bigger span, so a D32F map is recommended. The projection's x/y
-    // origin is snapped to whole shadow-map texels (mapSize) so a moving camera
-    // does not make the shadow edges shimmer. towardLight need not be
-    // normalized; a zero vector, a non-finite or empty box, a negative margin,
-    // a negative or non-finite towardLightReach or a mapSize of 2 or less
-    // returns false.
+    // over a bigger span, so a D32F map is recommended. The x/y extent is
+    // quantized to one square extent, the larger axis rounded up to a step of
+    // a geometric ladder with ratio 2^(1/4) (E_q = 2^(ceil(4*log2(E))/4)), so
+    // a slightly resized caster keeps the same texel size; E_q is never smaller
+    // than the real extent, so every corner stays inside -1..1. The
+    // projection's x/y origin is snapped to whole shadow-map texels (mapSize)
+    // so a moving camera does not make the shadow edges shimmer. towardLight
+    // need not be normalized; a zero vector, a non-finite or empty box, a
+    // negative margin, a negative or non-finite towardLightReach or a mapSize
+    // of 2 or less returns false.
     [[nodiscard]] bool fitDirectional(const float towardLight[3], const Bounds& casters,
         float margin, std::uint32_t mapSize, Matrix4* pViewToShadowClip,
         float towardLightReach = 0.0f);

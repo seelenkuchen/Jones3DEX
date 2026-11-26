@@ -229,16 +229,17 @@ TEST_CASE("A directional shadow map blocks texels under a caster (GPU)")
     const std::vector<std::byte> pixels = device->readTexture(receive, 0);
     REQUIRE(pixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
 
-    // Under the caster the stored depth is nearer than the reference, so the
-    // comparison fails and the receive pass writes black.
-    CHECK(redAt(pixels, kSize / 2, kSize / 2) < 64);
-    CHECK(redAt(pixels, 180, 128) < 64);
+    // The quantized square extent is larger than the narrow z footprint, so
+    // the footprint sits below the map's vertical center: row 205 is its
+    // middle, row 128 is outside it.
+    CHECK(redAt(pixels, kSize / 2, 205) < 64);
+    CHECK(redAt(pixels, 180, 205) < 64);
 
     // Outside the caster the map is cleared to 1, which passes, so it is lit.
-    // (128, 230) is outside the narrow z footprint; (12, 128) is outside the
+    // (128, 128) is outside the narrow z footprint; (12, 205) is outside the
     // wide x footprint.
-    CHECK(redAt(pixels, 128, 230) > 191);
-    CHECK(redAt(pixels, 12, 128) > 191);
+    CHECK(redAt(pixels, 128, 128) > 191);
+    CHECK(redAt(pixels, 12, 205) > 191);
 
     device->destroyPipeline(receivePipeline);
     device->destroyTexture(receive);
@@ -289,14 +290,14 @@ TEST_CASE("A static caster within staticReach casts and one beyond does not (GPU
     REQUIRE_FALSE(receivePipeline.isNull());
 
     // A ledge well above the dynamic casters but within staticReach casts onto
-    // the center of the map.
+    // the middle of the fitted footprint, which row 205 crosses.
     const std::vector<std::byte> withinPixels = renderShadowFrame(*device, map, receive,
         receivePipeline, dynamicVertices, &within);
     REQUIRE(withinPixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
     CHECK(map.isValid());
-    CHECK(redAt(withinPixels, kSize / 2, kSize / 2) < 64);
-    CHECK(redAt(withinPixels, 38, 128) < 64);
-    CHECK(redAt(withinPixels, 217, 128) < 64);
+    CHECK(redAt(withinPixels, kSize / 2, 205) < 64);
+    CHECK(redAt(withinPixels, 38, 205) < 64);
+    CHECK(redAt(withinPixels, 217, 205) < 64);
     CHECK(redAt(withinPixels, 128, 40) > 191);
     CHECK(redAt(withinPixels, 128, 220) > 191);
 
@@ -306,9 +307,9 @@ TEST_CASE("A static caster within staticReach casts and one beyond does not (GPU
         receivePipeline, dynamicVertices, &beyond);
     REQUIRE(beyondPixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
     CHECK(map.isValid());
-    CHECK(redAt(beyondPixels, kSize / 2, kSize / 2) > 191);
-    CHECK(redAt(beyondPixels, 38, 128) < 64);
-    CHECK(redAt(beyondPixels, 217, 128) < 64);
+    CHECK(redAt(beyondPixels, kSize / 2, 205) > 191);
+    CHECK(redAt(beyondPixels, 38, 205) < 64);
+    CHECK(redAt(beyondPixels, 217, 205) < 64);
 
     device->destroyPipeline(receivePipeline);
     device->destroyTexture(receive);
