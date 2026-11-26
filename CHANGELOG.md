@@ -3,12 +3,13 @@
   - **Contact shadows** (`engine.renderer.contactShadows`, on by default in Enhanced, off in Retail): surfaces whose
     short path toward a fixed overhead light (35 degrees from vertical) is blocked by nearby geometry are darkened,
     so characters and props are grounded; Indy's hat shades his face and his legs cast a soft shadow beside his
-    feet. Water, sky and the first-person view are left alone, and the HUD and menus are never shaded. The Options
-    row comes with M11.5; until then the setting is in `Jones.cfg`. Presentation only: traces are unchanged.
+    feet. Water, sky and the first-person view are left alone, and the HUD and menus are never shaded.
+    **Options > Display** has a **Contact shadows** row. Presentation only: traces are unchanged.
   - **Character shadows** (`engine.renderer.shadows`, on by default in Enhanced, off in Retail): the things that
     carry the original blob shadow now cast a real shadow from the same fixed overhead light into a 2048
     shadow map, and the blob is not drawn while the option is on. Off, or when the map cannot be made, the blob
-    stays and the image is unchanged. Presentation only: traces are unchanged.
+    stays and the image is unchanged. **Options > Display** has a **Shadows** row. Presentation only: traces are
+    unchanged.
   - Vignette and film grain are now drawn by the Babylon Engine's new post-processing module; they look the same
     as before.
 
