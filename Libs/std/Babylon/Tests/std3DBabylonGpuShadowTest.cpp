@@ -3,6 +3,8 @@
 // Part of the std3D Babylon adapter tests; see std3DBabylonTest.cpp for the fixture overview.
 #include "std3DBabylonTestSupport.h"
 
+#include "../std3DBabylonInternal.h"
+
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -97,6 +99,11 @@ namespace
 
         DrawShadowCasterQuad();
 
+        // M11.2g. The same caster is also drawn as a visible, caster-flagged quad on the floor in the
+        // shadowed region: it casts onto the floor, but its own pixels must not receive the shadow.
+        DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 30.0f, 42.0f, 33.0f, 45.0f,
+            SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), 0xFFCC3030u);
+
         if ( bSkyAndHud )
         {
             DrawQuad(nullptr, STD3D_RS_SURFACE_SKY, 0.0f, 0.0f, 8.0f, 8.0f,
@@ -122,6 +129,7 @@ namespace
     {
         render::BeginPass begin;
         std::vector<render::BindTexture> aTextures;
+        std::vector<render::DrawIndexed> aDraws;
     };
 
     std::vector<RecordedPass> RecordedPasses()
@@ -140,6 +148,13 @@ namespace
                 if ( !aPasses.empty() )
                 {
                     aPasses.back().aTextures.push_back(*pBind);
+                }
+            }
+            else if ( const render::DrawIndexed* pDraw = std::get_if<render::DrawIndexed>(&command) )
+            {
+                if ( !aPasses.empty() )
+                {
+                    aPasses.back().aDraws.push_back(*pDraw);
                 }
             }
         }
@@ -162,6 +177,52 @@ namespace
             }
         }
         return nullptr;
+    }
+
+    // The depth-only shadow-map pass: no color target and a depth target.
+    size_t FindShadowMapPass(const std::vector<RecordedPass>& aPasses)
+    {
+        for ( size_t i = 0; i < aPasses.size(); ++i )
+        {
+            if ( aPasses[i].begin.desc.colorTargets.empty()
+                && aPasses[i].begin.desc.depthTarget.has_value()
+                && !aPasses[i].begin.desc.depthTarget->target.isNull() )
+            {
+                return i;
+            }
+        }
+        return aPasses.size();
+    }
+
+    // M11.2g's caster mask: one color target and the scene depth target, read-only.
+    size_t FindShadowMaskPass(const std::vector<RecordedPass>& aPasses,
+        render::TextureHandle sceneDepth)
+    {
+        for ( size_t i = 0; i < aPasses.size(); ++i )
+        {
+            if ( aPasses[i].begin.desc.colorTargets.size() == 1u
+                && aPasses[i].begin.desc.depthTarget.has_value()
+                && aPasses[i].begin.desc.depthTarget->target == sceneDepth )
+            {
+                return i;
+            }
+        }
+        return aPasses.size();
+    }
+
+    // The receive pass: the pass that reads the shadow map at texture slot 3.
+    size_t FindReceivePass(const std::vector<RecordedPass>& aPasses,
+        render::TextureHandle mapTarget)
+    {
+        for ( size_t i = 0; i < aPasses.size(); ++i )
+        {
+            const render::BindTexture* pSlot3 = FindSlot(aPasses[i], 3u);
+            if ( pSlot3 && pSlot3->texture == mapTarget )
+            {
+                return i;
+            }
+        }
+        return aPasses.size();
     }
 }
 
@@ -263,6 +324,202 @@ TEST(std3DBabylonGpu, ShadowMapRunsBeforeThePostChainAndReceiveBetweenContactAnd
     TEST_ASSERT_FALSE(receiveOutput.isNull());
 }
 
+TEST(std3DBabylonGpu, ShadowCasterDrawsAreMarkedAndOthersAreNot)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+
+    const StdVertexTL aVerts[3] = {
+        Vertex(2.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u),
+        Vertex(8.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u),
+        Vertex(2.0f, 8.0f, 0.5f, 1.0f, 0xFF708090u),
+    };
+    const StdVertexLit aLit[3] = {
+        LitVertex(aVerts[0], 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 1.0f),
+        LitVertex(aVerts[1], 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 1.0f),
+        LitVertex(aVerts[2], 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 1.0f),
+    };
+    uint16_t aIndices[3] = { 0u, 1u, 2u };
+
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    // A plain draw, then a TL and a lit caster: only the two marked triangles are casters.
+    std3D_DrawRenderList(nullptr, (Std3DRenderState)0,
+        const_cast<StdVertexTL*>(aVerts), 3u, aIndices, 3u);
+    std3D_DrawRenderList(nullptr, STD3D_RS_SHADOW_CASTER,
+        const_cast<StdVertexTL*>(aVerts), 3u, aIndices, 3u);
+    std3D_DrawRenderListLit(nullptr, STD3D_RS_SHADOW_CASTER,
+        const_cast<StdVertexLit*>(aLit), 3u, aIndices, 3u);
+
+    // Lines and points never become casters, even with the bit set.
+    std3D_SetRenderState(STD3D_RS_SHADOW_CASTER);
+    std3D_DrawLineStrip(const_cast<StdVertexTL*>(aVerts), 3u);
+    std3D_DrawPointList(const_cast<StdVertexTL*>(aVerts), 3u);
+
+    // Nor does a HUD-layer draw.
+    std3D_BeginHudLayer();
+    std3D_DrawRenderList(nullptr, STD3D_RS_SHADOW_CASTER,
+        const_cast<StdVertexTL*>(aVerts), 3u, aIndices, 3u);
+    std3D_EndHudLayer();
+    EndFrame();
+
+    const std::vector<std3DBabylonInternal::Std3DBabylonDraw>& aCasterDraws =
+        std3DBabylonInternal::std3DBabylon_GetShadowCasterDraws();
+    TEST_ASSERT_EQUAL_size_t(2u, aCasterDraws.size());
+    TEST_ASSERT_TRUE(aCasterDraws[0].bShadowCaster);
+    TEST_ASSERT_FALSE(aCasterDraws[0].bLit);
+    TEST_ASSERT_TRUE(aCasterDraws[1].bShadowCaster);
+    TEST_ASSERT_TRUE(aCasterDraws[1].bLit);
+}
+
+TEST(std3DBabylonGpu, ShadowMaskOnlyRunsWithTheRecordedMapAndACasterDraw)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+    UseShadowOnly();
+    SetShadowCamera();
+
+    const auto runScene = [](bool bAddCasterPolygon, bool bDrawFloor, bool bDrawCaster) {
+        Null().clearRecorded();
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        if ( bDrawFloor )
+        {
+            DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f,
+                SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), 0xFF909090u);
+        }
+        if ( bAddCasterPolygon )
+        {
+            DrawShadowCasterQuad();
+        }
+        if ( bDrawCaster )
+        {
+            DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 28.0f, 36.0f, 32.0f, 40.0f,
+                SceneDepthForEyeDepth(1.0f, 0.1f, 100.0f), 0xFFCC3030u);
+        }
+        EndFrame();
+        return RecordedPasses();
+    };
+
+    // Shadows off: no map, no mask and no receive.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    std::vector<RecordedPass> aPasses = runScene(true, true, true);
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(), FindShadowMapPass(aPasses));
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(),
+        FindShadowMaskPass(aPasses, stdRenderBabylon_GetDepthTarget()));
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(), FindReceivePass(aPasses, render::TextureHandle{}));
+
+    // Shadows on but the map was not recorded: a caster draw alone changes nothing.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    aPasses = runScene(false, true, true);
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(), FindShadowMapPass(aPasses));
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(),
+        FindShadowMaskPass(aPasses, stdRenderBabylon_GetDepthTarget()));
+
+    // The map is recorded but no caster draw was collected: the receive pass keeps a null mask.
+    aPasses = runScene(true, true, false);
+    const size_t mapIndex = FindShadowMapPass(aPasses);
+    TEST_ASSERT_TRUE(mapIndex < aPasses.size());
+    const render::TextureHandle mapTarget = aPasses[mapIndex].begin.desc.depthTarget->target;
+    const render::TextureHandle sceneDepth = stdRenderBabylon_GetDepthTarget();
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(), FindShadowMaskPass(aPasses, sceneDepth));
+    const size_t receiveIndex = FindReceivePass(aPasses, mapTarget);
+    TEST_ASSERT_TRUE(receiveIndex < aPasses.size());
+    const render::BindTexture* pMaskBind = FindSlot(aPasses[receiveIndex], 4u);
+    TEST_ASSERT_NOT_NULL(pMaskBind);
+    TEST_ASSERT_TRUE(pMaskBind->texture == sceneDepth);
+
+    // One caster draw: exactly one mask pass with one draw, and the receive pass samples it.
+    aPasses = runScene(true, true, true);
+    const size_t maskIndex = FindShadowMaskPass(aPasses, sceneDepth);
+    TEST_ASSERT_TRUE(maskIndex < aPasses.size());
+    TEST_ASSERT_TRUE(aPasses[maskIndex].begin.desc.depthTarget->load == render::LoadOp::Load);
+    TEST_ASSERT_TRUE(aPasses[maskIndex].begin.desc.depthTarget->store == render::StoreOp::Store);
+    TEST_ASSERT_TRUE(aPasses[maskIndex].begin.desc.colorTargets[0].load == render::LoadOp::Clear);
+    TEST_ASSERT_EQUAL_size_t(1u, aPasses[maskIndex].aDraws.size());
+
+    // The scene pass has the floor's draw, then the caster's.
+    size_t scenePassIndex = aPasses.size();
+    for ( size_t i = 0; i < aPasses.size(); ++i )
+    {
+        if ( aPasses[i].begin.desc.colorTargets.size() == 2u
+            && aPasses[i].begin.desc.depthTarget.has_value()
+            && aPasses[i].begin.desc.depthTarget->target == sceneDepth )
+        {
+            scenePassIndex = i;
+            break;
+        }
+    }
+    TEST_ASSERT_TRUE(scenePassIndex < aPasses.size());
+    TEST_ASSERT_EQUAL_size_t(2u, aPasses[scenePassIndex].aDraws.size());
+    TEST_ASSERT_TRUE(aPasses[maskIndex].aDraws[0] == aPasses[scenePassIndex].aDraws[1]);
+
+    const size_t maskedReceiveIndex = FindReceivePass(aPasses, mapTarget);
+    TEST_ASSERT_TRUE(maskedReceiveIndex < aPasses.size());
+    const render::BindTexture* pMaskedBind = FindSlot(aPasses[maskedReceiveIndex], 4u);
+    TEST_ASSERT_NOT_NULL(pMaskedBind);
+    TEST_ASSERT_FALSE(pMaskedBind->texture == sceneDepth);
+    TEST_ASSERT_TRUE(pMaskedBind->texture == PassTarget(aPasses[maskIndex]));
+}
+
+TEST(std3DBabylonGpu, ShadowMaskReplaysALitCasterDrawWithItsOwnPipeline)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+    UseShadowOnly();
+    SetShadowCamera();
+
+    const StdVertexTL aVerts[3] = {
+        Vertex(28.0f, 36.0f, SceneDepthForEyeDepth(1.0f, 0.1f, 100.0f), 1.0f, 0xFFCC3030u),
+        Vertex(32.0f, 36.0f, SceneDepthForEyeDepth(1.0f, 0.1f, 100.0f), 1.0f, 0xFFCC3030u),
+        Vertex(28.0f, 40.0f, SceneDepthForEyeDepth(1.0f, 0.1f, 100.0f), 1.0f, 0xFFCC3030u),
+    };
+    const StdVertexLit aLit[3] = {
+        LitVertex(aVerts[0], 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f),
+        LitVertex(aVerts[1], 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f),
+        LitVertex(aVerts[2], 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f),
+    };
+    uint16_t aIndices[3] = { 0u, 1u, 2u };
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    DrawShadowCasterQuad();
+    std3D_DrawRenderListLit(nullptr, STD3D_RS_SHADOW_CASTER,
+        const_cast<StdVertexLit*>(aLit), 3u, aIndices, 3u);
+    EndFrame();
+
+    const std::vector<RecordedPass> aPasses = RecordedPasses();
+    const size_t maskIndex = FindShadowMaskPass(aPasses, stdRenderBabylon_GetDepthTarget());
+    TEST_ASSERT_TRUE(maskIndex < aPasses.size());
+    TEST_ASSERT_EQUAL_size_t(1u, aPasses[maskIndex].aDraws.size());
+    TEST_ASSERT_EQUAL_UINT32(3u, aPasses[maskIndex].aDraws[0].indexCount);
+    TEST_ASSERT_EQUAL_UINT32(0u, aPasses[maskIndex].aDraws[0].firstIndex);
+    TEST_ASSERT_EQUAL_INT32(0, aPasses[maskIndex].aDraws[0].vertexOffset);
+
+    // The lit mask pipeline: the lit vertex shader and StdVertexLit's layout, the same fixed state
+    // as the TL one. Its fragment shader is the mask shader (a value, no texture).
+    const render::PipelineCreated* pMaskPipeline = nullptr;
+    for ( const render::RecordedCommand& command : Null().recorded() )
+    {
+        const render::PipelineCreated* pCreated = std::get_if<render::PipelineCreated>(&command);
+        if ( pCreated && pCreated->desc.vertexShader == stdBabylon::shaders::std3dLitVert()
+            && pCreated->desc.fragmentShader == stdBabylon::shaders::std3dShadowMaskFrag() )
+        {
+            pMaskPipeline = pCreated;
+            break;
+        }
+    }
+    TEST_ASSERT_NOT_NULL(pMaskPipeline);
+    TEST_ASSERT_EQUAL_size_t(1u, pMaskPipeline->desc.vertexLayout.bufferStrides.size());
+    TEST_ASSERT_EQUAL_UINT32((uint32_t)sizeof(StdVertexLit), pMaskPipeline->desc.vertexLayout.bufferStrides[0]);
+    TEST_ASSERT_EQUAL_size_t(6u, pMaskPipeline->desc.vertexLayout.attributes.size());
+    TEST_ASSERT_EQUAL_UINT32(32u, pMaskPipeline->desc.vertexLayout.attributes[4].offset);
+    TEST_ASSERT_EQUAL_UINT32(44u, pMaskPipeline->desc.vertexLayout.attributes[5].offset);
+    TEST_ASSERT_TRUE(pMaskPipeline->desc.depthFormat.has_value());
+    TEST_ASSERT_TRUE(*pMaskPipeline->desc.depthFormat == stdRenderBabylon_GetDepthFormat());
+    TEST_ASSERT_TRUE(pMaskPipeline->desc.depth.testEnabled);
+    TEST_ASSERT_FALSE(pMaskPipeline->desc.depth.writeEnabled);
+    TEST_ASSERT_TRUE(pMaskPipeline->desc.depth.compare == render::CompareOp::LessOrEqual);
+}
+
 TEST(std3DBabylonGpu, ShadowsOffLeavesTheImageByteIdentical)
 {
     if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
@@ -306,6 +563,14 @@ TEST(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud)
     std::printf("M11.2d character shadows: floor below the caster %.2f off, %.2f on\n",
         (double)offShadow, (double)onShadow);
     TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);
+
+    // M11.2g. The visible caster casts onto the floor but does not receive its own shadow: its
+    // interior pixels are the shadows-off image.
+    const size_t casterPixel = ((size_t)43u * kSceneSize + 31u) * 4u;
+    for ( size_t channel = 0; channel < 4u; ++channel )
+    {
+        TEST_ASSERT_EQUAL_INT((int)off[casterPixel + channel], (int)on[casterPixel + channel]);
+    }
 
     // The floor far from the caster is outside the map's footprint and stays as it was.
     const float offFar = SsaoMeanBrightness(off, kSceneSize, 50u, 52u, 60u, 62u);

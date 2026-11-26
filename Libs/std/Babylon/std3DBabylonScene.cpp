@@ -204,6 +204,7 @@ int std3D_StartScene(void)
     std3D_casterVertexCount = 0; // Added: M11.2c. The frame's shadow-caster vertices.
 #endif
     std3DBabylon_ResetShadowCasters(); // Added: M11.2d. The frame's caster positions.
+    std3DBabylon_ResetShadowCasterDraws(); // Added: M11.2g. The frame's visible caster draws.
 
     // std3DX9.c's BeginScene error paths: no device, or a scene already begun (D3DERR_INVALIDCALL).
     if ( !std3D_bOpen )

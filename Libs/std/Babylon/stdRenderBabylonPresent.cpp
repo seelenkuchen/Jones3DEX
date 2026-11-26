@@ -109,6 +109,15 @@ namespace
                     stdRenderBabylon_state.bWaterSetupFailed = true;
                 }
 
+                // Added: M11.2g. The caster mask after the scene and before the contact shadows and
+                // the character-shadow receive pass. It only runs when this frame's map was
+                // recorded and a caster draw was collected; otherwise the receive pass gets none.
+                stdRenderBabylon_state.bShadowMaskRan = false;
+                if ( stdRenderBabylon_state.bShadowMapRecorded )
+                {
+                    static_cast<void>(stdRenderBabylon_RecordShadowMask(list));
+                }
+
                 // Added: the screen-space contact-shadow stage after the water ripples and before
                 // ambient occlusion. Off, without a camera transform, or a failure, skips the pass
                 // so the image is byte-identical to the path without it.

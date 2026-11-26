@@ -605,6 +605,8 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoBlurPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoCompositePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.motionBlurPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shadowMaskPipeline);
+    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shadowMaskLitPipeline);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaAreaTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.smaaSearchTexture);
     stdRenderBabylon_state.pDevice->destroyTexture(stdRenderBabylon_state.colorGradingLut);

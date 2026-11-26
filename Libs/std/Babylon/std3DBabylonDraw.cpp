@@ -60,6 +60,9 @@ namespace std3DBabylonInternal
     render::TextureHandle std3D_whiteTexture;
     render::BufferHandle std3D_vertexBuffer;
     render::BufferHandle std3D_indexBuffer;
+    // Added: M11.2g. The frame's scene caster draws, filled as they are recorded and read by the
+    // caster mask at the presenting submit. The scene draw list itself is cleared when its pass ends.
+    std::vector<Std3DBabylonDraw> std3D_aShadowCasterDraws;
     uint32_t std3D_vertexBufferSize   = 0; // bytes
     uint32_t std3D_indexBufferSize    = 0;
     uint32_t std3D_vertexBufferOffset = 0; // bytes the frame has streamed so far
@@ -345,6 +348,9 @@ namespace
         draw.sampler      = sampler;
         draw.uniforms     = std3D_GetFragmentUniforms();
         draw.bLit         = bLit;
+        // Added: M11.2g. A scene triangle drawn with the read-only caster bit marks its own visible
+        // surface in the caster mask; lines, points and HUD-layer draws never do.
+        draw.bShadowCaster = bTriangles && !bHud && (std3D_renderState & STD3D_RS_SHADOW_CASTER) != 0;
         draw.firstVertex  = *pVertexBufferOffset / stride;
         draw.numVertices  = (uint32_t)numVerts;
         draw.firstIndex   = 0;
@@ -361,6 +367,10 @@ namespace
         }
 
         std3D_aSceneDraws.push_back(draw);
+        if ( draw.bShadowCaster )
+        {
+            std3D_aShadowCasterDraws.push_back(draw);
+        }
 #ifdef J3D_TEST
         if ( (std3D_renderState & STD3D_RS_SHADOW_CASTER) != 0 )
         {
@@ -437,6 +447,17 @@ namespace
 
 namespace std3DBabylonInternal
 {
+    // Added: M11.2g. The caster draws belong to one frame; std3D_StartScene starts a new list.
+    void std3DBabylon_ResetShadowCasterDraws()
+    {
+        std3D_aShadowCasterDraws.clear();
+    }
+
+    const std::vector<Std3DBabylonDraw>& std3DBabylon_GetShadowCasterDraws()
+    {
+        return std3D_aShadowCasterDraws;
+    }
+
     // The resources of the draws made at std3D_Open: the white texture std3DX9.c's
     // CreateWhiteTexture made for untextured draws in shader mode (one opaque white texel), and the
     // stream buffers.
@@ -572,6 +593,7 @@ namespace std3DBabylonInternal
         std3D_numLights             = 0;
         std3D_bLightsDirty          = false;
         std3D_aSceneDraws.clear();
+        std3D_aShadowCasterDraws.clear();
         STD_ZEROMEM(std3D_aShaderFogParams, sizeof(std3D_aShaderFogParams));
         STD_ZEROMEM(std3D_aShaderFogColor, sizeof(std3D_aShaderFogColor));
     }

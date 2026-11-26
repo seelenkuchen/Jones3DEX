@@ -79,6 +79,7 @@ namespace std3DBabylonInternal
         render::SamplerHandle sampler;    // triangles only
         Std3DBabylonFragmentUniforms uniforms;
         bool bLit;                        // a lit draw, which reads the light buffer
+        bool bShadowCaster;               // Added: M11.2g, a scene triangle drawn with STD3D_RS_SHADOW_CASTER
         uint32_t firstVertex;
         uint32_t numVertices;
         uint32_t firstIndex;
@@ -185,4 +186,10 @@ namespace std3DBabylonInternal
     // the list is capped, so one bad polygon cannot shift the ones after it.
     void std3DBabylon_ResetShadowCasters();
     const std::vector<float>& std3DBabylon_GetShadowCasterPositions();
+
+    // Added: M11.2g. The scene triangle draws that carried STD3D_RS_SHADOW_CASTER this frame, with
+    // their streamed buffers and ranges, for the caster mask's re-draw. HUD-layer draws are never
+    // here. Reset at std3D_StartScene.
+    void std3DBabylon_ResetShadowCasterDraws();
+    const std::vector<Std3DBabylonDraw>& std3DBabylon_GetShadowCasterDraws();
 }

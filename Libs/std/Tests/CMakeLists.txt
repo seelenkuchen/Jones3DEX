@@ -252,6 +252,7 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonSmaa.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonSsao.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonShadows.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonShadowMask.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonWaterRipples.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderReplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylon.cpp"

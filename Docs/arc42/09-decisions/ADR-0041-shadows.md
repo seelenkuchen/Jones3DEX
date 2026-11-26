@@ -78,3 +78,13 @@ profile and QOL-off builds keep the original blob shadow.
 - **Where the code lives:** `babylon::shadow::DirectionalShadowMap` and `babylon::postfx::ContactShadowEffect` /
   `ShadowReceiveEffect` (ADR-0043); the adapter collects casters and orders the stages (water, contact shadows,
   character shadows, SSAO).
+- **Characters cast but do not receive (M11.2g).** After the scene pass and before the receive pass, the adapter
+  re-draws the frame's scene draws marked `STD3D_RS_SHADOW_CASTER` with their own vertex and index buffers,
+  ranges and vertex shaders against the scene depth target, read-only, into a scene-sized mask cleared to 0. A
+  fragment that passes the depth test writes 1, so the mask marks a caster's own visible surface. The receive
+  pass samples it as `ShadowMapInput::excludeMask`: masked pixels keep their exact input colour, so the hat's
+  shadow stays off the face below it while the character still casts onto the scene. The stage runs only when
+  the frame's map was recorded and a caster draw was collected; otherwise the receive pass gets no mask.
+- **M11.3 reuses the mask inverted.** The same re-draw against the scene depth, with the mask test inverted,
+  gives the pixels that are not a level caster, so level geometry can cast onto characters without doubling
+  the shadows already baked into the level.

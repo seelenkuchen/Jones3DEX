@@ -32,8 +32,36 @@ using namespace stdRenderBabylonInternal;
 
 namespace
 {
+    // Added: the character-shadow stage's resources: the Babylon shadow map and postfx receive
+    // effect, made when the frame owner opens or the option turns on. False, logging nothing again,
+    // when they are unavailable or the setup already failed.
+    bool stdRenderBabylon_EnsureShadowResources()
+    {
+        if ( stdRenderBabylon_state.bShadowsSetupFailed )
+        {
+            return false;
+        }
+
+        if ( !stdRenderBabylon_state.pPostfxResources
+            || !stdRenderBabylon_state.pPostfxTargets
+            || !stdRenderBabylon_state.pPostfxShadowReceive
+            || !stdRenderBabylon_state.pShadowMap
+            || !stdRenderBabylon_state.pShadowMap->isOpen() )
+        {
+            STDLOG_ERROR("stdRenderBabylon: could not set up the character-shadow stage; the shadow objects are unavailable.\n");
+            stdRenderBabylon_state.bShadowsSetupFailed = true;
+            return false;
+        }
+
+        return true;
+    }
+}
+
+namespace stdRenderBabylonInternal
+{
     // Added: the character-shadow stage's scene-sized target, made when its size changes. False,
-    // logging why, when it can't be created.
+    // logging why, when it can't be created. The caster mask shares the size and is made by its own
+    // stage after this one, so the mask pass calls this before it creates its target.
     bool stdRenderBabylon_EnsureShadowTargets(uint32_t width, uint32_t height)
     {
         if ( width == 0 || height == 0 )
@@ -71,33 +99,6 @@ namespace
         return true;
     }
 
-    // Added: the character-shadow stage's resources: the Babylon shadow map and postfx receive
-    // effect, made when the frame owner opens or the option turns on. False, logging nothing again,
-    // when they are unavailable or the setup already failed.
-    bool stdRenderBabylon_EnsureShadowResources()
-    {
-        if ( stdRenderBabylon_state.bShadowsSetupFailed )
-        {
-            return false;
-        }
-
-        if ( !stdRenderBabylon_state.pPostfxResources
-            || !stdRenderBabylon_state.pPostfxTargets
-            || !stdRenderBabylon_state.pPostfxShadowReceive
-            || !stdRenderBabylon_state.pShadowMap
-            || !stdRenderBabylon_state.pShadowMap->isOpen() )
-        {
-            STDLOG_ERROR("stdRenderBabylon: could not set up the character-shadow stage; the shadow objects are unavailable.\n");
-            stdRenderBabylon_state.bShadowsSetupFailed = true;
-            return false;
-        }
-
-        return true;
-    }
-}
-
-namespace stdRenderBabylonInternal
-{
     // Added: opens the character-shadow map on first use. A build or test with the stage off never
     // allocates it, so it records no commands then. False, having logged once, when it can't be made.
     bool stdRenderBabylon_EnsureShadowMap()
@@ -135,7 +136,7 @@ namespace stdRenderBabylonInternal
             && stdRenderBabylon_state.pPostfxShadowReceive != nullptr;
     }
 
-    // Added: frees the character-shadow stage's target. Recreated by the next present with the stage
+    // Added: frees the character-shadow stage's targets. Recreated by the next present with the stage
     // on after a scene size or render scale change.
     void stdRenderBabylon_FreeShadowTargets()
     {
@@ -143,6 +144,11 @@ namespace stdRenderBabylonInternal
         stdRenderBabylon_state.shadowColorTarget = {};
         stdRenderBabylon_state.shadowWidth       = 0;
         stdRenderBabylon_state.shadowHeight      = 0;
+        stdRenderBabylon_DestroyTexture(stdRenderBabylon_state.shadowMaskTarget);
+        stdRenderBabylon_state.shadowMaskTarget  = {};
+        stdRenderBabylon_state.shadowMaskWidth   = 0;
+        stdRenderBabylon_state.shadowMaskHeight  = 0;
+        stdRenderBabylon_state.bShadowMaskRan    = false;
         stdRenderBabylon_state.bShadowsRan       = false;
     }
 
@@ -234,6 +240,12 @@ namespace stdRenderBabylonInternal
         shadowMap.towardLight[0] = stdRenderBabylon_state.aShadowLightDirection[0];
         shadowMap.towardLight[1] = stdRenderBabylon_state.aShadowLightDirection[1];
         shadowMap.towardLight[2] = stdRenderBabylon_state.aShadowLightDirection[2];
+        // Added: M11.2g. The caster mask keeps a character's own surface out of the shadow; a frame
+        // whose mask stage did not run passes none, as before.
+        if ( stdRenderBabylon_state.bShadowMaskRan )
+        {
+            shadowMap.excludeMask = stdRenderBabylon_state.shadowMaskTarget;
+        }
         stdRenderBabylon_state.pPostfxShadowReceive->setShadowMap(shadowMap);
 
         postfx::FrameInputs frame;

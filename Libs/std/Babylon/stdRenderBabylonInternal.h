@@ -400,6 +400,18 @@ namespace stdRenderBabylonInternal
         uint32_t shadowWidth  = 0;
         uint32_t shadowHeight = 0;
 
+        // Added: M11.2g. The caster mask: a scene-sized target, cleared to 0 and marked 1 where a
+        // caster draw covers the visible scene, sampled by the receive pass to keep a character's own
+        // surface out of its shadow. Made on the first masked frame after a scene size change and
+        // freed with the other shadow targets; bShadowMaskRan tells the receive pass to pass it.
+        bool bShadowMaskRan = false;
+        render::TextureHandle shadowMaskTarget;
+        render::TextureFormat shadowMaskFormat = render::TextureFormat::Bgra8;
+        uint32_t shadowMaskWidth  = 0;
+        uint32_t shadowMaskHeight = 0;
+        render::PipelineHandle shadowMaskPipeline;
+        render::PipelineHandle shadowMaskLitPipeline;
+
         // Added: the built-in screen-space ambient occlusion stage after the contact shadows and
         // before depth of field. The raw and blurred occlusion terms are half the scene size, the
         // composite is scene sized. The stage reads the depth and normal targets; it needs a
@@ -546,6 +558,8 @@ namespace stdRenderBabylonInternal
     // or test with the stage off records no extra commands at open. False when the device can't make
     // it; one warning and bShadowsSetupFailed are set then.
     bool stdRenderBabylon_EnsureShadowMap();
+    // Added: M11.2g. The character-shadow stage's scene-sized target, shared by the caster mask.
+    bool stdRenderBabylon_EnsureShadowTargets(uint32_t width, uint32_t height);
     bool stdRenderBabylon_RecordSmaa(render::CommandList& list, render::TextureHandle target,
         render::TextureFormat format, uint32_t width, uint32_t height, bool bCasSource);
     bool stdRenderBabylon_RecordSharpening(render::CommandList& list, render::TextureHandle source,
@@ -557,6 +571,7 @@ namespace stdRenderBabylonInternal
     bool stdRenderBabylon_RecordWaterRipples(render::CommandList& list);
     bool stdRenderBabylon_RecordContactShadows(render::CommandList& list);
     bool stdRenderBabylon_RecordShadowMap(render::CommandList& list);
+    bool stdRenderBabylon_RecordShadowMask(render::CommandList& list);
     bool stdRenderBabylon_RecordShadowReceive(render::CommandList& list);
     bool stdRenderBabylon_RecordSsao(render::CommandList& list);
     bool stdRenderBabylon_RecordMotionBlur(render::CommandList& list);
