@@ -34,16 +34,17 @@ namespace babylon::postfx
     };
 
     // Darkens pixels whose short path toward a directional light is blocked by nearby geometry in
-    // the depth buffer. The normals target's alpha carries one of four classes 0, 1/3, 2/3, 1
-    // (class = round(alpha * 3)); a pixel receives when its bit is in receiverClasses. With
-    // receiverClasses 0xF every pixel receives and the normals target is not needed. The light
-    // direction is the direction toward the light, in view space. Three Hdr passes: a ray-march
-    // mask into a scratch target, a depth-aware 4x4 blur of that mask (receiver taps only) into a
-    // second scratch target, then the darkened composite into the output. The composite repeats the
-    // receiver test, so non-receiver pixels keep their exact input colour. The ordered jitter and
-    // the blur make the result smooth; a blocker at the far end of the ray still gives half shadow.
-    // An optional ignore mask takes selected pixels out of the effect: they neither cast nor
-    // receive contact shadow.
+    // the depth buffer. A pixel whose surface faces away from the light does not receive; the
+    // surface normal is reconstructed from depth. The normals target's alpha carries one of four
+    // classes 0, 1/3, 2/3, 1 (class = round(alpha * 3)); a pixel receives when its bit is in
+    // receiverClasses. With receiverClasses 0xF every pixel receives and the normals target is not
+    // needed. The light direction is the direction toward the light, in view space. Three Hdr
+    // passes: a ray-march mask into a scratch target, a depth-aware 4x4 blur of that mask
+    // (receiver taps only) into a second scratch target, then the darkened composite into the
+    // output. The composite repeats the receiver test, so non-receiver pixels keep their exact
+    // input colour. The ordered jitter and the blur make the result smooth; a blocker at the far
+    // end of the ray still gives half shadow. An optional ignore mask takes selected pixels out of
+    // the effect: they neither cast nor receive contact shadow.
     class ContactShadowEffect final : public Effect
     {
     public:
