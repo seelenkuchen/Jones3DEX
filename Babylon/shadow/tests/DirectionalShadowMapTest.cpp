@@ -390,6 +390,166 @@ TEST_CASE("record draws a static batch from its set without uploading it")
     CHECK(projected[2] < 0.0f);
 }
 
+TEST_CASE("a fit-only batch fits like a drawn batch without uploading or drawing it")
+{
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kMapSize;
+    REQUIRE(map.open(desc));
+
+    const std::vector<float> vertices = smallTriangle();
+    const CasterBatch drawn{ vertices.data(), vertices.size() / 3 };
+    const std::array<CasterBatch, 1> drawnBatches{ drawn };
+    CommandList first = device->beginFrame();
+    REQUIRE(map.record(first, kLight, std::span<const CasterBatch>(drawnBatches)));
+    REQUIRE(device->submit(first));
+    const std::vector<std::byte> drawnFit = bytesOf(map.viewToShadowTexture());
+
+    CasterBatch fitOnly = drawn;
+    fitOnly.fitOnly = true;
+    const std::array<CasterBatch, 1> fitOnlyBatches{ fitOnly };
+    device->clearRecorded();
+    CommandList second = device->beginFrame();
+    REQUIRE(map.record(second, kLight, std::span<const CasterBatch>(fitOnlyBatches)));
+    REQUIRE(device->submit(second));
+    CHECK(map.isValid());
+
+    // The same vertices produce the same fit, but none of them is uploaded or
+    // drawn: the pass is empty apart from its clear.
+    CHECK(bytesOf(map.viewToShadowTexture()) == drawnFit);
+    const PassCommands pass = findPass(device->recorded());
+    CHECK(pass.update == nullptr);
+    CHECK(pass.begin != nullptr);
+    CHECK(pass.end != nullptr);
+    CHECK(pass.draw == nullptr);
+    CHECK(drawsOf(device->recorded()).empty());
+}
+
+TEST_CASE("a fit-only batch with a static set draws only the static set")
+{
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kMapSize;
+    REQUIRE(map.open(desc));
+
+    const std::vector<float> vertices = smallTriangle();
+    CasterBatch fitOnly{ vertices.data(), vertices.size() / 3 };
+    fitOnly.fitOnly = true;
+
+    StaticCasterSet set(*device);
+    const std::vector<float> staticPositions = { -1.0f, 4.0f, -1.0f, 1.0f, 4.0f, -1.0f,
+        0.0f, 4.0f, 1.0f };
+    REQUIRE(set.upload(staticPositions));
+    CasterBatch staticBatch;
+    staticBatch.pStatic = &set;
+
+    const std::array<CasterBatch, 2> batches{ fitOnly, staticBatch };
+    device->clearRecorded();
+    CommandList list = device->beginFrame();
+    REQUIRE(map.record(list, kLight, std::span<const CasterBatch>(batches)));
+    REQUIRE(device->submit(list));
+    CHECK(map.isValid());
+
+    std::size_t updates = 0;
+    for ( const RecordedCommand& record : device->recorded() )
+    {
+        if ( std::get_if<UpdateBuffer>(&record) != nullptr )
+        {
+            ++updates;
+        }
+    }
+    CHECK(updates == 0);
+
+    const std::vector<RecordedDraw> draws = drawsOf(device->recorded());
+    REQUIRE(draws.size() == 1);
+    CHECK(draws[0].buffer == set.buffer());
+    CHECK(draws[0].draw.vertexCount == staticPositions.size() / 3);
+    CHECK(draws[0].draw.firstVertex == 0);
+
+    // The fit-only batch still defines the fit, and the static set widens the
+    // depth range by staticReach.
+    Matrix4 fit{};
+    REQUIRE(fitDirectional(kLight, boundsOf(vertices), 0.05f, kMapSize, &fit,
+        desc.staticReach));
+    CHECK(draws[0].uniforms == bytesOf(fit));
+}
+
+TEST_CASE("a fit-only batch beside a drawn one fits without being uploaded")
+{
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kMapSize;
+    REQUIRE(map.open(desc));
+
+    const std::vector<float> fitVertices = smallTriangle();
+    const std::vector<float> drawnVertices = { 2.0f, 0.0f, 0.0f, 3.0f, 0.0f, 0.0f, 2.0f,
+        1.0f, 1.0f };
+    CasterBatch fitOnly{ fitVertices.data(), fitVertices.size() / 3 };
+    fitOnly.fitOnly = true;
+    const CasterBatch drawn{ drawnVertices.data(), drawnVertices.size() / 3 };
+
+    const std::array<CasterBatch, 2> batches{ fitOnly, drawn };
+    device->clearRecorded();
+    CommandList list = device->beginFrame();
+    REQUIRE(map.record(list, kLight, std::span<const CasterBatch>(batches)));
+    REQUIRE(device->submit(list));
+    CHECK(map.isValid());
+
+    const PassCommands pass = findPass(device->recorded());
+    REQUIRE(pass.update != nullptr);
+    CHECK(pass.update->data == bytesOf(drawnVertices));
+
+    const std::vector<RecordedDraw> draws = drawsOf(device->recorded());
+    REQUIRE(draws.size() == 1);
+    CHECK(draws[0].draw.vertexCount == drawnVertices.size() / 3);
+    CHECK(draws[0].draw.firstVertex == 0);
+
+    Bounds unionBounds = boundsOf(fitVertices);
+    const Bounds drawnBounds = boundsOf(drawnVertices);
+    for ( int axis = 0; axis < 3; ++axis )
+    {
+        unionBounds.min[axis] = drawnBounds.min[axis] < unionBounds.min[axis]
+            ? drawnBounds.min[axis] : unionBounds.min[axis];
+        unionBounds.max[axis] = drawnBounds.max[axis] > unionBounds.max[axis]
+            ? drawnBounds.max[axis] : unionBounds.max[axis];
+    }
+    Matrix4 fit{};
+    REQUIRE(fitDirectional(kLight, unionBounds, 0.05f, kMapSize, &fit));
+    CHECK(draws[0].uniforms == bytesOf(fit));
+}
+
+TEST_CASE("a static batch cannot be fit-only")
+{
+    babylon::log::CaptureSink sink;
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kMapSize;
+    REQUIRE(map.open(desc));
+
+    StaticCasterSet set(*device);
+    REQUIRE(set.upload(smallTriangle()));
+    CasterBatch staticBatch;
+    staticBatch.pStatic = &set;
+    staticBatch.fitOnly = true;
+    const std::array<CasterBatch, 1> batches{ staticBatch };
+
+    sink.clear();
+    CommandList list = device->beginFrame();
+    CHECK_FALSE(map.record(list, kLight, std::span<const CasterBatch>(batches)));
+    CHECK(list.commands().empty());
+    CHECK_FALSE(map.isValid());
+    CHECK(sink.records().size() == 1);
+
+    // The usual one-time warning: a second failure stays silent.
+    CommandList second = device->beginFrame();
+    CHECK_FALSE(map.record(second, kLight, std::span<const CasterBatch>(batches)));
+    CHECK(sink.records().size() == 1);
+}
+
 TEST_CASE("staticReach extends the depth range only when a static batch is present")
 {
     const std::unique_ptr<NullDevice> device = createNullDevice();

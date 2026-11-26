@@ -7,7 +7,9 @@
 // the blurred mask says the ray was blocked. It repeats the mask pass's
 // receiver test, so a non-receiver pixel returns the input untouched even when
 // the blur next to it carries a shadow. A zero mask also returns the input
-// untouched, so the copy stays byte-exact.
+// untouched, so the copy stays byte-exact. An ignore-masked pixel is a
+// non-receiver whose blur value is zero, so it keeps its exact input colour
+// here without this pass needing the mask texture.
 
 Texture2D<float> gDepth : register(t0, space2);
 Texture2D<float4> gNormals : register(t1, space2);

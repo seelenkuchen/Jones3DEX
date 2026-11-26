@@ -456,6 +456,30 @@ namespace
                 CHECK(pixelAt(masked, kSize, x, y) == pixelAt(pixels, kSize, x, y));
             }
         }
+        // The same mask in include mode only lets the red left half receive:
+        // the left half darkens like the no-mask run and the right half keeps
+        // the plain input colour.
+        ShadowMapInput includedMap = mapInput;
+        includedMap.excludeMask = excludeMask;
+        includedMap.maskMode    = MaskMode::Include;
+        effect.setShadowMap(includedMap);
+        std::vector<std::string_view> includedRan;
+        const std::vector<std::byte> included =
+            runScene(*device, &effect, color, depth, normals, projection, &includedRan);
+        REQUIRE(included.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
+        REQUIRE(includedRan.size() == 2);
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = 0; x < kSize / 2u; ++x )
+            {
+                CHECK(pixelAt(included, kSize, x, y) == pixelAt(pixels, kSize, x, y));
+            }
+            for ( std::uint32_t x = kSize / 2u; x < kSize; ++x )
+            {
+                CHECK(pixelAt(included, kSize, x, y) == pixelAt(plain, kSize, x, y));
+            }
+        }
         effect.setShadowMap(mapInput);
 
         // Half the screen is tagged class 2 (not in the receiver mask) in the

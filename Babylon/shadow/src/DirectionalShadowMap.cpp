@@ -229,10 +229,11 @@ namespace
             return failRecord("the light direction is missing");
         }
 
-        // Static sets draw from their own buffers already on the GPU, so only
-        // the per-frame batches are counted, uploaded and fitted.
-        std::uint64_t totalVertices = 0;
-        bool hasStaticBatch         = false;
+        // Static sets draw from their own buffers already on the GPU. Every
+        // per-frame batch is fitted; only the drawn ones are uploaded.
+        std::uint64_t totalVertices  = 0;
+        std::uint64_t uploadVertices = 0;
+        bool hasStaticBatch          = false;
         for ( const CasterBatch& batch : casters )
         {
             if ( batch.pStatic != nullptr )
@@ -240,6 +241,10 @@ namespace
                 if ( batch.pPositions != nullptr )
                 {
                     return failRecord("a static caster batch also has positions");
+                }
+                if ( batch.fitOnly )
+                {
+                    return failRecord("a static caster batch is fit-only");
                 }
                 if ( batch.pStatic->numVertices() != 0 && batch.pStatic->buffer().isNull() )
                 {
@@ -261,6 +266,15 @@ namespace
                 return failRecord("the caster vertex count overflows");
             }
             totalVertices += batch.numVertices;
+            if ( !batch.fitOnly )
+            {
+                if ( batch.numVertices
+                    > std::numeric_limits<std::uint64_t>::max() - uploadVertices )
+                {
+                    return failRecord("the caster vertex count overflows");
+                }
+                uploadVertices += batch.numVertices;
+            }
         }
         if ( totalVertices == 0 )
         {
@@ -270,17 +284,17 @@ namespace
         {
             return failRecord("the casters do not fit in the vertex buffer");
         }
-        const std::uint64_t vertexBytes = totalVertices * 3 * sizeof(float);
+        const std::uint64_t vertexBytes = uploadVertices * 3 * sizeof(float);
         if ( vertexBytes > m_device.info().limits.maxBufferSize )
         {
             return failRecord("the casters do not fit in the vertex buffer");
         }
 
-        // One contiguous upload: copy every per-frame batch and take the union
-        // of their view-space bounds. A non-finite position can't define a
-        // light fit.
+        // One contiguous upload: copy every drawn per-frame batch and take the
+        // union of every per-frame batch's view-space bounds, fit-only ones
+        // included. A non-finite position can't define a light fit.
         std::vector<float> vertices;
-        vertices.reserve(static_cast<std::size_t>(totalVertices) * 3);
+        vertices.reserve(static_cast<std::size_t>(uploadVertices) * 3);
         Bounds bounds = {
             { std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(),
                 std::numeric_limits<float>::infinity() },
@@ -300,7 +314,10 @@ namespace
                 {
                     return failRecord("a caster position is not finite");
                 }
-                vertices.push_back(value);
+                if ( !batch.fitOnly )
+                {
+                    vertices.push_back(value);
+                }
                 const int axis = static_cast<int>(index % 3);
                 bounds.min[axis] = value < bounds.min[axis] ? value : bounds.min[axis];
                 bounds.max[axis] = value > bounds.max[axis] ? value : bounds.max[axis];
@@ -314,13 +331,15 @@ namespace
         {
             return failRecord("the light or caster bounds are invalid");
         }
-        if ( !ensureVertexCapacity(vertexBytes) )
+        if ( vertexBytes > 0 )
         {
-            return failRecord("the vertex buffer could not be grown");
+            if ( !ensureVertexCapacity(vertexBytes) )
+            {
+                return failRecord("the vertex buffer could not be grown");
+            }
+            list.updateBuffer(m_vertexBuffer, 0,
+                std::as_bytes(std::span(vertices.data(), vertices.size())));
         }
-
-        list.updateBuffer(m_vertexBuffer, 0,
-            std::as_bytes(std::span(vertices.data(), vertices.size())));
 
         render::PassDesc pass;
         render::DepthAttachment depth;
@@ -355,7 +374,7 @@ namespace
                 list.draw(static_cast<std::uint32_t>(staticVertices));
                 continue;
             }
-            if ( batch.numVertices == 0 )
+            if ( batch.numVertices == 0 || batch.fitOnly )
             {
                 continue;
             }
