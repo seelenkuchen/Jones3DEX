@@ -17,14 +17,16 @@ Texture2D<float4> gColor : register(t0, space2);
 Texture2D<float> gDepth : register(t1, space2);
 Texture2D<float4> gNormals : register(t2, space2);
 Texture2D<float> gShadowMap : register(t3, space2);
+Texture2D<float4> gExcludeMask : register(t4, space2);
 // One sampler state per texture: SDL_shadercross's reflection counts a
 // sampler shared by several textures as storage textures, which the shader
-// build refuses. The colour, depth and normals slots use the same nearest,
-// clamped sampler; the shadow map needs its comparison sampler.
+// build refuses. The colour, depth, normals and exclude-mask slots use the
+// same nearest, clamped sampler; the shadow map needs its comparison sampler.
 SamplerState gColorSampler : register(s0, space2);
 SamplerState gDepthSampler : register(s1, space2);
 SamplerState gNormalsSampler : register(s2, space2);
 SamplerComparisonState gShadowSampler : register(s3, space2);
+SamplerState gExcludeMaskSampler : register(s4, space2);
 
 cbuffer ShadowReceiveParams : register(b0, space3)
 {
@@ -45,7 +47,7 @@ cbuffer ShadowReceiveParams : register(b0, space3)
     float gDepthFar;
     float gTanHalfFovX;
     float gTanHalfFovY;
-    float gPadding0;
+    uint gHasExcludeMask;
     float gPadding1;
     float gPadding2;
 };
@@ -93,6 +95,13 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
 
     float depth = gDepth.Sample(gDepthSampler, uv);
     if ( !isSceneDepth(depth) )
+    {
+        return color;
+    }
+
+    // A masked pixel is a shadow caster's own surface: it keeps its exact
+    // input colour, so the caster still casts but does not receive.
+    if ( gHasExcludeMask != 0 && gExcludeMask.Sample(gExcludeMaskSampler, uv).r >= 0.5 )
     {
         return color;
     }

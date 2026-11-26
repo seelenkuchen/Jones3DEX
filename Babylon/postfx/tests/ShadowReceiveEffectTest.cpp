@@ -57,7 +57,8 @@ namespace
         float depthFar;
         float tanHalfFovX;
         float tanHalfFovY;
-        float padding[3];
+        std::uint32_t hasExcludeMask;
+        float padding[2];
     };
     static_assert(sizeof(ExpectedShadowReceiveUniforms) == 144);
 
@@ -149,6 +150,12 @@ namespace
     {
         return device.createTexture(TextureDesc{ size, size, 1, TextureFormat::D32F,
             TextureUsage::DepthTarget | TextureUsage::Sampled });
+    }
+
+    TextureHandle makeExcludeMask(NullDevice& device, std::uint32_t width, std::uint32_t height)
+    {
+        return device.createTexture(TextureDesc{ width, height, 1, TextureFormat::Rgba8,
+            TextureUsage::Sampled });
     }
 
     SamplerHandle makeCompareSampler(NullDevice& device)
@@ -340,7 +347,7 @@ TEST_CASE("The chain skips shadow receive until the frame has depth and normals"
     checkNames(chain, { "shadow receive", "copy" });
 }
 
-TEST_CASE("The shadow receive effect records one pass with four textures")
+TEST_CASE("The shadow receive effect records one pass with five textures")
 {
     NullDevice device;
     ShadowReceiveEffect effect;
@@ -380,14 +387,16 @@ TEST_CASE("The shadow receive effect records one pass with four textures")
     CHECK(passes[0].target != target);
     CHECK(passes[1].target == target);
 
-    // Colour, depth, normals and the shadow map in slots 0..3. The first three
+    // Colour, depth, normals, the shadow map and the exclude-mask fallback
+    // (depth again) in slots 0..4. The colour, depth, normals and mask slots
     // use the nearest clamped sampler; slot 3 uses the map's comparison
     // sampler.
-    REQUIRE(passes[0].textures.size() == 4);
+    REQUIRE(passes[0].textures.size() == 5);
     CHECK(passes[0].textures[0].texture == color);
     CHECK(passes[0].textures[1].texture == depth);
     CHECK(passes[0].textures[2].texture == normals);
     CHECK(passes[0].textures[3].texture == shadowMap);
+    CHECK(passes[0].textures[4].texture == depth);
     for ( std::size_t slot = 0; slot < 3; ++slot )
     {
         const BindTexture& bind = passes[0].textures[slot];
@@ -407,6 +416,15 @@ TEST_CASE("The shadow receive effect records one pass with four textures")
     const std::optional<SamplerDesc> shadowSampler = device.samplerDesc(compareSampler);
     REQUIRE(shadowSampler.has_value());
     CHECK(shadowSampler->compare == CompareOp::LessOrEqual);
+    const BindTexture& maskBind = passes[0].textures[4];
+    CHECK(maskBind.stage == ShaderStage::Fragment);
+    CHECK(maskBind.slot == 4);
+    const std::optional<SamplerDesc> maskSampler = device.samplerDesc(maskBind.sampler);
+    REQUIRE(maskSampler.has_value());
+    CHECK(maskSampler->minFilter == Filter::Nearest);
+    CHECK(maskSampler->magFilter == Filter::Nearest);
+    CHECK(maskSampler->addressU == AddressMode::ClampToEdge);
+    CHECK(maskSampler->addressV == AddressMode::ClampToEdge);
 
     REQUIRE(passes[0].uniforms.size() == 1);
     const PushUniforms& push = passes[0].uniforms.front();
@@ -417,7 +435,7 @@ TEST_CASE("The shadow receive effect records one pass with four textures")
             9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
         { 0.0f, 1.0f, 0.0f },
         0.75f, 0.01f, 0.002f, 2.0f, 256.0f, 0x8u, 12.0f, 24.0f,
-        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, { 0.0f, 0.0f, 0.0f } };
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 0u, { 0.0f, 0.0f } };
     CHECK(push.data == bytesOf(expected));
 
     REQUIRE(passes[0].draws.size() == 1);
@@ -455,8 +473,73 @@ TEST_CASE("With every receiver class the pass binds depth in the normals slot")
 
     const std::vector<PassRecord> passes = passRecords(device.recorded());
     REQUIRE(passes.size() == 2);
-    REQUIRE(passes[0].textures.size() == 4);
+    REQUIRE(passes[0].textures.size() == 5);
     CHECK(passes[0].textures[1].texture == depth);
     CHECK(passes[0].textures[2].texture == depth);
+    CHECK(passes[0].textures[4].texture == depth);
     checkNames(chain, { "shadow receive", "copy" });
+}
+
+TEST_CASE("The shadow receive effect binds an exclude mask and flags it in the uniforms")
+{
+    NullDevice device;
+    ShadowReceiveEffect effect;
+    Chain chain(device);
+    REQUIRE(chain.open());
+
+    ShadowReceiveSettings settings;
+    settings.strength        = 0.75f;
+    settings.normalOffset    = 0.01f;
+    settings.depthBias       = 0.002f;
+    settings.filterRadius    = 2.0f;
+    settings.receiverClasses = 0x8u;
+    settings.fadeStart       = 12.0f;
+    settings.fadeEnd         = 24.0f;
+    effect.setSettings(settings);
+
+    const TextureHandle excludeMask = makeExcludeMask(device, 16, 16);
+    REQUIRE_FALSE(excludeMask.isNull());
+    ShadowMapInput map = makeMap(makeShadowMap(device, 256),
+        makeCompareSampler(device));
+    map.excludeMask = excludeMask;
+    effect.setShadowMap(map);
+    REQUIRE(chain.add(effect));
+
+    const TextureHandle color   = makeColor(device, 16, 16);
+    const TextureHandle depth   = makeDepth(device, 16, 16);
+    const TextureHandle normals = makeNormals(device, 16, 16);
+    const TextureHandle target  = makeOutput(device, 16, 16);
+    const FrameInputs frame     = makeFrame(color, depth, normals, 16, 16);
+    const OutputTarget output   = makeOutputTarget(target, 16, 16);
+
+    recordChain(chain, device, frame, output);
+
+    const std::vector<PassRecord> passes = passRecords(device.recorded());
+    REQUIRE(passes.size() == 2);
+    REQUIRE(passes[0].textures.size() == 5);
+    CHECK(passes[0].textures[4].texture == excludeMask);
+    CHECK(passes[0].textures[4].stage == ShaderStage::Fragment);
+    CHECK(passes[0].textures[4].slot == 4);
+    const std::optional<SamplerDesc> maskSampler =
+        device.samplerDesc(passes[0].textures[4].sampler);
+    REQUIRE(maskSampler.has_value());
+    CHECK(maskSampler->minFilter == Filter::Nearest);
+    CHECK(maskSampler->magFilter == Filter::Nearest);
+    CHECK(maskSampler->addressU == AddressMode::ClampToEdge);
+    CHECK(maskSampler->addressV == AddressMode::ClampToEdge);
+
+    REQUIRE(passes[0].uniforms.size() == 1);
+    const PushUniforms& push = passes[0].uniforms.front();
+    CHECK(push.stage == ShaderStage::Fragment);
+    CHECK(push.slot == 0);
+    const ExpectedShadowReceiveUniforms expected{
+        { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+            9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
+        { 0.0f, 1.0f, 0.0f },
+        0.75f, 0.01f, 0.002f, 2.0f, 256.0f, 0x8u, 12.0f, 24.0f,
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 1u, { 0.0f, 0.0f } };
+    CHECK(push.data == bytesOf(expected));
+
+    checkNames(chain, { "shadow receive", "copy" });
+    chain.close();
 }

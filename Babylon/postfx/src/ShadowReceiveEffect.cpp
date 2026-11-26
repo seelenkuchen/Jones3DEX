@@ -43,7 +43,8 @@ namespace babylon::postfx
             float depthFar;
             float tanHalfFovX;
             float tanHalfFovY;
-            float padding[3];
+            std::uint32_t hasExcludeMask;
+            float padding[2];
         };
         static_assert(sizeof(ShadowReceiveUniforms) == 144);
     }
@@ -182,10 +183,12 @@ namespace babylon::postfx
             projection.depthFar,
             projection.tanHalfFovX,
             projection.tanHalfFovY,
-            { 0.0f, 0.0f, 0.0f } };
+            m_map.excludeMask.isNull() ? 0u : 1u,
+            { 0.0f, 0.0f } };
 
         // One pass: colour and depth of the frame, the normals (or depth again),
-        // and the shadow map with its comparison sampler.
+        // the shadow map with its comparison sampler, and the exclude mask (or
+        // depth again when there is none, so the layout never changes).
         render::PassDesc pass;
         render::ColorAttachment attachment;
         attachment.target = ctx.output;
@@ -206,6 +209,9 @@ namespace babylon::postfx
             needsNormals ? ctx.frame.normals : ctx.frame.depth, ctx.resources.nearestClamp());
         ctx.list.bindTexture(render::ShaderStage::Fragment, 3, m_map.texture,
             m_map.compareSampler);
+        ctx.list.bindTexture(render::ShaderStage::Fragment, 4,
+            m_map.excludeMask.isNull() ? ctx.frame.depth : m_map.excludeMask,
+            ctx.resources.nearestClamp());
         ctx.list.pushUniforms(render::ShaderStage::Fragment, 0,
             std::as_bytes(std::span(&uniforms, 1)));
         ctx.list.draw(3);
