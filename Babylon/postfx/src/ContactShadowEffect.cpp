@@ -43,7 +43,8 @@ namespace babylon::postfx
             float tanHalfFovY;
             float inputWidth;
             float inputHeight;
-            float padding[3];
+            std::uint32_t hasIgnoreMask;
+            float padding[2];
         };
         static_assert(sizeof(ContactShadowMaskUniforms) == 80);
 
@@ -100,6 +101,11 @@ namespace babylon::postfx
         m_lightDirection[0] = x / length;
         m_lightDirection[1] = y / length;
         m_lightDirection[2] = z / length;
+    }
+
+    void ContactShadowEffect::setIgnoreMask(render::TextureHandle mask)
+    {
+        m_ignoreMask = mask;
     }
 
     std::string_view ContactShadowEffect::name() const
@@ -228,6 +234,8 @@ namespace babylon::postfx
             return false;
         }
 
+        const bool hasIgnoreMask = !m_ignoreMask.isNull();
+
         const Projection& projection = ctx.frame.projection;
         const ContactShadowMaskUniforms maskUniforms{
             { m_lightDirection[0], m_lightDirection[1], m_lightDirection[2] },
@@ -245,7 +253,8 @@ namespace babylon::postfx
             projection.tanHalfFovY,
             static_cast<float>(ctx.inputWidth),
             static_cast<float>(ctx.inputHeight),
-            { 0.0f, 0.0f, 0.0f } };
+            hasIgnoreMask ? 1u : 0u,
+            { 0.0f, 0.0f } };
 
         const ContactShadowBlurUniforms blurUniforms{
             projection.nearPlane,
@@ -262,11 +271,13 @@ namespace babylon::postfx
             projection.depthNear,
             projection.depthFar };
 
-        // Mask: depth and normals in, the shadow amount out.
-        const render::TextureHandle maskTextures[2] = { ctx.frame.depth,
-            needsNormals ? ctx.frame.normals : ctx.frame.depth };
+        // Mask: depth, normals and the ignore mask (or depth again when there is
+        // none, so the layout never changes) in, the shadow amount out.
+        const render::TextureHandle maskTextures[3] = { ctx.frame.depth,
+            needsNormals ? ctx.frame.normals : ctx.frame.depth,
+            hasIgnoreMask ? m_ignoreMask : ctx.frame.depth };
         if ( !Resources::recordFullscreenPass(ctx.list, maskTarget, maskPipeline,
-            std::span<const render::TextureHandle>(maskTextures, 2),
+            std::span<const render::TextureHandle>(maskTextures, 3),
             ctx.resources.nearestClamp(), std::as_bytes(std::span(&maskUniforms, 1))) )
         {
             return false;
