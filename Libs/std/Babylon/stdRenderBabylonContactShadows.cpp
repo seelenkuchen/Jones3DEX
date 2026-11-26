@@ -32,24 +32,6 @@ namespace
     constexpr float stdRenderBabylon_kContactLightAzimuth = 30.0f; // degrees about the world Z axis
     constexpr float stdRenderBabylon_kContactPi           = 3.14159265358979323846f;
 
-    // Added: the game world's direction toward the light in the shader camera's view space. aCamera
-    // is the 12-float shader camera (right, up and forward in world coordinates, elements 0-2, 4-6
-    // and 8-10); the result is (dot(right, Lw), dot(up, Lw), dot(forward, Lw)).
-    void stdRenderBabylon_ContactLightDirection(const float aCamera[12], float aDirection[3])
-    {
-        const float tilt    = stdRenderBabylon_kContactLightTilt * stdRenderBabylon_kContactPi / 180.0f;
-        const float azimuth = stdRenderBabylon_kContactLightAzimuth * stdRenderBabylon_kContactPi / 180.0f;
-        const float aWorld[3] = { std::sin(tilt) * std::cos(azimuth),
-            std::sin(tilt) * std::sin(azimuth), std::cos(tilt) };
-
-        const float* pRight   = &aCamera[0];
-        const float* pUp      = &aCamera[4];
-        const float* pForward = &aCamera[8];
-        aDirection[0] = pRight[0] * aWorld[0] + pRight[1] * aWorld[1] + pRight[2] * aWorld[2];
-        aDirection[1] = pUp[0] * aWorld[0] + pUp[1] * aWorld[1] + pUp[2] * aWorld[2];
-        aDirection[2] = pForward[0] * aWorld[0] + pForward[1] * aWorld[1] + pForward[2] * aWorld[2];
-    }
-
     // Added: the contact-shadow stage's scene-sized target, made when its size changes. False,
     // logging why, when it can't be created.
     bool stdRenderBabylon_EnsureContactShadowTargets(uint32_t width, uint32_t height)
@@ -115,6 +97,25 @@ namespace
 
 namespace stdRenderBabylonInternal
 {
+    // Added: the game world's direction toward the light in the shader camera's view space. aCamera
+    // is the 12-float shader camera (right, up and forward in world coordinates, elements 0-2, 4-6
+    // and 8-10); the result is (dot(right, Lw), dot(up, Lw), dot(forward, Lw)). Shared with the
+    // character-shadow stage (M11.2d).
+    void stdRenderBabylon_ContactLightDirection(const float aCamera[12], float aDirection[3])
+    {
+        const float tilt    = stdRenderBabylon_kContactLightTilt * stdRenderBabylon_kContactPi / 180.0f;
+        const float azimuth = stdRenderBabylon_kContactLightAzimuth * stdRenderBabylon_kContactPi / 180.0f;
+        const float aWorld[3] = { std::sin(tilt) * std::cos(azimuth),
+            std::sin(tilt) * std::sin(azimuth), std::cos(tilt) };
+
+        const float* pRight   = &aCamera[0];
+        const float* pUp      = &aCamera[4];
+        const float* pForward = &aCamera[8];
+        aDirection[0] = pRight[0] * aWorld[0] + pRight[1] * aWorld[1] + pRight[2] * aWorld[2];
+        aDirection[1] = pUp[0] * aWorld[0] + pUp[1] * aWorld[1] + pUp[2] * aWorld[2];
+        aDirection[2] = pForward[0] * aWorld[0] + pForward[1] * aWorld[1] + pForward[2] * aWorld[2];
+    }
+
     // Added: frees the contact-shadow stage's target. Recreated by the next present with the stage
     // on after a scene size or render scale change.
     void stdRenderBabylon_FreeContactShadowTargets()

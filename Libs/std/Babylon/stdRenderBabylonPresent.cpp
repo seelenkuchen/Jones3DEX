@@ -22,6 +22,7 @@
 #include <std/General/stdConfig.h>
 
 #include "stdBabylon.h"
+#include "std3DBabylonInternal.h"
 #include "stdRenderBabylon.h"
 #include "stdRenderBabylonInternal.h"
 
@@ -81,6 +82,20 @@ namespace
 
             if ( bPresent )
             {
+                // Added: M11.2d. The character-shadow map is recorded before the post chain from the
+                // casters the scene draws collected; the receive pass runs after the contact shadows.
+                // No casters or a failed map only skips this frame's stage.
+                stdRenderBabylon_state.bShadowMapRecorded = false;
+                if ( stdRenderBabylon_state.bShadows
+                    && !stdRenderBabylon_state.bShadowsSetupFailed
+                    && stdRenderBabylon_state.bHasCameraTransform )
+                {
+                    static_cast<void>(stdRenderBabylon_RecordShadowMap(list));
+                }
+                // The map has consumed this frame's casters; a later present without a new scene
+                // must not reuse them.
+                std3DBabylonInternal::std3DBabylon_ResetShadowCasters();
+
                 stdRenderBabylon_RecordPostChain(list);
 
                 // Added: the water-ripple stage after the post chain and before depth of field. Off,
@@ -107,7 +122,16 @@ namespace
                     stdRenderBabylon_state.bContactShadowsSetupFailed = true;
                 }
 
-                // Added: the screen-space ambient-occlusion stage after the contact shadows and
+                // Added: the character-shadow receive stage after the contact shadows and before
+                // ambient occlusion. Its map was recorded above; no casters, a failed map or a
+                // failure here skips the pass so the image is byte-identical.
+                stdRenderBabylon_state.bShadowsRan = false;
+                if ( stdRenderBabylon_state.bShadowMapRecorded )
+                {
+                    static_cast<void>(stdRenderBabylon_RecordShadowReceive(list));
+                }
+
+                // Added: the screen-space ambient-occlusion stage after the character shadows and
                 // before depth of field. Off, or a failure, skips every pass so the image is
                 // byte-identical to the path without it.
                 stdRenderBabylon_state.bSsaoRan = false;

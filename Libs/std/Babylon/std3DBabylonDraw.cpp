@@ -366,6 +366,12 @@ namespace
             std3D_casterVertexCount += (uint32_t)numVerts;
         }
 #endif
+        // Added: M11.2d. A scene-pass triangle draw marked as a shadow caster also contributes its
+        // expanded triangles to the frame's character-shadow map. The HUD layer never casts.
+        if ( bTriangles && !bHud && (std3D_renderState & STD3D_RS_SHADOW_CASTER) != 0 )
+        {
+            std3DBabylon_CollectShadowCasters(bLit, aVerts, aIndices, numIndices);
+        }
         if ( bHud )
         {
             std3D_bHudPassBegun = true;

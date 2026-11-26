@@ -177,4 +177,21 @@ namespace std3DBabylonInternal
     void std3D_ResetTextureCacheInternal();
     bool std3D_InitDrawResources();
     void std3D_ReleaseDrawResources();
+
+    // Added: M11.2d. The frame's shadow casters, in the postfx view convention (x right, y up,
+    // z forward), three floats per triangle vertex expanded from the draw's indices. The scene-pass
+    // draws whose render state carries STD3D_RS_SHADOW_CASTER append to it; std3D_StartScene clears
+    // it. The list is capped and lenient (a bad vertex is skipped), so one bad draw cannot stop the
+    // whole stage.
+    void std3DBabylon_CollectShadowCasters(bool bLit, const void* aVerts,
+        const uint16_t* aIndices, size_t numIndices);
+    void std3DBabylon_ResetShadowCasters();
+    const std::vector<float>& std3DBabylon_GetShadowCasterPositions();
+
+    // Added: the classic StdVertexTL projection inverted to the postfx view convention. width and
+    // height are the back-buffer size its screen coordinates refer to; tanHalfX and tanHalfY are the
+    // projection tangents the receive stage reconstructs receivers with. False for a vertex behind
+    // the camera or with a non-finite value.
+    bool std3DBabylon_TLToView(const StdVertexTL& vertex, uint32_t width, uint32_t height,
+        float tanHalfX, float tanHalfY, float aPosition[3]);
 }

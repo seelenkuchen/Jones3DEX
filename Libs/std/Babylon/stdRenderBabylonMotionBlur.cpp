@@ -159,10 +159,12 @@ namespace stdRenderBabylonInternal
 
         const render::TextureHandle scene = stdRenderBabylon_state.bSsaoRan
             ? stdRenderBabylon_state.ssaoColorTarget
-            : (stdRenderBabylon_state.bContactShadowsRan
-                ? stdRenderBabylon_state.contactShadowColorTarget
-                : (stdRenderBabylon_state.bWaterRan
-                    ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource()));
+            : (stdRenderBabylon_state.bShadowsRan
+                ? stdRenderBabylon_state.shadowColorTarget
+                : (stdRenderBabylon_state.bContactShadowsRan
+                    ? stdRenderBabylon_state.contactShadowColorTarget
+                    : (stdRenderBabylon_state.bWaterRan
+                        ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource())));
 
         float tanHalfX = 0.0f;
         stdRenderBabylon_SsaoProjection(width, height, &tanHalfX, nullptr);

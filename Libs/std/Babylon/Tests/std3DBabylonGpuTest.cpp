@@ -783,6 +783,14 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsDarkenTheFloorBesideABox);
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowLightDirectionMatchesTheCamera);
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsOptionDefaultsAndSetting);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowCasterTLInversionMatchesTheLitViewPosition);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowCasterClassicTLInversionMatchesTheViewPosition);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowCasterListTakesOnlyMarkedSceneTrianglesAndResets);
+    RUN_TEST_CASE(std3DBabylonGpu, DrawsThingShadowsIsZeroBeforeOpenAndFollowsTheOption);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowsOptionDefaultsAndSetting);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowMapRunsBeforeThePostChainAndReceiveBetweenContactAndSsao);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowsOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurOffIsByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurStaticCameraLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurRotationSmearsHorizontallyOnly);

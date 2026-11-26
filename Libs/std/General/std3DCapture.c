@@ -646,6 +646,13 @@ int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane)
     return result;
 }
 
+// Added: a side-effect-free presentation query, forwarded without a capture record. The replay
+// draws from recorded calls and never asks it, so no record id is needed.
+int std3D_DrawsThingShadows(void)
+{
+    return std3DBackend_DrawsThingShadows();
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     if ( !stdRenderCapture_IsOpen() )

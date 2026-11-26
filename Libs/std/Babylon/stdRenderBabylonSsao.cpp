@@ -188,8 +188,8 @@ namespace stdRenderBabylonInternal
         }
     }
 
-    // Added: the ambient-occlusion stage over the scene source (the contact-shadow output, the
-    // water-ripple output or the post chain's). It reconstructs view-space positions and normals
+    // Added: the ambient-occlusion stage over the scene source (the character-shadow output, the
+    // contact-shadow output, the water-ripple output or the post chain's). It reconstructs view-space positions and normals
     // from the depth target, gathers a half-res normal-oriented hemisphere kernel in a fixed 4 x 4
     // rotation pattern, blurs it
     // depth-aware and multiplies the HDR scene by the result. Sky, water and empty pixels stay
@@ -223,10 +223,12 @@ namespace stdRenderBabylonInternal
             stdRenderBabylon_state.bSsaoLogged = true;
         }
 
-        const render::TextureHandle scene = stdRenderBabylon_state.bContactShadowsRan
-            ? stdRenderBabylon_state.contactShadowColorTarget
-            : (stdRenderBabylon_state.bWaterRan
-                ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource());
+        const render::TextureHandle scene = stdRenderBabylon_state.bShadowsRan
+            ? stdRenderBabylon_state.shadowColorTarget
+            : (stdRenderBabylon_state.bContactShadowsRan
+                ? stdRenderBabylon_state.contactShadowColorTarget
+                : (stdRenderBabylon_state.bWaterRan
+                    ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource()));
         const uint32_t halfWidth  = std::max(1u, (width + 1u) / 2u);
         const uint32_t halfHeight = std::max(1u, (height + 1u) / 2u);
 

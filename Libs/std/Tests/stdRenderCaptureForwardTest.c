@@ -778,6 +778,8 @@ TEST(stdRenderCaptureForward, TestForwardersPassThroughWithoutCapture)
     TEST_ASSERT_EQUAL_size_t(3u, stdDisplay_GetAdapterNum(3u));
     TEST_ASSERT_EQUAL_size_t(0u, std3D_GetNumDevices());
     TEST_ASSERT_FALSE(stdDisplay_IsOpen());
+    // Added: the Null backend draws no real thing shadows, so the game keeps the blob.
+    TEST_ASSERT_EQUAL_INT(0, std3D_DrawsThingShadows());
 
     STD_ZEROMEM(&colorInfo, sizeof(colorInfo));
     TEST_ASSERT_EQUAL_INT(STDCOLOR_FORMAT_RGB, std3D_GetColorFormat(&colorInfo));

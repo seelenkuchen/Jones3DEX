@@ -59,11 +59,13 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSharpening.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSmaa.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSsao.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonShadows.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonWaterRipples.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderReplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonCamera.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonDraw.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonShadowCasters.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonFormats.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonLighting.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonSamplers.cpp"
@@ -144,6 +146,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::cvars
         babylon::render
         babylon::postfx
+        babylon::shadow
         stdBabylonShaders
     )
 

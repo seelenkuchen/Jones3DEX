@@ -5,6 +5,7 @@
 #include <babylon/postfx/ContactShadowEffect.h>
 #include <babylon/postfx/FilmGrainEffect.h>
 #include <babylon/postfx/Resources.h>
+#include <babylon/postfx/ShadowReceiveEffect.h>
 #include <babylon/postfx/TargetPool.h>
 #include <babylon/postfx/VignetteEffect.h>
 #include <babylon/render/CommandList.h>
@@ -13,6 +14,7 @@
 #include <babylon/render/Pipeline.h>
 #include <babylon/render/Sampler.h>
 #include <babylon/render/Texture.h>
+#include <babylon/shadow/DirectionalShadowMap.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -119,6 +121,13 @@ namespace stdRenderBabylonInternal
     // and the first-person overlay (scene depth below 0.1) is left alone. Values are presentation
     // only.
     inline constexpr const char* stdRenderBabylon_kContactShadowsKey = "engine.renderer.contactShadows";
+
+    // Added: the M11.2d character-shadow stage, after the contact shadows and before ambient
+    // occlusion (engine.renderer.shadows). The model draws that carry STD3D_RS_SHADOW_CASTER are
+    // collected in view space, a 2048 shadow map of the fixed overhead light is fitted around them
+    // and the receive pass darkens ordinary surfaces. Enhanced only; Retail/QOL-off keeps the blob.
+    inline constexpr const char* stdRenderBabylon_kShadowsKey = "engine.renderer.shadows";
+    inline constexpr std::uint32_t stdRenderBabylon_kShadowMapSize = 2048;
 
     // Added: the built-in screen-space ambient occlusion stage (M9.17b), after the contact shadows
     // and before depth of field. engine.renderer.ssao is 0 off, 1 Low, 2 Medium, 3 High. Each level's
@@ -272,6 +281,11 @@ namespace stdRenderBabylonInternal
         std::unique_ptr<postfx::FilmGrainEffect> pPostfxGrain;
         // Added: the M11.1 contact-shadow effect, made and released with the other postfx objects.
         std::unique_ptr<postfx::ContactShadowEffect> pPostfxContactShadows;
+        // Added: M11.2d. The character-shadow map and the receive effect, made and released with the
+        // other postfx objects. The map is recorded before the post chain each presenting submit and
+        // the receive effect runs after the contact shadows.
+        std::unique_ptr<babylon::shadow::DirectionalShadowMap> pShadowMap;
+        std::unique_ptr<postfx::ShadowReceiveEffect> pPostfxShadowReceive;
 
         // Added: the built-in bloom stage before the tone map. The prefilter target is half the
         // scene size; downsamples go to 1/4, 1/8, 1/16 and 1/32, then additive tent upsamples run
@@ -367,6 +381,21 @@ namespace stdRenderBabylonInternal
         render::TextureHandle contactShadowColorTarget;
         uint32_t contactShadowWidth  = 0;
         uint32_t contactShadowHeight = 0;
+
+        // Added: the M11.2d character-shadow stage, after the contact shadows and before ambient
+        // occlusion. The map is recorded before the post chain from the casters the std3D draw path
+        // collected, and the receive pass writes one scene-sized target in the scene color format.
+        // bShadowMapRecorded tells the receive pass that this frame's map is valid; bShadowsRan tells
+        // ambient occlusion and the later stages to read the result. The direction toward the light
+        // is the M11.1 overhead light converted to view space.
+        bool bShadows                    = false;
+        bool bShadowsSetupFailed         = false;
+        bool bShadowMapRecorded          = false;
+        bool bShadowsRan                 = false;
+        float aShadowLightDirection[3]   = { 0.0f, 0.0f, 0.0f };
+        render::TextureHandle shadowColorTarget;
+        uint32_t shadowWidth  = 0;
+        uint32_t shadowHeight = 0;
 
         // Added: the built-in screen-space ambient occlusion stage after the contact shadows and
         // before depth of field. The raw and blurred occlusion terms are half the scene size, the
@@ -492,6 +521,7 @@ namespace stdRenderBabylonInternal
     void stdRenderBabylon_FreeDoFTargets();
     void stdRenderBabylon_FreeWaterTargets();
     void stdRenderBabylon_FreeContactShadowTargets();
+    void stdRenderBabylon_FreeShadowTargets();
     void stdRenderBabylon_FreeSsaoTargets();
     void stdRenderBabylon_FreeMotionBlurTarget();
     void stdRenderBabylon_FreeShaftTargets();
@@ -509,6 +539,10 @@ namespace stdRenderBabylonInternal
     void stdRenderBabylon_ClosePostfx();
 
     // The stage record functions the presenting submit and the capture call.
+    // Added: makes the character-shadow map on first use (or when the option turns on), so a build
+    // or test with the stage off records no extra commands at open. False when the device can't make
+    // it; one warning and bShadowsSetupFailed are set then.
+    bool stdRenderBabylon_EnsureShadowMap();
     bool stdRenderBabylon_RecordSmaa(render::CommandList& list, render::TextureHandle target,
         render::TextureFormat format, uint32_t width, uint32_t height, bool bCasSource);
     bool stdRenderBabylon_RecordSharpening(render::CommandList& list, render::TextureHandle source,
@@ -519,6 +553,8 @@ namespace stdRenderBabylonInternal
     bool stdRenderBabylon_RecordDoF(render::CommandList& list);
     bool stdRenderBabylon_RecordWaterRipples(render::CommandList& list);
     bool stdRenderBabylon_RecordContactShadows(render::CommandList& list);
+    bool stdRenderBabylon_RecordShadowMap(render::CommandList& list);
+    bool stdRenderBabylon_RecordShadowReceive(render::CommandList& list);
     bool stdRenderBabylon_RecordSsao(render::CommandList& list);
     bool stdRenderBabylon_RecordMotionBlur(render::CommandList& list);
     bool stdRenderBabylon_RecordShaftMaskCentroid(render::CommandList& list);
@@ -538,6 +574,15 @@ namespace stdRenderBabylonInternal
     void stdRenderBabylon_SsaoProjection(uint32_t width, uint32_t height, float* pTanHalfX,
         float* pTanHalfY);
     bool stdRenderBabylon_EnsureColorGradingLut();
+
+    // Added: the M11.1 overhead light converted from the shader camera basis (right, up and forward
+    // in elements 0-2, 4-6 and 8-10) to the direction toward the light in view space. Shared by the
+    // contact-shadow and character-shadow stages.
+    void stdRenderBabylon_ContactLightDirection(const float aCamera[12], float aDirection[3]);
+
+    // Added: true while the character-shadow map and receive effect are open. std3D_DrawsThingShadows
+    // reads it so the game keeps the blob when the stage could not be set up.
+    bool stdRenderBabylon_AreShadowObjectsOpen();
     render::PipelineHandle stdRenderBabylon_CreateHudPipeline(render::TextureFormat format);
 
 #ifdef J3D_TEST

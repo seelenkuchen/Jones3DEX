@@ -1649,7 +1649,9 @@ int J3DAPI sithRender_RenderThing(SithThing* pThing)
     int drawResult = sithThing_Draw(pThing);
     rdModel3_SetNextDrawFaceFlags(0);
 
-    if ( (pThing->flags & SITH_TF_SHADOW) != 0 ) // draw shadow
+    // Altered: M11.2d. When the platform draws real thing shadows from the overhead light, the
+    // original blob shadow is not drawn; the blob stays in Retail/QOL-off and where shadows failed.
+    if ( (pThing->flags & SITH_TF_SHADOW) != 0 && !std3D_DrawsThingShadows() ) // draw shadow
     {
         sithShadow_RenderThingShadow(pThing);
     }

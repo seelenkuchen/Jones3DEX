@@ -120,6 +120,13 @@ void J3DAPI std3D_SetFrameTime(float deltaTime);
 // nothing in a capture. It changes no simulation state.
 void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut);
 
+// Added: whether the backend draws real thing shadows this frame (M11.2d, presentation only).
+// Returns 1 when it does and the game must skip sithShadow_RenderThingShadow, else 0 and the game
+// draws the original blob. The Babylon backend answers 1 only when engine.renderer.shadows is on
+// and its shadow map and receive effect opened; the Null backend answers 0. The query has no side
+// effects and records nothing in a capture.
+int std3D_DrawsThingShadows(void);
+
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);

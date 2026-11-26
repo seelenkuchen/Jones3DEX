@@ -648,6 +648,12 @@ void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut)
     J3D_UNUSED(bCut);
 }
 
+int std3D_DrawsThingShadows(void)
+{
+    // Added: the Null column draws no real shadows, so the game keeps the blob shadow.
+    return 0;
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     // Added: Fog state is stored without device validation; nothing consumes it on the

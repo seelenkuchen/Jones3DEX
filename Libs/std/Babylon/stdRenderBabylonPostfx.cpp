@@ -5,6 +5,7 @@
 #include <babylon/postfx/FilmGrainEffect.h>
 #include <babylon/postfx/FrameInputs.h>
 #include <babylon/postfx/Resources.h>
+#include <babylon/postfx/ShadowReceiveEffect.h>
 #include <babylon/postfx/TargetPool.h>
 #include <babylon/postfx/VignetteEffect.h>
 #include <babylon/render/CommandList.h>
@@ -61,6 +62,16 @@ namespace stdRenderBabylonInternal
         stdRenderBabylon_state.pPostfxGrain    = std::make_unique<postfx::FilmGrainEffect>();
         stdRenderBabylon_state.pPostfxContactShadows =
             std::make_unique<postfx::ContactShadowEffect>();
+
+        // Added: M11.2d. The character-shadow receive effect is created with the other postfx objects;
+        // its map is opened on first use (or now when the option is on) so a build with the stage off
+        // allocates nothing and leaves every recorded frame exactly as before.
+        stdRenderBabylon_state.pPostfxShadowReceive =
+            std::make_unique<postfx::ShadowReceiveEffect>();
+        if ( stdRenderBabylon_state.bShadows )
+        {
+            static_cast<void>(stdRenderBabylon_EnsureShadowMap());
+        }
         return true;
     }
 
@@ -80,6 +91,14 @@ namespace stdRenderBabylonInternal
         {
             stdRenderBabylon_state.pPostfxContactShadows->releaseResources();
         }
+        if ( stdRenderBabylon_state.pPostfxShadowReceive )
+        {
+            stdRenderBabylon_state.pPostfxShadowReceive->releaseResources();
+        }
+        if ( stdRenderBabylon_state.pShadowMap )
+        {
+            stdRenderBabylon_state.pShadowMap->close();
+        }
         if ( stdRenderBabylon_state.pPostfxTargets )
         {
             stdRenderBabylon_state.pPostfxTargets->releaseAll();
@@ -92,6 +111,8 @@ namespace stdRenderBabylonInternal
         stdRenderBabylon_state.pPostfxVignette.reset();
         stdRenderBabylon_state.pPostfxGrain.reset();
         stdRenderBabylon_state.pPostfxContactShadows.reset();
+        stdRenderBabylon_state.pPostfxShadowReceive.reset();
+        stdRenderBabylon_state.pShadowMap.reset();
         stdRenderBabylon_state.pPostfxTargets.reset();
         stdRenderBabylon_state.pPostfxResources.reset();
     }
