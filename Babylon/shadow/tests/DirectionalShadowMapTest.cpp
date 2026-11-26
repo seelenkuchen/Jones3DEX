@@ -102,33 +102,33 @@ namespace
         PassCommands found;
         for ( const RecordedCommand& record : records )
         {
-            if ( const auto* pValue = std::get_if<UpdateBuffer>(&record) )
+            if ( const auto* pUpdate = std::get_if<UpdateBuffer>(&record) )
             {
-                found.update = pValue;
+                found.update = pUpdate;
             }
-            else if ( const auto* pValue = std::get_if<BeginPass>(&record) )
+            else if ( const auto* pBegin = std::get_if<BeginPass>(&record) )
             {
-                found.begin = pValue;
+                found.begin = pBegin;
             }
-            else if ( const auto* pValue = std::get_if<SetPipeline>(&record) )
+            else if ( const auto* pPipeline = std::get_if<SetPipeline>(&record) )
             {
-                found.pipeline = pValue;
+                found.pipeline = pPipeline;
             }
-            else if ( const auto* pValue = std::get_if<BindVertexBuffer>(&record) )
+            else if ( const auto* pVertexBuffer = std::get_if<BindVertexBuffer>(&record) )
             {
-                found.vertexBuffer = pValue;
+                found.vertexBuffer = pVertexBuffer;
             }
-            else if ( const auto* pValue = std::get_if<PushUniforms>(&record) )
+            else if ( const auto* pUniforms = std::get_if<PushUniforms>(&record) )
             {
-                found.uniforms = pValue;
+                found.uniforms = pUniforms;
             }
-            else if ( const auto* pValue = std::get_if<Draw>(&record) )
+            else if ( const auto* pDraw = std::get_if<Draw>(&record) )
             {
-                found.draw = pValue;
+                found.draw = pDraw;
             }
-            else if ( const auto* pValue = std::get_if<EndPass>(&record) )
+            else if ( const auto* pEnd = std::get_if<EndPass>(&record) )
             {
-                found.end = pValue;
+                found.end = pEnd;
             }
         }
         return found;
