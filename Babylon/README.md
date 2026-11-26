@@ -64,6 +64,12 @@ clamping samplers and full-screen vertex shader. Effects own their pipelines and
 alone, without the chain. Its shaders are compiled at build time, so it too needs
 `BABYLON_BUILD_SHADERS`.
 
+`shadow` renders a directional shadow map (ADR-0041). `DirectionalShadowMap` fits an orthographic light
+view to the union of the casters in the camera's view space (with a margin and a texel-snapped origin),
+streams their triangles through one growing vertex buffer and draws them depth-only into a sampled depth
+target; receivers map a view-space position with `viewToShadowTexture()` and compare it with the linear
+comparison sampler. Its shaders are compiled at build time, so it too needs `BABYLON_BUILD_SHADERS`.
+
 `render` hides the GPU (ADR-0025): a `Device` owns textures, buffers, samplers
 and pipelines behind typed handles, a frame is recorded into a `CommandList`
 (passes, bindings, draws, copies) and submitted once, and `Device::submit`

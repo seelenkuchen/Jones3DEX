@@ -63,8 +63,9 @@ add_subdirectory(ui)
 if (BABYLON_BUILD_SHADERS)
     add_subdirectory(uirender)
     add_subdirectory(postfx)
+    add_subdirectory(shadow)
 else()
-    message(STATUS "BABYLON_BUILD_SHADERS=OFF: skipping the uirender and postfx modules")
+    message(STATUS "BABYLON_BUILD_SHADERS=OFF: skipping the uirender, postfx and shadow modules")
 endif()
 
 # Machine checks for the Babylon boundary and the module graph (ADR-0006,
