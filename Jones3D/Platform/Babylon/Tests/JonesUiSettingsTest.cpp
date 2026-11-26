@@ -482,6 +482,75 @@ TEST_CASE("the display screen reads the ambient occlusion default per build")
     CHECK(layout.motionBlur < layout.waterRipples);
 }
 
+TEST_CASE("the display screen reads the shadow defaults per build")
+{
+    SettingsTestContext testContext;
+    ConfigTest config;
+    SeedDisplayConfig();
+
+    StdDisplayEnvironment env;
+    StdDisplayInfo info;
+    std::vector<StdVideoMode> aModes;
+    BuildDisplayEnv(env, info, aModes);
+
+    JonesDisplaySettings settings = DefaultDisplaySettings();
+    JonesUiDisplayValues values;
+    JonesUiDisplayLayout layout;
+    JonesUiDisplayModel model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    babylon::ui::Screen screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+
+    // The two rows sit together directly after Ambient occlusion.
+    REQUIRE(layout.shadows < screen.widgets.size());
+    REQUIRE(layout.contactShadows < screen.widgets.size());
+    const babylon::ui::Toggle* pShadows =
+        std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.shadows]);
+    const babylon::ui::Toggle* pContactShadows =
+        std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.contactShadows]);
+    REQUIRE(pShadows != nullptr);
+    REQUIRE(pContactShadows != nullptr);
+    CHECK(pShadows->text == "Shadows");
+    CHECK(pContactShadows->text == "Contact shadows");
+    CHECK(layout.ssao < layout.shadows);
+    CHECK(layout.shadows < layout.contactShadows);
+    CHECK(layout.contactShadows < layout.motionBlur);
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(pShadows->value);
+    CHECK(pContactShadows->value);
+#else
+    CHECK_FALSE(pShadows->value);
+    CHECK_FALSE(pContactShadows->value);
+#endif
+
+    // A stored on still reports off in Retail/QOL-off, as the Lighting row does.
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_SHADOWS, true));
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_CONTACTSHADOWS, true));
+    model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+    pShadows = std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.shadows]);
+    pContactShadows = std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.contactShadows]);
+    REQUIRE(pShadows != nullptr);
+    REQUIRE(pContactShadows != nullptr);
+#ifdef J3D_QOL_IMPROVEMENTS
+    CHECK(pShadows->value);
+    CHECK(pContactShadows->value);
+#else
+    CHECK_FALSE(pShadows->value);
+    CHECK_FALSE(pContactShadows->value);
+#endif
+
+    // A stored off reaches the rows in Enhanced.
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_SHADOWS, false));
+    REQUIRE(stdConfig_SetBool(JONESDISPLAY_CFG_ENGINE_RENDER_CONTACTSHADOWS, false));
+    model = JonesUiDisplay_LoadModel(&env, &settings, values);
+    screen = JonesUiDisplay_BuildScreen(model, values, layout, true);
+    pShadows = std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.shadows]);
+    pContactShadows = std::get_if<babylon::ui::Toggle>(&screen.widgets[layout.contactShadows]);
+    REQUIRE(pShadows != nullptr);
+    REQUIRE(pContactShadows != nullptr);
+    CHECK_FALSE(pShadows->value);
+    CHECK_FALSE(pContactShadows->value);
+}
+
 TEST_CASE("the display screen reads the motion blur default per build")
 {
     SettingsTestContext testContext;
@@ -609,10 +678,11 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
 
     // 0 bit depth, 1 resolution, 2 windowed, 3 filter, 4 fog, 5 fog density, 6 performance,
     // 7 hi-poly, 8 lit faces, 9 lighting, 10 field of view, 11 render scale, 12 anti-aliasing,
-    // 13 bloom, 14 light shafts, 15 ambient occlusion, 16 motion blur, 17 lens flare, 18 vignette,
-    // 19 film grain, 20 water ripples, 21 depth of field (cutscenes), 22 depth of field (gameplay),
-    // 23 sharpening, 24 tone mapping, 25 exposure, 26 colour grading, 27 anisotropic filtering,
-    // 28 crisp pixels, 29 frame rate limit, 30 Brightness..., 31 OK, 32 back.
+    // 13 bloom, 14 light shafts, 15 ambient occlusion, 16 shadows, 17 contact shadows,
+    // 18 motion blur, 19 lens flare, 20 vignette, 21 film grain, 22 water ripples,
+    // 23 depth of field (cutscenes), 24 depth of field (gameplay), 25 sharpening, 26 tone mapping,
+    // 27 exposure, 28 colour grading, 29 anisotropic filtering, 30 crisp pixels,
+    // 31 frame rate limit, 32 Brightness..., 33 OK, 34 back.
     testContext.platform.PushKey(platform::Key::Right); // 16 -> 32 bit
     testContext.platform.PushKey(platform::Key::Down);
     testContext.platform.PushKey(platform::Key::Right); // 640x480 -> 800x600
@@ -644,6 +714,10 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // ambient occlusion
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
+    testContext.platform.PushKey(platform::Key::Down);  // shadows
+    testContext.platform.PushKey(platform::Key::Enter); // on -> off in Enhanced, off -> on without QOL
+    testContext.platform.PushKey(platform::Key::Down);  // contact shadows
+    testContext.platform.PushKey(platform::Key::Enter); // on -> off in Enhanced, off -> on without QOL
     testContext.platform.PushKey(platform::Key::Down);  // motion blur
     testContext.platform.PushKey(platform::Key::Left);  // Low/Off -> Off
     testContext.platform.PushKey(platform::Key::Down);  // lens flare
@@ -714,6 +788,10 @@ TEST_CASE("the display screen OK writes the chosen settings and config")
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_BLOOM, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_LIGHTSHAFTS, -1) == 0);
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, -1) == 0);
+    // Both rows start on in Enhanced and off in Retail/QOL-off; Enter flips the row either way,
+    // and Retail/QOL-off still writes them off.
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_SHADOWS, true));
+    CHECK_FALSE(stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_CONTACTSHADOWS, true));
     CHECK(stdConfig_GetInt(JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR, -1) == 0);
 #ifdef J3D_QOL_IMPROVEMENTS
     // Enhanced starts lens flare on, so Enter turns it off.
@@ -1895,10 +1973,10 @@ TEST_CASE("the Options Display brightness row opens the calibration")
     ui::NullPainter painter;
     ui::Ui ui(painter, testContext.cvars);
 
-    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 29).
+    // Gameplay -> Controls -> Display, then down from Bit depth to Brightness... (row 31).
     testContext.platform.PushKey(platform::Key::E);
     testContext.platform.PushKey(platform::Key::E);
-    for ( int row = 0; row < 29; ++row )
+    for ( int row = 0; row < 31; ++row )
     {
         testContext.platform.PushKey(platform::Key::Down);
     }

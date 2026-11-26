@@ -36,6 +36,8 @@ namespace JonesUiDisplaySettingsInternal
     inline constexpr const char* kJonesDisplayBloomText = "Bloom"; // TODO: [COMPAT]
     inline constexpr const char* kJonesDisplayLightShaftsText = "Light shafts"; // TODO: [COMPAT]
     inline constexpr const char* kJonesDisplaySsaoText = "Ambient occlusion"; // TODO: [COMPAT]
+    inline constexpr const char* kJonesDisplayShadowsText = "Shadows"; // TODO: [COMPAT]
+    inline constexpr const char* kJonesDisplayContactShadowsText = "Contact shadows"; // TODO: [COMPAT]
     inline constexpr const char* kJonesDisplayMotionBlurText = "Motion blur"; // TODO: [COMPAT]
     inline constexpr const char* kJonesDisplayLensFlareText = "Lens flare"; // TODO: [COMPAT]
     inline constexpr const char* kJonesDisplayVignetteText = "Vignette"; // TODO: [COMPAT]
@@ -85,6 +87,11 @@ namespace JonesUiDisplaySettingsInternal
     inline constexpr bool kJonesDisplayLensFlareDefault = J3D_QOL_VALUE(1, 0) != 0;
     inline constexpr bool kJonesDisplayVignetteDefault  = false;
     inline constexpr bool kJonesDisplayFilmGrainDefault = false;
+
+    // Added: M11.5 character shadows and contact shadows; on in Enhanced builds and off in
+    // Retail/QOL-off ones.
+    inline constexpr bool kJonesDisplayShadowsDefault        = J3D_QOL_VALUE(1, 0) != 0;
+    inline constexpr bool kJonesDisplayContactShadowsDefault = J3D_QOL_VALUE(1, 0) != 0;
 
     // Added: M10.2 Lighting choices; Classic (0) is the default everywhere for now and the only
     // one Retail/QOL-off builds accept. Per-pixel needs lit faces.

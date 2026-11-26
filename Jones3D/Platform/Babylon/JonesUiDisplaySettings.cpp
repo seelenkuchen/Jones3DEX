@@ -43,6 +43,7 @@
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/std3DBabylon.h>
 #include <std/Babylon/stdDisplayBabylon.h>
+#include <std/Babylon/stdRenderBabylon.h>
 #include <std/General/std.h>
 #include <std/General/std3D.h>
 #include <std/General/stdConfig.h>
@@ -155,6 +156,12 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     model.ssao = std::clamp(JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_SSAO, J3D_QOL_VALUE(1, 0)), 0,
         (int)STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
+    // Added: M11.5. Retail/QOL-off builds always report both shadows off, whatever the file says.
+    model.bShadows = J3D_QOL_VALUE(JonesUiDisplay_ReadConfigBool(
+        JONESDISPLAY_CFG_ENGINE_RENDER_SHADOWS, kJonesDisplayShadowsDefault) != 0, 0) != 0;
+    model.bContactShadows = J3D_QOL_VALUE(JonesUiDisplay_ReadConfigBool(
+        JONESDISPLAY_CFG_ENGINE_RENDER_CONTACTSHADOWS, kJonesDisplayContactShadowsDefault) != 0,
+        0) != 0;
     model.motionBlur = std::clamp(JonesUiDisplay_ReadConfigInt(
         JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR, J3D_QOL_VALUE(1, 0)), 0,
         (int)STD_ARRAYLEN(kJonesDisplayMotionBlurValues) - 1);
@@ -203,6 +210,8 @@ JonesUiDisplayModel JonesUiDisplay_LoadModel(const StdDisplayEnvironment* pDispl
     values.bloom = JonesUiDisplay_BloomIndex(model.bloom);
     values.lightShafts = JonesUiDisplay_LightShaftsIndex(model.lightShafts);
     values.ssao = JonesUiDisplay_SsaoIndex(model.ssao);
+    values.bShadows = model.bShadows;
+    values.bContactShadows = model.bContactShadows;
     values.motionBlur = JonesUiDisplay_MotionBlurIndex(model.motionBlur);
     values.bLensFlare = model.bLensFlare;
     values.bVignette = model.bVignette;
@@ -387,6 +396,19 @@ int JonesUiDisplay_Apply(const JonesUiDisplayModel& model,
         STD_ARRAYLEN(kJonesDisplaySsaoValues) - 1);
     JonesUiDisplay_SetConfigInt(JONESDISPLAY_CFG_ENGINE_RENDER_SSAO,
         kJonesDisplaySsaoValues[ssao]);
+
+    // Added: M11.5. The keys are read when the frame owner opens; while it is open the setters
+    // switch the stages at once. Retail/QOL-off builds keep both off, like the Lighting row.
+    const bool bShadows = J3D_QOL_VALUE(values.bShadows ? 1 : 0, 0) != 0;
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_SHADOWS, bShadows);
+    const bool bContactShadows = J3D_QOL_VALUE(values.bContactShadows ? 1 : 0, 0) != 0;
+    JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_CONTACTSHADOWS, bContactShadows);
+    if ( stdRenderBabylon_IsOpen() )
+    {
+        static_cast<void>(stdRenderBabylon_SetShadows(bShadows));
+        static_cast<void>(stdRenderBabylon_SetContactShadows(bContactShadows));
+    }
+
     // Added: M9.18. Read when the frame owner opens, like bloom.
     JonesUiDisplay_SetConfigBool(JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE,
         values.bLensFlare);

@@ -209,6 +209,19 @@ namespace
             values.ssao < STD_ARRAYLEN(kJonesDisplaySsaoValues)
                 ? values.ssao : kJonesDisplaySsaoDefault });
 
+        // Added: M11.5. Character shadows project the things that cast the original blob shadow
+        // from the overhead light; contact shadows darken nearby contact points. The HUD, menus
+        // and prompts are never touched.
+        layout.shadows = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayShadowsText), std::string(), true,
+            values.bShadows });
+
+        layout.contactShadows = screen.widgets.size();
+        screen.widgets.emplace_back(babylon::ui::Toggle{
+            JonesUiDisplay_ResolveLabel(kJonesDisplayContactShadowsText), std::string(), true,
+            values.bContactShadows });
+
         // Added: M9.19. Motion blur smears moving parts of the 3D scene along the camera's motion;
         // the HUD, menus and prompts are never blurred.
         std::vector<std::string> motionBlurOptions;
@@ -462,6 +475,10 @@ void JonesUiDisplay_ReadValues(const babylon::ui::Ui& ui, babylon::ui::ScreenId 
         values.lightShafts));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.ssao,
         values.ssao));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.shadows,
+        values.bShadows));
+    static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.contactShadows,
+        values.bContactShadows));
     static_cast<void>(JonesUiDisplay_ReadChoice(ui, screen, layout.motionBlur,
         values.motionBlur));
     static_cast<void>(JonesUiDisplay_ReadToggle(ui, screen, layout.lensFlare,
