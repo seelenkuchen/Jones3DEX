@@ -43,7 +43,7 @@ namespace babylon::postfx
             float depthFar;
             float tanHalfFovX;
             float tanHalfFovY;
-            std::uint32_t hasExcludeMask;
+            std::uint32_t maskMode; // 0 none, 1 exclude, 2 include
             float padding[2];
         };
         static_assert(sizeof(ShadowReceiveUniforms) == 144);
@@ -92,6 +92,10 @@ namespace babylon::postfx
 
     bool ShadowReceiveEffect::active() const
     {
+        if ( m_map.maskMode == MaskMode::Include && m_map.excludeMask.isNull() )
+        {
+            return false;
+        }
         return m_settings.strength > 0.0f && !m_map.texture.isNull()
             && !m_map.compareSampler.isNull() && m_map.mapSize > 0;
     }
@@ -128,6 +132,20 @@ namespace babylon::postfx
         {
             log::warning("postfx: shadow receive: there is no valid shadow map");
             return false;
+        }
+
+        // Include selects only the mask's pixels; without a mask nothing can receive, so the
+        // frame passes through unchanged. active() reports this so the chain skips the effect.
+        if ( m_map.maskMode == MaskMode::Include && m_map.excludeMask.isNull() )
+        {
+            log::warning("postfx: shadow receive: include mode needs a mask");
+            return false;
+        }
+
+        std::uint32_t maskMode = 0;
+        if ( !m_map.excludeMask.isNull() )
+        {
+            maskMode = m_map.maskMode == MaskMode::Include ? 2u : 1u;
         }
 
         const auto getPipeline = [this, &ctx](render::TextureFormat format)
@@ -183,7 +201,7 @@ namespace babylon::postfx
             projection.depthFar,
             projection.tanHalfFovX,
             projection.tanHalfFovY,
-            m_map.excludeMask.isNull() ? 0u : 1u,
+            maskMode,
             { 0.0f, 0.0f } };
 
         // One pass: colour and depth of the frame, the normals (or depth again),

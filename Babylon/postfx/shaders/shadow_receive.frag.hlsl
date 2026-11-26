@@ -7,7 +7,9 @@
 // depth, projects it into a directional shadow map and darkens the colour
 // where the map's comparison sampler says the light is blocked. A receiver
 // test repeats the contact-shadow composite's, so a non-receiver pixel returns
-// the input byte for byte.
+// the input byte for byte. An optional mask either excludes selected pixels
+// (a caster's own surface) or, in include mode, confines the receive pass to
+// them. The non-selected pixels of either mode return the input byte for byte.
 //
 // The fragment shader must read uv (TEXCOORD0): a shader that only uses
 // SV_Position loses TEXCOORD0 from its input signature, and D3D12 rejects the
@@ -47,7 +49,7 @@ cbuffer ShadowReceiveParams : register(b0, space3)
     float gDepthFar;
     float gTanHalfFovX;
     float gTanHalfFovY;
-    uint gHasExcludeMask;
+    uint gMaskMode; // 0 none, 1 exclude, 2 include
     float gPadding1;
     float gPadding2;
 };
@@ -99,11 +101,17 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
         return color;
     }
 
-    // A masked pixel is a shadow caster's own surface: it keeps its exact
-    // input colour, so the caster still casts but does not receive.
-    if ( gHasExcludeMask != 0 && gExcludeMask.Sample(gExcludeMaskSampler, uv).r >= 0.5 )
+    // In exclude mode a masked pixel is a shadow caster's own surface: it
+    // keeps its exact input colour, so the caster still casts but does not
+    // receive. In include mode only a masked pixel may receive; every other
+    // pixel keeps its exact input colour.
+    if ( gMaskMode != 0 )
     {
-        return color;
+        const bool selected = gExcludeMask.Sample(gExcludeMaskSampler, uv).r >= 0.5;
+        if ( gMaskMode == 1 ? selected : !selected )
+        {
+            return color;
+        }
     }
 
     if ( gReceiverClasses != 0xF )

@@ -33,11 +33,22 @@ namespace babylon::postfx
         float fadeEnd = 40.0f;        // view distance where they are gone
     };
 
+    // What the mask's red >= 0.5 selects. Exclude keeps those pixels' exact input colour, so a
+    // caster's own surface receives no shadow; Include lets only those pixels receive, so the
+    // same mask can apply a map that contains other casters. Include without a mask selects
+    // nothing: the effect is inactive and the frame passes through unchanged.
+    enum class MaskMode : std::uint8_t
+    {
+        Exclude,
+        Include,
+    };
+
     // The shadow map for this frame, set before each record(). matrix maps view-space positions
     // (x right, y up, z forward) to (u, v, depth, 1) of the map: row-major float[16], column
     // vectors. towardLight is the view-space direction to the light (used for the normal offset).
-    // excludeMask is optional: a frame-sized texture whose red channel marks the pixels that must
-    // not receive a shadow, leaving a caster's own surface unchanged. An invalid map (null texture
+    // excludeMask is optional: a frame-sized texture whose red channel selects pixels according
+    // to maskMode. The name is historical; in include mode it selects the only pixels that
+    // receive, which lets a second map apply to those pixels alone. An invalid map (null texture
     // or sampler, mapSize 0) makes the effect inactive for that frame.
     struct ShadowMapInput
     {
@@ -46,9 +57,11 @@ namespace babylon::postfx
         std::uint32_t mapSize = 0;
         float matrix[16] = {};
         float towardLight[3] = { 0.0f, 1.0f, 0.0f };
-        // Optional, any colour format, read at the frame's uv: red >= 0.5 receives no shadow and
-        // keeps its exact input colour. Null means no mask.
+        // Optional, any colour format, read at the frame's uv. Null means no mask: no pixel is
+        // selected, which leaves Exclude as "everything receives" and Include as "nothing
+        // receives" (the effect is then inactive).
         render::TextureHandle excludeMask;
+        MaskMode maskMode = MaskMode::Exclude;
     };
 
     // Darkens receiver pixels where a shadow map says a directional light is blocked. It
@@ -57,10 +70,13 @@ namespace babylon::postfx
     // comparison sampler over a fixed 12-tap Poisson disc. The receiver test repeats the
     // contact-shadow composite's: pixels whose normals alpha is a class not in receiverClasses
     // keep their exact input colour. With receiverClasses 0xF every pixel receives and the
-    // normals target is not needed. An optional exclude mask keeps a shadow caster's own surface
-    // out of the receive pass, so a hat's shadow does not fall on the face below it. Shadows fade
-    // with view distance and near the map border. postfx takes the map as plain inputs and does
-    // not depend on the shadow module.
+    // normals target is not needed. An optional mask keeps a shadow caster's own surface out of
+    // the receive pass, so a hat's shadow does not fall on the face below it, or in include mode
+    // confines a map to those pixels. That lets two maps share one light: the map whose casters
+    // are the moving characters excludes them so they do not shadow themselves, while a map
+    // whose casters are the static level includes only them. Shadows fade with view distance and
+    // near the map border. postfx takes the map as plain inputs and does not depend on the shadow
+    // module.
     class ShadowReceiveEffect final : public Effect
     {
     public:
@@ -78,7 +94,8 @@ namespace babylon::postfx
         std::string_view name() const override;      // "shadow receive"
         Stage stage() const override;                // Stage::Hdr
         Needs needs() const override;                // depth, and normals when receiverClasses != 0xF
-        bool active() const override;                // strength > 0 and a valid map
+        // strength > 0, a valid map and, in include mode, a mask (without one nothing receives).
+        bool active() const override;
         void releaseResources() override;
 
     private:

@@ -543,3 +543,64 @@ TEST_CASE("The shadow receive effect binds an exclude mask and flags it in the u
     checkNames(chain, { "shadow receive", "copy" });
     chain.close();
 }
+
+TEST_CASE("The shadow receive mask mode selects include, and needs a mask to include")
+{
+    NullDevice device;
+    ShadowReceiveEffect effect;
+    Chain chain(device);
+    REQUIRE(chain.open());
+
+    ShadowReceiveSettings settings;
+    settings.strength        = 0.75f;
+    settings.normalOffset    = 0.01f;
+    settings.depthBias       = 0.002f;
+    settings.filterRadius    = 2.0f;
+    settings.receiverClasses = 0x8u;
+    settings.fadeStart       = 12.0f;
+    settings.fadeEnd         = 24.0f;
+    effect.setSettings(settings);
+
+    const TextureHandle mask = makeExcludeMask(device, 16, 16);
+    REQUIRE_FALSE(mask.isNull());
+    ShadowMapInput map = makeMap(makeShadowMap(device, 256), makeCompareSampler(device));
+    map.excludeMask = mask;
+    map.maskMode    = MaskMode::Include;
+    effect.setShadowMap(map);
+    REQUIRE(chain.add(effect));
+
+    const TextureHandle color   = makeColor(device, 16, 16);
+    const TextureHandle depth   = makeDepth(device, 16, 16);
+    const TextureHandle normals = makeNormals(device, 16, 16);
+    const TextureHandle target  = makeOutput(device, 16, 16);
+    const FrameInputs frame     = makeFrame(color, depth, normals, 16, 16);
+    const OutputTarget output   = makeOutputTarget(target, 16, 16);
+
+    recordChain(chain, device, frame, output);
+
+    const std::vector<PassRecord> passes = passRecords(device.recorded());
+    REQUIRE(passes.size() == 2);
+    REQUIRE(passes[0].textures.size() == 5);
+    CHECK(passes[0].textures[4].texture == mask);
+    REQUIRE(passes[0].uniforms.size() == 1);
+    const ExpectedShadowReceiveUniforms expected{
+        { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+            9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
+        { 0.0f, 1.0f, 0.0f },
+        0.75f, 0.01f, 0.002f, 2.0f, 256.0f, 0x8u, 12.0f, 24.0f,
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 2u, { 0.0f, 0.0f } };
+    CHECK(passes[0].uniforms.front().data == bytesOf(expected));
+    REQUIRE(passes[0].draws.size() == 1);
+    checkNames(chain, { "shadow receive", "copy" });
+
+    // Include without a mask selects no pixel: nothing can receive, so the
+    // effect is inactive and the chain only copies the frame through.
+    map.excludeMask = {};
+    effect.setShadowMap(map);
+    CHECK_FALSE(effect.active());
+    recordChain(chain, device, frame, output);
+    CHECK(passRecords(device.recorded()).size() == 1);
+    checkNames(chain, { "copy" });
+
+    chain.close();
+}

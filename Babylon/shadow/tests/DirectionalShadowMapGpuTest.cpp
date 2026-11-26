@@ -136,9 +136,11 @@ namespace
     // pass over the whole map, and returns the receive target's pixels.
     std::vector<std::byte> renderShadowFrame(Device& device, DirectionalShadowMap& map,
         TextureHandle receive, PipelineHandle receivePipeline,
-        const std::vector<float>& dynamicVertices, const StaticCasterSet* pStatic)
+        const std::vector<float>& dynamicVertices, const StaticCasterSet* pStatic,
+        bool fitOnlyDynamic = false)
     {
-        const CasterBatch dynamic{ dynamicVertices.data(), dynamicVertices.size() / 3 };
+        CasterBatch dynamic{ dynamicVertices.data(), dynamicVertices.size() / 3 };
+        dynamic.fitOnly = fitOnlyDynamic;
         CasterBatch staticBatch;
         staticBatch.pStatic = pStatic;
         const std::array<CasterBatch, 2> batches{ dynamic, staticBatch };
@@ -310,6 +312,70 @@ TEST_CASE("A static caster within staticReach casts and one beyond does not (GPU
     CHECK(redAt(beyondPixels, kSize / 2, 205) > 191);
     CHECK(redAt(beyondPixels, 38, 205) < 64);
     CHECK(redAt(beyondPixels, 217, 205) < 64);
+
+    device->destroyPipeline(receivePipeline);
+    device->destroyTexture(receive);
+
+    INFO("captured log: " << joined(sink));
+    CHECK(sink.records().empty());
+}
+
+TEST_CASE("A fit-only caster fits the map but leaves no shadow of its own (GPU)")
+{
+    babylon::render::test::keepGpuDriverLoaded();
+    babylon::log::CaptureSink sink;
+    const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+    if ( device == nullptr )
+    {
+        babylon::render::test::noGpuDevice("no GPU device: " + joined(sink));
+        return;
+    }
+
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kSize;
+    if ( !map.open(desc) )
+    {
+        babylon::render::test::noGpuDevice("no sampled depth format: " + joined(sink));
+        return;
+    }
+    REQUIRE(map.isOpen());
+
+    // The fit-only casters define the x edges of the fitted footprint but are
+    // not drawn. The static ledge above the center is the only caster, so only
+    // its area is shadowed and the fit-only casters leave nothing behind.
+    const std::vector<float> fitOnlyVertices = edgeCasters();
+    StaticCasterSet staticSet(*device);
+    REQUIRE(staticSet.upload(ledgeVertices(10.0f)));
+
+    const TextureHandle receive = device->createTexture(TextureDesc{ kSize, kSize, 1,
+        TextureFormat::Rgba8, TextureUsage::ColorTarget });
+    REQUIRE_FALSE(receive.isNull());
+
+    PipelineDesc receiveDesc;
+    receiveDesc.vertexShader   = babylon::shadow::test::shaders::shadowReceiveVert();
+    receiveDesc.fragmentShader = babylon::shadow::test::shaders::shadowReceiveFrag();
+    receiveDesc.colorTargets   = { ColorTargetDesc{ TextureFormat::Rgba8, {} } };
+    const PipelineHandle receivePipeline = device->createPipeline(receiveDesc);
+    REQUIRE_FALSE(receivePipeline.isNull());
+
+    const std::vector<std::byte> fitOnlyPixels = renderShadowFrame(*device, map, receive,
+        receivePipeline, fitOnlyVertices, &staticSet, true);
+    REQUIRE(fitOnlyPixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
+    CHECK(map.isValid());
+    CHECK(redAt(fitOnlyPixels, kSize / 2, 205) < 64);
+    CHECK(redAt(fitOnlyPixels, 38, 205) > 191);
+    CHECK(redAt(fitOnlyPixels, 217, 205) > 191);
+
+    // With the same batches drawn instead, the casters at the x edges block
+    // their part of the map: the fit-only batch was the only difference.
+    const std::vector<std::byte> drawnPixels = renderShadowFrame(*device, map, receive,
+        receivePipeline, fitOnlyVertices, &staticSet);
+    REQUIRE(drawnPixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
+    CHECK(map.isValid());
+    CHECK(redAt(drawnPixels, kSize / 2, 205) < 64);
+    CHECK(redAt(drawnPixels, 38, 205) < 64);
+    CHECK(redAt(drawnPixels, 217, 205) < 64);
 
     device->destroyPipeline(receivePipeline);
     device->destroyTexture(receive);
