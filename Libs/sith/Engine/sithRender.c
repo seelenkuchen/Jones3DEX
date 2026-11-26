@@ -200,6 +200,7 @@ static void sithRender_MarkThingSeen(SithThing* pThing);
 
 static void sithRender_BuildSmoothNormals(void); // Added
 static void sithRender_FreeSmoothNormals(void); // Added
+static void sithRender_UploadStaticShadowCasters(void); // Added: M11.3
 static void sithRender_ApplySmoothNormals(rdCacheProcEntry* pPoly, const SithWorld* pWorld, const SithSurface* pSurf, const rdMatrix34* pView); // Added
 static int sithRender_SurfaceFaceToPlane(rdCacheProcEntry* pPoly, const SithSector* pSector, const SithSurface* pSurf, bool bLit); // Added
 
@@ -273,6 +274,10 @@ int sithRender_Open(void)
     sithRender_bMotionBlurCutscene = false;
 
     sithRender_bResetCameraAspect = false;
+
+    // Added: M11.3. The level's static surfaces as shadow casters for the characters. Presentation only:
+    // a failure or an unsupported backend changes nothing else.
+    sithRender_UploadStaticShadowCasters();
     return 0;
 }
 
@@ -285,6 +290,8 @@ void sithRender_Close(void)
 
     sithRender_aAdjoinTable = NULL;
     sithRender_FreeSmoothNormals(); // Added
+    // Added: M11.3. Drop the level's static shadow casters with the level.
+    std3D_SetStaticShadowCasters(NULL, 0);
     sithRenderSky_Close();
 }
 
@@ -1766,6 +1773,112 @@ void sithRender_RenderAlphaAdjoins(void)
     {
         rdCache_FlushAlpha();
     }
+}
+
+// Added: M11.3. True when the renderer draws the surface as solid level geometry that should shadow the
+// characters: it has geometry, is not sky or water and is not a translucent adjoin, and every one of its
+// vertices is in the world. Only presentation state is read.
+static bool sithRender_IsStaticShadowCasterSurface(const SithSurface* pSurface, const SithWorld* pWorld)
+{
+    const rdFace* pFace = &pSurface->face;
+    if ( pFace->geometryMode == RD_GEOMETRY_NONE
+        || pFace->numVertices < 3u
+        || !pFace->aVertices
+        || (pSurface->pAdjoin && (pFace->flags & RD_FF_TEX_TRANSLUCENT) != 0)
+        || (pSurface->flags & (SITH_SURFACE_HORIZONSKY | SITH_SURFACE_CEILINGSKY | SITH_SURFACE_WATER)) != 0 )
+    {
+        return false;
+    }
+
+    for ( size_t i = 0; i < pFace->numVertices; ++i )
+    {
+        const int vertexIndex = pFace->aVertices[i];
+        if ( vertexIndex < 0 || (size_t)vertexIndex >= pWorld->numVertices )
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Added: M11.3. Uploads the level's static surfaces as world-space shadow casters for the characters,
+// fan-triangulated from each surface's first vertex. It counts and fills in two passes, so the backend
+// gets one triangle list; a size that cannot be held clears the casters instead. Presentation only: it
+// touches no world, thing, RNG or savegame state.
+static void sithRender_UploadStaticShadowCasters(void)
+{
+    const SithWorld* pWorld = sithWorld_g_pCurrentWorld;
+    if ( !pWorld || !pWorld->aSurfaces || !pWorld->aVertices || pWorld->numSurfaces == 0
+        || pWorld->numVertices == 0 )
+    {
+        std3D_SetStaticShadowCasters(NULL, 0);
+        return;
+    }
+
+    size_t numVertices = 0;
+    for ( size_t i = 0; i < pWorld->numSurfaces; ++i )
+    {
+        const SithSurface* pSurface = &pWorld->aSurfaces[i];
+        if ( !sithRender_IsStaticShadowCasterSurface(pSurface, pWorld) )
+        {
+            continue;
+        }
+
+        const size_t numTriangles = pSurface->face.numVertices - 2u;
+        if ( numTriangles > (SIZE_MAX - numVertices) / 3u )
+        {
+            SITHLOG_WARNING("sithRender: the static shadow caster count overflows.\n");
+            std3D_SetStaticShadowCasters(NULL, 0);
+            return;
+        }
+        numVertices += numTriangles * 3u;
+    }
+
+    if ( numVertices == 0
+        || numVertices > SIZE_MAX / (3u * sizeof(float)) )
+    {
+        if ( numVertices != 0 )
+        {
+            SITHLOG_WARNING("sithRender: the static shadow caster vertices are too large.\n");
+        }
+        std3D_SetStaticShadowCasters(NULL, 0);
+        return;
+    }
+
+    float* aPositions = (float*)STDMALLOC(numVertices * 3u * sizeof(float));
+    if ( !aPositions )
+    {
+        SITHLOG_WARNING("sithRender: could not allocate the static shadow caster vertices.\n");
+        std3D_SetStaticShadowCasters(NULL, 0);
+        return;
+    }
+
+    size_t out = 0;
+    for ( size_t i = 0; i < pWorld->numSurfaces; ++i )
+    {
+        const SithSurface* pSurface = &pWorld->aSurfaces[i];
+        if ( !sithRender_IsStaticShadowCasterSurface(pSurface, pWorld) )
+        {
+            continue;
+        }
+
+        const rdFace* pFace = &pSurface->face;
+        for ( size_t j = 1; j + 1u < pFace->numVertices; ++j )
+        {
+            const size_t aIndices[3] = { 0u, j, j + 1u };
+            for ( size_t k = 0; k < 3u; ++k )
+            {
+                const rdVector3* pVertex = &pWorld->aVertices[pFace->aVertices[aIndices[k]]];
+                aPositions[out++] = pVertex->x;
+                aPositions[out++] = pVertex->y;
+                aPositions[out++] = pVertex->z;
+            }
+        }
+    }
+
+    std3D_SetStaticShadowCasters(aPositions, numVertices);
+    STDFREE(aPositions);
 }
 
 void sithRender_BuildSmoothNormals(void)

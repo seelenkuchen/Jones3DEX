@@ -64,6 +64,21 @@ namespace
         std3D_AddShadowCasterPolygon(aPositions, 4u);
     }
 
+    // M11.3. A static ledge in world space (x, y forward, z up), above the caster, for the level map.
+    // With the identity camera it lands at view (x, z, y), above the character casters.
+    void SetLevelShadowLedge()
+    {
+        const float aPositions[18] = {
+            0.70f, 2.30f, 1.00f,
+            1.10f, 2.30f, 1.00f,
+            1.10f, 2.80f, 1.00f,
+            0.70f, 2.30f, 1.00f,
+            1.10f, 2.80f, 1.00f,
+            0.70f, 2.80f, 1.00f,
+        };
+        std3D_SetStaticShadowCasters(aPositions, 6u);
+    }
+
     // A closed box around the caster quad, submitted face by face and never drawn. Its camera-facing
     // faces are not part of the rendered scene, so the shadow under the floor can only come from the
     // whole model the polygon call carries.
@@ -590,6 +605,73 @@ TEST(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud)
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 1u], (int)on[hudPixel + 1u]);
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 2u], (int)on[hudPixel + 2u]);
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 3u], (int)on[hudPixel + 3u]);
+}
+
+TEST(std3DBabylonGpu, LevelGeometryShadowsTheCharacterButNotTheWorld)
+{
+    if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseShadowOnly();
+    SetShadowCamera();
+
+    const auto renderWithLedge = [](bool bLedge) {
+        RenderScene([bLedge] {
+            DrawShadowScene(false);
+            if ( bLedge )
+            {
+                SetLevelShadowLedge();
+            }
+            else
+            {
+                std3D_SetStaticShadowCasters(nullptr, 0u);
+            }
+        });
+    };
+
+    // Off, with the ledge present: the baseline image.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    renderWithLedge(true);
+    const std::vector<std::byte> off = CapturePresented(kSceneSize, kSceneSize);
+
+    // On without the ledge only the character map runs; on with it the level map also applies.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    renderWithLedge(false);
+    const std::vector<std::byte> onNoLedge = CapturePresented(kSceneSize, kSceneSize);
+    renderWithLedge(true);
+    const std::vector<std::byte> onLedge = CapturePresented(kSceneSize, kSceneSize);
+
+    // The character's own pixels darken from the ledge; without it they keep the baseline colour.
+    const size_t casterPixel = ((size_t)43u * kSceneSize + 31u) * 4u;
+    for ( size_t channel = 0; channel < 4u; ++channel )
+    {
+        TEST_ASSERT_EQUAL_INT((int)off[casterPixel + channel],
+            (int)onNoLedge[casterPixel + channel]);
+    }
+    const float noLedgeCaster = SsaoMeanBrightness(onNoLedge, kSceneSize, 30u, 42u, 33u, 45u);
+    const float ledgeCaster    = SsaoMeanBrightness(onLedge, kSceneSize, 30u, 42u, 33u, 45u);
+    std::printf("M11.3 level shadows: character %.2f without the ledge, %.2f with it\n",
+        (double)noLedgeCaster, (double)ledgeCaster);
+    TEST_ASSERT_TRUE(ledgeCaster < noLedgeCaster - 1.0f);
+
+    // The level shadow stays off the world: the floor beside the character is exactly as without the
+    // ledge.
+    const float noLedgeFloor = SsaoMeanBrightness(onNoLedge, kSceneSize, 50u, 52u, 60u, 62u);
+    const float ledgeFloor    = SsaoMeanBrightness(onLedge, kSceneSize, 50u, 52u, 60u, 62u);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, noLedgeFloor, ledgeFloor);
+
+    // The character still casts onto the floor with the level map on. This rectangle also contains
+    // the visible caster, whose pixels the level pass legitimately darkens, so only the darkening
+    // against off is asserted here; the far-floor check above proves the world itself is untouched.
+    const float offShadow     = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
+    const float noLedgeShadow = SsaoMeanBrightness(onNoLedge, kSceneSize, 28u, 42u, 36u, 49u);
+    const float ledgeShadow   = SsaoMeanBrightness(onLedge, kSceneSize, 28u, 42u, 36u, 49u);
+    std::printf("M11.3 level shadows: floor below the caster %.2f off, %.2f on, %.2f with the ledge\n",
+        (double)offShadow, (double)noLedgeShadow, (double)ledgeShadow);
+    TEST_ASSERT_TRUE(noLedgeShadow < offShadow - 1.0f);
+    TEST_ASSERT_TRUE(ledgeShadow < offShadow - 1.0f);
 }
 
 TEST(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor)

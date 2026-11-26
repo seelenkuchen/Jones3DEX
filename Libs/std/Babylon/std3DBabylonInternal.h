@@ -187,6 +187,13 @@ namespace std3DBabylonInternal
     void std3DBabylon_ResetShadowCasters();
     const std::vector<float>& std3DBabylon_GetShadowCasterPositions();
 
+    // Added: M11.3. The level's static shadow casters, in world space (x, y, z in the level's Z-up units),
+    // three floats per triangle-list vertex. std3D_SetStaticShadowCasters replaces them; the level-shadow
+    // stage uploads them to a StaticCasterSet lazily while the dirty flag is set.
+    const std::vector<float>& std3DBabylon_GetStaticShadowCasterPositions();
+    bool std3DBabylon_AreStaticShadowCastersDirty();
+    void std3DBabylon_MarkStaticShadowCastersClean();
+
     // Added: M11.2g. The scene triangle draws that carried STD3D_RS_SHADOW_CASTER this frame, with
     // their streamed buffers and ranges, for the caster mask's re-draw. HUD-layer draws are never
     // here. Reset at std3D_StartScene.

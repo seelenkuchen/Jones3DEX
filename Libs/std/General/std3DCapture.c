@@ -660,6 +660,13 @@ void J3DAPI std3D_AddShadowCasterPolygon(const float* aPositions, size_t numVert
     std3DBackend_AddShadowCasterPolygon(aPositions, numVertices);
 }
 
+// Added: M11.3. Presentation-only static caster input, forwarded without a capture record. The replay draws
+// from recorded calls and never uploads level casters, so no record id is needed.
+void J3DAPI std3D_SetStaticShadowCasters(const float* aPositions, size_t numVertices)
+{
+    std3DBackend_SetStaticShadowCasters(aPositions, numVertices);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     if ( !stdRenderCapture_IsOpen() )

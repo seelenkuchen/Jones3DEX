@@ -16,13 +16,33 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SITHRENDERTEST_MAXSURFACES 4
-#define SITHRENDERTEST_NUMVERTS    6
+#define SITHRENDERTEST_MAXSURFACES 6
+#define SITHRENDERTEST_NUMVERTS    8
 
 static SithWorld sithRenderTest_world;
 static SithSurface sithRenderTest_aSurfaces[SITHRENDERTEST_MAXSURFACES];
 static int sithRenderTest_aFaceVerts[SITHRENDERTEST_MAXSURFACES][4];
+static rdVector3 sithRenderTest_aWorldVertices[SITHRENDERTEST_NUMVERTS];
 static rdVector3 sithRenderTest_aViewNormals[4];
+static SithSurfaceAdjoin sithRenderTest_adjoin;
+
+// Added: M11.3. The renamed std3D_SetStaticShadowCasters recorder (sithRenderTestSeams.h): the production
+// upload helper is called unchanged and its argument list is copied before it frees the array.
+#define SITHRENDERTEST_MAXSTATICVERTICES 64
+static float sithRenderTest_aStaticShadowCasters[SITHRENDERTEST_MAXSTATICVERTICES * 3];
+static size_t sithRenderTest_numStaticShadowCasters;
+static size_t sithRenderTest_numStaticShadowCasterCalls;
+
+void sithRenderTest_SetStaticShadowCasters(const float* aPositions, size_t numVertices)
+{
+    ++sithRenderTest_numStaticShadowCasterCalls;
+    sithRenderTest_numStaticShadowCasters = numVertices;
+    if ( aPositions && numVertices <= SITHRENDERTEST_MAXSTATICVERTICES )
+    {
+        memcpy(sithRenderTest_aStaticShadowCasters, aPositions,
+            numVertices * 3u * sizeof(float));
+    }
+}
 
 static tHostServices sithRenderTest_hostServices;
 static tHostServices* sithRenderTest_pSavedSithHS;
@@ -136,6 +156,11 @@ TEST_SETUP(sithRender)
     memset(&sithRenderTest_world, 0, sizeof(sithRenderTest_world));
     memset(sithRenderTest_aSurfaces, 0, sizeof(sithRenderTest_aSurfaces));
     memset(sithRenderTest_aFaceVerts, 0, sizeof(sithRenderTest_aFaceVerts));
+    memset(sithRenderTest_aWorldVertices, 0, sizeof(sithRenderTest_aWorldVertices));
+    memset(&sithRenderTest_adjoin, 0, sizeof(sithRenderTest_adjoin));
+    memset(sithRenderTest_aStaticShadowCasters, 0, sizeof(sithRenderTest_aStaticShadowCasters));
+    sithRenderTest_numStaticShadowCasters     = 0;
+    sithRenderTest_numStaticShadowCasterCalls = 0;
     sithRenderTest_world.aSurfaces   = sithRenderTest_aSurfaces;
     sithRenderTest_world.numVertices = SITHRENDERTEST_NUMVERTS;
 
@@ -264,6 +289,63 @@ TEST(sithRender, AVertexOutOfRangeJoinsNothingAndDoesNotCrash)
     sithRenderTest_AssertCorner(3, 0.0, ny, nz);
 }
 
+// Added: M11.3. The level upload keeps solid geometry and drops sky, water, translucent adjoins and
+// surfaces without geometry, fan-triangulating the kept surfaces from their first vertex. The std3D call
+// is renamed to this suite's recorder by CMake, so the production helper runs exactly as in the game.
+TEST(sithRender, StaticShadowCastersKeepSolidSurfacesAndDropTheRest)
+{
+    for ( size_t i = 0; i < SITHRENDERTEST_NUMVERTS; ++i )
+    {
+        sithRenderTest_aWorldVertices[i].x = (float)i;
+        sithRenderTest_aWorldVertices[i].y = (float)i * 0.5f;
+        sithRenderTest_aWorldVertices[i].z = (float)i * 0.25f;
+    }
+    sithRenderTest_world.aVertices          = sithRenderTest_aWorldVertices;
+    sithWorld_g_pCurrentWorld               = &sithRenderTest_world;
+
+    const int aSolid[4]    = { 0, 1, 2, 3 };
+    const int aSky[4]      = { 1, 2, 3, 4 };
+    const int aWater[4]    = { 2, 3, 4, 5 };
+    const int aAdjoin[4]   = { 3, 4, 5, 6 };
+    const int aNoGeom[4]   = { 4, 5, 6, 7 };
+    const int aTriangle[3] = { 5, 6, 7 };
+
+    sithRenderTest_AddSurface(aSolid, 4u, 0.0f, 0.0f, 1.0f);
+
+    sithRenderTest_AddSurface(aSky, 4u, 0.0f, 0.0f, 1.0f);
+    sithRenderTest_aSurfaces[sithRenderTest_world.numSurfaces - 1u].flags = SITH_SURFACE_HORIZONSKY;
+
+    sithRenderTest_AddSurface(aWater, 4u, 0.0f, 0.0f, 1.0f);
+    sithRenderTest_aSurfaces[sithRenderTest_world.numSurfaces - 1u].flags = SITH_SURFACE_WATER;
+
+    sithRenderTest_AddSurface(aAdjoin, 4u, 0.0f, 0.0f, 1.0f);
+    sithRenderTest_aSurfaces[sithRenderTest_world.numSurfaces - 1u].pAdjoin = &sithRenderTest_adjoin;
+    sithRenderTest_aSurfaces[sithRenderTest_world.numSurfaces - 1u].face.flags = RD_FF_TEX_TRANSLUCENT;
+
+    sithRenderTest_AddSurface(aNoGeom, 4u, 0.0f, 0.0f, 1.0f);
+    sithRenderTest_aSurfaces[sithRenderTest_world.numSurfaces - 1u].face.geometryMode = RD_GEOMETRY_NONE;
+
+    sithRenderTest_AddSurface(aTriangle, 3u, 0.0f, 0.0f, 1.0f);
+
+    TEST_ASSERT_EQUAL_INT(0, sithRender_Open());
+    TEST_ASSERT_EQUAL_size_t(1u, sithRenderTest_numStaticShadowCasterCalls);
+
+    // The solid quad fans into two triangles, the solid triangle stays one: nine vertices.
+    TEST_ASSERT_EQUAL_size_t(9u, sithRenderTest_numStaticShadowCasters);
+    const int aExpected[9] = { 0, 1, 2, 0, 2, 3, 5, 6, 7 };
+    for ( size_t i = 0; i < 9u; ++i )
+    {
+        const rdVector3* pVertex = &sithRenderTest_aWorldVertices[aExpected[i]];
+        TEST_ASSERT_EQUAL_FLOAT(pVertex->x, sithRenderTest_aStaticShadowCasters[i * 3u + 0u]);
+        TEST_ASSERT_EQUAL_FLOAT(pVertex->y, sithRenderTest_aStaticShadowCasters[i * 3u + 1u]);
+        TEST_ASSERT_EQUAL_FLOAT(pVertex->z, sithRenderTest_aStaticShadowCasters[i * 3u + 2u]);
+    }
+
+    sithRender_Close();
+    TEST_ASSERT_EQUAL_size_t(2u, sithRenderTest_numStaticShadowCasterCalls);
+    TEST_ASSERT_EQUAL_size_t(0u, sithRenderTest_numStaticShadowCasters);
+}
+
 TEST_GROUP_RUNNER(sithRender)
 {
     RUN_TEST_CASE(sithRender, AFlatQuadSplitInTwoSurfacesKeepsTheFaceNormal);
@@ -271,4 +353,5 @@ TEST_GROUP_RUNNER(sithRender)
     RUN_TEST_CASE(sithRender, ANinetyDegreeHingeKeepsBothFaceNormals);
     RUN_TEST_CASE(sithRender, ClassicAndPerPixelBothUseTheSmoothedNormal);
     RUN_TEST_CASE(sithRender, AVertexOutOfRangeJoinsNothingAndDoesNotCrash);
+    RUN_TEST_CASE(sithRender, StaticShadowCastersKeepSolidSurfacesAndDropTheRest);
 }

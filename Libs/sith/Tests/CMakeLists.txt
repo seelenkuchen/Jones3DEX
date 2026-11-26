@@ -28,6 +28,21 @@ set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Cog/sithCog.c" PROPERTY COMP
     sithConsole_PrintString=sithCogTest_PrintString
 )
 
+# Added: M11.3. The sithRender test records the static shadow caster upload by renaming the std3D call in
+# its test copy of sithRender.c. The prototype is force-included, as the physics seams already are.
+set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithRender.c" APPEND PROPERTY COMPILE_DEFINITIONS
+    std3D_SetStaticShadowCasters=sithRenderTest_SetStaticShadowCasters
+)
+if (MSVC)
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithRender.c" APPEND PROPERTY COMPILE_OPTIONS
+        "/FI${CMAKE_CURRENT_SOURCE_DIR}/../Engine/Tests/sithRenderTestSeams.h"
+    )
+else()
+    set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/sithRender.c" APPEND PROPERTY COMPILE_OPTIONS
+        "-include" "${CMAKE_CURRENT_SOURCE_DIR}/../Engine/Tests/sithRenderTestSeams.h"
+    )
+endif()
+
 # Observe the fixed integration step and the obsolete rate setting only in the
 # test build of sithPhysics.c; the sith library is built without these seams.
 if (MSVC)
