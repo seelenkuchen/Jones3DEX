@@ -1,8 +1,8 @@
-# M11.1: contact shadows (for review)
+# M11.1: contact shadows
 
 Frames from the windowed Babylon build of branch `m11.1` (after `1cb13bba`) on Xvfb (1920x1080) with Mesa
 lavapipe, the Enhanced defaults, and only `engine.renderer.contactShadows` switched between the columns. Recorded
-2026-11-26. Lavapipe renders on the CPU, so these show the picture, not performance. The raw BMPs contain game data
+2026-11-26 and approved by the owner the same day. Lavapipe renders on the CPU, so these show the picture, not performance. The raw BMPs contain game data
 and are not committed; these are downscales and crops.
 
 Windowed runs are not frame-exact: game time follows the wall clock, so the camera and Indy's pose drift slightly
