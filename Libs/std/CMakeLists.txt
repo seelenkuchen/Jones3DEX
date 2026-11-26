@@ -46,12 +46,14 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonBloom.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonCameraFx.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonColorGrading.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonContactShadows.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonDepthOfField.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonHud.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonLensFlare.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonLightShafts.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonMotionBlur.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonPostChain.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonPostfx.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonPresent.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonResample.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSharpening.cpp"
@@ -113,7 +115,6 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/ssao_composite.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/motion_blur.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lens_flare.frag.hlsl"
-            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/camera_fx.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()
@@ -142,6 +143,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::input
         babylon::cvars
         babylon::render
+        babylon::postfx
         stdBabylonShaders
     )
 

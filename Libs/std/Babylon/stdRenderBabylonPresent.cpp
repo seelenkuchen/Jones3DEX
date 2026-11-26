@@ -94,9 +94,22 @@ namespace
                     stdRenderBabylon_state.bWaterSetupFailed = true;
                 }
 
-                // Added: the screen-space ambient-occlusion stage after the water ripples and before
-                // depth of field. Off, or a failure, skips every pass so the image is byte-identical
-                // to the path without it.
+                // Added: the screen-space contact-shadow stage after the water ripples and before
+                // ambient occlusion. Off, without a camera transform, or a failure, skips the pass
+                // so the image is byte-identical to the path without it.
+                stdRenderBabylon_state.bContactShadowsRan = false;
+                if ( stdRenderBabylon_state.bContactShadows
+                    && !stdRenderBabylon_state.bContactShadowsSetupFailed
+                    && stdRenderBabylon_state.bHasCameraTransform
+                    && !stdRenderBabylon_RecordContactShadows(list) )
+                {
+                    STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not record the contact-shadow stage; presenting without it.\n");
+                    stdRenderBabylon_state.bContactShadowsSetupFailed = true;
+                }
+
+                // Added: the screen-space ambient-occlusion stage after the contact shadows and
+                // before depth of field. Off, or a failure, skips every pass so the image is
+                // byte-identical to the path without it.
                 stdRenderBabylon_state.bSsaoRan = false;
                 if ( stdRenderBabylon_state.ssao > 0
                     && !stdRenderBabylon_state.bSsaoSetupFailed
@@ -216,15 +229,14 @@ namespace
                     }
 
                     // Added: the vignette and film grain write after SMAA and sharpening, into their
-                    // own Bgra8 source, and the effect pass then writes the swapchain. Both off skip
-                    // the target and pass, so the existing path is byte-identical.
+                    // own Bgra8 source, and the Babylon postfx effects then write the swapchain. Both
+                    // off skip the target and passes, so the existing path is byte-identical.
                     bool bFx = ( stdRenderBabylon_state.bVignette
                             || stdRenderBabylon_state.bFilmGrain )
                         && !stdRenderBabylon_state.bFxSetupFailed;
                     if ( bFx
                         && ( !stdRenderBabylon_EnsureFxTarget(width, height)
                             || !stdRenderBabylon_EnsureFxToneMapPipeline()
-                            || !stdRenderBabylon_EnsureFxPipeline(true, swapchainFormat)
                             || !stdRenderBabylon_EnsurePresentSampler() ) )
                     {
                         STDLOG_ERROR("stdRenderBabylon_SubmitFrame: could not set up the camera effects; presenting without them.\n");
@@ -360,6 +372,14 @@ namespace
                                 stdRenderBabylon_state.presentOverlayUser, list, target));
                         }
                     }
+                }
+
+                // Added: return the postfx scratch targets once every effect that draws with them
+                // has recorded, so they are reused and an idle one is freed after a frame. This is
+                // the one end-of-frame call; the effects' record functions only acquire.
+                if ( stdRenderBabylon_state.pPostfxTargets )
+                {
+                    stdRenderBabylon_state.pPostfxTargets->endFrame();
                 }
             }
 
@@ -526,14 +546,13 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
     }
 
     // Added: the vignette and film grain write after SMAA and sharpening, into their own Bgra8
-    // source, and the effect pass then writes the capture target. Both off skip the target and
-    // pass, so the existing capture path is byte-identical.
+    // source, and the Babylon postfx effects then write the capture target. Both off skip the
+    // target and passes, so the existing capture path is byte-identical.
     bool bFx = ( stdRenderBabylon_state.bVignette || stdRenderBabylon_state.bFilmGrain )
         && !stdRenderBabylon_state.bFxSetupFailed;
     if ( bFx
         && ( !stdRenderBabylon_EnsureFxTarget(width, height)
             || !stdRenderBabylon_EnsureFxToneMapPipeline()
-            || !stdRenderBabylon_EnsureFxPipeline(false, render::TextureFormat::Bgra8)
             || !stdRenderBabylon_EnsurePresentSampler() ) )
     {
         STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not set up the camera effects; capturing without them.\n");
@@ -606,7 +625,18 @@ bool stdRenderBabylon_RenderPresentToTexture(render::TextureHandle target,
             render::TextureFormat::Bgra8, width, height) )
     {
         STDLOG_ERROR("stdRenderBabylon_RenderPresentToTexture: could not record the camera effects.\n");
+        if ( stdRenderBabylon_state.pPostfxTargets )
+        {
+            stdRenderBabylon_state.pPostfxTargets->endFrame();
+        }
         return false;
+    }
+
+    // Added: the camera effects are this path's only postfx pool user; return their scratch target
+    // after they record. With them off the previous frame's idle targets stay for the next present.
+    if ( bFx && stdRenderBabylon_state.pPostfxTargets )
+    {
+        stdRenderBabylon_state.pPostfxTargets->endFrame();
     }
 
     // Added: the captured presented frame includes the HUD layer, before the prompt and menu

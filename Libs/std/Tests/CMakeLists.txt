@@ -238,12 +238,14 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonBloom.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonCameraFx.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonColorGrading.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonContactShadows.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonDepthOfField.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonHud.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonLensFlare.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonLightShafts.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonMotionBlur.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonPostChain.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonPostfx.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonPresent.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonResample.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdRenderBabylonSharpening.cpp"
@@ -280,6 +282,7 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuToneMapTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuEffectsTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuContactShadowTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuSsaoMotionTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuShaftsCameraFxTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/stdDisplayBabylonTest.cpp"
@@ -312,6 +315,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::input
         babylon::cvars
         babylon::render
+        babylon::postfx
         babylon::log
         stdBabylonShaders
         # Added: the tests read BABYLON_REQUIRE_GPU through SDL_getenv. Babylon links SDL privately, so

@@ -47,3 +47,4 @@ context, decision, consequences. Decisions aren't edited after the fact; a new A
 | [ADR-0040](ADR-0040-per-pixel-dynamic-lighting.md) | Per-pixel dynamic lighting | Accepted |
 | [ADR-0041](ADR-0041-shadows.md) | Shadows | Proposed |
 | [ADR-0042](ADR-0042-babylon-second-game.md) | Babylon serves a second game | Accepted |
+| [ADR-0043](ADR-0043-babylon-postfx-module.md) | The Babylon post-processing module | Accepted |

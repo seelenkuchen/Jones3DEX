@@ -86,9 +86,9 @@ namespace stdRenderBabylonInternal
         return stdRenderBabylon_state.aPostTargets[(numPasses - 1) % 2];
     }
 
-    // Added: the scene after the post chain, the water-ripple stage, the ambient-occlusion stage,
-    // the motion-blur stage, the depth-of-field stage and the light-shaft stage, which bloom then
-    // reads.
+    // Added: the scene after the post chain, the water-ripple stage, the contact-shadow stage, the
+    // ambient-occlusion stage, the motion-blur stage, the depth-of-field stage and the light-shaft
+    // stage, which bloom then reads.
     render::TextureHandle stdRenderBabylon_SceneSource()
     {
         if ( stdRenderBabylon_state.bFlareRan
@@ -119,6 +119,12 @@ namespace stdRenderBabylonInternal
             && !stdRenderBabylon_state.ssaoColorTarget.isNull() )
         {
             return stdRenderBabylon_state.ssaoColorTarget;
+        }
+
+        if ( stdRenderBabylon_state.bContactShadowsRan
+            && !stdRenderBabylon_state.contactShadowColorTarget.isNull() )
+        {
+            return stdRenderBabylon_state.contactShadowColorTarget;
         }
 
         if ( stdRenderBabylon_state.bWaterRan

@@ -473,3 +473,118 @@ TEST(std3DBabylonGpu, CameraEffectsLeaveTheHudLayerPixelExact)
     TEST_ASSERT_EQUAL_INT((int)off[hud + 2u], (int)on[hud + 2u]);
     TEST_ASSERT_EQUAL_INT((int)off[hud + 3u], (int)on[hud + 3u]);
 }
+
+TEST(std3DBabylonGpu, CameraEffectsRecordScratchThenTargetAndSurviveReopen)
+{
+    const auto drawFlat = []
+    {
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, 0.5f, 0xFF808080u);
+    };
+
+    // Checks that the frame's last two passes are the two camera effects: the vignette into a
+    // pooled scratch target, then the grain into the requested target.
+    const auto checkTwoCameraEffectPasses = [](render::TextureHandle target)
+    {
+        std::vector<render::PassDesc> aPasses;
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            if ( const render::BeginPass* pBegin = std::get_if<render::BeginPass>(&command) )
+            {
+                aPasses.push_back(pBegin->desc);
+            }
+        }
+
+        TEST_ASSERT_TRUE(aPasses.size() >= 2u);
+        const render::PassDesc& scratch = aPasses[aPasses.size() - 2u];
+        const render::PassDesc& finalPass = aPasses.back();
+        TEST_ASSERT_EQUAL_size_t(1u, scratch.colorTargets.size());
+        TEST_ASSERT_EQUAL_size_t(1u, finalPass.colorTargets.size());
+        TEST_ASSERT_FALSE(scratch.colorTargets[0].target.isNull());
+        TEST_ASSERT_FALSE(scratch.colorTargets[0].target == finalPass.colorTargets[0].target);
+        TEST_ASSERT_TRUE(finalPass.colorTargets[0].target == target);
+    };
+
+    const auto renderAndCheck = [&drawFlat, &checkTwoCameraEffectPasses](uint32_t width, uint32_t height)
+    {
+        RenderScene(drawFlat);
+        const render::TextureHandle target = std3DBabylonTest_pDevice->createTexture(
+            render::TextureDesc{ width, height, 1, render::TextureFormat::Bgra8,
+                render::TextureUsage::ColorTarget });
+        TEST_ASSERT_FALSE(target.isNull());
+        Null().clearRecorded();
+        TEST_ASSERT_TRUE(stdRenderBabylon_RenderPresentToTexture(target, width, height));
+        checkTwoCameraEffectPasses(target);
+        std3DBabylonTest_pDevice->destroyTexture(target);
+    };
+
+    // Both effects on a Null device record the two passes into scratch and target.
+    UseNullDevice();
+    OpenStd3D(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(true));
+    renderAndCheck(64u, 64u);
+    TEST_ASSERT_EQUAL_size_t(1u, stdRenderBabylon_GetPostfxTargetCountForTest());
+
+    // Switching to the vignette alone returns its scratch target after an idle frame, not at close.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+    for ( int frame = 0; frame < 2; ++frame )
+    {
+        RenderScene(drawFlat);
+        static_cast<void>(CapturePresented(64u, 64u));
+        TEST_ASSERT_EQUAL_size_t(0u, stdRenderBabylon_GetPostfxTargetCountForTest());
+    }
+
+    // Closing frees the effects and opening again makes them again: the same two passes run.
+    CloseStd3D();
+    stdRenderBabylon_Close();
+    DropDevice();
+
+    UseNullDevice();
+    OpenStd3D(64u, 64u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(true));
+    renderAndCheck(64u, 64u);
+
+    CloseStd3D();
+    stdRenderBabylon_Close();
+    DropDevice();
+
+    // On the GPU, the grain makes the output differ from the vignette alone.
+    if ( !OpenGpuStd3D(64u, 64u) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetBloom(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetDepthOfField(false, false, 1.0f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLightShafts(0));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetWaterRipples(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetLensFlare(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(false));
+
+    RenderScene(drawFlat);
+    const std::vector<std::byte> vignetteOnly = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetFilmGrain(true));
+    std3D_SetFrameTime(0.016f);
+    RenderScene(drawFlat);
+    const std::vector<std::byte> both = CapturePresented(64u, 64u);
+
+    TEST_ASSERT_TRUE(vignetteOnly != both);
+}

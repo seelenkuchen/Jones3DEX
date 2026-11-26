@@ -186,8 +186,10 @@ namespace stdRenderBabylonInternal
             ? stdRenderBabylon_state.motionBlurColorTarget
             : (stdRenderBabylon_state.bSsaoRan
                 ? stdRenderBabylon_state.ssaoColorTarget
-                : (stdRenderBabylon_state.bWaterRan
-                    ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource()));
+                : (stdRenderBabylon_state.bContactShadowsRan
+                    ? stdRenderBabylon_state.contactShadowColorTarget
+                    : (stdRenderBabylon_state.bWaterRan
+                        ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource())));
         const render::TextureHandle blur  = stdRenderBabylon_state.dofBlurTarget;
         const uint32_t blurWidth  = std::max(1u, (stdRenderBabylon_state.width + 1u) / 2u);
         const uint32_t blurHeight = std::max(1u, (stdRenderBabylon_state.height + 1u) / 2u);

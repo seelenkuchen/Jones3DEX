@@ -778,6 +778,11 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, SsaoLevelsDarkenMonotonically);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoProjectionIsAspectCorrect);
     RUN_TEST_CASE(std3DBabylonGpu, SsaoLeavesTheFirstPersonOverlayAlone);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsOffLeavesTheImageByteIdentical);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsDarkenTheFloorBesideABox);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowLightDirectionMatchesTheCamera);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsOptionDefaultsAndSetting);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurOffIsByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurStaticCameraLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurRotationSmearsHorizontallyOnly);
@@ -794,6 +799,7 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, LensFlareAddsLightAlongTheGhostLine);
     RUN_TEST_CASE(std3DBabylonGpu, LensFlareAddsNothingWithoutASky);
     RUN_TEST_CASE(std3DBabylonGpu, CameraEffectsLeaveTheHudLayerPixelExact);
+    RUN_TEST_CASE(std3DBabylonGpu, CameraEffectsRecordScratchThenTargetAndSurviveReopen);
     RUN_TEST_CASE(std3DBabylonGpu, TheWindowedFramePresentsThroughThePostChain);
     RUN_TEST_CASE(std3DBabylonGpu, TheHdrTargetAndToneMapMatchTheOldPath);
     RUN_TEST_CASE(std3DBabylonGpu, ARenderScaleRendersTheSceneIntoTheDisplaySize);

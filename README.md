@@ -52,9 +52,10 @@ Jones3D EX is at the start of its own road. See the [roadmap](Docs/Roadmap.md).
 - **Playable:** the windowed Babylon build plays with sound (through miniaudio), saving with thumbnails and
   the in-game menus. The Win32 and DirectX 9 build inherited from OpenJones3D is gone
   ([ADR-0011](Docs/arc42/09-decisions/ADR-0011-retire-win32-directx.md)).
-- **Next:** an owner play-test on a real display, speakers and gamepad, then the M8 release. The first
-  start's setup wizard is in place; it installs the game data into `GameData` from Steam, GOG, a GOG
-  installer file, the CDs or a chosen folder.
+- **Released:** `v0.6.0-alpha` (2026-11-24) with the M9 presentation effects and M10 per-pixel lighting, as a
+  Linux AppImage and a Windows zip. The first start's setup wizard installs the game data into `GameData` from
+  Steam, GOG, a GOG installer file, the CDs or a chosen folder.
+- **Now:** M11, shadows. Contact shadows are in (M11.1); character shadows from an overhead shadow map are next.
 
 ## Screenshots
 
@@ -85,6 +86,7 @@ CMake target that hides one platform decision:
 | `render` | The GPU: textures, buffers, pipelines and one command list per frame, on SDL3 GPU (Vulkan, Direct3D 12, Metal) |
 | `audio` | The sound device: output device choice, sounds, voices, 3D and streaming voices, on miniaudio with a Null backend |
 | `ui` | Menu screens: widgets, layout, focus, keyboard/mouse/gamepad navigation and cvar binding |
+| `postfx` | Full-screen post-processing: a chain of effects over the rendered scene, with vignette, film grain and contact shadows so far |
 
 Each module that touches the system has an SDL3 backend and a Null backend that keeps the same contract without a
 device. The game reaches Babylon through a thin adapter in `Libs/std`, which keeps the original function names and behavior, so
@@ -104,9 +106,17 @@ facing up are green, walls show their orientation, and Indy is shaded smoothly f
 |---|---|
 | ![A frame of the Canyonlands level](Docs/References/M6.9b/color-01660.png) | ![The same frame's surface normals](Docs/References/M6.9b/normals-01660.png) |
 
-With normals per pixel, lights can be computed per pixel instead of per vertex, and corners and crevices can be
-darkened by screen-space ambient occlusion. Both are planned for a later milestone. The picture itself doesn't
-change: frames rendered with this output on and off are identical, and the classic look stays the reference.
+With normals and depth per pixel, the renderer can do what the original never could: dynamic lights computed per
+pixel (M10), screen-space ambient occlusion (M9) and, since M11.1, contact shadows. These darken surfaces whose short
+path toward a fixed overhead light is blocked, so Indy's hat shades his face and his legs cast a soft shadow on the
+ground ([more frames](Docs/References/M11.1/README.md)):
+
+| Contact shadows off | Contact shadows on |
+|---|---|
+| ![Indy without contact shadows](Docs/References/M11.1/regress-indy-off.png) | ![Indy with contact shadows](Docs/References/M11.1/regress-indy-on.png) |
+
+All of it is presentation only: the simulation and the headless traces are unchanged, and the Retail profile keeps
+the classic look.
 
 ## Where it comes from
 

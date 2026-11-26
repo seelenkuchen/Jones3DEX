@@ -476,6 +476,11 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         stdRenderBabylon_state.bWaterRipples =
             stdConfig_GetBool(stdRenderBabylon_kWaterRipplesKey, J3D_QOL_VALUE(1, 0) != 0);
 
+        // Added: contact shadows are on by default in Enhanced builds and off in Retail/QOL-off
+        // ones, after the water ripples and before ambient occlusion.
+        stdRenderBabylon_state.bContactShadows =
+            stdConfig_GetBool(stdRenderBabylon_kContactShadowsKey, J3D_QOL_VALUE(1, 0) != 0);
+
         // Added: ambient occlusion is Low (1) by default in Enhanced builds and off in
         // Retail/QOL-off ones. An unknown level is clamped to the highest one.
         stdRenderBabylon_state.ssao = std::clamp(stdConfig_GetInt(
@@ -542,6 +547,10 @@ bool stdRenderBabylon_Open(render::Device* pDevice)
         }
     }
 
+    // Added: the Babylon postfx objects the vignette and film grain draw with. A failure logs and
+    // leaves the effects unavailable; it does not fail the open.
+    static_cast<void>(stdRenderBabylon_OpenPostfx());
+
     return true;
 }
 
@@ -551,6 +560,9 @@ void stdRenderBabylon_Close()
     {
         return;
     }
+
+    // Added: release the camera effects' postfx objects before the device goes.
+    stdRenderBabylon_ClosePostfx();
 
     stdRenderBabylon_state.frame.reset();
     stdRenderBabylon_ClearPostPasses();
@@ -582,8 +594,6 @@ void stdRenderBabylon_Close()
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftBlurPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.shaftCompositePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.flarePipeline);
-    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxPipeline);
-    stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxCapturePipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.fxToneMapPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.waterRipplesPipeline);
     stdRenderBabylon_state.pDevice->destroyPipeline(stdRenderBabylon_state.ssaoPipeline);
@@ -622,6 +632,7 @@ void stdRenderBabylon_FreeBackBuffer()
     stdRenderBabylon_FreeBloomTargets();
     stdRenderBabylon_FreeDoFTargets();
     stdRenderBabylon_FreeWaterTargets();
+    stdRenderBabylon_FreeContactShadowTargets();
     stdRenderBabylon_FreeSsaoTargets();
     stdRenderBabylon_FreeMotionBlurTarget();
     stdRenderBabylon_FreeShaftTargets();
