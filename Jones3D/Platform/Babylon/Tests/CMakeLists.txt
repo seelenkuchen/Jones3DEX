@@ -10,7 +10,12 @@ add_executable(Jones3DUiPainterTests
     JonesUiSaveLoadTest.cpp
     JonesUiMainMenuTest.cpp
     JonesUiEndScreensTest.cpp
-    JonesUiSettingsTest.cpp
+    JonesUiSettingsTestSupport.cpp
+    JonesUiDisplaySettingsTest.cpp
+    JonesUiSoundSettingsTest.cpp
+    JonesUiGameplaySettingsTest.cpp
+    JonesUiOptionsTest.cpp
+    JonesUiBrightnessTest.cpp
     JonesUiPauseMenuTest.cpp
     JonesUiStoreTest.cpp
     JonesUiControlsTest.cpp
