@@ -802,6 +802,8 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, WorldToViewMapsTheCameraBasisExactly);
     RUN_TEST_CASE(std3DBabylonGpu, LevelMapOnlyRecordsWithCharactersMaskAndStaticCasters);
     RUN_TEST_CASE(std3DBabylonGpu, LevelStaticCastersUploadOnceAndAgainAfterANewUpload);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsBindTheCasterMaskOnlyWhileItRuns);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurOffIsByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurStaticCameraLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurRotationSmearsHorizontallyOnly);

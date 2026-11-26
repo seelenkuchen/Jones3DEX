@@ -9,16 +9,20 @@
 // the ray point, but not by more than the thickness, so a thin object does not
 // cast from a gap behind it. Green is 1 for a receiver and 0 otherwise, so the
 // blur can ignore taps that do not receive shadows. Pixels that are not
-// receivers write 0 to both channels.
+// receivers write 0 to both channels. An optional ignore mask (red >= 0.5)
+// removes a pixel from the effect: a masked receiver writes 0 to both channels,
+// and a ray sample that lands on a masked pixel is a gap that never blocks.
 
 Texture2D<float> gDepth : register(t0, space2);
 Texture2D<float4> gNormals : register(t1, space2);
+Texture2D<float4> gIgnoreMask : register(t2, space2);
 // One sampler state per texture: SDL_shadercross's reflection counts a
 // sampler shared by several textures as storage textures, which the shader
 // build refuses. The pass binds the same nearest, clamped sampler to every
 // slot, so the filtering is identical.
 SamplerState gDepthSampler : register(s0, space2);
 SamplerState gNormalsSampler : register(s1, space2);
+SamplerState gIgnoreMaskSampler : register(s2, space2);
 
 cbuffer ContactShadowMaskParams : register(b0, space3)
 {
@@ -37,7 +41,8 @@ cbuffer ContactShadowMaskParams : register(b0, space3)
     float gTanHalfFovY;
     float gInputWidth;
     float gInputHeight;
-    float3 gPadding;
+    uint gHasIgnoreMask; // 0 no mask, 1 the extra texture holds one
+    float2 gPadding;
 };
 
 // The positive view-space distance along the view axis of a depth texel.
@@ -83,6 +88,17 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
     if ( !isSceneDepth(depth) )
     {
         return float4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    // A masked receiver takes no shadow. Writing green 0 also tells the blur
+    // that this pixel is not a receiver tap. The flag is tested first so the
+    // fallback texture in the slot is never read when there is no mask.
+    if ( gHasIgnoreMask != 0u )
+    {
+        if ( gIgnoreMask.Sample(gIgnoreMaskSampler, uv).r >= 0.5 )
+        {
+            return float4(0.0, 0.0, 0.0, 1.0);
+        }
     }
 
     if ( gReceiverClasses != 0xF )
@@ -137,6 +153,15 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
 
         float2 edge = min(sampleUv, 1.0 - sampleUv);
         float edgeFade = smoothstep(0.0, 0.05, min(edge.x, edge.y));
+
+        // A sample on a masked pixel never blocks: it is a gap in the scene.
+        if ( gHasIgnoreMask != 0u )
+        {
+            if ( gIgnoreMask.Sample(gIgnoreMaskSampler, sampleUv).r >= 0.5 )
+            {
+                continue;
+            }
+        }
 
         float sampleDepth = gDepth.Sample(gDepthSampler, sampleUv);
         if ( !isSceneDepth(sampleDepth) )

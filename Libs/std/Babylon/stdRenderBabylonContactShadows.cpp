@@ -130,9 +130,11 @@ namespace stdRenderBabylonInternal
     // Added: the contact-shadow stage over the scene source (the water-ripple output or the post
     // chain's). It marches a short ray through the depth target toward the fixed overhead light
     // and darkens ordinary surfaces whose path is blocked; sky, water, empty pixels and the
-    // first-person overlay stay unchanged. Without a camera transform yet the light direction is
-    // unknown, so the stage is skipped. bContactShadowsRan is set afterwards so ambient occlusion
-    // reads the result. False, having logged nothing, when a resource or pass fails.
+    // first-person overlay stay unchanged. With character shadows on, this frame's caster mask
+    // keeps the characters from casting or receiving contact shadows, since the character-shadow
+    // stage draws theirs. Without a camera transform yet the light direction is unknown, so the
+    // stage is skipped. bContactShadowsRan is set afterwards so ambient occlusion reads the
+    // result. False, having logged nothing, when a resource or pass fails.
     bool stdRenderBabylon_RecordContactShadows(render::CommandList& list)
     {
         if ( !stdRenderBabylon_state.bContactShadows
@@ -168,6 +170,13 @@ namespace stdRenderBabylonInternal
         postfx::ContactShadowSettings settings;
         settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
         stdRenderBabylon_state.pPostfxContactShadows->setSettings(settings);
+
+        // Added: when this frame ran the caster mask, the characters take no part in the contact
+        // shadows; the character shadows draw theirs. Always set it, so a frame without the mask
+        // never reuses a stale handle.
+        stdRenderBabylon_state.pPostfxContactShadows->setIgnoreMask(
+            stdRenderBabylon_state.bShadowMaskRan
+                ? stdRenderBabylon_state.shadowMaskTarget : render::TextureHandle{});
 
         float aLight[3];
         stdRenderBabylon_ContactLightDirection(stdRenderBabylon_state.aLastCameraMatrix, aLight);
