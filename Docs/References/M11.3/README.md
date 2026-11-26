@@ -16,7 +16,17 @@ baked lighting already contains its own shadows, so the world receives nothing f
 Only **up-facing** surfaces cast (the top of a ledge, an overhang, a bridge). A room's ceiling faces down into the
 room; when ceilings cast, every indoor character went fully dark (first version, below).
 
-## Frames
+## Frames from the owner's saves (2026-11-26)
+
+| Spot | Level shadows off | Level shadows on |
+| --- | --- | --- |
+| Under a rock overhang (`dsadm.nds`, present 300) | ![](overhang-level-off.png) | ![](overhang-level-on.png) |
+| Open ledge (`QUICKSAVE.nds`, present 300) | ![](ledge-open-level-off.png) | ![](ledge-open-level-on.png) |
+
+Under the overhang the rock above shades Indy; the floor keeps its baked lighting (level shadows never fall on the
+world). On the open ledge nothing is overhead, so the frames match.
+
+## Frames from the start saves
 
 | Scene | Level shadows off | Level shadows on |
 | --- | --- | --- |
@@ -25,8 +35,7 @@ room; when ceilings cast, every indoor character went fully dark (first version,
 | Volcano start, indoors (present 1500) | ![](volcano-indy-level-off.png) | ![](volcano-indy-level-on.png) |
 
 All three pairs look the same, which is correct: nothing in these spots hangs between Indy and the overhead light.
-**These saves can't show the effect.** A save with Indy under a ledge, bridge or overhang (outdoors) is needed; the
-GPU test (`LevelGeometryShadowsTheCharacterButNotTheWorld`) shows a ledge darkening a character and not the floor.
+These saves can't show the effect; see the owner's overhang save above.
 
 The first version, where ceilings also cast (volcano, before M11.3d):
 
@@ -36,7 +45,8 @@ The first version, where ceilings also cast (volcano, before M11.3d):
 
 ## Questions for review
 
-1. Is a save under a ledge or overhang available (or a place to walk to from one of the start saves) for real frames?
+1. Under the overhang Indy is shaded while the floor around him keeps the level's baked (brighter) lighting. Does
+   that read right, or should the level shadow be lighter (it uses the character-shadow strength, 0.55)?
 2. Indoor rooms below an up-facing floor of another room can still shadow characters if that floor is within
    `staticReach` (1.5 units, about 7 character heights) above them. Keep, shorten, or limit level shadows to sectors
    open to the sky?
