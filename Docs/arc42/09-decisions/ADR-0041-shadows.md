@@ -58,3 +58,19 @@ profile and QOL-off builds keep the original blob shadow.
 - Shadow quality costs GPU time per shadow map and light; the options row (Shadows: Classic, Off, On) and the
   light cap bound it.
 - The blob shadow remains the Retail look and the fallback when shadows are off or unsupported.
+
+## Amendment (2026-11-26, M11.1 and M11.2)
+
+- **Light:** 35 degrees from vertical at azimuth 30 degrees in the Z-up world, converted to view space from the
+  camera basis each frame; reviewed by the owner with the M11.1 screenshots.
+- **Character shadows work in view space, not world space** (item 3). Model vertices already reach std3D in the
+  camera's space (lit vertices carry their view position; classic TL vertices invert with rdroid's projection, whose
+  forward distance is `1 / (32 * rhw)`), and the receive pass reconstructs view positions from depth. So the
+  overhead map is an orthographic light view fitted around the casters' view-space bounds, and no world-space
+  submission is needed for characters. Level geometry (item 4) still needs a world-space upload in M11.3.
+- **Casters** are the things that get the original blob shadow (`SITH_TF_SHADOW`): rdroid marks their faces with
+  `RD_FF_SHADOW_CASTER`, rdCache turns it into `STD3D_RS_SHADOW_CASTER`. With `engine.renderer.shadows` on,
+  `std3D_DrawsThingShadows` tells sithRender to skip the blob for them; Retail and QOL-off keep the blob.
+- **Where the code lives:** `babylon::shadow::DirectionalShadowMap` and `babylon::postfx::ContactShadowEffect` /
+  `ShadowReceiveEffect` (ADR-0043); the adapter collects casters and orders the stages (water, contact shadows,
+  character shadows, SSAO).
