@@ -125,6 +125,28 @@ namespace
         AddClosedBoxShadowCaster();
     }
 
+    // M11.2i. A floor with a box standing on it and a visible caster-flagged quad on the floor in
+    // the box's contact shadow, plus a real shadow-map caster above the floor. The floor is close
+    // enough (eye depth 0.5) that the contact shadow beside the box covers the caster's pixels.
+    void DrawContactShadowCasterScene()
+    {
+        const uint32_t grey = 0xFF909090u;
+        const float floorDepth = SceneDepthForEyeDepth(0.5f, 0.1f, 100.0f);
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, floorDepth, grey);
+
+        // The box front is a little in front of the floor, so the floor just left of its base is a
+        // contact shadow. It is not a caster and casts no character shadow.
+        DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 20.0f, 56.0f, 56.0f,
+            SceneDepthForEyeDepth(0.49f, 0.1f, 100.0f), grey);
+
+        // The real shadow-map caster: visible nowhere, so only the character shadow receives it.
+        DrawShadowCasterQuad();
+
+        // The visible caster on the floor, inside the contact shadow beside the box.
+        DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 28.0f, 46.0f, 32.0f, 52.0f, floorDepth,
+            0xFFCC3030u);
+    }
+
     struct RecordedPass
     {
         render::BeginPass begin;
@@ -218,6 +240,24 @@ namespace
         {
             const render::BindTexture* pSlot3 = FindSlot(aPasses[i], 3u);
             if ( pSlot3 && pSlot3->texture == mapTarget )
+            {
+                return i;
+            }
+        }
+        return aPasses.size();
+    }
+
+    // The contact-shadow mask pass: depth in slot 0 and the normals in slot 1. Its slot 2 is the
+    // ignore mask, or the depth again when there is none.
+    size_t FindContactMaskPass(const std::vector<RecordedPass>& aPasses,
+        render::TextureHandle sceneDepth, render::TextureHandle normalTarget)
+    {
+        for ( size_t i = 0; i < aPasses.size(); ++i )
+        {
+            const render::BindTexture* pSlot0 = FindSlot(aPasses[i], 0u);
+            const render::BindTexture* pSlot1 = FindSlot(aPasses[i], 1u);
+            if ( pSlot0 && pSlot1 && pSlot0->texture == sceneDepth
+                && pSlot1->texture == normalTarget )
             {
                 return i;
             }
@@ -520,6 +560,52 @@ TEST(std3DBabylonGpu, ShadowMaskReplaysALitCasterDrawWithItsOwnPipeline)
     TEST_ASSERT_TRUE(pMaskPipeline->desc.depth.compare == render::CompareOp::LessOrEqual);
 }
 
+TEST(std3DBabylonGpu, ContactShadowsBindTheCasterMaskOnlyWhileItRuns)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    SetShadowCamera();
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    DrawContactShadowCasterScene();
+    EndFrame();
+
+    std::vector<RecordedPass> aPasses = RecordedPasses();
+    const render::TextureHandle depthTarget  = stdRenderBabylon_GetDepthTarget();
+    const render::TextureHandle normalTarget = stdRenderBabylon_GetNormalTarget();
+
+    const size_t maskIndex = FindShadowMaskPass(aPasses, depthTarget);
+    TEST_ASSERT_TRUE(maskIndex < aPasses.size());
+    const render::TextureHandle casterMask = PassTarget(aPasses[maskIndex]);
+
+    // With both stages on, the contact-shadow mask takes the caster mask as its ignore mask.
+    const size_t contactIndex = FindContactMaskPass(aPasses, depthTarget, normalTarget);
+    TEST_ASSERT_TRUE(contactIndex < aPasses.size());
+    const render::BindTexture* pIgnore = FindSlot(aPasses[contactIndex], 2u);
+    TEST_ASSERT_NOT_NULL(pIgnore);
+    TEST_ASSERT_TRUE(pIgnore->texture == casterMask);
+
+    // With character shadows off, no mask is drawn and the contact shadows take no ignore mask.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    DrawContactShadowCasterScene();
+    EndFrame();
+
+    aPasses = RecordedPasses();
+    TEST_ASSERT_EQUAL_size_t(aPasses.size(), FindShadowMaskPass(aPasses, depthTarget));
+    const size_t plainContactIndex = FindContactMaskPass(aPasses, depthTarget, normalTarget);
+    TEST_ASSERT_TRUE(plainContactIndex < aPasses.size());
+    const render::BindTexture* pPlainIgnore = FindSlot(aPasses[plainContactIndex], 2u);
+    TEST_ASSERT_NOT_NULL(pPlainIgnore);
+    TEST_ASSERT_TRUE(pPlainIgnore->texture == depthTarget);
+}
+
 TEST(std3DBabylonGpu, ShadowsOffLeavesTheImageByteIdentical)
 {
     if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
@@ -616,4 +702,71 @@ TEST(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor)
     std::printf("M11.2e closed-box caster: floor below it %.2f off, %.2f on\n",
         (double)offShadow, (double)onShadow);
     TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);
+}
+
+TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun)
+{
+    if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseShadowOnly();
+    SetShadowCamera();
+
+    constexpr uint32_t kCasterX0 = 28u;
+    constexpr uint32_t kCasterY0 = 46u;
+    constexpr uint32_t kCasterX1 = 32u;
+    constexpr uint32_t kCasterY1 = 52u;
+
+    // No shadow stage: the visible caster and the floor as drawn.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(false));
+    RenderScene([] { DrawContactShadowCasterScene(); });
+    const std::vector<std::byte> base = CapturePresented(kSceneSize, kSceneSize);
+
+    // Contact shadows alone darken the caster, so its pixels really are inside the box's shadow.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(true));
+    RenderScene([] { DrawContactShadowCasterScene(); });
+    const std::vector<std::byte> contactOnly = CapturePresented(kSceneSize, kSceneSize);
+    const float baseCaster    = SsaoMeanBrightness(base, kSceneSize, kCasterX0, kCasterY0,
+        kCasterX1, kCasterY1);
+    const float contactCaster = SsaoMeanBrightness(contactOnly, kSceneSize, kCasterX0, kCasterY0,
+        kCasterX1, kCasterY1);
+    std::printf("M11.2i contact shadows: caster %.2f off, %.2f on\n",
+        (double)baseCaster, (double)contactCaster);
+    TEST_ASSERT_TRUE(contactCaster < baseCaster - 1.0f);
+
+    // Both stages on: the caster mask keeps the contact shadows off the caster's own pixels.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    RenderScene([] { DrawContactShadowCasterScene(); });
+    const std::vector<std::byte> bothOn = CapturePresented(kSceneSize, kSceneSize);
+
+    // Contact shadows off, character shadows on: the caster's pixels are the same image.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(false));
+    RenderScene([] { DrawContactShadowCasterScene(); });
+    const std::vector<std::byte> charactersOnly = CapturePresented(kSceneSize, kSceneSize);
+
+    for ( uint32_t y = kCasterY0; y < kCasterY1; ++y )
+    {
+        for ( uint32_t x = kCasterX0; x < kCasterX1; ++x )
+        {
+            const size_t at = ((size_t)y * kSceneSize + x) * 4u;
+            for ( size_t channel = 0; channel < 4u; ++channel )
+            {
+                TEST_ASSERT_EQUAL_INT((int)charactersOnly[at + channel],
+                    (int)bothOn[at + channel]);
+                TEST_ASSERT_EQUAL_INT((int)base[at + channel], (int)bothOn[at + channel]);
+            }
+        }
+    }
+
+    // Back with character shadows off, contact shadows are byte-identical to before the mask ran:
+    // the frame never reuses a stale caster mask.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(true));
+    RenderScene([] { DrawContactShadowCasterScene(); });
+    const std::vector<std::byte> contactOnlyAgain = CapturePresented(kSceneSize, kSceneSize);
+    TEST_ASSERT_EQUAL_size_t(contactOnly.size(), contactOnlyAgain.size());
+    TEST_ASSERT_EQUAL_MEMORY(contactOnly.data(), contactOnlyAgain.data(), contactOnly.size());
 }

@@ -797,6 +797,8 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ShadowsOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud);
     RUN_TEST_CASE(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsBindTheCasterMaskOnlyWhileItRuns);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurOffIsByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurStaticCameraLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, MotionBlurRotationSmearsHorizontallyOnly);

@@ -246,12 +246,13 @@ TEST(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao)
 
     TEST_ASSERT_TRUE(waterIndex < aPasses.size());
 
-    // The contact-shadow mask pass reads depth and normals and writes a scratch mask.
+    // The contact-shadow mask pass reads depth and normals (and the ignore-mask slot, which holds
+    // the depth again when there is no caster mask) and writes a scratch mask.
     size_t maskIndex = aPasses.size();
     for ( size_t i = waterIndex + 1u; i < aPasses.size(); ++i )
     {
         const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
-        if ( aTextures.size() == 2u && aTextures[0].texture == depthTarget
+        if ( aTextures.size() == 3u && aTextures[0].texture == depthTarget
             && aTextures[1].texture == normalTarget )
         {
             maskIndex = i;
