@@ -1,8 +1,8 @@
 # M11.2: character shadows (for review)
 
-Frames from the windowed Babylon build of branch `m11.2` (after `e54a4c2a`) on Xvfb (1920x1080) with Mesa
+Frames from the windowed Babylon build of branch `m11.2` (after `1345ee1b`, M11.2e) on Xvfb (1920x1080) with Mesa
 lavapipe, the Enhanced defaults (contact shadows on in both columns), and only `engine.renderer.shadows` switched.
-Recorded 2026-11-26. The raw BMPs contain game data and are not committed; these are downscales and crops.
+Recorded 2026-11-26, re-recorded after the first review. The raw BMPs contain game data and are not committed; these are downscales and crops.
 
 Windowed runs are not frame-exact: game time follows the wall clock, so the camera and Indy's pose drift slightly
 between the Off and On run of a scene. Compare by eye.
@@ -20,8 +20,18 @@ orthographic shadow map is fitted around the casters each frame and applied to o
 | Volcano, Indy | ![](volcano-indy-off.png) | ![](volcano-indy-on.png) |
 | Canyon start (present 2100 of `start_01_CANYON.nds`) | ![](canyon-off.png) | ![](canyon-on.png) |
 
-What to look at: in the regress crop Indy casts a body-shaped shadow on the ground to his left (away from the
-light) and the hat shades his face. In the volcano the floor is so dark that the shadow is hard to see; that is the
+**First review (2026-11-26): rejected.** The shadow stopped at the head and the ground shadow broke into shards
+pointing in different directions. Cause: the casters were the triangles std3D drew, and rdroid culls back faces
+before they reach std3D, so the caster was the half shell facing the camera; seen from the light it has holes. Since
+M11.2e, rdModel3 passes every face of a caster model (back faces included) through `std3D_AddShadowCasterPolygon`.
+One frame's casters, rendered flat from the camera (left half) and from the light (right half):
+
+| Before (draw path) | After (M11.2e) |
+| --- | --- |
+| ![](casters-before.png) | ![](casters-after.png) |
+
+What to look at: in the regress crop Indy casts one connected body-shaped shadow on the ground to his left (away
+from the light) and the hat shades his whole face evenly. In the volcano the floor is so dark that the shadow is hard to see; that is the
 scene's lighting, not a missing shadow.
 
 Questions for review: strength (0.55) and softness (PCF radius 1.5 texels); whether the shadow should also fall on
