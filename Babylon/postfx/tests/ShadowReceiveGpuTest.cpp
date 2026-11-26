@@ -163,6 +163,31 @@ namespace
         return texture;
     }
 
+    // An Rgba8 mask that is red on the left half of the screen and black on
+    // the right, so the left half is excluded from receiving shadows.
+    TextureHandle makeExcludeMask(Device& device, std::uint32_t width, std::uint32_t height)
+    {
+        std::vector<std::byte> texels(static_cast<std::size_t>(width) * height * 4u);
+        for ( std::uint32_t y = 0; y < height; ++y )
+        {
+            for ( std::uint32_t x = 0; x < width; ++x )
+            {
+                const std::size_t index = (static_cast<std::size_t>(y) * width + x) * 4u;
+                const bool masked       = x < width / 2u;
+                texels[index + 0u] = masked ? std::byte{ 255 } : std::byte{ 0 };
+                texels[index + 1u] = std::byte{ 0 };
+                texels[index + 2u] = std::byte{ 0 };
+                texels[index + 3u] = std::byte{ 255 };
+            }
+        }
+
+        const TextureHandle texture = device.createTexture(TextureDesc{ width, height, 1,
+            TextureFormat::Rgba8, TextureUsage::Sampled });
+        REQUIRE_FALSE(texture.isNull());
+        REQUIRE(device.uploadTexture(texture, 0, texels));
+        return texture;
+    }
+
     // Matches the cbuffer in tests/shaders/shadow_floor_depth.frag.hlsl.
     struct alignas(16) FloorUniforms
     {
@@ -329,6 +354,7 @@ namespace
         const TextureHandle color          = makeHalfColor(*device, kSize, kSize);
         const TextureHandle normals        = makeNormals(*device, kSize, kSize);
         const TextureHandle mixedNormals   = makeMixedNormals(*device, kSize, kSize);
+        const TextureHandle excludeMask    = makeExcludeMask(*device, kSize, kSize);
         const TextureHandle depth          = device->createTexture(TextureDesc{ kSize, kSize, 1,
             depthFormat, depthUsage });
         REQUIRE_FALSE(depth.isNull());
@@ -391,6 +417,47 @@ namespace
         }
         CHECK(lit[3] == 255);
 
+        // Without a mask the shadow covers both halves of the screen. Column
+        // 31 is left of the middle and column 33 right, both under the caster.
+        const std::array<int, 4> shadowedLeft =
+            pixelAt(pixels, kSize, kShadowedColumn - 1u, kFloorRow);
+        const std::array<int, 4> shadowedRight =
+            pixelAt(pixels, kSize, kShadowedColumn + 1u, kFloorRow);
+        for ( const std::array<int, 4>* pShadowed : { &shadowedLeft, &shadowedRight } )
+        {
+            for ( std::size_t channel = 0; channel < 3; ++channel )
+            {
+                const float value = static_cast<float>((*pShadowed)[channel]) / 255.0f;
+                CHECK(value <= 0.5f * (1.0f - 0.5f * effect.settings().strength)
+                    + 1.0f / 255.0f);
+            }
+            CHECK((*pShadowed)[3] == 255);
+        }
+
+        // A mask that is red on the left half keeps those shadowed pixels at
+        // their exact input colour, while the right half darkens as before.
+        ShadowMapInput maskedMap = mapInput;
+        maskedMap.excludeMask = excludeMask;
+        effect.setShadowMap(maskedMap);
+        std::vector<std::string_view> maskedRan;
+        const std::vector<std::byte> masked =
+            runScene(*device, &effect, color, depth, normals, projection, &maskedRan);
+        REQUIRE(masked.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
+        REQUIRE(maskedRan.size() == 2);
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = 0; x < kSize / 2u; ++x )
+            {
+                CHECK(pixelAt(masked, kSize, x, y) == pixelAt(plain, kSize, x, y));
+            }
+            for ( std::uint32_t x = kSize / 2u; x < kSize; ++x )
+            {
+                CHECK(pixelAt(masked, kSize, x, y) == pixelAt(pixels, kSize, x, y));
+            }
+        }
+        effect.setShadowMap(mapInput);
+
         // Half the screen is tagged class 2 (not in the receiver mask) in the
         // normals alpha; those pixels stay byte-identical to the plain copy.
         std::vector<std::string_view> mixedRan;
@@ -428,6 +495,7 @@ namespace
         device->destroyTexture(color);
         device->destroyTexture(normals);
         device->destroyTexture(mixedNormals);
+        device->destroyTexture(excludeMask);
         device->destroyTexture(depth);
     }
 

@@ -36,7 +36,9 @@ namespace babylon::postfx
     // The shadow map for this frame, set before each record(). matrix maps view-space positions
     // (x right, y up, z forward) to (u, v, depth, 1) of the map: row-major float[16], column
     // vectors. towardLight is the view-space direction to the light (used for the normal offset).
-    // An invalid map (null texture or sampler, mapSize 0) makes the effect inactive for that frame.
+    // excludeMask is optional: a frame-sized texture whose red channel marks the pixels that must
+    // not receive a shadow, leaving a caster's own surface unchanged. An invalid map (null texture
+    // or sampler, mapSize 0) makes the effect inactive for that frame.
     struct ShadowMapInput
     {
         render::TextureHandle texture;
@@ -44,6 +46,9 @@ namespace babylon::postfx
         std::uint32_t mapSize = 0;
         float matrix[16] = {};
         float towardLight[3] = { 0.0f, 1.0f, 0.0f };
+        // Optional, any colour format, read at the frame's uv: red >= 0.5 receives no shadow and
+        // keeps its exact input colour. Null means no mask.
+        render::TextureHandle excludeMask;
     };
 
     // Darkens receiver pixels where a shadow map says a directional light is blocked. It
@@ -52,8 +57,10 @@ namespace babylon::postfx
     // comparison sampler over a fixed 12-tap Poisson disc. The receiver test repeats the
     // contact-shadow composite's: pixels whose normals alpha is a class not in receiverClasses
     // keep their exact input colour. With receiverClasses 0xF every pixel receives and the
-    // normals target is not needed. Shadows fade with view distance and near the map border.
-    // postfx takes the map as plain inputs and does not depend on the shadow module.
+    // normals target is not needed. An optional exclude mask keeps a shadow caster's own surface
+    // out of the receive pass, so a hat's shadow does not fall on the face below it. Shadows fade
+    // with view distance and near the map border. postfx takes the map as plain inputs and does
+    // not depend on the shadow module.
     class ShadowReceiveEffect final : public Effect
     {
     public:
