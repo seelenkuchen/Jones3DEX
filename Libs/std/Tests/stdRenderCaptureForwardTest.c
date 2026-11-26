@@ -780,6 +780,11 @@ TEST(stdRenderCaptureForward, TestForwardersPassThroughWithoutCapture)
     TEST_ASSERT_FALSE(stdDisplay_IsOpen());
     // Added: the Null backend draws no real thing shadows, so the game keeps the blob.
     TEST_ASSERT_EQUAL_INT(0, std3D_DrawsThingShadows());
+    // Added: the Null backend ignores the presentation-only caster polygon; the forwarder records nothing.
+    {
+        const float aCasterPositions[9] = { 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f };
+        std3D_AddShadowCasterPolygon(aCasterPositions, 3u);
+    }
 
     STD_ZEROMEM(&colorInfo, sizeof(colorInfo));
     TEST_ASSERT_EQUAL_INT(STDCOLOR_FORMAT_RGB, std3D_GetColorFormat(&colorInfo));

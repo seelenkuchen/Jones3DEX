@@ -38,6 +38,7 @@
 #define std3D_SetMipmapFilter std3DBackend_SetMipmapFilter
 #define std3D_SetProjection std3DBackend_SetProjection
 #define std3D_DrawsThingShadows std3DBackend_DrawsThingShadows
+#define std3D_AddShadowCasterPolygon std3DBackend_AddShadowCasterPolygon
 #define std3D_EnableFog std3DBackend_EnableFog
 #define std3D_SetFog std3DBackend_SetFog
 #define std3D_ClearZBuffer std3DBackend_ClearZBuffer

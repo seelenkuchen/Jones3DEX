@@ -48,36 +48,44 @@ namespace
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
     }
 
-    // A StdVertexTL at a view-space point (x right, y up, z forward), using the same projection the
-    // shadow stage inverts casters with.
-    StdVertexTL ShadowVertex(float x, float y, float zForward, uint32_t color)
-    {
-        float tanHalfX = 0.0f;
-        float tanHalfY = 0.0f;
-        TEST_ASSERT_TRUE(stdRenderBabylon_GetSsaoProjectionForTest(&tanHalfX, &tanHalfY));
-
-        const float xNdc = x / (tanHalfX * zForward);
-        const float yNdc = y / (tanHalfY * zForward);
-        const float sx   = (xNdc * 0.5f + 0.5f) * (float)kSceneSize;
-        const float sy   = (0.5f - yNdc * 0.5f) * (float)kSceneSize;
-        return Vertex(sx, sy, SceneDepthForEyeDepth(zForward, 0.1f, 100.0f),
-            1.0f / (32.0f * zForward), color);
-    }
-
+    // A caster quad above the floor and farther from the camera. The light has a forward component,
+    // so the shadow falls toward the camera: the caster at forward 2.5 shades the floor at forward 2.0
+    // below and to the left of it. The points are rdroid camera space (x right, y forward, z up).
     void DrawShadowCasterQuad()
     {
-        const uint32_t grey = 0xFF909090u;
-        // The caster sits above the floor and farther from the camera. The light has a forward
-        // component, so the shadow falls toward the camera: the caster at forward 2.5 shades the
-        // floor at forward 2.0 below and to the left of it.
-        StdVertexTL aVerts[4] = {
-            ShadowVertex(0.766f, 0.7f, 2.5f, grey),
-            ShadowVertex(0.966f, 0.7f, 2.5f, grey),
-            ShadowVertex(0.966f, 0.9f, 2.5f, grey),
-            ShadowVertex(0.766f, 0.9f, 2.5f, grey),
+        const float aPositions[12] = {
+            0.766f, 2.5f, 0.7f,
+            0.966f, 2.5f, 0.7f,
+            0.966f, 2.5f, 0.9f,
+            0.766f, 2.5f, 0.9f,
         };
-        uint16_t aIndices[6] = { 0u, 1u, 2u, 0u, 2u, 3u };
-        std3D_DrawRenderList(nullptr, STD3D_RS_SHADOW_CASTER, aVerts, 4u, aIndices, 6u);
+        std3D_AddShadowCasterPolygon(aPositions, 4u);
+    }
+
+    // A closed box around the caster quad, submitted face by face and never drawn. Its camera-facing
+    // faces are not part of the rendered scene, so the shadow under the floor can only come from the
+    // whole model the polygon call carries.
+    void AddClosedBoxShadowCaster()
+    {
+        const float x0 = 0.766f;
+        const float x1 = 0.966f;
+        const float y0 = 2.45f;
+        const float y1 = 2.55f;
+        const float z0 = 0.7f;
+        const float z1 = 0.9f;
+
+        const float aFaces[6][4][3] = {
+            { { x0, y0, z0 }, { x1, y0, z0 }, { x1, y0, z1 }, { x0, y0, z1 } }, // -forward
+            { { x0, y1, z0 }, { x0, y1, z1 }, { x1, y1, z1 }, { x1, y1, z0 } }, // +forward
+            { { x0, y0, z0 }, { x0, y1, z0 }, { x1, y1, z0 }, { x1, y0, z0 } }, // -up
+            { { x0, y0, z1 }, { x1, y0, z1 }, { x1, y1, z1 }, { x0, y1, z1 } }, // +up
+            { { x0, y0, z0 }, { x0, y0, z1 }, { x0, y1, z1 }, { x0, y1, z0 } }, // -right
+            { { x1, y0, z0 }, { x1, y1, z0 }, { x1, y1, z1 }, { x1, y0, z1 } }, // +right
+        };
+        for ( size_t i = 0; i < 6u; ++i )
+        {
+            std3D_AddShadowCasterPolygon(&aFaces[i][0][0], 4u);
+        }
     }
 
     // A constant-depth floor (forward distance 2), a sky patch, and a caster quad above the floor.
@@ -98,6 +106,16 @@ namespace
                 0xFF00FF00u);
             std3D_EndHudLayer();
         }
+    }
+
+    // The same scene, but its only caster is the closed box through the polygon call; no caster is
+    // drawn, so the camera-facing box faces never reach the screen.
+    void DrawClosedBoxShadowScene()
+    {
+        const uint32_t grey = 0xFF909090u;
+        DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f,
+            SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), grey);
+        AddClosedBoxShadowCaster();
     }
 
     struct RecordedPass
@@ -307,4 +325,30 @@ TEST(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud)
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 1u], (int)on[hudPixel + 1u]);
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 2u], (int)on[hudPixel + 2u]);
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 3u], (int)on[hudPixel + 3u]);
+}
+
+TEST(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor)
+{
+    if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseShadowOnly();
+    SetShadowCamera();
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    RenderScene([] { DrawClosedBoxShadowScene(); });
+    const std::vector<std::byte> off = CapturePresented(kSceneSize, kSceneSize);
+
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    RenderScene([] { DrawClosedBoxShadowScene(); });
+    const std::vector<std::byte> on = CapturePresented(kSceneSize, kSceneSize);
+
+    // The whole closed box casts, so the floor below it darkens even though no caster face is drawn.
+    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
+    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 28u, 42u, 36u, 49u);
+    std::printf("M11.2e closed-box caster: floor below it %.2f off, %.2f on\n",
+        (double)offShadow, (double)onShadow);
+    TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);
 }

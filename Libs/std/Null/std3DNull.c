@@ -654,6 +654,13 @@ int std3D_DrawsThingShadows(void)
     return 0;
 }
 
+void J3DAPI std3D_AddShadowCasterPolygon(const float* aPositions, size_t numVertices)
+{
+    // Added: shadow casters are a Babylon presentation input; the Null column ignores them.
+    J3D_UNUSED(aPositions);
+    J3D_UNUSED(numVertices);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     // Added: Fog state is stored without device validation; nothing consumes it on the

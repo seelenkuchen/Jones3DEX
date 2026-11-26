@@ -122,10 +122,12 @@ namespace stdRenderBabylonInternal
     // only.
     inline constexpr const char* stdRenderBabylon_kContactShadowsKey = "engine.renderer.contactShadows";
 
-    // Added: the M11.2d character-shadow stage, after the contact shadows and before ambient
-    // occlusion (engine.renderer.shadows). The model draws that carry STD3D_RS_SHADOW_CASTER are
-    // collected in view space, a 2048 shadow map of the fixed overhead light is fitted around them
-    // and the receive pass darkens ordinary surfaces. Enhanced only; Retail/QOL-off keeps the blob.
+    // Added: the M11.2 character-shadow stage, after the contact shadows and before ambient
+    // occlusion (engine.renderer.shadows). rdModel3 passes all faces of the models of SITH_TF_SHADOW
+    // things in camera space through std3D_AddShadowCasterPolygon (including faces turned away from
+    // the camera; things outside the view frustum do not cast yet), a 2048 shadow map of the fixed
+    // overhead light is fitted around them and the receive pass darkens ordinary surfaces. Enhanced
+    // only; Retail/QOL-off keeps the blob.
     inline constexpr const char* stdRenderBabylon_kShadowsKey = "engine.renderer.shadows";
     inline constexpr std::uint32_t stdRenderBabylon_kShadowMapSize = 2048;
 
@@ -382,9 +384,10 @@ namespace stdRenderBabylonInternal
         uint32_t contactShadowWidth  = 0;
         uint32_t contactShadowHeight = 0;
 
-        // Added: the M11.2d character-shadow stage, after the contact shadows and before ambient
-        // occlusion. The map is recorded before the post chain from the casters the std3D draw path
-        // collected, and the receive pass writes one scene-sized target in the scene color format.
+        // Added: the M11.2 character-shadow stage, after the contact shadows and before ambient
+        // occlusion. The map is recorded before the post chain from the casters rdModel3 passed
+        // through std3D_AddShadowCasterPolygon, and the receive pass writes one scene-sized target in
+        // the scene color format.
         // bShadowMapRecorded tells the receive pass that this frame's map is valid; bShadowsRan tells
         // ambient occlusion and the later stages to read the result. The direction toward the light
         // is the M11.1 overhead light converted to view space.

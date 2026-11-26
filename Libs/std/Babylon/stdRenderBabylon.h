@@ -320,19 +320,20 @@ bool stdRenderBabylon_GetContactShadows();
 
 // Added: the built-in character-shadow stage over the HDR scene, after the contact shadows and
 // before the ambient-occlusion stage, so ambient occlusion and every later stage read its result.
-// The std3D draw path collects every scene-pass draw whose render state carries
-// STD3D_RS_SHADOW_CASTER as view-space triangles; Babylon's shadow module renders them into a 2048
-// overhead shadow map fitted around them, and Babylon's postfx `ShadowReceiveEffect` (ADR-0041,
-// ADR-0043) darkens the ordinary surfaces (the normal target's alpha is the ordinary surface tag,
-// class 3) whose path to the same fixed overhead light is blocked. The light is the M11.1 light, 35
-// degrees from vertical and 30 degrees in azimuth in the Z-up world, converted to the shader
-// camera's view space from the transform given to std3D_SetCameraTransform; without a camera
-// transform, without casters, or when the map fails, the stage is skipped for that frame and its
-// image is byte-identical. `std3D_DrawsThingShadows` reports it so the game can skip the original
-// blob shadow while it is on; when it is off or could not be set up the blob stays. Sky-tagged,
-// water-tagged, empty and the 0..0.1 first-person overlay pixels are returned unchanged, as are the
-// HUD, 2D layer, menus and prompts. A setter before the frame owner is open fails, logging why;
-// closing frees the stage's target, the map and the effect's resources. Opening reads
+// Casters are all faces of the models of SITH_TF_SHADOW things (including faces turned away from the
+// camera): rdModel3 passes them in camera space through std3D_AddShadowCasterPolygon, before
+// back-face culling and clipping. Babylon's shadow module renders them into a 2048 overhead shadow
+// map fitted around them, and Babylon's postfx `ShadowReceiveEffect` (ADR-0041, ADR-0043) darkens the
+// ordinary surfaces (the normal target's alpha is the ordinary surface tag, class 3) whose path to
+// the same fixed overhead light is blocked. Things outside the view frustum do not cast yet. The
+// light is the M11.1 light, 35 degrees from vertical and 30 degrees in azimuth in the Z-up world,
+// converted to the shader camera's view space from the transform given to std3D_SetCameraTransform;
+// without a camera transform, without casters, or when the map fails, the stage is skipped for that
+// frame and its image is byte-identical. `std3D_DrawsThingShadows` reports it so the game can skip
+// the original blob shadow while it is on; when it is off or could not be set up the blob stays.
+// Sky-tagged, water-tagged, empty and the 0..0.1 first-person overlay pixels are returned unchanged,
+// as are the HUD, 2D layer, menus and prompts. A setter before the frame owner is open fails, logging
+// why; closing frees the stage's target, the map and the effect's resources. Opening reads
 // engine.renderer.shadows (default on in Enhanced builds, off in Retail/QOL-off ones); this setter
 // changes it until the next open.
 bool stdRenderBabylon_SetShadows(bool bEnabled);

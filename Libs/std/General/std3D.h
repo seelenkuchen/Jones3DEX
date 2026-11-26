@@ -127,6 +127,14 @@ void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut);
 // effects and records nothing in a capture.
 int std3D_DrawsThingShadows(void);
 
+// Added: M11.2e. Adds one convex polygon of a shadow-casting model to this frame's shadow casters
+// (presentation only). aPositions holds numVertices points as x, y, z floats in rdroid camera space
+// (x right, y forward, z up); the polygon is a fan from its first vertex. Only meaningful between
+// std3D_StartScene and std3D_EndScene while std3D_DrawsThingShadows() returns 1; otherwise, with fewer
+// than 3 vertices, a null pointer or any non-finite coordinate, the whole polygon is ignored. The
+// pointer is read during the call only. Records nothing in a capture.
+void J3DAPI std3D_AddShadowCasterPolygon(const float* aPositions, size_t numVertices);
+
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);

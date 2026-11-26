@@ -653,6 +653,13 @@ int std3D_DrawsThingShadows(void)
     return std3DBackend_DrawsThingShadows();
 }
 
+// Added: presentation-only caster input, forwarded without a capture record. The replay draws from
+// recorded calls and never submits casters, so no record id is needed.
+void J3DAPI std3D_AddShadowCasterPolygon(const float* aPositions, size_t numVertices)
+{
+    std3DBackend_AddShadowCasterPolygon(aPositions, numVertices);
+}
+
 void J3DAPI std3D_EnableFog(int bEnabled, float density)
 {
     if ( !stdRenderCapture_IsOpen() )

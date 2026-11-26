@@ -38,6 +38,7 @@ size_t J3DAPI std3DBackend_FindClosestFormat(const ColorInfo* pMatch);
 int J3DAPI std3DBackend_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3DBackend_SetProjection(float fov, float nearPlane, float farPlane);
 int std3DBackend_DrawsThingShadows(void);
+void J3DAPI std3DBackend_AddShadowCasterPolygon(const float* aPositions, size_t numVertices);
 void J3DAPI std3DBackend_EnableFog(int bEnabled, float density);
 void J3DAPI std3DBackend_SetFog(float red, float green, float blue, float startDepth, float endDepth);
 void std3DBackend_ClearZBuffer(void);

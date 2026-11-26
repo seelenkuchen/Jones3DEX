@@ -44,6 +44,7 @@ namespace std3DBabylonInternal
     Std3DRenderState std3D_renderState      = (Std3DRenderState)0;
 #ifdef J3D_TEST
     // Added: M11.2c. The vertices recorded this frame by draws that carried STD3D_RS_SHADOW_CASTER.
+    // The flag stays for M11.3's receiver mask; casters now come through std3D_AddShadowCasterPolygon.
     uint32_t std3D_casterVertexCount = 0;
 #endif
     tSysTexture* std3D_pCurTex             = nullptr;
@@ -366,12 +367,6 @@ namespace
             std3D_casterVertexCount += (uint32_t)numVerts;
         }
 #endif
-        // Added: M11.2d. A scene-pass triangle draw marked as a shadow caster also contributes its
-        // expanded triangles to the frame's character-shadow map. The HUD layer never casts.
-        if ( bTriangles && !bHud && (std3D_renderState & STD3D_RS_SHADOW_CASTER) != 0 )
-        {
-            std3DBabylon_CollectShadowCasters(bLit, aVerts, aIndices, numIndices);
-        }
         if ( bHud )
         {
             std3D_bHudPassBegun = true;
