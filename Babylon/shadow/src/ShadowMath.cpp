@@ -92,10 +92,11 @@ namespace
     }
 
     bool fitDirectional(const float towardLight[3], const Bounds& casters, float margin,
-        std::uint32_t mapSize, Matrix4* pViewToShadowClip)
+        std::uint32_t mapSize, Matrix4* pViewToShadowClip, float towardLightReach)
     {
         if ( pViewToShadowClip == nullptr || towardLight == nullptr || mapSize <= 2
-            || !std::isfinite(margin) || margin < 0.0f || !finiteBounds(casters) )
+            || !std::isfinite(margin) || margin < 0.0f || !std::isfinite(towardLightReach)
+            || towardLightReach < 0.0f || !finiteBounds(casters) )
         {
             return false;
         }
@@ -163,6 +164,9 @@ namespace
         }
 
         float extent[3];
+        // Extend the depth range toward the light, leaving the far side at the
+        // dynamic casters' far side plus margin.
+        lightMin[2] -= towardLightReach;
         for ( int axis = 0; axis < 3; ++axis )
         {
             extent[axis] = lightMax[axis] - lightMin[axis];
@@ -177,8 +181,22 @@ namespace
         // texel of slack on each side. That keeps every corner inside -1..1
         // while a whole-texel step of the snapped origin moves a fixed point
         // by exactly one texel.
-        float texel[2] = { extent[0] / static_cast<float>(mapSize - 2),
-            extent[1] / static_cast<float>(mapSize - 2) };
+        //
+        // The x/y extent follows the casters, so an animating character would
+        // change the texel size every frame and shimmer even with a snapped
+        // origin. Quantize one square extent, the larger axis, up to a step of
+        // a geometric ladder with ratio 2^(1/4), so a small box change keeps
+        // the same texel size. Rounding up keeps the quantized extent at least
+        // the real one, so every corner still falls inside -1..1.
+        const float squareExtent = extent[0] > extent[1] ? extent[0] : extent[1];
+        const float ladderExponent = std::ceil(4.0f * std::log2(squareExtent)) / 4.0f;
+        const float quantizedExtent = std::pow(2.0f, ladderExponent);
+        if ( !std::isfinite(quantizedExtent) || !(quantizedExtent > 0.0f) )
+        {
+            return false;
+        }
+        float texel[2] = { quantizedExtent / static_cast<float>(mapSize - 2),
+            quantizedExtent / static_cast<float>(mapSize - 2) };
         float origin[2] = { std::floor(lightMin[0] / texel[0]) * texel[0],
             std::floor(lightMin[1] / texel[1]) * texel[1] };
         float projectedExtent[2] = { texel[0] * static_cast<float>(mapSize),

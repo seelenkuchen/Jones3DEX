@@ -27,6 +27,15 @@ namespace
         return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
+    // The length of a matrix row's basis vectors, which for a fit matrix is
+    // the clip-space scale on that light-space axis.
+    float rowScale(const Matrix4& m, int row)
+    {
+        const int base = row * 4;
+        return std::sqrt(m.m[base + 0] * m.m[base + 0] + m.m[base + 1] * m.m[base + 1]
+            + m.m[base + 2] * m.m[base + 2]);
+    }
+
     Bounds unitBox()
     {
         return Bounds{ { -0.5f, -0.5f, -0.5f }, { 0.5f, 0.5f, 0.5f } };
@@ -150,6 +159,96 @@ TEST_CASE("A margin enlarges the range fitDirectional projects")
     CHECK(std::fabs(looseProjected[1]) < std::fabs(tightProjected[1]));
     CHECK(looseProjected[2] > 0.0f);
     CHECK(looseProjected[2] < 1.0f);
+}
+
+TEST_CASE("fitDirectional keeps one texel size for a slightly resized box")
+{
+    const float light[3] = { 0.0f, 1.0f, 0.0f };
+    // The x extent is the larger one and grows by 1%.
+    const Bounds small = { { -0.525f, -0.5f, -0.2f }, { 0.525f, 0.5f, 0.2f } };
+    const Bounds large = { { -0.53025f, -0.5f, -0.2f }, { 0.53025f, 0.5f, 0.2f } };
+    Matrix4 smallFit{};
+    Matrix4 largeFit{};
+    REQUIRE(fitDirectional(light, small, 0.0f, 64, &smallFit));
+    REQUIRE(fitDirectional(light, large, 0.0f, 64, &largeFit));
+
+    CHECK(rowScale(smallFit, 0) == doctest::Approx(rowScale(largeFit, 0)));
+    CHECK(rowScale(smallFit, 1) == doctest::Approx(rowScale(largeFit, 1)));
+    // One square extent gives both axes the same texel size.
+    CHECK(rowScale(smallFit, 0) == doctest::Approx(rowScale(smallFit, 1)));
+}
+
+TEST_CASE("A box 50% larger takes a different ladder step")
+{
+    const float light[3] = { 0.0f, 1.0f, 0.0f };
+    const Bounds small = { { -0.525f, -0.5f, -0.2f }, { 0.525f, 0.5f, 0.2f } };
+    const Bounds large = { { -0.7875f, -0.5f, -0.2f }, { 0.7875f, 0.5f, 0.2f } };
+    Matrix4 smallFit{};
+    Matrix4 largeFit{};
+    REQUIRE(fitDirectional(light, small, 0.0f, 64, &smallFit));
+    REQUIRE(fitDirectional(light, large, 0.0f, 64, &largeFit));
+
+    CHECK(rowScale(largeFit, 0) < rowScale(smallFit, 0));
+    CHECK(std::fabs(rowScale(largeFit, 0) - rowScale(smallFit, 0)) > 1.0e-3f);
+    CHECK(rowScale(largeFit, 1) < rowScale(smallFit, 1));
+}
+
+TEST_CASE("fitDirectional keeps every quantized box corner inside the map")
+{
+    const float light[3] = { 0.0f, 1.0f, 0.0f };
+    // Uneven extents, so the larger axis sets the square extent, and an
+    // off-center box, so the snapped origin is not the box center.
+    const Bounds box = { { -0.32f, -0.5f, -0.85f }, { 0.58f, 0.5f, 0.85f } };
+    Matrix4 viewToClip{};
+    REQUIRE(fitDirectional(light, box, 0.0f, 32, &viewToClip));
+
+    for ( int index = 0; index < 8; ++index )
+    {
+        float corner[3];
+        cornerOf(box, index, corner);
+        float projected[4];
+        transformPoint(viewToClip, corner, projected);
+        CHECK(projected[0] >= -1.0f - 1.0e-5f);
+        CHECK(projected[0] <= 1.0f + 1.0e-5f);
+        CHECK(projected[1] >= -1.0f - 1.0e-5f);
+        CHECK(projected[1] <= 1.0f + 1.0e-5f);
+        CHECK(projected[2] >= -1.0e-5f);
+        CHECK(projected[2] <= 1.0f + 1.0e-5f);
+    }
+}
+
+TEST_CASE("fitDirectional snaps texels of the quantized extent")
+{
+    const float light[3] = { 0.0f, 1.0f, 0.0f };
+    // The extent sits inside a ladder step, so E_q is larger than the box.
+    const Bounds box = { { -0.525f, -0.5f, -0.525f }, { 0.525f, 0.5f, 0.525f } };
+    const std::uint32_t mapSize = 16;
+    const float fixedPoint[3] = { 0.0f, 0.0f, 0.0f };
+
+    float previousU = 0.0f;
+    bool sawStep = false;
+    for ( int step = 0; step < 61; ++step )
+    {
+        // Steps are much smaller than a texel; the sweep crosses several
+        // texel boundaries.
+        const float offset = static_cast<float>(step) * 0.005f;
+        Matrix4 viewToClip{};
+        REQUIRE(fitDirectional(light, translatedX(box, offset), 0.0f, mapSize, &viewToClip));
+
+        float projected[4];
+        transformPoint(viewToClip, fixedPoint, projected);
+        const float u = (projected[0] * 0.5f + 0.5f) * static_cast<float>(mapSize);
+        if ( step > 0 )
+        {
+            const float delta = std::fabs(u - previousU);
+            const bool same = delta < 1.0e-3f;
+            const bool oneTexel = std::fabs(delta - 1.0f) < 1.0e-2f;
+            CHECK((same || oneTexel));
+            sawStep = sawStep || oneTexel;
+        }
+        previousU = u;
+    }
+    CHECK(sawStep);
 }
 
 TEST_CASE("fitDirectional snaps its x origin to whole shadow-map texels")
