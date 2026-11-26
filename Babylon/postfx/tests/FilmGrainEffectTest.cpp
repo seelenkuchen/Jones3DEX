@@ -149,10 +149,10 @@ namespace
     {
         babylon::log::CaptureSink sink;
         NullDevice device;
+        FilmGrainEffect effect;
         Chain chain(device);
         REQUIRE(chain.open());
 
-        FilmGrainEffect effect;
         effect.setSettings(FilmGrainSettings{ 0.1f });
         REQUIRE(chain.add(effect));
 
@@ -217,11 +217,11 @@ namespace
     TEST_CASE("The chain runs the copy, vignette and film grain in order")
     {
         NullDevice device;
+        VignetteEffect vignette;
+        FilmGrainEffect grain;
         Chain chain(device);
         REQUIRE(chain.open());
 
-        VignetteEffect vignette;
-        FilmGrainEffect grain;
         CHECK(chain.add(vignette));
         CHECK(chain.add(grain));
 
