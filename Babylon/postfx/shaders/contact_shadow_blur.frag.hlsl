@@ -4,12 +4,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Screen-space contact shadows, blur pass: a depth-aware 4x4 box blur of the
-// mask. The four taps per axis sit at -1.5, -0.5, +0.5 and +1.5 texels, so the
-// 4x4 block holds every index modulo 4 of the mask's ordered jitter tile
-// exactly. A tap is weighted by how close its linear view depth is to the
-// centre's; taps that are not receivers or not scene depth weigh nothing, so a
-// tagged non-receiver neighbour cannot lighten a real shadow. When no tap
-// carries weight the centre mask value passes through.
+// mask. The four taps per axis sit one texel apart at -1, 0, +1 and +2 texels
+// from the centre texel, so the 4x4 block holds every index modulo 4 of the
+// mask's ordered jitter tile exactly. A tap is weighted by how close its linear
+// view depth is to the centre's; taps that are not receivers or not scene depth
+// weigh nothing, so a tagged non-receiver neighbour cannot lighten a real
+// shadow. When no tap carries weight the centre mask value passes through.
 
 Texture2D<float4> gMask : register(t0, space2);
 Texture2D<float> gDepth : register(t1, space2);
@@ -52,12 +52,21 @@ bool isSceneDepth(float depthTexel)
     return depthTexel >= gDepthNear && depthTexel < gDepthFar - 1.0e-6;
 }
 
-static const float kTapOffsets[4] = { -1.5, -0.5, 0.5, 1.5 };
+// The taps as whole texels from the centre. Offsets of {-1.5, -0.5, +0.5,
+// +1.5} applied to position = pixel + 0.5 and floored give pixel + {-1, 0,
+// 1, 2}: the same 4x4 block, computed without a half-integer boundary.
+static const float kTapSteps[4] = { -1.0, 0.0, 1.0, 2.0 };
 
-float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
+// The texel grid comes from uv rather than SV_Position: a fragment shader that
+// never reads TEXCOORD0 loses it from its input signature and D3D12 then
+// refuses the pipeline, as fullscreen.vert.hlsl explains. The full-screen uv at
+// a pixel centre is (pixel + 0.5) / size, so floor(uv * size) is the pixel
+// index floor(position.xy) gave.
+float4 main(float2 uv : TEXCOORD0) : SV_Target0
 {
-    float2 texel = 1.0 / float2(gInputWidth, gInputHeight);
-    float2 centre = floor(position.xy);
+    float2 size = float2(gInputWidth, gInputHeight);
+    float2 texel = 1.0 / size;
+    float2 centre = floor(uv * size);
     float2 centreUv = (centre + 0.5) * texel;
 
     float4 centreMask = gMask.Sample(gMaskSampler, centreUv);
@@ -84,7 +93,7 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
     {
         [unroll] for ( uint x = 0; x < 4; ++x )
         {
-            float2 tap = floor(position.xy + float2(kTapOffsets[x], kTapOffsets[y]));
+            float2 tap = centre + float2(kTapSteps[x], kTapSteps[y]);
             float2 tapUv = (tap + 0.5) * texel;
 
             float4 tapMask = gMask.Sample(gMaskSampler, tapUv);
