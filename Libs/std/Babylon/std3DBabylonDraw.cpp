@@ -42,6 +42,10 @@ namespace std3DBabylonInternal
 {
     // The render state of the draws; see std3D_SetRenderState.
     Std3DRenderState std3D_renderState      = (Std3DRenderState)0;
+#ifdef J3D_TEST
+    // Added: M11.2c. The vertices recorded this frame by draws that carried STD3D_RS_SHADOW_CASTER.
+    uint32_t std3D_casterVertexCount = 0;
+#endif
     tSysTexture* std3D_pCurTex             = nullptr;
     // Created at std3D_Open (the white texture std3DX9.c bound for untextured draws, the stream
     // buffers) or on first use (pipelines, samplers), destroyed at std3D_Close.
@@ -356,6 +360,12 @@ namespace
         }
 
         std3D_aSceneDraws.push_back(draw);
+#ifdef J3D_TEST
+        if ( (std3D_renderState & STD3D_RS_SHADOW_CASTER) != 0 )
+        {
+            std3D_casterVertexCount += (uint32_t)numVerts;
+        }
+#endif
         if ( bHud )
         {
             std3D_bHudPassBegun = true;
@@ -578,7 +588,7 @@ void J3DAPI std3D_DrawRenderListLit(tSysTexture* pTex, Std3DRenderState rdflags,
 
 void std3D_SetWireframeRenderState(void)
 {
-    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200 | STD3D_RS_SURFACE_SKY | STD3D_RS_SURFACE_WATER));
+    Std3DRenderState rdstate = (Std3DRenderState)(std3D_renderState & ~(STD3D_RS_FOG_ENABLED | STD3D_RS_UNKNOWN_400 | STD3D_RS_UNKNOWN_200 | STD3D_RS_SURFACE_SKY | STD3D_RS_SURFACE_WATER | STD3D_RS_SHADOW_CASTER));
     std3D_SetRenderState(rdstate);
     std3D_pCurTex = nullptr;
 }
@@ -619,8 +629,12 @@ void J3DAPI std3D_DrawPointList(StdVertexTL* aVerts, size_t numVerts)
 
 void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags)
 {
-    if ( std3D_renderState == rdflags )
+    // Added: the shadow-caster bit is read-only state for the draw path; it must not make a state
+    // change take another route, so the comparison ignores it while the flag is still kept.
+    const Std3DRenderState compareMask = (Std3DRenderState)~STD3D_RS_SHADOW_CASTER;
+    if ( (std3D_renderState & compareMask) == (rdflags & compareMask) )
     {
+        std3D_renderState = rdflags;
         return;
     }
 
@@ -647,4 +661,11 @@ void J3DAPI std3D_SetRenderState(Std3DRenderState rdflags)
 
     std3D_renderState = rdflags;
 }
+
+#ifdef J3D_TEST
+uint32_t std3DBabylon_GetCasterVertexCountForTest(void)
+{
+    return std3D_casterVertexCount;
+}
+#endif
 

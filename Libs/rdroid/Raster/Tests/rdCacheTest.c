@@ -436,6 +436,57 @@ TEST(rdCache, ClassicFacesStayOnTheClassicDraw)
     TEST_ASSERT_EQUAL_FLOAT(rdCacheTest_ScreenVertex(1, 2).sx, pDraw->aVerts[5].tl.sx);
 }
 
+// Added: M11.2c. Adds one face of the given kind with faceFlags and reads the draw back.
+static void rdCacheTest_FlushOneFace(bool bLit, bool bAlpha, rdFaceFlags faceFlags)
+{
+    rdCacheProcEntry* pEntry;
+    if ( bLit )
+    {
+        pEntry = bAlpha ? rdCache_GetLitAlphaProcEntry() : rdCache_GetLitProcEntry();
+    }
+    else
+    {
+        pEntry = bAlpha ? rdCache_GetAlphaProcEntry() : rdCache_GetProcEntry();
+    }
+
+    rdCacheTest_FillFace(pEntry, 0, 3u);
+    pEntry->flags |= faceFlags;
+
+    if ( bAlpha )
+    {
+        rdCache_AddAlphaProcFace(3u);
+    }
+    else
+    {
+        rdCache_AddProcFace(3u);
+    }
+
+    TEST_ASSERT_TRUE(stdRenderCapture_Open("rdCacheTest.rcap", "null"));
+    rdCache_Flush();
+    rdCache_FlushAlpha();
+    stdRenderCapture_Close();
+    rdCacheTest_ParseDraws();
+    TEST_ASSERT_EQUAL_size_t(1u, rdCacheTest_numDraws);
+}
+
+// Added: M11.2c. RD_FF_SHADOW_CASTER reaches std3D as STD3D_RS_SHADOW_CASTER for classic and lit,
+// opaque and alpha faces; a face without it keeps the plain state.
+TEST(rdCache, ShadowCasterFlagReachesTheRenderState)
+{
+    const bool aKinds[4][2] = { { false, false }, { true, false }, { false, true }, { true, true } };
+    for ( size_t i = 0; i < STD_ARRAYLEN(aKinds); ++i )
+    {
+        const bool bLit   = aKinds[i][0];
+        const bool bAlpha = aKinds[i][1];
+
+        rdCacheTest_FlushOneFace(bLit, bAlpha, RD_FF_SHADOW_CASTER);
+        TEST_ASSERT_EQUAL_INT32(RDCACHETEST_RDFLAGS | STD3D_RS_SHADOW_CASTER, rdCacheTest_aDraws[0].rdflags);
+
+        rdCacheTest_FlushOneFace(bLit, bAlpha, 0);
+        TEST_ASSERT_EQUAL_INT32(RDCACHETEST_RDFLAGS, rdCacheTest_aDraws[0].rdflags);
+    }
+}
+
 TEST(rdCache, AnEntryLeftUnaddedDoesNotMakeTheNextOneLit)
 {
     // A lit entry that is not added (its face was culled) gives its slot to the next entry, which is
@@ -1097,6 +1148,7 @@ TEST_GROUP_RUNNER(rdCache)
 {
     RUN_TEST_CASE(rdCache, LitFacesAreDrawnLitAndApartFromClassicOnes);
     RUN_TEST_CASE(rdCache, ClassicFacesStayOnTheClassicDraw);
+    RUN_TEST_CASE(rdCache, ShadowCasterFlagReachesTheRenderState);
     RUN_TEST_CASE(rdCache, AnEntryLeftUnaddedDoesNotMakeTheNextOneLit);
     RUN_TEST_CASE(rdCache, LitAlphaFacesAreDrawnLit);
     RUN_TEST_CASE(rdCache, GouraudModelFacesCarryTheirVertexNormalsInViewSpace);

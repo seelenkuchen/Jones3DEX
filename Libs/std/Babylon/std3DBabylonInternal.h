@@ -108,6 +108,11 @@ namespace std3DBabylonInternal
     extern tSystemTexture* std3D_pLastTexCache;
 
     extern Std3DRenderState std3D_renderState;
+#ifdef J3D_TEST
+    // Added: M11.2c. Vertices recorded this frame by draws carrying STD3D_RS_SHADOW_CASTER; reset at
+    // std3D_StartScene.
+    extern uint32_t std3D_casterVertexCount;
+#endif
     extern Std3DMipmapFilterType std3D_mipmapFilter;
     extern int std3D_anisotropicFilter;
     extern bool std3D_bTexturePixelated;

@@ -282,6 +282,53 @@ TEST(std3DBabylon, TwoDrawsRecordTheirStreamExactly)
     std3D_ClearSystemTexture(&texture);
 }
 
+// Added: M11.2c. STD3D_RS_SHADOW_CASTER changes nothing about the draw it marks: the same pipeline,
+// sampler and commands as the same state without it. The test counter counts the marked vertices.
+TEST(std3DBabylon, ShadowCasterStateDrawsLikeThePlainState)
+{
+    OpenStd3D();
+    const StdVertexTL aTriangle[3] = { Vertex(1.0f, 2.0f, 0.5f, 1.0f, 0xFF102030u, 0.0f, 0.0f),
+        Vertex(9.0f, 2.0f, 0.5f, 1.0f, 0xFF405060u, 1.0f, 0.0f), Vertex(1.0f, 7.0f, 0.5f, 1.0f, 0xFF708090u, 0.0f, 1.0f) };
+    const uint16_t aIndices[3]    = { 0u, 1u, 2u };
+    const Std3DRenderState plain  = (Std3DRenderState)(STD3D_RS_ZWRITE_DISABLED | STD3D_RS_ALPHAREF_SET | STD3D_RS_TEX_CPAMP_U);
+    const Std3DRenderState caster = (Std3DRenderState)(plain | STD3D_RS_SHADOW_CASTER);
+
+    // Pipelines and buffers are made on first use; warm them up so the two recorded frames match.
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderList(nullptr, plain, const_cast<StdVertexTL*>(aTriangle), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    EndFrame();
+
+    // The submit carries the frame number, which differs; every command before it must match.
+    const auto commandsWithoutSubmit = [](const std::vector<render::RecordedCommand>& record) {
+        std::vector<render::RecordedCommand> commands;
+        for ( const render::RecordedCommand& command : record )
+        {
+            if ( !std::holds_alternative<render::FrameSubmitted>(command) )
+            {
+                commands.push_back(command);
+            }
+        }
+        return commands;
+    };
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderList(nullptr, plain, const_cast<StdVertexTL*>(aTriangle), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    TEST_ASSERT_EQUAL_UINT32(0u, std3DBabylon_GetCasterVertexCountForTest());
+    EndFrame();
+    const std::vector<render::RecordedCommand> aPlain = commandsWithoutSubmit(Null().recorded());
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_DrawRenderList(nullptr, caster, const_cast<StdVertexTL*>(aTriangle), 3u, const_cast<uint16_t*>(aIndices), 3u);
+    TEST_ASSERT_EQUAL_UINT32(3u, std3DBabylon_GetCasterVertexCountForTest());
+    EndFrame();
+    const std::vector<render::RecordedCommand> aCaster = commandsWithoutSubmit(Null().recorded());
+
+    TEST_ASSERT_EQUAL_size_t(aPlain.size(), aCaster.size());
+    TEST_ASSERT_TRUE(aPlain == aCaster);
+}
+
 TEST(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers)
 {
     OpenStd3D();

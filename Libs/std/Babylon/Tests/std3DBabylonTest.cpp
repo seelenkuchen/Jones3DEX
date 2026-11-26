@@ -782,6 +782,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, DepthIsD32FWithoutD24S8);
     RUN_TEST_CASE(std3DBabylon, BadAndEmptyDrawsRecordNothing);
     RUN_TEST_CASE(std3DBabylon, TwoDrawsRecordTheirStreamExactly);
+    RUN_TEST_CASE(std3DBabylon, ShadowCasterStateDrawsLikeThePlainState);
     RUN_TEST_CASE(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers);
     RUN_TEST_CASE(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture);
     RUN_TEST_CASE(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline);

@@ -163,6 +163,7 @@ TEST_SETUP(rdModel3)
     rdModel3Test_numNestedFaces = 0;
     rdModel3Test_bProcEntryNull = 0;
     rdModel3_EnableFogRendering(0);
+    rdModel3_SetNextDrawFaceFlags(0);
     rdModel3Test_pfPreviousDraw = rdModel3_RegisterFaceDraw(rdModel3_DrawFace);
     rdModel3Test_bSavedPerPixelLighting = rdGetPerPixelLighting();
     rdModel3_SetSectorLightNum(-1);
@@ -172,6 +173,7 @@ TEST_TEAR_DOWN(rdModel3)
 {
     rdModel3_RegisterFaceDraw(rdModel3Test_pfPreviousDraw);
     rdModel3_EnableFogRendering(0);
+    rdModel3_SetNextDrawFaceFlags(0);
     rdSetPerPixelLighting(rdModel3Test_bSavedPerPixelLighting);
     rdModel3_SetSectorLightNum(-1);
     TEST_ASSERT_EQUAL_INT(0, J3DTest_GetAssertCount());
@@ -270,6 +272,23 @@ TEST(rdModel3, TestDrawFlagsCoexistWithFogAndAuthoredFlags)
     TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
     rdModel3Test_AssertQueuedFlags(overriddenFaces, rdModel3Test_numQueuedFaces,
         RD_FF_TEX_CLAMP_X | RD_FF_ZWRITE_DISABLED | RD_FF_TEX_TRANSLUCENT);
+}
+
+// Added: M11.2c. The flags sithRender sets for the next model draws reach every queued face and stop
+// applying once cleared.
+TEST(rdModel3, TestNextDrawFlagsApplyToEveryFaceUntilCleared)
+{
+    rdModel3Test_InitQueuedDraw();
+    rdModel3_SetNextDrawFaceFlags(RD_FF_SHADOW_CASTER);
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+    const size_t markedFaces = rdModel3Test_numQueuedFaces;
+    TEST_ASSERT_TRUE(markedFaces > 0u);
+    rdModel3Test_AssertQueuedFlags(0, markedFaces, RD_FF_TEX_TRANSLUCENT | RD_FF_SHADOW_CASTER);
+
+    rdModel3_SetNextDrawFaceFlags(0);
+    TEST_ASSERT_EQUAL_INT(1, rdModel3_Draw(&rdModel3Test_thing, &rdModel3Test_joint));
+    rdModel3Test_AssertQueuedFlags(markedFaces, rdModel3Test_numQueuedFaces, RD_FF_TEX_TRANSLUCENT);
+    rdModel3Test_AssertQueuedFlags(0, markedFaces, RD_FF_TEX_TRANSLUCENT | RD_FF_SHADOW_CASTER);
 }
 
 static void J3DAPI rdModel3Test_NestedDrawFace(const rdFace* pFace, const rdVector3* aView, int bBackFace, const rdVector4* pColor)
@@ -437,6 +456,7 @@ TEST_GROUP_RUNNER(rdModel3)
     RUN_TEST_CASE(rdModel3, TestDrawFlagsPersistInDeferredFacesWithoutChangingAssets);
     RUN_TEST_CASE(rdModel3, TestRejectedDrawAndClippedFacesDoNotLeakFlags);
     RUN_TEST_CASE(rdModel3, TestDrawFlagsCoexistWithFogAndAuthoredFlags);
+    RUN_TEST_CASE(rdModel3, TestNextDrawFlagsApplyToEveryFaceUntilCleared);
     RUN_TEST_CASE(rdModel3, TestFullVertexBufferDropsTheFaceWithoutDrawing);
     RUN_TEST_CASE(rdModel3, TestMeshOverTheVertexLimitIsNotDrawn);
     RUN_TEST_CASE(rdModel3, TestNestedOrdinaryDrawClearsAndRestoresOuterFlags);

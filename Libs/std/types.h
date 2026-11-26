@@ -148,7 +148,10 @@ typedef enum eStd3DRenderState
     // Added: the surface tag written into the normal target's alpha (M9.16), read-only state
     // carried from rdFaceFlags. An ordinary draw has neither bit.
     STD3D_RS_SURFACE_SKY           = 0x20000,
-    STD3D_RS_SURFACE_WATER         = 0x40000
+    STD3D_RS_SURFACE_WATER         = 0x40000,
+    // Added: the draw's faces belong to a shadow-casting thing (M11.2c), carried from
+    // RD_FF_SHADOW_CASTER. The Babylon adapter collects these draws; the state is otherwise inert.
+    STD3D_RS_SHADOW_CASTER         = 0x80000
 } Std3DRenderState;
 
 typedef enum eVBufferType

@@ -70,6 +70,11 @@ static int sectorLightNum = -1;
 
 static rdFaceFlags extraFaceFlags = 0;
 static rdFaceFlags drawFaceFlags = 0;
+// Added: M11.2c. Face flags applied to every face of the model draws that follow, until the caller
+// clears them. sithRender marks the faces of shadow-casting things this way; rdCache turns the bit
+// into the std3D render state. It is separate from drawFaceFlags, which DrawWithFlags scopes to one
+// draw and restores.
+static rdFaceFlags nextDrawFaceFlags = 0;
 
 void J3DAPI rdModel3_LoadPostProcess(rdModel3* pModel3); // Added
 static int J3DAPI rdModel3_DrawModel(rdThing* pThing, const rdMatrix34* pPlacement);
@@ -78,7 +83,15 @@ void rdModel3_ResetGlobals(void)
 {
     STD_ZEROMEM(&rdModel3_g_numDrawnFaces, sizeof(rdModel3_g_numDrawnFaces));
     STD_ZEROMEM(&rdModel3_g_numDrawnAlphaFaces, sizeof(rdModel3_g_numDrawnAlphaFaces));
-    sectorLightNum = -1;
+    sectorLightNum    = -1;
+    nextDrawFaceFlags = 0;
+}
+
+void J3DAPI rdModel3_SetNextDrawFaceFlags(rdFaceFlags flags)
+{
+    // Added: M11.2c. Flags for the model draws that follow; sithRender sets and clears them around
+    // the draw of a thing that casts a shadow.
+    nextDrawFaceFlags = flags;
 }
 
 void J3DAPI rdModel3_SetSectorLightNum(int num)
@@ -2046,7 +2059,7 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
         }
     }
 
-    pPoly->flags     = pFace->flags | extraFaceFlags | drawFaceFlags;
+    pPoly->flags     = pFace->flags | extraFaceFlags | drawFaceFlags | nextDrawFaceFlags;
     pPoly->matCelNum = pFace->matCelNum;
     pPoly->pMaterial = pFace->pMaterial;
 
