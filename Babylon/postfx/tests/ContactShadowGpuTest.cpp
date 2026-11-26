@@ -564,4 +564,82 @@ namespace
         device->destroyTexture(floorMask);
         device->destroyTexture(depth);
     }
+
+    TEST_CASE("Contact shadows leave surfaces that face away from the light unchanged (GPU)")
+    {
+        babylon::render::test::keepGpuDriverLoaded();
+        babylon::log::CaptureSink sink;
+        const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+        if ( device == nullptr )
+        {
+            babylon::render::test::noGpuDevice("no GPU device: " + joined(sink));
+            return;
+        }
+
+        const TextureUsage depthUsage = TextureUsage::DepthTarget | TextureUsage::Sampled;
+        TextureFormat depthFormat = TextureFormat::D32F;
+        if ( !device->supportsFormat(depthFormat, depthUsage) )
+        {
+            depthFormat = TextureFormat::D24S8;
+        }
+        if ( !device->supportsFormat(depthFormat, depthUsage) )
+        {
+            babylon::render::test::noGpuDevice("no sampled depth format: " + joined(sink));
+            return;
+        }
+
+        const TextureHandle color   = makeHalfColor(*device, kSize, kSize);
+        const TextureHandle normals = makeNormals(*device, kSize, kSize);
+        const TextureHandle depth   = device->createTexture(TextureDesc{ kSize, kSize, 1,
+            depthFormat, depthUsage });
+        REQUIRE_FALSE(depth.isNull());
+        renderDepthScene(*device, depth, depthFormat);
+
+        Projection projection;
+        projection.nearPlane   = kNear;
+        projection.farPlane    = kFar;
+        projection.tanHalfFovX = kHalfFovX;
+        projection.tanHalfFovY = kHalfFovY;
+        projection.depthNear   = kDepthNear;
+        projection.depthFar    = kDepthFar;
+
+        // The light below the floor: the floor, the box top and the box's
+        // visible left face all face away from it, and its front face is edge-on.
+        // Nothing lit can be shadowed, so the output is the plain copy.
+        ContactShadowEffect effect;
+        effect.setLightDirection(0.5f, -0.85f, 0.0f);
+
+        std::vector<std::string_view> ran;
+        const std::vector<std::byte> pixels =
+            runScene(*device, &effect, color, depth, normals, projection, &ran);
+        std::vector<std::string_view> plainRan;
+        const std::vector<std::byte> plain =
+            runScene(*device, nullptr, color, depth, normals, projection, &plainRan);
+        INFO("log: " << joined(sink));
+        REQUIRE(pixels.size() == plain.size());
+        REQUIRE(ran.size() == 2);
+        CHECK(ran[0] == "contact shadows");
+        CHECK(ran[1] == "copy");
+
+        std::size_t numDarkened = 0;
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = 0; x < kSize; ++x )
+            {
+                if ( pixelAt(pixels, kSize, x, y) != pixelAt(plain, kSize, x, y) )
+                {
+                    ++numDarkened;
+                }
+            }
+        }
+        INFO("darkened pixels: " << numDarkened << " of " << kSize * kSize);
+        CHECK(numDarkened == 0);
+        checkUnchanged(pixelAt(pixels, kSize, kFarFloorColumn, kFloorRow));
+        checkUnchanged(pixelAt(pixels, kSize, kShadowedColumn, kFloorRow));
+        CHECK(sink.records().empty());
+
+        device->destroyTexture(color);
+        device->destroyTexture(normals);
+        device->destroyTexture(depth);
+    }
 }
