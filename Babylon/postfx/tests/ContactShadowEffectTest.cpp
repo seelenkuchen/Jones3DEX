@@ -280,10 +280,10 @@ TEST_CASE("Releasing contact shadow resources before they exist is safe")
 TEST_CASE("The chain skips contact shadows until the frame has depth and normals")
 {
     NullDevice device;
+    ContactShadowEffect effect;
     Chain chain(device);
     REQUIRE(chain.open());
 
-    ContactShadowEffect effect;
     REQUIRE(chain.add(effect));
 
     const TextureHandle color  = makeColor(device, 16, 16);
@@ -311,10 +311,10 @@ TEST_CASE("The chain skips contact shadows until the frame has depth and normals
 TEST_CASE("The contact shadow effect records mask, blur and composite passes")
 {
     NullDevice device;
+    ContactShadowEffect effect;
     Chain chain(device);
     REQUIRE(chain.open());
 
-    ContactShadowEffect effect;
     ContactShadowSettings settings;
     settings.strength        = 0.75f;
     settings.length          = 0.2f;
@@ -428,10 +428,10 @@ TEST_CASE("The contact shadow effect records mask, blur and composite passes")
 TEST_CASE("With every receiver class the mask pass binds depth in both texture slots")
 {
     NullDevice device;
+    ContactShadowEffect effect;
     Chain chain(device);
     REQUIRE(chain.open());
 
-    ContactShadowEffect effect;
     ContactShadowSettings settings;
     settings.receiverClasses = 0xFu;
     effect.setSettings(settings);

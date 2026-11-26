@@ -322,6 +322,7 @@ namespace
         const std::vector<std::byte> pixels =
             runScene(*device, &effect, color, depth, normals, projection, &ran);
         REQUIRE(pixels.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
         REQUIRE(ran.size() == 2);
         CHECK(ran[0] == "contact shadows");
         CHECK(ran[1] == "copy");
@@ -370,6 +371,7 @@ namespace
         const std::vector<std::byte> mixed =
             runScene(*device, &effect, color, depth, mixedNormals, projection, &mixedRan);
         REQUIRE(mixed.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
         REQUIRE(mixedRan.size() == 2);
         for ( std::uint32_t y = 0; y < kSize; ++y )
         {
@@ -396,6 +398,7 @@ namespace
         std::vector<std::string_view> inactiveRan;
         const std::vector<std::byte> skipped =
             runScene(*device, &inactive, color, depth, normals, projection, &inactiveRan);
+        INFO("log: " << joined(sink));
         REQUIRE(inactiveRan.size() == 1);
         CHECK(inactiveRan[0] == "copy");
         std::vector<std::string_view> plainRan;

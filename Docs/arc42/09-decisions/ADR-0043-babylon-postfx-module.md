@@ -1,6 +1,6 @@
 # ADR-0043: The Babylon post-processing module
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-25
 - **Relates to:** [ADR-0015](ADR-0015-babylon-modules-as-cmake-targets.md), [ADR-0041](ADR-0041-shadows.md),
   [ADR-0042](ADR-0042-babylon-second-game.md)

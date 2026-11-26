@@ -224,12 +224,12 @@ namespace
     TEST_CASE("Hdr effects, the resolve and Ldr effects run in order")
     {
         NullDevice device;
-        Chain chain(device);
-        REQUIRE(chain.open());
-
         TestEffect hdrA("hdr-a", Stage::Hdr);
         TestEffect hdrB("hdr-b", Stage::Hdr);
         TestEffect ldrC("ldr-c", Stage::Ldr);
+        Chain chain(device);
+        REQUIRE(chain.open());
+
         CHECK(chain.add(hdrA));
         CHECK(chain.add(hdrB));
         CHECK(chain.add(ldrC));
@@ -275,11 +275,11 @@ namespace
     TEST_CASE("An inactive effect is skipped")
     {
         NullDevice device;
+        TestEffect active("active", Stage::Hdr);
+        TestEffect inactive("inactive", Stage::Hdr);
         Chain chain(device);
         REQUIRE(chain.open());
 
-        TestEffect active("active", Stage::Hdr);
-        TestEffect inactive("inactive", Stage::Hdr);
         inactive.setActive(false);
         CHECK(chain.add(active));
         CHECK(chain.add(inactive));
@@ -306,10 +306,10 @@ namespace
     TEST_CASE("An effect that needs depth is skipped until the frame has it")
     {
         NullDevice device;
+        TestEffect depthEffect("depth", Stage::Hdr);
         Chain chain(device);
         REQUIRE(chain.open());
 
-        TestEffect depthEffect("depth", Stage::Hdr);
         depthEffect.setNeeds(Needs{ true, false });
         CHECK(chain.add(depthEffect));
 
@@ -341,12 +341,12 @@ namespace
     {
         babylon::log::CaptureSink sink;
         NullDevice device;
-        Chain chain(device);
-        REQUIRE(chain.open());
-
         TestEffect first("first", Stage::Hdr);
         TestEffect failing("failing", Stage::Hdr);
         TestEffect last("last", Stage::Hdr);
+        Chain chain(device);
+        REQUIRE(chain.open());
+
         failing.setFail(true);
         CHECK(chain.add(first));
         CHECK(chain.add(failing));
@@ -455,10 +455,10 @@ namespace
     {
         babylon::log::CaptureSink sink;
         NullDevice device;
+        TestEffect effect("effect", Stage::Hdr);
         Chain chain(device);
         REQUIRE(chain.open());
 
-        TestEffect effect("effect", Stage::Hdr);
         CHECK(chain.add(effect));
         CHECK(sink.records().empty());
         CHECK_FALSE(chain.add(effect));
@@ -468,10 +468,10 @@ namespace
     TEST_CASE("Removing an effect releases its resources")
     {
         NullDevice device;
+        TestEffect effect("effect", Stage::Hdr);
         Chain chain(device);
         REQUIRE(chain.open());
 
-        TestEffect effect("effect", Stage::Hdr);
         CHECK(chain.add(effect));
         CHECK_FALSE(effect.released());
 
@@ -483,12 +483,12 @@ namespace
     TEST_CASE("Closing the chain releases every effect")
     {
         NullDevice device;
-        Chain chain(device);
-        REQUIRE(chain.open());
-
         TestEffect hdr("hdr", Stage::Hdr);
         TestEffect ldr("ldr", Stage::Ldr);
         TestEffect resolve("resolve", Stage::Resolve);
+        Chain chain(device);
+        REQUIRE(chain.open());
+
         CHECK(chain.add(hdr));
         CHECK(chain.add(ldr));
         CHECK(chain.add(resolve));
@@ -506,10 +506,10 @@ namespace
     TEST_CASE("An added Resolve effect replaces the built-in copy")
     {
         NullDevice device;
+        TestEffect resolve("resolve", Stage::Resolve);
         Chain chain(device);
         REQUIRE(chain.open());
 
-        TestEffect resolve("resolve", Stage::Resolve);
         CHECK(chain.add(resolve));
 
         const TextureHandle color  = makeColor(device, 16, 16);

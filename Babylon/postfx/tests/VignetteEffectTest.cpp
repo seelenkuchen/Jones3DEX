@@ -155,10 +155,10 @@ namespace
     {
         babylon::log::CaptureSink sink;
         NullDevice device;
+        VignetteEffect effect;
         Chain chain(device);
         REQUIRE(chain.open());
 
-        VignetteEffect effect;
         effect.setSettings(VignetteSettings{ 1.0f, 0.45f, 1.0f });
         REQUIRE(chain.add(effect));
 

@@ -43,9 +43,38 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdControlDevicesBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdCvarBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonBloom.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonCameraFx.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonColorGrading.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonContactShadows.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonDepthOfField.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonHud.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonLensFlare.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonLightShafts.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonMotionBlur.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonPostChain.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonPostfx.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonPresent.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonResample.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSharpening.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSmaa.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSsao.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonWaterRipples.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderReplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonCamera.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonDraw.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonFormats.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonLighting.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonSamplers.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonScene.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonTextures.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylon.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonBackBuffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonFramePacing.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonModes.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonScreenshot.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonVBuffer.cpp"
     )
 
     # Added: the shaders of the Babylon render adapter, compiled at build time (ADR-0022) into their own
@@ -86,7 +115,6 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/ssao_composite.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/motion_blur.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/lens_flare.frag.hlsl"
-            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/camera_fx.frag.hlsl"
     )
     set_target_properties(stdBabylonShaders PROPERTIES FOLDER "Libs")
 endif()
@@ -115,6 +143,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::input
         babylon::cvars
         babylon::render
+        babylon::postfx
         stdBabylonShaders
     )
 

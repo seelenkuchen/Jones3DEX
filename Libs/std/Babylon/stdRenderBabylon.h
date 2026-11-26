@@ -21,8 +21,8 @@
 // Added: the sharpening option (AMD FidelityFX CAS, engine.renderer.sharpening) then runs one
 // contrast-adaptive sharpening pass on that presented-size LDR image, after SMAA or after the tone
 // map when anti-aliasing is off; at 0 it is skipped and the image is byte-identical. The vignette and
-// film-grain option then runs one presented-size pass after it when either is on; both off skip it and
-// leave the image byte-identical. It then composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
+// film-grain option then runs the Babylon postfx vignette and film-grain effects on a presented-size
+// image after it when either is on; both off skip them and leave the image byte-identical. It then composites the gameplay HUD layer (see std3D_BeginHudLayer and the getters below) over that
 // image, so no anti-aliasing, sharpening or other scene effect touches the HUD, before the prompt
 // and menu present overlays. std3D records its scenes and HUD layer into the same frame. stdRenderBabylon_ReadBackBuffer and _WriteBackBuffer
 // translate between the scene color target and the Bgra8 bytes the game and stdDisplay work with,
@@ -258,12 +258,14 @@ bool stdRenderBabylon_GetLensFlare();
 
 // Added: the vignette and film-grain stage on the presented-size LDR image, after SMAA and
 // sharpening and before the HUD layer composite, so the HUD, menus and prompts are untouched. The
-// vignette smoothly darkens the corners, aspect-corrected, with the centre unchanged. The film
-// grain is deterministic luminance noise from a hash of the pixel and a game-time frame counter,
-// weaker in the highlights, with zero mean. Each on its own is byte-identical to the path without
-// it; both off skip the pass and the image is byte-identical to today. Opening reads
-// engine.renderer.vignette and engine.renderer.filmGrain (both off in every build by default);
-// these setters change them until the next open. Closing frees the stage's target and pipelines.
+// vignette and the film grain are drawn by the Babylon postfx effects (babylon::postfx,
+// ADR-0043). The vignette smoothly darkens the corners, aspect-corrected, with the centre
+// unchanged. The film grain is deterministic luminance noise from a hash of the pixel and a
+// game-time frame counter, weaker in the highlights, with zero mean. Each on its own is
+// byte-identical to the path without it; both off skip the passes and the image is byte-identical
+// to today. Opening reads engine.renderer.vignette and engine.renderer.filmGrain (both off in every
+// build by default); these setters change them until the next open. Closing frees the effects,
+// their targets and their pipelines.
 bool stdRenderBabylon_SetVignette(bool bEnabled);
 bool stdRenderBabylon_GetVignette();
 bool stdRenderBabylon_SetFilmGrain(bool bEnabled);
@@ -284,8 +286,8 @@ bool stdRenderBabylon_GetFilmGrain();
 bool stdRenderBabylon_SetWaterRipples(bool bEnabled);
 bool stdRenderBabylon_GetWaterRipples();
 
-// Added: the built-in screen-space ambient occlusion stage over the HDR scene, after the water
-// ripples and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the sample
+// Added: the built-in screen-space ambient occlusion stage over the HDR scene, after the contact
+// shadows and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); the sample
 // count, world-space radius, bias and intensity of each level live with the stage's other constants
 // in stdRenderBabylon.cpp. On: view-space positions and normals are reconstructed from the depth
 // target (the classic draws write a constant normal), an 8, 12 or 16 sample normal-oriented
@@ -299,6 +301,22 @@ bool stdRenderBabylon_GetWaterRipples();
 // targets and pipelines.
 bool stdRenderBabylon_SetSsao(int level);
 int stdRenderBabylon_GetSsao();
+
+// Added: the built-in screen-space contact-shadow stage over the HDR scene, after the water
+// ripples and before the ambient-occlusion stage, so ambient occlusion and every later stage read
+// its result. Babylon's postfx `ContactShadowEffect` (ADR-0043) draws it. One fixed overhead light,
+// 35 degrees from vertical and 30 degrees in azimuth in the Z-up game world, is converted to the
+// shader camera's view space from the transform given to std3D_SetCameraTransform; without a
+// camera transform the stage is skipped. A short ray is marched through the depth target toward
+// the light, and only ordinary surfaces (the normal target's alpha is the ordinary surface tag,
+// class 3) are darkened; sky-tagged, water-tagged, empty and the 0..0.1 first-person overlay pixels
+// are returned unchanged, as are the HUD, 2D layer, menus and prompts. Off, or a failure, records
+// no pass and the image is byte-identical to the path without the option. A setter before the
+// frame owner is open fails, logging why; closing frees the stage's target and the effect's
+// resources. Opening reads engine.renderer.contactShadows (default on in Enhanced builds, off in
+// Retail/QOL-off ones); this setter changes it until the next open.
+bool stdRenderBabylon_SetContactShadows(bool bEnabled);
+bool stdRenderBabylon_GetContactShadows();
 
 // Added: the built-in camera motion-blur stage over the HDR scene, after the ambient-occlusion
 // stage and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); each level's
@@ -509,10 +527,20 @@ bool stdRenderBabylon_GetLightShaftValueForTest(std::uint32_t x, std::uint32_t y
 // Added: test-only. Writes the ambient-occlusion reconstruction's horizontal and vertical tangent
 // scales for the current scene size and projection. Returns false when not open.
 bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalfY);
+
+// Added: test-only. Converts the fixed overhead contact-shadow light from the shader camera basis
+// (right, up and forward in elements 0-2, 4-6 and 8-10) and writes the view-space direction toward
+// the light. Returns false for a null matrix. Production builds don't compile it.
+bool stdRenderBabylon_GetContactLightDirectionForTest(const float aCamera[12], float* pX,
+    float* pY, float* pZ);
 // Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
 // whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
 // Returns false without such a submit. Production builds don't compile it.
 bool stdRenderBabylon_GetLensFlareStateForTest(float* pU, float* pV, float* pStrength);
+
+// Added: test-only. The number of textures the camera effects' scratch pool holds, idle or in use.
+// Returns 0 when the postfx objects are unavailable. Production builds don't compile it.
+std::size_t stdRenderBabylon_GetPostfxTargetCountForTest();
 #endif
 
 // Destroys texture now, or after the next submit while a frame is being recorded, since that frame

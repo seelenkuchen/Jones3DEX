@@ -1,3 +1,13 @@
+## Unreleased
+### M11: Shadows
+  - **Contact shadows** (`engine.renderer.contactShadows`, on by default in Enhanced, off in Retail): surfaces whose
+    short path toward a fixed overhead light (35 degrees from vertical) is blocked by nearby geometry are darkened,
+    so characters and props are grounded; Indy's hat shades his face and his legs cast a soft shadow beside his
+    feet. Water, sky and the first-person view are left alone, and the HUD and menus are never shaded. The Options
+    row comes with M11.5; until then the setting is in `Jones.cfg`. Presentation only: traces are unchanged.
+  - Vignette and film grain are now drawn by the Babylon Engine's new post-processing module; they look the same
+    as before.
+
 ## Jones3D EX 0.6.0-alpha
 ### M10: Lighting
   - **Options > Display** has a **Lighting** row (`engine.renderer.perPixelLighting`: Classic or Per-pixel;
