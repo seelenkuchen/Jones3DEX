@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SITHRENDERTEST_MAXSURFACES 6
+#define SITHRENDERTEST_MAXSURFACES 8
 #define SITHRENDERTEST_NUMVERTS    8
 
 static SithWorld sithRenderTest_world;
@@ -289,9 +289,10 @@ TEST(sithRender, AVertexOutOfRangeJoinsNothingAndDoesNotCrash)
     sithRenderTest_AssertCorner(3, 0.0, ny, nz);
 }
 
-// Added: M11.3. The level upload keeps solid geometry and drops sky, water, translucent adjoins and
-// surfaces without geometry, fan-triangulating the kept surfaces from their first vertex. The std3D call
-// is renamed to this suite's recorder by CMake, so the production helper runs exactly as in the game.
+// Added: M11.3. The level upload keeps solid up-facing geometry and drops sky, water, translucent
+// adjoins, surfaces without geometry, down-facing surfaces (normal z below 0) and vertical walls
+// (normal z 0), fan-triangulating the kept surfaces from their first vertex. The std3D call is renamed
+// to this suite's recorder by CMake, so the production helper runs exactly as in the game.
 TEST(sithRender, StaticShadowCastersKeepSolidSurfacesAndDropTheRest)
 {
     for ( size_t i = 0; i < SITHRENDERTEST_NUMVERTS; ++i )
@@ -309,6 +310,8 @@ TEST(sithRender, StaticShadowCastersKeepSolidSurfacesAndDropTheRest)
     const int aAdjoin[4]   = { 3, 4, 5, 6 };
     const int aNoGeom[4]   = { 4, 5, 6, 7 };
     const int aTriangle[3] = { 5, 6, 7 };
+    const int aDown[4]     = { 6, 5, 4, 3 };
+    const int aWall[4]     = { 7, 6, 5, 4 };
 
     sithRenderTest_AddSurface(aSolid, 4u, 0.0f, 0.0f, 1.0f);
 
@@ -327,10 +330,16 @@ TEST(sithRender, StaticShadowCastersKeepSolidSurfacesAndDropTheRest)
 
     sithRenderTest_AddSurface(aTriangle, 3u, 0.0f, 0.0f, 1.0f);
 
+    // Only an up-facing face casts: the fixed overhead light and a downward ceiling would otherwise
+    // put every indoor character in full shadow. Both faces are otherwise solid, in-range geometry.
+    sithRenderTest_AddSurface(aDown, 4u, 0.0f, 0.0f, -1.0f);
+    sithRenderTest_AddSurface(aWall, 4u, 1.0f, 0.0f, 0.0f);
+
     TEST_ASSERT_EQUAL_INT(0, sithRender_Open());
     TEST_ASSERT_EQUAL_size_t(1u, sithRenderTest_numStaticShadowCasterCalls);
 
-    // The solid quad fans into two triangles, the solid triangle stays one: nine vertices.
+    // The solid quad fans into two triangles, the solid triangle stays one: nine vertices. The
+    // down-facing and vertical surfaces add nothing.
     TEST_ASSERT_EQUAL_size_t(9u, sithRenderTest_numStaticShadowCasters);
     const int aExpected[9] = { 0, 1, 2, 0, 2, 3, 5, 6, 7 };
     for ( size_t i = 0; i < 9u; ++i )

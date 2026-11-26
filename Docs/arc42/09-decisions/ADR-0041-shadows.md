@@ -100,7 +100,9 @@ profile and QOL-off builds keep the original blob shadow.
   dropped, sky and water dropped), fan-triangulates each into world-space triangles and passes the one list
   through `std3D_SetStaticShadowCasters`; `sithRender_Close` clears it. The adapter copies the list and
   uploads it once to a `shadow::StaticCasterSet` on the first frame that needs it. Nothing in the simulation
-  changes.
+  changes. Only up-facing level surfaces cast: the light is a fixed overhead light and a room's ceiling faces
+  down into the room, so letting it cast would put every indoor character in full shadow, while the top of a
+  ledge or overhang faces up and still casts.
 - **Include mask.** The level receive is a second `postfx::ShadowReceiveEffect` with
   `MaskMode::Include` and the same caster mask, so only the characters (not the world, whose shadows are
   already baked) receive the level map. It runs before the character receive, which reads its output as the

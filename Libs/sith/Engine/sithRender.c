@@ -1776,8 +1776,10 @@ void sithRender_RenderAlphaAdjoins(void)
 }
 
 // Added: M11.3. True when the renderer draws the surface as solid level geometry that should shadow the
-// characters: it has geometry, is not sky or water and is not a translucent adjoin, and every one of its
-// vertices is in the world. Only presentation state is read.
+// characters: it has geometry, is not sky or water, is not a translucent adjoin, faces up and every one of
+// its vertices is in the world. It faces up because the light is a fixed overhead light and a room's
+// ceiling faces down into the room, so letting it cast would put every indoor character in full shadow;
+// the top of a ledge or overhang faces up and still casts. Only presentation state is read.
 static bool sithRender_IsStaticShadowCasterSurface(const SithSurface* pSurface, const SithWorld* pWorld)
 {
     const rdFace* pFace = &pSurface->face;
@@ -1786,6 +1788,12 @@ static bool sithRender_IsStaticShadowCasterSurface(const SithSurface* pSurface, 
         || !pFace->aVertices
         || (pSurface->pAdjoin && (pFace->flags & RD_FF_TEX_TRANSLUCENT) != 0)
         || (pSurface->flags & (SITH_SURFACE_HORIZONSKY | SITH_SURFACE_CEILINGSKY | SITH_SURFACE_WATER)) != 0 )
+    {
+        return false;
+    }
+
+    // Only an up-facing face casts; Z is up in the level.
+    if ( pFace->normal.z <= 0.0f )
     {
         return false;
     }
