@@ -50,6 +50,20 @@ namespace
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
     }
 
+    // M11.2i. The shadow camera turned to look along -Y with world Z up. The overhead light then has
+    // a negative view-space forward component, so the flat screen-facing receivers of the contact
+    // shadow scene face it instead of away.
+    void SetContactShadowReceiverCamera()
+    {
+        const float aMatrix[12] = {
+            1.0f, 0.0f, 0.0f, // right
+            0.0f, -1.0f, 0.0f, // forward
+            0.0f, 0.0f, 1.0f, // up
+            0.0f, 0.0f, 0.0f
+        };
+        stdRenderBabylon_SetCameraTransform(aMatrix, true);
+    }
+
     // A caster quad above the floor and farther from the camera. The light has a forward component,
     // so the shadow falls toward the camera: the caster at forward 2.5 shades the floor at forward 2.0
     // below and to the left of it. The points are rdroid camera space (x right, y forward, z up).
@@ -143,16 +157,18 @@ namespace
     // M11.2i. A floor with a box standing on it and a visible caster-flagged quad on the floor in
     // the box's contact shadow, plus a real shadow-map caster above the floor. The floor is close
     // enough (eye depth 0.5) that the contact shadow beside the box covers the caster's pixels.
-    void DrawContactShadowCasterScene()
+    // boxEyeDepth is the box front's eye depth; it must be enough nearer than the floor that the
+    // ray toward the light still lands behind the box.
+    void DrawContactShadowCasterScene(float boxEyeDepth = 0.49f)
     {
         const uint32_t grey = 0xFF909090u;
         const float floorDepth = SceneDepthForEyeDepth(0.5f, 0.1f, 100.0f);
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f, floorDepth, grey);
 
-        // The box front is a little in front of the floor, so the floor just left of its base is a
-        // contact shadow. It is not a caster and casts no character shadow.
+        // The box front is in front of the floor, so the floor just left of its base is a contact
+        // shadow. It is not a caster and casts no character shadow.
         DrawQuad(nullptr, (Std3DRenderState)0, 32.0f, 20.0f, 56.0f, 56.0f,
-            SceneDepthForEyeDepth(0.49f, 0.1f, 100.0f), grey);
+            SceneDepthForEyeDepth(boxEyeDepth, 0.1f, 100.0f), grey);
 
         // The real shadow-map caster: visible nowhere, so only the character shadow receives it.
         DrawShadowCasterQuad();
@@ -160,6 +176,14 @@ namespace
         // The visible caster on the floor, inside the contact shadow beside the box.
         DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 28.0f, 46.0f, 32.0f, 52.0f, floorDepth,
             0xFFCC3030u);
+    }
+
+    // M11.2i. The caster scene for a camera whose view light points toward the camera. The box front
+    // stands farther in front of the floor, so the ray from the caster toward that light still lands
+    // behind the box and the contact shadow reaches the caster's pixels.
+    void DrawContactShadowReceiverScene()
+    {
+        DrawContactShadowCasterScene(0.46f);
     }
 
     struct RecordedPass
@@ -794,7 +818,20 @@ TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun
     }
 
     UseShadowOnly();
-    SetShadowCamera();
+    SetContactShadowReceiverCamera();
+
+    // The camera turned so the overhead light points toward it: flat receivers face the light.
+    const float aShaderCamera[12] = {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, -1.0f, 0.0f, 0.0f
+    };
+    float lightX = 0.0f;
+    float lightY = 0.0f;
+    float lightZ = 0.0f;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetContactLightDirectionForTest(aShaderCamera,
+        &lightX, &lightY, &lightZ));
+    TEST_ASSERT_TRUE(lightZ < 0.0f);
 
     constexpr uint32_t kCasterX0 = 28u;
     constexpr uint32_t kCasterY0 = 46u;
@@ -804,12 +841,12 @@ TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun
     // No shadow stage: the visible caster and the floor as drawn.
     TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
     TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(false));
-    RenderScene([] { DrawContactShadowCasterScene(); });
+    RenderScene([] { DrawContactShadowReceiverScene(); });
     const std::vector<std::byte> base = CapturePresented(kSceneSize, kSceneSize);
 
     // Contact shadows alone darken the caster, so its pixels really are inside the box's shadow.
     TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(true));
-    RenderScene([] { DrawContactShadowCasterScene(); });
+    RenderScene([] { DrawContactShadowReceiverScene(); });
     const std::vector<std::byte> contactOnly = CapturePresented(kSceneSize, kSceneSize);
     const float baseCaster    = SsaoMeanBrightness(base, kSceneSize, kCasterX0, kCasterY0,
         kCasterX1, kCasterY1);
@@ -821,12 +858,12 @@ TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun
 
     // Both stages on: the caster mask keeps the contact shadows off the caster's own pixels.
     TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
-    RenderScene([] { DrawContactShadowCasterScene(); });
+    RenderScene([] { DrawContactShadowReceiverScene(); });
     const std::vector<std::byte> bothOn = CapturePresented(kSceneSize, kSceneSize);
 
     // Contact shadows off, character shadows on: the caster's pixels are the same image.
     TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(false));
-    RenderScene([] { DrawContactShadowCasterScene(); });
+    RenderScene([] { DrawContactShadowReceiverScene(); });
     const std::vector<std::byte> charactersOnly = CapturePresented(kSceneSize, kSceneSize);
 
     for ( uint32_t y = kCasterY0; y < kCasterY1; ++y )
@@ -847,7 +884,7 @@ TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun
     // the frame never reuses a stale caster mask.
     TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
     TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(true));
-    RenderScene([] { DrawContactShadowCasterScene(); });
+    RenderScene([] { DrawContactShadowReceiverScene(); });
     const std::vector<std::byte> contactOnlyAgain = CapturePresented(kSceneSize, kSceneSize);
     TEST_ASSERT_EQUAL_size_t(contactOnly.size(), contactOnlyAgain.size());
     TEST_ASSERT_EQUAL_MEMORY(contactOnly.data(), contactOnlyAgain.data(), contactOnly.size());
