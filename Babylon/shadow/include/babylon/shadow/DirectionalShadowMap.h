@@ -22,29 +22,45 @@ namespace babylon::render
 namespace babylon::shadow
 {
 
+    class StaticCasterSet;
+
     // How a DirectionalShadowMap is made.
     struct ShadowMapDesc
     {
         std::uint32_t size = 2048;           // square, 256..8192
         float depthBiasConstant = 1.0f;      // pipeline depth bias for casters
         float depthBiasSlope = 1.5f;
+
+        // View units the light-space depth range reaches toward the light
+        // beyond the dynamic casters, so a static caster between the light and
+        // them (a ledge above a character) is not clipped. It applies only to
+        // a frame that has at least one static batch; a dynamic-only frame
+        // keeps the tighter range for the receive effect's normalized-depth
+        // bias. The static casters do not enlarge the x/y footprint. The extra
+        // range spends depth precision over a larger span, so a D32F map is
+        // recommended.
+        float staticReach = 20.0f;
     };
 
-    // One triangle list of casters in view space: three float3 positions per
-    // triangle, no indices.
+    // One triangle list of casters: three float3 positions per triangle, no
+    // indices. A per-frame batch streams its positions this frame; a static
+    // batch names a set already on the GPU and is not uploaded again.
     struct CasterBatch
     {
-        const float* pPositions = nullptr;
+        const float* pPositions = nullptr;        // per-frame positions, or
         std::size_t numVertices = 0;
+        const StaticCasterSet* pStatic = nullptr; // a static set (pPositions must then be null)
+        Matrix4 toView = identity();              // transform of the batch's positions into view space
     };
 
     // A depth map rendered from a directional light around a set of casters,
     // all in the camera's view space (x right, y up, z forward). open() makes
     // the depth texture, the depth-only caster pipeline, the comparison
     // sampler and the vertex buffer; record() fits the light around the union
-    // of the batches and draws them into the map. Receivers sample texture()
-    // with compareSampler() at the coordinates viewToShadowTexture() maps
-    // their view-space position to.
+    // of the per-frame batches, uploads them once and draws every batch (the
+    // static ones from their own buffers) into the map. Receivers sample
+    // texture() with compareSampler() at the coordinates viewToShadowTexture()
+    // maps their view-space position to.
     //
     // Borrows the device, which must outlive it and must already be open for
     // drawing. Not thread-safe.
@@ -67,13 +83,18 @@ namespace babylon::shadow
         bool isOpen() const;
 
         // Records the shadow pass for this frame into list (outside a pass):
-        // fits the light around the union of all batches' vertices (plus
-        // margin), uploads them (growing the vertex buffer as needed, streamed
-        // into the list with updateBuffer), clears the map to 1 and draws them
-        // depth-only. Returns false and records nothing (one warning only when
-        // it starts failing) when not open, the light is invalid, the list is
-        // inside a pass, or there are no vertices; the map's contents are then
-        // undefined and isValid() is false until the next successful record.
+        // fits the light around the union of the per-frame batches' vertices
+        // (plus margin), uploads those vertices (growing the vertex buffer as
+        // needed, streamed into the list with updateBuffer), clears the map to
+        // 1 and draws every batch depth-only with its own fit * toView uniform,
+        // binding a static batch's set buffer without uploading it. The depth
+        // range reaches toward the light by desc.staticReach only when at least
+        // one batch is static; a dynamic-only frame keeps the tight range.
+        // Returns false and records nothing (one warning only when it starts
+        // failing) when not open, the light is invalid, the list is inside a
+        // pass, there are no per-frame vertices, or a batch is malformed; the
+        // map's contents are then undefined and isValid() is false until the
+        // next successful record.
         [[nodiscard]] bool record(render::CommandList& list, const float towardLight[3],
             std::span<const CasterBatch> casters, float margin = 0.05f);
 
@@ -101,6 +122,7 @@ namespace babylon::shadow
         Matrix4 m_viewToShadowClip{};
         Matrix4 m_viewToShadowTexture{};
         std::uint32_t m_size = 0;
+        float m_staticReach = 0.0f;
         bool m_open = false;
         bool m_valid = false;
         bool m_failureWarned = false;

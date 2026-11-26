@@ -3,9 +3,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-// Depth-only caster: transforms a view-space position into the directional
-// shadow map's clip space. The uniform is row-major, matching shadow::Matrix4
-// (m[row * 4 + column]); mul(M, v) applies it to the column vector.
+// Depth-only caster: transforms a position into the directional shadow map's
+// clip space. The uniform is the light fit times the batch's view transform,
+// row-major, matching shadow::Matrix4 (m[row * 4 + column]); mul(M, v) applies
+// it to the column vector.
 
 struct Input
 {

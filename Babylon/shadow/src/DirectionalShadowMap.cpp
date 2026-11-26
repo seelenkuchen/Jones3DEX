@@ -5,6 +5,8 @@
 
 #include <babylon/shadow/DirectionalShadowMap.h>
 
+#include <babylon/shadow/StaticCasterSet.h>
+
 #include <babylon/render/Buffer.h>
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
@@ -37,6 +39,22 @@ namespace
 
     constexpr render::TextureUsage kDepthUsage =
         render::TextureUsage::DepthTarget | render::TextureUsage::Sampled;
+
+    // True when the batch needs no transform. Passing the fit directly keeps
+    // its exact bits, which a multiply by identity would change for a signed
+    // zero.
+    bool isIdentity(const Matrix4& matrix)
+    {
+        const Matrix4 identityMatrix = identity();
+        for ( int index = 0; index < 16; ++index )
+        {
+            if ( matrix.m[index] != identityMatrix.m[index] )
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 
 }
 
@@ -146,6 +164,7 @@ namespace
         }
 
         m_size = desc.size;
+        m_staticReach = desc.staticReach;
         m_valid = false;
         m_failureWarned = false;
         return true;
@@ -183,6 +202,7 @@ namespace
         m_viewToShadowClip    = {};
         m_viewToShadowTexture = {};
         m_size                = 0;
+        m_staticReach         = 0.0f;
         m_open                = false;
         m_valid               = false;
         m_failureWarned       = false;
@@ -209,9 +229,25 @@ namespace
             return failRecord("the light direction is missing");
         }
 
+        // Static sets draw from their own buffers already on the GPU, so only
+        // the per-frame batches are counted, uploaded and fitted.
         std::uint64_t totalVertices = 0;
+        bool hasStaticBatch         = false;
         for ( const CasterBatch& batch : casters )
         {
+            if ( batch.pStatic != nullptr )
+            {
+                if ( batch.pPositions != nullptr )
+                {
+                    return failRecord("a static caster batch also has positions");
+                }
+                if ( batch.pStatic->numVertices() != 0 && batch.pStatic->buffer().isNull() )
+                {
+                    return failRecord("a static caster set has no buffer");
+                }
+                hasStaticBatch = true;
+                continue;
+            }
             if ( batch.numVertices == 0 )
             {
                 continue;
@@ -240,8 +276,9 @@ namespace
             return failRecord("the casters do not fit in the vertex buffer");
         }
 
-        // One contiguous upload: copy every batch and take the union of their
-        // view-space bounds. A non-finite position can't define a light fit.
+        // One contiguous upload: copy every per-frame batch and take the union
+        // of their view-space bounds. A non-finite position can't define a
+        // light fit.
         std::vector<float> vertices;
         vertices.reserve(static_cast<std::size_t>(totalVertices) * 3);
         Bounds bounds = {
@@ -252,7 +289,7 @@ namespace
         };
         for ( const CasterBatch& batch : casters )
         {
-            if ( batch.numVertices == 0 )
+            if ( batch.pStatic != nullptr || batch.numVertices == 0 )
             {
                 continue;
             }
@@ -271,7 +308,9 @@ namespace
         }
 
         Matrix4 viewToShadowClip{};
-        if ( !fitDirectional(towardLight, bounds, margin, m_size, &viewToShadowClip) )
+        const float towardLightReach = hasStaticBatch ? m_staticReach : 0.0f;
+        if ( !fitDirectional(towardLight, bounds, margin, m_size, &viewToShadowClip,
+                towardLightReach) )
         {
             return failRecord("the light or caster bounds are invalid");
         }
@@ -297,10 +336,39 @@ namespace
         }
 
         list.setPipeline(m_pipeline);
-        list.bindVertexBuffer(0, m_vertexBuffer);
-        list.pushUniforms(render::ShaderStage::Vertex, 0,
-            std::as_bytes(std::span(&viewToShadowClip, 1)));
-        list.draw(static_cast<std::uint32_t>(totalVertices));
+        std::uint64_t firstVertex = 0;
+        for ( const CasterBatch& batch : casters )
+        {
+            if ( batch.pStatic != nullptr )
+            {
+                const std::size_t staticVertices = batch.pStatic->numVertices();
+                if ( staticVertices == 0 )
+                {
+                    continue;
+                }
+                list.bindVertexBuffer(0, batch.pStatic->buffer());
+                const Matrix4 transform = isIdentity(batch.toView)
+                    ? viewToShadowClip
+                    : multiply(viewToShadowClip, batch.toView);
+                list.pushUniforms(render::ShaderStage::Vertex, 0,
+                    std::as_bytes(std::span(&transform, 1)));
+                list.draw(static_cast<std::uint32_t>(staticVertices));
+                continue;
+            }
+            if ( batch.numVertices == 0 )
+            {
+                continue;
+            }
+            list.bindVertexBuffer(0, m_vertexBuffer);
+            const Matrix4 transform = isIdentity(batch.toView)
+                ? viewToShadowClip
+                : multiply(viewToShadowClip, batch.toView);
+            list.pushUniforms(render::ShaderStage::Vertex, 0,
+                std::as_bytes(std::span(&transform, 1)));
+            list.draw(static_cast<std::uint32_t>(batch.numVertices),
+                static_cast<std::uint32_t>(firstVertex));
+            firstVertex += batch.numVertices;
+        }
         if ( !list.endPass() )
         {
             return failRecord("the shadow pass could not end");

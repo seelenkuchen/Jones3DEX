@@ -92,10 +92,11 @@ namespace
     }
 
     bool fitDirectional(const float towardLight[3], const Bounds& casters, float margin,
-        std::uint32_t mapSize, Matrix4* pViewToShadowClip)
+        std::uint32_t mapSize, Matrix4* pViewToShadowClip, float towardLightReach)
     {
         if ( pViewToShadowClip == nullptr || towardLight == nullptr || mapSize <= 2
-            || !std::isfinite(margin) || margin < 0.0f || !finiteBounds(casters) )
+            || !std::isfinite(margin) || margin < 0.0f || !std::isfinite(towardLightReach)
+            || towardLightReach < 0.0f || !finiteBounds(casters) )
         {
             return false;
         }
@@ -163,6 +164,9 @@ namespace
         }
 
         float extent[3];
+        // Extend the depth range toward the light, leaving the far side at the
+        // dynamic casters' far side plus margin.
+        lightMin[2] -= towardLightReach;
         for ( int axis = 0; axis < 3; ++axis )
         {
             extent[axis] = lightMax[axis] - lightMin[axis];

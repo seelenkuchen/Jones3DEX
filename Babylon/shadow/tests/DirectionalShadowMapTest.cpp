@@ -5,6 +5,7 @@
 
 #include <babylon/shadow/DirectionalShadowMap.h>
 #include <babylon/shadow/ShadowMath.h>
+#include <babylon/shadow/StaticCasterSet.h>
 
 #include <babylon/render/Buffer.h>
 #include <babylon/render/CommandList.h>
@@ -132,6 +133,37 @@ namespace
             }
         }
         return found;
+    }
+
+    // One draw with the vertex buffer and uniform bound just before it.
+    struct RecordedDraw
+    {
+        BufferHandle buffer;
+        std::vector<std::byte> uniforms;
+        Draw draw;
+    };
+
+    std::vector<RecordedDraw> drawsOf(const std::vector<RecordedCommand>& records)
+    {
+        std::vector<RecordedDraw> draws;
+        BufferHandle buffer;
+        std::vector<std::byte> uniforms;
+        for ( const RecordedCommand& record : records )
+        {
+            if ( const auto* pBound = std::get_if<BindVertexBuffer>(&record) )
+            {
+                buffer = pBound->buffer;
+            }
+            else if ( const auto* pUniforms = std::get_if<PushUniforms>(&record) )
+            {
+                uniforms = pUniforms->data;
+            }
+            else if ( const auto* pDraw = std::get_if<Draw>(&record) )
+            {
+                draws.push_back({ buffer, uniforms, *pDraw });
+            }
+        }
+        return draws;
     }
 
     // Records one batch and submits the frame, returning the pass commands.
@@ -281,6 +313,136 @@ TEST_CASE("record fits the light, uploads once and draws the casters")
     {
         CHECK(actualTexture.m[index] == doctest::Approx(expectedTexture.m[index]));
     }
+}
+
+TEST_CASE("record draws a static batch from its set without uploading it")
+{
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kMapSize;
+    REQUIRE(map.open(desc));
+
+    const std::vector<float> vertices = smallTriangle();
+    const CasterBatch dynamic{ vertices.data(), vertices.size() / 3 };
+
+    // A static set in world space, moved into view space by its batch.
+    StaticCasterSet set(*device);
+    const std::vector<float> staticPositions = { -1.0f, 4.0f, -1.0f, 1.0f, 4.0f, -1.0f,
+        0.0f, 4.0f, 1.0f };
+    REQUIRE(set.upload(staticPositions));
+    Matrix4 toView = identity();
+    toView.m[3]  = 2.0f;
+    toView.m[7]  = 1.0f;
+    toView.m[11] = -3.0f;
+    CasterBatch staticBatch;
+    staticBatch.pStatic = &set;
+    staticBatch.toView = toView;
+
+    const std::array<CasterBatch, 2> batches{ dynamic, staticBatch };
+    device->clearRecorded();
+    CommandList list = device->beginFrame();
+    REQUIRE(map.record(list, kLight, std::span<const CasterBatch>(batches)));
+    REQUIRE(device->submit(list));
+    CHECK(map.isValid());
+
+    // Only the per-frame batch is uploaded.
+    std::size_t updates = 0;
+    const UpdateBuffer* pUpdate = nullptr;
+    for ( const RecordedCommand& record : device->recorded() )
+    {
+        if ( const auto* pFound = std::get_if<UpdateBuffer>(&record) )
+        {
+            ++updates;
+            pUpdate = pFound;
+        }
+    }
+    CHECK(updates == 1);
+    REQUIRE(pUpdate != nullptr);
+    CHECK(pUpdate->offset == 0);
+    CHECK(pUpdate->data == bytesOf(vertices));
+
+    const std::vector<RecordedDraw> draws = drawsOf(device->recorded());
+    REQUIRE(draws.size() == 2);
+    CHECK(draws[0].buffer != set.buffer());
+    CHECK(draws[0].draw.vertexCount == vertices.size() / 3);
+    CHECK(draws[0].draw.firstVertex == 0);
+    CHECK(draws[1].buffer == set.buffer());
+    CHECK(draws[1].draw.vertexCount == staticPositions.size() / 3);
+    CHECK(draws[1].draw.firstVertex == 0);
+
+    Matrix4 fit{};
+    REQUIRE(fitDirectional(kLight, boundsOf(vertices), 0.05f, kMapSize, &fit,
+        desc.staticReach));
+    CHECK(draws[0].uniforms == bytesOf(fit));
+    CHECK(draws[1].uniforms == bytesOf(multiply(fit, toView)));
+
+    // The depth range reaches staticReach toward the light beyond the dynamic
+    // box: just inside maps into the map, one unit farther is clipped.
+    const Bounds dynamicBounds = boundsOf(vertices);
+    const float nearestToLight = dynamicBounds.max[1]; // the light points up
+    const float within[3] = { 0.5f, nearestToLight + desc.staticReach - 0.001f, 0.5f };
+    const float beyond[3] = { 0.5f, nearestToLight + desc.staticReach + 1.0f, 0.5f };
+    float projected[4];
+    transformPoint(fit, within, projected);
+    CHECK(projected[2] >= 0.0f);
+    transformPoint(fit, beyond, projected);
+    CHECK(projected[2] < 0.0f);
+}
+
+TEST_CASE("staticReach extends the depth range only when a static batch is present")
+{
+    const std::unique_ptr<NullDevice> device = createNullDevice();
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kMapSize;
+    REQUIRE(map.open(desc));
+
+    const std::vector<float> vertices = smallTriangle();
+    const CasterBatch dynamic{ vertices.data(), vertices.size() / 3 };
+
+    StaticCasterSet set(*device);
+    const std::vector<float> staticPositions = { 2.0f, 4.0f, 2.0f, 3.0f, 4.0f, 2.0f, 2.0f,
+        4.0f, 3.0f };
+    REQUIRE(set.upload(staticPositions));
+    CasterBatch staticBatch;
+    staticBatch.pStatic = &set;
+
+    const std::array<CasterBatch, 1> dynamicOnly{ dynamic };
+    device->clearRecorded();
+    CommandList first = device->beginFrame();
+    REQUIRE(map.record(first, kLight, std::span<const CasterBatch>(dynamicOnly)));
+    REQUIRE(device->submit(first));
+    const std::vector<RecordedDraw> firstDraws = drawsOf(device->recorded());
+
+    const std::array<CasterBatch, 2> withStatic{ dynamic, staticBatch };
+    device->clearRecorded();
+    CommandList second = device->beginFrame();
+    REQUIRE(map.record(second, kLight, std::span<const CasterBatch>(withStatic)));
+    REQUIRE(device->submit(second));
+    const std::vector<RecordedDraw> secondDraws = drawsOf(device->recorded());
+
+    REQUIRE(firstDraws.size() == 1);
+    REQUIRE(secondDraws.size() == 2);
+    Matrix4 tight{};
+    Matrix4 extended{};
+    REQUIRE(fitDirectional(kLight, boundsOf(vertices), 0.05f, kMapSize, &tight));
+    REQUIRE(fitDirectional(kLight, boundsOf(vertices), 0.05f, kMapSize, &extended,
+        desc.staticReach));
+    CHECK(firstDraws[0].uniforms == bytesOf(tight));
+    CHECK(secondDraws[0].uniforms == bytesOf(extended));
+    CHECK(firstDraws[0].uniforms != secondDraws[0].uniforms);
+
+    // A point beyond the dynamic-only range but inside staticReach is clipped
+    // by the tight map and kept by the extended one.
+    const Bounds dynamicBounds = boundsOf(vertices);
+    const float nearestToLight = dynamicBounds.max[1]; // the light points up
+    const float point[3] = { 0.5f, nearestToLight + desc.staticReach - 1.0f, 0.5f };
+    float projected[4];
+    transformPoint(tight, point, projected);
+    CHECK(projected[2] < 0.0f);
+    transformPoint(extended, point, projected);
+    CHECK(projected[2] >= 0.0f);
 }
 
 TEST_CASE("a larger frame grows the vertex buffer")

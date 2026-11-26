@@ -37,12 +37,18 @@ namespace babylon::shadow
     // along -towardLight. The result maps view-space positions to shadow clip
     // space: x and y in -1..1 across the map (y up), z in 0..1 depth (0 at the
     // surface nearest the light). The box is expanded by margin on every side;
-    // the projection's x/y origin is snapped to whole shadow-map texels
-    // (mapSize) so a moving camera does not make the shadow edges shimmer.
-    // towardLight need not be normalized; a zero vector, a non-finite or empty
-    // box, a negative margin or a mapSize of 2 or less returns false.
+    // towardLightReach extends the depth range toward the light beyond that
+    // box, so a tall static caster can sit between the light and the dynamic
+    // casters without being clipped. The larger range spends depth precision
+    // over a bigger span, so a D32F map is recommended. The projection's x/y
+    // origin is snapped to whole shadow-map texels (mapSize) so a moving camera
+    // does not make the shadow edges shimmer. towardLight need not be
+    // normalized; a zero vector, a non-finite or empty box, a negative margin,
+    // a negative or non-finite towardLightReach or a mapSize of 2 or less
+    // returns false.
     [[nodiscard]] bool fitDirectional(const float towardLight[3], const Bounds& casters,
-        float margin, std::uint32_t mapSize, Matrix4* pViewToShadowClip);
+        float margin, std::uint32_t mapSize, Matrix4* pViewToShadowClip,
+        float towardLightReach = 0.0f);
 
     // The shadow clip to texture transform: u = x * 0.5 + 0.5,
     // v = 0.5 - y * 0.5, z unchanged.
