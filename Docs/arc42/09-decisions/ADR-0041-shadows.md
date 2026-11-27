@@ -126,3 +126,6 @@ profile and QOL-off builds keep the original blob shadow.
 - **Order and freeing.** The level map is recorded after the caster mask and before the contact shadows; the
   level receive runs just before the character receive. The level target, map, set and effect are freed with
   the character-shadow ones on close and on a scene-size change; turning the option off stops every pass.
+- **Contact ray (M11.7c).** The contact-shadow ray is narrowed to `0.04` view units with a `0.02`-unit
+  sample thickness, down from Babylon's `0.2` and `0.04` defaults, which reached a whole character height and
+  made large, view-dependent patches.
