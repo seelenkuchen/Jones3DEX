@@ -76,8 +76,8 @@ static void JonesBugReport_WritePose(const char* pFolder)
     const SithCamera* pCamera = sithCamera_g_pCurCamera;
     if ( pCamera )
     {
-        fprintf(pFile, "camera %f %f %f sector %d\n", pCamera->pos.x, pCamera->pos.y,
-            pCamera->pos.z, JonesBugReport_GetSectorIndex(pWorld, pCamera->pSector));
+        fprintf(pFile, "camera %f %f %f sector %d\n", pCamera->orient.dvec.x, pCamera->orient.dvec.y,
+            pCamera->orient.dvec.z, JonesBugReport_GetSectorIndex(pWorld, pCamera->pSector));
         fprintf(pFile, "cameraLvec %f %f %f\n", pCamera->orient.lvec.x, pCamera->orient.lvec.y,
             pCamera->orient.lvec.z);
     }
