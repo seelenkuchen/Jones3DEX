@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -221,6 +222,41 @@ namespace
         // SDL_getenv: MSVC rejects getenv under /sdl.
         const char* pValue = SDL_getenv("BABYLON_REQUIRE_GPU");
         return pValue && std::strcmp(pValue, "1") == 0;
+    }
+
+    std::string GetEnvValue(const char* pName)
+    {
+#ifdef _WIN32
+        char* pValue = nullptr;
+        size_t size  = 0;
+        if ( _dupenv_s(&pValue, &size, pName) != 0 || !pValue )
+        {
+            return {};
+        }
+
+        std::string value = pValue;
+        std::free(pValue);
+        return value;
+#else
+        const char* pValue = std::getenv(pName);
+        return pValue ? pValue : "";
+#endif
+    }
+
+    void SetEnvValue(const char* pName, const std::string& value)
+    {
+#ifdef _WIN32
+        _putenv_s(pName, value.c_str());
+#else
+        if ( value.empty() )
+        {
+            unsetenv(pName);
+        }
+        else
+        {
+            setenv(pName, value.c_str(), 1);
+        }
+#endif
     }
 }
 
@@ -868,6 +904,19 @@ TEST(stdDisplayBabylon, SaveScreenCapturesTheWindowWithTheHudOverlay)
     stdRenderBabylon_SetHudOverlay(nullptr, nullptr);
 }
 
+TEST(stdDisplayBabylon, BugReportDirReadsTheEnvironment)
+{
+    const std::string oldValue = GetEnvValue("JONES3D_REPORT_DIR");
+
+    SetEnvValue("JONES3D_REPORT_DIR", "");
+    TEST_ASSERT_NULL(stdDisplay_GetBugReportDir());
+
+    SetEnvValue("JONES3D_REPORT_DIR", "reports/here");
+    TEST_ASSERT_EQUAL_STRING("reports/here", stdDisplay_GetBugReportDir());
+
+    SetEnvValue("JONES3D_REPORT_DIR", oldValue);
+}
+
 TEST(stdDisplayBabylon, UpdateSubmitsTheScenesStd3DRecorded)
 {
     OpenWindowed(16u, 16u);
@@ -916,6 +965,7 @@ TEST_GROUP_RUNNER(stdDisplayBabylon)
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenWithoutAWindowWritesThePresentedFrame);
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenCapturesTheWindowWithThePresentOverlay);
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenCapturesTheWindowWithTheHudOverlay);
+    RUN_TEST_CASE(stdDisplayBabylon, BugReportDirReadsTheEnvironment);
     RUN_TEST_CASE(stdDisplayBabylon, UpdateSubmitsTheScenesStd3DRecorded);
 }
 

@@ -702,6 +702,19 @@ int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
     return 1;
 }
 
+bool stdDisplay_SaveFlightRecorder(const char* pDirectory)
+{
+    J3D_UNUSED(pDirectory);
+    // Added: the Null column has no flight recorder.
+    return false;
+}
+
+const char* stdDisplay_GetBugReportDir(void)
+{
+    // Added: the Null column has no environment-backed report directory.
+    return NULL;
+}
+
 void J3DAPI stdDisplay_SetDefaultResolution(uint32_t width, uint32_t height)
 {
     stdDisplay_primaryVideoMode.rasterInfo.width  = width;

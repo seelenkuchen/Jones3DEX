@@ -108,7 +108,3 @@ namespace stdDisplayBabylonInternal
     size_t stdDisplay_FlightRecorderGetTextureCountForTest();
 #endif
 }
-
-// Added: writes the flight recorder's ring oldest to newest as frame-0000.bmp and index.txt into
-// pDirectory, which is created when missing. False, with a log line, on any failure.
-bool stdDisplay_SaveFlightRecorder(const char* pDirectory);
