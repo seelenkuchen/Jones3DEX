@@ -322,6 +322,50 @@ TEST_CASE("fitDirectional normalizes the light direction")
     }
 }
 
+TEST_CASE("fitDirectionalWorld fits a world box around the given up axis")
+{
+    const float light[3] = { 0.0f, 1.0f, 0.0f };
+    const float worldUp[3] = { 0.0f, 0.0f, 1.0f };
+    const Bounds box = unitBox();
+    Matrix4 worldToClip{};
+    REQUIRE(fitDirectionalWorld(light, box, 0.0f, 64, worldUp, &worldToClip));
+
+    float smallestZ = 2.0f;
+    float largestZ = -1.0f;
+    for ( int index = 0; index < 8; ++index )
+    {
+        float corner[3];
+        cornerOf(box, index, corner);
+        float projected[4];
+        transformPoint(worldToClip, corner, projected);
+        CHECK(projected[0] >= -1.0f - 1.0e-5f);
+        CHECK(projected[0] <= 1.0f + 1.0e-5f);
+        CHECK(projected[1] >= -1.0f - 1.0e-5f);
+        CHECK(projected[1] <= 1.0f + 1.0e-5f);
+        CHECK(projected[2] >= -1.0e-5f);
+        CHECK(projected[2] <= 1.0f + 1.0e-5f);
+        CHECK(projected[3] == doctest::Approx(1.0f));
+        smallestZ = projected[2] < smallestZ ? projected[2] : smallestZ;
+        largestZ  = projected[2] > largestZ ? projected[2] : largestZ;
+    }
+    CHECK(smallestZ == doctest::Approx(0.0f));
+    CHECK(largestZ == doctest::Approx(1.0f));
+}
+
+TEST_CASE("fitDirectionalWorld falls back when world up is parallel to the light")
+{
+    const float light[3] = { 0.0f, 1.0f, 0.0f };
+    const float worldUp[3] = { 0.0f, 1.0f, 0.0f };
+    const float zeroUp[3] = { 0.0f, 0.0f, 0.0f };
+    const Bounds box = unitBox();
+    Matrix4 worldToClip{};
+
+    CHECK(fitDirectionalWorld(light, box, 0.0f, 64, worldUp, &worldToClip));
+    CHECK_FALSE(fitDirectionalWorld(light, box, 0.0f, 64, zeroUp, &worldToClip));
+    CHECK_FALSE(fitDirectionalWorld(light, box, 0.0f, 64, nullptr, &worldToClip));
+    CHECK_FALSE(fitDirectionalWorld(light, box, 0.0f, 64, worldUp, nullptr));
+}
+
 TEST_CASE("fitDirectional refuses a zero light and an invalid box")
 {
     const float light[3] = { 0.0f, 1.0f, 0.0f };

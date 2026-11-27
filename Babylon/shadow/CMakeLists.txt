@@ -15,7 +15,7 @@ babylon_add_shaders(babylon_shadow
 babylon_add_module_tests(shadow
     DEPS log render
     SOURCES tests/ShadowMathTest.cpp tests/DirectionalShadowMapTest.cpp
-        tests/StaticCasterSetTest.cpp)
+        tests/DirectionalShadowMapAnchorTest.cpp tests/StaticCasterSetTest.cpp)
 
 if (TARGET babylon_shadow_tests)
     # The GPU case starts SDL's video subsystem; the offscreen driver needs

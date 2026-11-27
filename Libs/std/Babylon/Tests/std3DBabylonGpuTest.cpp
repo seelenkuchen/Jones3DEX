@@ -794,6 +794,9 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, DrawsThingShadowsIsZeroBeforeOpenAndFollowsTheOption);
     RUN_TEST_CASE(std3DBabylonGpu, ShadowsOptionDefaultsAndSetting);
     RUN_TEST_CASE(std3DBabylonGpu, ShadowMapRunsBeforeThePostChainAndReceiveBetweenContactAndSsao);
+    RUN_TEST_CASE(std3DBabylonGpu, ShadowReceiveEffectGetsTheGentlerCharacterShadowSettings);
+    RUN_TEST_CASE(std3DBabylonGpu, ViewToWorldMapsTheCameraBasisAndPosition);
+    RUN_TEST_CASE(std3DBabylonGpu, AWorldAnchoredShadowKeepsAFixedWorldPointInPlaceWhenTheCameraTurns);
     RUN_TEST_CASE(std3DBabylonGpu, ShadowsOffLeavesTheImageByteIdentical);
     RUN_TEST_CASE(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud);
     RUN_TEST_CASE(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor);

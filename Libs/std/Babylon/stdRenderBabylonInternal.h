@@ -622,6 +622,14 @@ namespace stdRenderBabylonInternal
     // contact-shadow and character-shadow stages.
     void stdRenderBabylon_ContactLightDirection(const float aCamera[12], float aDirection[3]);
 
+    // Added: M11.6d. The frame camera's view-to-world transform: aCamera is the 12-float shader
+    // camera (right, up and forward in elements 0-2, 4-6 and 8-10, with the position in the fourth
+    // column of each row). The result's columns are right, up, forward and the position, so a
+    // view-space point (x right, y up, z forward) maps into the world. Shared by the
+    // character-shadow stage and M11.3.
+    void stdRenderBabylon_ViewToWorld(const float aCamera[12],
+        babylon::shadow::Matrix4* pViewToWorld);
+
     // Added: true while the character-shadow map and receive effect are open. std3D_DrawsThingShadows
     // reads it so the game keeps the blob when the stage could not be set up.
     bool stdRenderBabylon_AreShadowObjectsOpen();

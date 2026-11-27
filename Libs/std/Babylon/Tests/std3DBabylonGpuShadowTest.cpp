@@ -4,6 +4,9 @@
 #include "std3DBabylonTestSupport.h"
 
 #include "../std3DBabylonInternal.h"
+#include "../stdRenderBabylonInternal.h"
+
+#include <babylon/postfx/ShadowReceiveEffect.h>
 
 #include <cmath>
 #include <cstdio>
@@ -64,6 +67,26 @@ namespace
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
     }
 
+    // M11.6d. A world-space point in rdroid camera space (x right, y forward, z up) for the camera
+    // whose world axes are right, up and forward at position.
+    void WorldToRdroidCamera(const float aWorld[3], const float aRight[3], const float aUp[3],
+        const float aForward[3], const float aPosition[3], float aOut[3])
+    {
+        const float aDelta[3] = {
+            aWorld[0] - aPosition[0],
+            aWorld[1] - aPosition[1],
+            aWorld[2] - aPosition[2],
+        };
+        aOut[0] = aRight[0] * aDelta[0] + aRight[1] * aDelta[1] + aRight[2] * aDelta[2];
+        aOut[1] = aForward[0] * aDelta[0] + aForward[1] * aDelta[1] + aForward[2] * aDelta[2];
+        aOut[2] = aUp[0] * aDelta[0] + aUp[1] * aDelta[1] + aUp[2] * aDelta[2];
+    }
+
+    float Dot3(const float a[3], const float b[3])
+    {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    }
+
     // A caster quad above the floor and farther from the camera. The light has a forward component,
     // so the shadow falls toward the camera: the caster at forward 2.5 shades the floor at forward 2.0
     // below and to the left of it. The points are rdroid camera space (x right, y forward, z up).
@@ -93,17 +116,32 @@ namespace
         std3D_SetStaticShadowCasters(aPositions, 6u);
     }
 
-    // A closed box around the caster quad, submitted face by face and never drawn. Its camera-facing
-    // faces are not part of the rendered scene, so the shadow under the floor can only come from the
-    // whole model the polygon call carries.
+    // M11.6b. A caster just above the floor at the game's scale, so the receiver is within the
+    // character shadow's new distance fade: 0.2 high and 0.1 beyond the constant-depth floor
+    // (forward 2.0), instead of floating the 1.4 units the old scene used. The shadow falls at
+    // about screen x 30..35, y 40..44.
+    void DrawGroundShadowCasterQuad()
+    {
+        const float aPositions[12] = {
+            0.10f, 2.1f, -0.286f,
+            0.30f, 2.1f, -0.286f,
+            0.30f, 2.1f, -0.086f,
+            0.10f, 2.1f, -0.086f,
+        };
+        std3D_AddShadowCasterPolygon(aPositions, 4u);
+    }
+
+    // A closed box around the ground caster, submitted face by face and never drawn. Its
+    // camera-facing faces are not part of the rendered scene, so the shadow under the floor can only
+    // come from the whole model the polygon call carries.
     void AddClosedBoxShadowCaster()
     {
-        const float x0 = 0.766f;
-        const float x1 = 0.966f;
-        const float y0 = 2.45f;
-        const float y1 = 2.55f;
-        const float z0 = 0.7f;
-        const float z1 = 0.9f;
+        const float x0 = 0.10f;
+        const float x1 = 0.30f;
+        const float y0 = 2.06f;
+        const float y1 = 2.14f;
+        const float z0 = -0.286f;
+        const float z1 = -0.086f;
 
         const float aFaces[6][4][3] = {
             { { x0, y0, z0 }, { x1, y0, z0 }, { x1, y0, z1 }, { x0, y0, z1 } }, // -forward
@@ -126,11 +164,11 @@ namespace
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f,
             SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), grey);
 
-        DrawShadowCasterQuad();
+        DrawGroundShadowCasterQuad();
 
         // M11.2g. The same caster is also drawn as a visible, caster-flagged quad on the floor in the
         // shadowed region: it casts onto the floor, but its own pixels must not receive the shadow.
-        DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 30.0f, 42.0f, 33.0f, 45.0f,
+        DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 31.0f, 41.0f, 34.0f, 44.0f,
             SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), 0xFFCC3030u);
 
         if ( bSkyAndHud )
@@ -401,6 +439,162 @@ TEST(std3DBabylonGpu, ShadowMapRunsBeforeThePostChainAndReceiveBetweenContactAnd
     TEST_ASSERT_TRUE(ssaoIndex < aPasses.size());
     TEST_ASSERT_TRUE(receiveIndex < ssaoIndex);
     TEST_ASSERT_FALSE(receiveOutput.isNull());
+}
+
+TEST(std3DBabylonGpu, ShadowReceiveEffectGetsTheGentlerCharacterShadowSettings)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    SetShadowCamera();
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    DrawShadowScene(false);
+    EndFrame();
+
+    babylon::postfx::ShadowReceiveSettings settings;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetShadowReceiveSettingsForTest(&settings));
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.4f, settings.strength);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.002f, settings.penumbra);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.penumbraPerDistance);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.3f, settings.distanceFadeStart);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 1.0f, settings.distanceFadeEnd);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 3.0f, settings.fadeStart);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 6.0f, settings.fadeEnd);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.minLight);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.25f, settings.fullLight);
+    TEST_ASSERT_EQUAL_UINT32(0x8u, settings.receiverClasses);
+}
+
+TEST(std3DBabylonGpu, ViewToWorldMapsTheCameraBasisAndPosition)
+{
+    const auto checkBasis = [](const float aRight[3], const float aUp[3],
+        const float aForward[3], const float aPosition[3]) {
+        const float aCamera[12] = {
+            aRight[0], aRight[1], aRight[2], aPosition[0],
+            aUp[0], aUp[1], aUp[2], aPosition[1],
+            aForward[0], aForward[1], aForward[2], aPosition[2],
+        };
+
+        babylon::shadow::Matrix4 viewToWorld{};
+        stdRenderBabylonInternal::stdRenderBabylon_ViewToWorld(aCamera, &viewToWorld);
+
+        const float aView[3][3] = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f } };
+        float aExpected[3][3];
+        for ( int axis = 0; axis < 3; ++axis )
+        {
+            aExpected[0][axis] = aPosition[axis];
+            aExpected[1][axis] = aPosition[axis] + aForward[axis];
+            aExpected[2][axis] = aPosition[axis] + aRight[axis];
+        }
+
+        for ( int point = 0; point < 3; ++point )
+        {
+            float aWorld[4];
+            babylon::shadow::transformPoint(viewToWorld, aView[point], aWorld);
+            for ( int axis = 0; axis < 3; ++axis )
+            {
+                TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, aExpected[point][axis], aWorld[axis]);
+            }
+            TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 1.0f, aWorld[3]);
+        }
+    };
+
+    const float aAxisRight[3]     = { 1.0f, 0.0f, 0.0f };
+    const float aAxisUp[3]        = { 0.0f, 0.0f, 1.0f };
+    const float aAxisForward[3]   = { 0.0f, 1.0f, 0.0f };
+    const float aAxisPosition[3]  = { 1.5f, -2.0f, 3.25f };
+    checkBasis(aAxisRight, aAxisUp, aAxisForward, aAxisPosition);
+
+    const float angle  = 0.7f;
+    const float cosine = std::cos(angle);
+    const float sine   = std::sin(angle);
+    const float aRotatedRight[3]    = { cosine, sine, 0.0f };
+    const float aRotatedUp[3]       = { 0.0f, 0.0f, 1.0f };
+    const float aRotatedForward[3]  = { -sine, cosine, 0.0f };
+    const float aRotatedPosition[3] = { -0.5f, 0.25f, 2.0f };
+    checkBasis(aRotatedRight, aRotatedUp, aRotatedForward, aRotatedPosition);
+}
+
+TEST(std3DBabylonGpu, AWorldAnchoredShadowKeepsAFixedWorldPointInPlaceWhenTheCameraTurns)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+
+    // The same world-space caster quad for every camera: the ground caster the tests above use.
+    const float aWorldCaster[4][3] = {
+        { 0.10f, 2.1f, -0.286f },
+        { 0.30f, 2.1f, -0.286f },
+        { 0.30f, 2.1f, -0.086f },
+        { 0.10f, 2.1f, -0.086f },
+    };
+    const float aFixedWorldPoint[3] = { 0.20f, 2.1f, -0.186f };
+
+    const auto runCamera = [&](const float aRight[3], const float aUp[3],
+        const float aForward[3], const float aPosition[3]) {
+        const float aCameraMatrix[12] = {
+            aRight[0], aRight[1], aRight[2],
+            aForward[0], aForward[1], aForward[2],
+            aUp[0], aUp[1], aUp[2],
+            aPosition[0], aPosition[1], aPosition[2],
+        };
+        stdRenderBabylon_SetCameraTransform(aCameraMatrix, true);
+
+        float aCaster[4][3];
+        for ( size_t vertex = 0; vertex < 4u; ++vertex )
+        {
+            WorldToRdroidCamera(aWorldCaster[vertex], aRight, aUp, aForward, aPosition,
+                aCaster[vertex]);
+        }
+
+        Null().clearRecorded();
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_AddShadowCasterPolygon(&aCaster[0][0], 4u);
+        EndFrame();
+
+        babylon::shadow::Matrix4 viewToShadow{};
+        TEST_ASSERT_TRUE(stdRenderBabylon_GetShadowMapViewToShadowForTest(&viewToShadow));
+
+        // The fixed world point through this camera: view space is x right, y up, z forward.
+        const float aDelta[3] = {
+            aFixedWorldPoint[0] - aPosition[0],
+            aFixedWorldPoint[1] - aPosition[1],
+            aFixedWorldPoint[2] - aPosition[2],
+        };
+        const float aViewPoint[3] = {
+            Dot3(aRight, aDelta),
+            Dot3(aUp, aDelta),
+            Dot3(aForward, aDelta),
+        };
+        float aUv[4];
+        babylon::shadow::transformPoint(viewToShadow, aViewPoint, aUv);
+        return std::array<float, 3>{ aUv[0], aUv[1], aUv[2] };
+    };
+
+    const float aRight[3]     = { 1.0f, 0.0f, 0.0f };
+    const float aUp[3]        = { 0.0f, 0.0f, 1.0f };
+    const float aForward[3]   = { 0.0f, 1.0f, 0.0f };
+    const float aPosition[3]  = { 0.0f, 0.0f, 0.0f };
+    const std::array<float, 3> aBefore = runCamera(aRight, aUp, aForward, aPosition);
+
+    const float angle  = 0.35f;
+    const float cosine = std::cos(angle);
+    const float sine   = std::sin(angle);
+    const float aYawedRight[3]   = { cosine, sine, 0.0f };
+    const float aYawedForward[3] = { -sine, cosine, 0.0f };
+    const std::array<float, 3> aAfter = runCamera(aYawedRight, aUp, aYawedForward, aPosition);
+
+    for ( int axis = 0; axis < 3; ++axis )
+    {
+        TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, aBefore[axis], aAfter[axis]);
+    }
 }
 
 TEST(std3DBabylonGpu, ShadowCasterDrawsAreMarkedAndOthersAreNot)
@@ -683,15 +877,15 @@ TEST(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud)
     const std::vector<std::byte> on = CapturePresented(kSceneSize, kSceneSize);
 
     // The floor below the caster (the light comes from +x, +up and +forward) darkens.
-    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
-    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 28u, 42u, 36u, 49u);
+    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 29u, 39u, 36u, 45u);
+    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 29u, 39u, 36u, 45u);
     std::printf("M11.2d character shadows: floor below the caster %.2f off, %.2f on\n",
         (double)offShadow, (double)onShadow);
     TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);
 
     // M11.2g. The visible caster casts onto the floor but does not receive its own shadow: its
     // interior pixels are the shadows-off image.
-    const size_t casterPixel = ((size_t)43u * kSceneSize + 31u) * 4u;
+    const size_t casterPixel = ((size_t)42u * kSceneSize + 32u) * 4u;
     for ( size_t channel = 0; channel < 4u; ++channel )
     {
         TEST_ASSERT_EQUAL_INT((int)off[casterPixel + channel], (int)on[casterPixel + channel]);
@@ -803,8 +997,8 @@ TEST(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor)
     const std::vector<std::byte> on = CapturePresented(kSceneSize, kSceneSize);
 
     // The whole closed box casts, so the floor below it darkens even though no caster face is drawn.
-    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
-    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 28u, 42u, 36u, 49u);
+    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 29u, 39u, 36u, 45u);
+    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 29u, 39u, 36u, 45u);
     std::printf("M11.2e closed-box caster: floor below it %.2f off, %.2f on\n",
         (double)offShadow, (double)onShadow);
     TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);

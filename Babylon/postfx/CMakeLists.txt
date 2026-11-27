@@ -43,6 +43,6 @@ if (TARGET babylon_postfx_tests)
             SOURCES tests/shaders/scene_depth.frag.hlsl
                 tests/shaders/shadow_floor_depth.frag.hlsl)
         target_sources(babylon_postfx_tests PRIVATE tests/ContactShadowGpuTest.cpp
-            tests/ShadowReceiveGpuTest.cpp)
+            tests/ShadowReceiveGpuTest.cpp tests/ShadowReceiveSoftnessGpuTest.cpp)
     endif()
 endif()

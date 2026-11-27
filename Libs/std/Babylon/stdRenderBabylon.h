@@ -531,6 +531,25 @@ size_t stdRenderBabylon_GetNumPostPasses();
 babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 
 #ifdef J3D_TEST
+// Added: test-only. Reads back the settings the character-shadow receive pass applies, through the
+// effect's settings() getter. Returns false when the receive effect is unavailable. Production
+// builds don't compile it.
+namespace babylon::postfx
+{
+    struct ShadowReceiveSettings;
+}
+bool stdRenderBabylon_GetShadowReceiveSettingsForTest(babylon::postfx::ShadowReceiveSettings* pSettings);
+
+// Added: test-only. Writes the character-shadow map's view-to-shadow-texture matrix after a
+// presenting submit. Returns false when the map has not recorded a frame. Production builds don't
+// compile it.
+namespace babylon::shadow
+{
+    struct Matrix4;
+}
+bool stdRenderBabylon_GetShadowMapViewToShadowForTest(
+    babylon::shadow::Matrix4* pViewToShadowTexture);
+
 // Test-only: makes the next stdRenderBabylon_Open use the pre-M9.3 presentation so a test can
 // compare both paths in one run: a Bgra8 scene color target and the plain present pass, without the
 // tone map. It resets after that Open, and production builds don't compile the declaration.

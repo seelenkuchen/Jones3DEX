@@ -50,8 +50,16 @@ cbuffer ShadowReceiveParams : register(b0, space3)
     float gTanHalfFovX;
     float gTanHalfFovY;
     uint gMaskMode; // 0 none, 1 exclude, 2 include
+    float gPenumbra;            // view units: minimum filter radius
+    float gPenumbraPerDistance; // view units of radius per view unit behind the map's far side
+    float gDistanceFadeStart;   // view units behind the map's far side
+    float gDistanceFadeEnd;     // end <= start disables the distance fade
+    float gMinLight;            // input-colour luminance below which no shadow applies
+    float gFullLight;           // fullLight <= minLight disables the luminance gate
     float gPadding1;
     float gPadding2;
+    float gPadding3;
+    float gPadding4;
 };
 
 // A fixed 12-tap Poisson disc, offsets in texels.
@@ -91,7 +99,16 @@ bool isSceneDepth(float depthTexel)
     return depthTexel >= gDepthNear && depthTexel < gDepthFar - 1.0e-6;
 }
 
-float4 main(float2 uv : TEXCOORD0) : SV_Target0
+// A deterministic 4x4 interleaved angle from the screen pixel. Larger filter
+// radii with a fixed disc would show its 12 taps as bands; rotating the disc
+// per 4x4 tile breaks them up without a random texture or time input.
+float interleavedAngle(float2 pixel)
+{
+    uint2 tile = uint2(pixel) % 4u;
+    return (float(tile.y * 4u + tile.x) + 0.5) * (6.2831853 / 16.0);
+}
+
+float4 main(float2 uv : TEXCOORD0, float4 screenPosition : SV_Position) : SV_Target0
 {
     float4 color = gColor.Sample(gColorSampler, uv);
 
@@ -165,12 +182,43 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
     // A comparison sample is 1 where the receiver depth passes (LessOrEqual),
     // which means lit; average it over the disc for PCF.
     float reference = min(shadowCoord.z, 1.0) - gDepthBias;
-    float2 texel = gFilterRadius / gMapSize;
+
+    // The receiver's distance behind the map's far side, in view units. The
+    // unclamped receiver depth gives this gap even where the reference above
+    // is clamped, so a receiver behind every caster can widen and fade.
+    float uvPerUnit = length(gViewToShadowTexture[0].xyz);
+    float depthRange = 1.0 / max(length(gViewToShadowTexture[2].xyz), 1.0e-6);
+    float gap = max(shadowCoord.z - 1.0, 0.0) * depthRange;
+
     float visibility = 0.0;
-    for ( uint i = 0; i < 12; ++i )
+    if ( gPenumbra > 0.0 || gPenumbraPerDistance > 0.0 )
     {
-        visibility += gShadowMap.SampleCmpLevelZero(gShadowSampler,
-            shadowCoord.xy + kPoissonDisc[i] * texel, reference);
+        // A view-unit radius grows with the distance behind the map; clamp the
+        // uv radius so a broken matrix cannot sample across the whole map.
+        float radiusUv = max(gFilterRadius / gMapSize,
+            (gPenumbra + gPenumbraPerDistance * gap) * uvPerUnit);
+        radiusUv = min(radiusUv, 0.05);
+
+        float angle = interleavedAngle(screenPosition.xy);
+        float sine = sin(angle);
+        float cosine = cos(angle);
+        float2x2 rotation = float2x2(cosine, -sine, sine, cosine);
+        for ( uint i = 0; i < 12; ++i )
+        {
+            visibility += gShadowMap.SampleCmpLevelZero(gShadowSampler,
+                shadowCoord.xy + mul(rotation, kPoissonDisc[i]) * radiusUv, reference);
+        }
+    }
+    else
+    {
+        // The default path keeps the original texel-radius taps byte for byte,
+        // including their order and offsets.
+        float2 texel = gFilterRadius / gMapSize;
+        for ( uint i = 0; i < 12; ++i )
+        {
+            visibility += gShadowMap.SampleCmpLevelZero(gShadowSampler,
+                shadowCoord.xy + kPoissonDisc[i] * texel, reference);
+        }
     }
     visibility *= 1.0 / 12.0;
 
@@ -185,7 +233,23 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
     float edge = min(min(shadowCoord.x, 1.0 - shadowCoord.x),
         min(shadowCoord.y, 1.0 - shadowCoord.y));
     float borderFade = smoothstep(0.0, 0.05, edge);
-    shadow *= viewFade * borderFade;
+
+    // Fade a receiver farther behind the casters and scale the shadow by the
+    // input colour's luminance: a dim, torch-lit surface takes no hard sun
+    // shadow. Both gates are off when their two values are equal (0 by default).
+    float distanceFade = 1.0;
+    if ( gDistanceFadeEnd > gDistanceFadeStart )
+    {
+        distanceFade = 1.0 - smoothstep(gDistanceFadeStart, gDistanceFadeEnd, gap);
+    }
+    float lightScale = 1.0;
+    if ( gFullLight > gMinLight )
+    {
+        float luma = dot(color.rgb, float3(0.2126, 0.7152, 0.0722));
+        lightScale = smoothstep(gMinLight, gFullLight, luma);
+    }
+
+    shadow *= viewFade * borderFade * distanceFade * lightScale;
 
     float3 rgb = color.rgb * (1.0 - gStrength * shadow);
     return float4(rgb, color.a);

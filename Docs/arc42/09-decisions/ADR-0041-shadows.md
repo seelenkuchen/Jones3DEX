@@ -88,6 +88,12 @@ profile and QOL-off builds keep the original blob shadow.
 - **M11.3 reuses the mask.** The same re-draw against the scene depth also identifies the characters for the
   level-shadow receive. The final shape is the include mode in the M11.3 amendment below; the mask need not
   be inverted.
+- **M11.6b gentler character and contact shadows.** The owner's play-test found the shadows too strong, razor
+  sharp and reaching too far. The character receive passes strength `0.4`, a `0.002`-view-unit minimum penumbra
+  that grows by `0.03` per unit behind the caster, a `0.3`..`1.0`-unit fade behind the map, a `3`..`6`-view-unit
+  distance fade and a `0.03`..`0.25` luminance gate; contact shadows pass strength `0.5` and a `2`..`4`-view-unit
+  distance fade. These are presentation constants in the adapter, tuned at the game's scale, where Indy is about
+  `0.2` units tall.
 
 ## Amendment (2026-11-26, M11.3)
 
