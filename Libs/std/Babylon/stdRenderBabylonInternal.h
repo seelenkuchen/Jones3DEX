@@ -641,5 +641,7 @@ namespace stdRenderBabylonInternal
         render::TextureFormat format, size_t index, size_t channel = 0);
     std::size_t stdRenderBabylon_GetLevelStaticCasterUploadCountForTest();
     render::BufferHandle stdRenderBabylon_GetLevelStaticCasterBufferForTest();
+    bool stdRenderBabylon_GetLevelShadowReceiveSettingsForTest(
+        postfx::ShadowReceiveSettings* pSettings);
 #endif
 }

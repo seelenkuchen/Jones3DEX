@@ -105,6 +105,7 @@ namespace
     struct RecordedPass
     {
         render::BeginPass begin;
+        std::vector<render::SetPipeline> aPipelines;
         std::vector<render::BindVertexBuffer> aVertexBuffers;
         std::vector<render::BindTexture> aTextures;
         std::vector<render::Draw> aDraws;
@@ -125,6 +126,11 @@ namespace
             else if ( aPasses.empty() )
             {
                 continue;
+            }
+            else if ( const render::SetPipeline* pPipeline =
+                std::get_if<render::SetPipeline>(&command) )
+            {
+                aPasses.back().aPipelines.push_back(*pPipeline);
             }
             else if ( const render::BindVertexBuffer* pBind =
                 std::get_if<render::BindVertexBuffer>(&command) )
@@ -193,6 +199,24 @@ namespace
             }
         }
         return false;
+    }
+
+    // The desc the Null device kept for a pipeline it created, so a test can read fixed state such as
+    // depthClip.
+    const render::PipelineDesc* PipelineDescOf(render::PipelineHandle pipeline)
+    {
+        for ( const render::RecordedCommand& command : Null().recorded() )
+        {
+            if ( const render::PipelineCreated* pCreated =
+                std::get_if<render::PipelineCreated>(&command) )
+            {
+                if ( pCreated->pipeline == pipeline )
+                {
+                    return &pCreated->desc;
+                }
+            }
+        }
+        return nullptr;
     }
 
     size_t FindReceivePass(const std::vector<RecordedPass>& aPasses, render::TextureHandle map)
@@ -366,6 +390,60 @@ TEST(std3DBabylonGpu, LevelMapOnlyRecordsWithCharactersMaskAndStaticCasters)
     TEST_ASSERT_NOT_NULL(pScene);
     TEST_ASSERT_TRUE(pScene->texture == PassTarget(aPasses[levelReceive]));
     TEST_ASSERT_TRUE(PassTarget(aPasses[characterReceive]) != PassTarget(aPasses[levelReceive]));
+}
+
+TEST(std3DBabylonGpu, LevelShadowMapOpensWithCasterClippingEnabled)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    SetShadowCamera();
+    SetLevelCasters();
+
+    // Both maps open on this first frame, so their pipeline creations are in this recording.
+    const std::vector<RecordedPass> aPasses = RunScene(true, true);
+    const std::vector<size_t> aMapPasses = FindShadowMapPasses(aPasses);
+    TEST_ASSERT_EQUAL_size_t(2u, aMapPasses.size());
+
+    // M11.6f. The level map clips casters beyond staticReach instead of clamping them to the near
+    // plane, so its pipeline draws with depthClip on.
+    TEST_ASSERT_EQUAL_size_t(1u, aPasses[aMapPasses[1]].aPipelines.size());
+    const render::PipelineDesc* pLevelPipeline =
+        PipelineDescOf(aPasses[aMapPasses[1]].aPipelines[0].pipeline);
+    TEST_ASSERT_NOT_NULL(pLevelPipeline);
+    TEST_ASSERT_TRUE(pLevelPipeline->depthClip);
+
+    ClearLevelCasters();
+}
+
+TEST(std3DBabylonGpu, LevelShadowReceiveEffectGetsTheGentlerLevelShadowSettings)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    SetShadowCamera();
+    SetLevelCasters();
+
+    RunScene(true, true);
+
+    babylon::postfx::ShadowReceiveSettings settings;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetLevelShadowReceiveSettingsForTest(&settings));
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.3f, settings.strength);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.002f, settings.penumbra);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.penumbraPerDistance);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 3.0f, settings.fadeStart);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 6.0f, settings.fadeEnd);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.minLight);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.25f, settings.fullLight);
+    // The receivers are the characters themselves, possibly far below a ledge, so the distance-behind
+    // fade stays disabled.
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.0f, settings.distanceFadeStart);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.0f, settings.distanceFadeEnd);
+    TEST_ASSERT_EQUAL_UINT32(0x8u, settings.receiverClasses);
+
+    ClearLevelCasters();
 }
 
 TEST(std3DBabylonGpu, LevelStaticCastersUploadOnceAndAgainAfterANewUpload)

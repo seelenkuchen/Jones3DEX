@@ -101,6 +101,16 @@ profile and QOL-off builds keep the original blob shadow.
   `staticReach` 1.5 view units: the game's scale is about 0.2 units per character height) is fitted around
   the same characters through a `CasterBatch::fitOnly` batch and draws only the level's static set. Both
   maps use the same fixed overhead light and are recorded in the same frame.
+- **The reach is a hard limit (M11.6f).** The level map opens with `clampCastersToNearPlane` off, so a
+  caster nearer the light than the fitted near plane is clipped rather than clamped to depth 0: only
+  geometry close above the characters counts. A moving character caster keeps the clamp so it never pops.
+- **The level fit is anchored to the world (M11.6f).** The level map gets `setViewToWorld()` every frame
+  from the same camera matrix as its world-to-view batch transforms, so a camera rotation about its own
+  position leaves a fixed caster's light fit unchanged instead of turning the texel grid.
+- **The level receive is gentle (M11.6f).** Strength `0.3`, a `0.002`-view-unit minimum penumbra that
+  widens by `0.03` per unit behind the map, a `3`..`6`-view-unit distance fade and a `0.03`..`0.25`
+  luminance gate. There is no distance-behind fade: the receivers are the characters themselves, possibly
+  far below a ledge.
 - **Level casters are uploaded at level open.** `sithRender_Open` walks `sithWorld_g_pCurrentWorld` and keeps
   the surfaces the renderer draws as solid level geometry (`RD_GEOMETRY_NONE` dropped, translucent adjoins
   dropped, sky and water dropped), fan-triangulates each into world-space triangles and passes the one list

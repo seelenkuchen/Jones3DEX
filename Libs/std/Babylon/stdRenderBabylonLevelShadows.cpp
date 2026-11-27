@@ -38,6 +38,18 @@ namespace
     // ledge several character heights above the floor stay inside the map.
     constexpr float stdRenderBabylon_kLevelShadowStaticReach = 1.5f;
 
+    // Added: M11.6f. The level-shadow receive look, named in the same way as the character one but
+    // gentler. The receivers are the characters themselves, possibly far below a ledge, so there is no
+    // distance-behind fade: its start and end stay at their 0 defaults, which disables it. The scale
+    // matches M11.6b, where Indy is about 0.2 view units tall.
+    constexpr float stdRenderBabylon_kLevelShadowStrength            = 0.3f;   // 1 - strength is a fully shadowed pixel's brightness
+    constexpr float stdRenderBabylon_kLevelShadowPenumbra            = 0.002f; // view units: minimum soft edge
+    constexpr float stdRenderBabylon_kLevelShadowPenumbraPerDistance = 0.03f;  // extra view units per view unit behind the map
+    constexpr float stdRenderBabylon_kLevelShadowFadeStart           = 3.0f;   // view distance where the shadow starts to fade
+    constexpr float stdRenderBabylon_kLevelShadowFadeEnd             = 6.0f;   // view distance where it is gone
+    constexpr float stdRenderBabylon_kLevelShadowMinLight            = 0.03f;  // luminance below which no shadow applies
+    constexpr float stdRenderBabylon_kLevelShadowFullLight           = 0.25f;  // luminance at which the full shadow applies
+
 #ifdef J3D_TEST
     // Added: M11.3. How many times the static set has been uploaded from the CPU copy, so a test can
     // prove it uploads once and only again after new casters arrive.
@@ -107,6 +119,9 @@ namespace
         shadow::ShadowMapDesc desc;
         desc.size         = stdRenderBabylon_kShadowMapSize;
         desc.staticReach  = stdRenderBabylon_kLevelShadowStaticReach;
+        // Added: M11.6f. staticReach is a hard limit for the whole level set: a caster beyond it is
+        // clipped rather than clamped to depth 0, so only geometry close above the characters counts.
+        desc.clampCastersToNearPlane = false;
         if ( !pShadowMap->open(desc) )
         {
             STDLOG_WARNING("stdRenderBabylon: could not open the level-shadow map; level geometry does not cast.\n");
@@ -235,16 +250,24 @@ namespace stdRenderBabylonInternal
             return false;
         }
 
+        // Both matrices come from the frame's one camera matrix.
+        const float* pCamera = stdRenderBabylon_state.aLastCameraMatrix;
+
         shadow::CasterBatch aBatches[2];
         aBatches[0].pStatic = stdRenderBabylon_state.pLevelStaticCasters.get();
-        stdRenderBabylon_WorldToView(stdRenderBabylon_state.aLastCameraMatrix,
-            &aBatches[0].toView);
+        stdRenderBabylon_WorldToView(pCamera, &aBatches[0].toView);
         aBatches[1].pPositions  = aPositions.data();
         aBatches[1].numVertices = aPositions.size() / 3u;
         aBatches[1].fitOnly     = true;
 
+        // Added: M11.6f. Anchor the level fit in the world like the character map, so a camera
+        // rotation about its own position leaves a fixed caster's light fit unchanged.
+        shadow::Matrix4 viewToWorld;
+        stdRenderBabylon_ViewToWorld(pCamera, &viewToWorld);
+        stdRenderBabylon_state.pLevelShadowMap->setViewToWorld(viewToWorld);
+
         float aLight[3];
-        stdRenderBabylon_ContactLightDirection(stdRenderBabylon_state.aLastCameraMatrix, aLight);
+        stdRenderBabylon_ContactLightDirection(pCamera, aLight);
         if ( !stdRenderBabylon_state.pLevelShadowMap->record(list, aLight,
                 std::span<const shadow::CasterBatch>(aBatches, 2)) )
         {
@@ -300,7 +323,14 @@ namespace stdRenderBabylonInternal
             nearPlane + 1.0e-3f);
 
         postfx::ShadowReceiveSettings settings;
-        settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
+        settings.strength            = stdRenderBabylon_kLevelShadowStrength;
+        settings.penumbra            = stdRenderBabylon_kLevelShadowPenumbra;
+        settings.penumbraPerDistance = stdRenderBabylon_kLevelShadowPenumbraPerDistance;
+        settings.fadeStart           = stdRenderBabylon_kLevelShadowFadeStart;
+        settings.fadeEnd             = stdRenderBabylon_kLevelShadowFadeEnd;
+        settings.minLight            = stdRenderBabylon_kLevelShadowMinLight;
+        settings.fullLight           = stdRenderBabylon_kLevelShadowFullLight;
+        settings.receiverClasses     = 0x8; // only ordinary surfaces, class 3 of the surface tags
         stdRenderBabylon_state.pPostfxLevelShadowReceive->setSettings(settings);
 
         postfx::ShadowMapInput shadowMap;
@@ -361,6 +391,20 @@ namespace stdRenderBabylonInternal
             return render::BufferHandle{};
         }
         return stdRenderBabylon_state.pLevelStaticCasters->buffer();
+    }
+
+    bool stdRenderBabylon_GetLevelShadowReceiveSettingsForTest(
+        postfx::ShadowReceiveSettings* pSettings)
+    {
+        if ( !stdRenderBabylon_state.pPostfxLevelShadowReceive )
+        {
+            return false;
+        }
+        if ( pSettings )
+        {
+            *pSettings = stdRenderBabylon_state.pPostfxLevelShadowReceive->settings();
+        }
+        return true;
     }
 }
 #endif
