@@ -324,6 +324,90 @@ TEST(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook)
     TEST_ASSERT_EQUAL_MEMORY(&cur.orient, &camera.orient, sizeof(camera.orient));
 }
 
+TEST(JonesFixedTick, RestoreCameraRestoresTickSector)
+{
+    SithSector sectorA;
+    SithSector sectorB;
+    memset(&sectorA, 0, sizeof(sectorA));
+    memset(&sectorB, 0, sizeof(sectorB));
+
+    SithCamera camera;
+    memset(&camera, 0, sizeof(camera));
+    camera.pSector = &sectorA;
+
+    JonesFixedTickCameraState cur;
+    JonesFixedTick_CaptureCamera(&cur, &camera);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, cur.pSector);
+
+    // No previous tick: the draw keeps the tick sector.
+    JonesFixedTick_BlendCamera(NULL, &cur, &camera, 0.5f);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+
+    // A drawn frame may have moved the camera to another sector; the restore puts the tick's back.
+    camera.pSector = &sectorB;
+    JonesFixedTick_RestoreCamera(&cur, &camera);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+}
+
+TEST(JonesFixedTick, BlendCameraTeleportKeepsTickSector)
+{
+    SithSector sectorA;
+    SithSector sectorB;
+    memset(&sectorA, 0, sizeof(sectorA));
+    memset(&sectorB, 0, sizeof(sectorB));
+
+    SithCamera camera;
+    memset(&camera, 0, sizeof(camera));
+    camera.pos.x         = 10.0f;
+    camera.orient        = JonesFixedTickTest_Identity();
+    camera.orient.dvec.x = 10.0f;
+    camera.pSector       = &sectorA;
+
+    JonesFixedTickCameraState cur;
+    JonesFixedTick_CaptureCamera(&cur, &camera);
+
+    JonesFixedTickCameraState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid     = true;
+    prev.orient    = JonesFixedTickTest_Identity();
+    prev.pSector   = &sectorB;
+
+    // The pose moved beyond the teleport threshold, so the draw snaps to the current tick sector.
+    camera.pSector = &sectorB;
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+
+    // An invalid previous tick takes the same path.
+    prev.valid     = false;
+    camera.pSector = &sectorB;
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+}
+
+TEST(JonesFixedTick, ResolveCameraSectorNullArgsReturnFromSector)
+{
+    // With no world there is nothing to walk, so every call returns the sector it started from.
+    SithWorld* pSavedWorld = sithWorld_g_pCurrentWorld;
+    sithWorld_g_pCurrentWorld = NULL;
+
+    SithSector sector;
+    memset(&sector, 0, sizeof(sector));
+    const rdVector3 from = { 0.0f, 0.0f, 0.0f };
+    const rdVector3 to   = { 1.0f, 1.0f, 1.0f };
+
+    SithSector* pNullSector   = JonesFixedTick_ResolveCameraSector(NULL, &from, &to);
+    SithSector* pNullFrom     = JonesFixedTick_ResolveCameraSector(&sector, NULL, &to);
+    SithSector* pNullPos      = JonesFixedTick_ResolveCameraSector(&sector, &from, NULL);
+    SithSector* pNoWorldSector = JonesFixedTick_ResolveCameraSector(&sector, &from, &to);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+
+    TEST_ASSERT_EQUAL_PTR(NULL, pNullSector);
+    TEST_ASSERT_EQUAL_PTR(&sector, pNullFrom);
+    TEST_ASSERT_EQUAL_PTR(&sector, pNullPos);
+    TEST_ASSERT_EQUAL_PTR(&sector, pNoWorldSector);
+}
+
 TEST(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds)
 {
     JonesFixedTick_SetRateOverride(45); // clamps to 50
@@ -1401,6 +1485,9 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, BlendThingNeverBlendsAcrossASignatureChange);
     RUN_TEST_CASE(JonesFixedTick, BlendThingSnapsACreatedThingAndATeleport);
     RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook);
+    RUN_TEST_CASE(JonesFixedTick, RestoreCameraRestoresTickSector);
+    RUN_TEST_CASE(JonesFixedTick, BlendCameraTeleportKeepsTickSector);
+    RUN_TEST_CASE(JonesFixedTick, ResolveCameraSectorNullArgsReturnFromSector);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
     RUN_TEST_CASE(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates);

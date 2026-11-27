@@ -524,6 +524,10 @@ void JonesFixedTick_CaptureCamera(JonesFixedTickCameraState* pDst, const SithCam
     pDst->focusPos    = pCamera->focusPos;
     pDst->camSpot     = sithCamera_g_camSpot;
     pDst->camLookSpot = sithCamera_g_camLookSpot;
+
+    // Added: the tick's sector, so a drawn frame can resolve the interpolated pose's sector and the
+    // restore can put the tick's sector back.
+    pDst->pSector = pCamera->pSector;
 }
 
 void JonesFixedTick_CapturePuppet(JonesFixedTickPuppetState* pDst, const rdPuppet* pPuppet)
@@ -1749,6 +1753,9 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
         pCamera->focusPos    = pCur->focusPos;
         sithCamera_g_camSpot     = pCur->camSpot;
         sithCamera_g_camLookSpot = pCur->camLookSpot;
+
+        // Added: the drawn pose is the tick pose, so it stays in the tick's sector.
+        pCamera->pSector = pCur->pSector;
     }
     else
     {
@@ -1762,6 +1769,15 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
         }
 
         JonesFixedTick_LerpVector(&pCamera->pos, &pPrev->pos, &pCur->pos, alpha);
+
+        // Added: the interpolated pose may lie in the sector the camera just left, so resolve the
+        // drawn frame's sector from the tick sector; the restore puts the tick sector back.
+        pCamera->pSector = pCur->pSector;
+        if ( pCur->pSector )
+        {
+            pCamera->pSector = JonesFixedTick_ResolveCameraSector(pCur->pSector, &pCur->pos, &pCamera->pos);
+        }
+
         JonesFixedTick_LerpOrient(&pCamera->orient, &pPrev->orient, &pCur->orient, alpha);
         pCamera->fov         = pPrev->fov + (pCur->fov - pPrev->fov) * alpha;
         pCamera->aspectRatio = pPrev->aspectRatio + (pCur->aspectRatio - pPrev->aspectRatio) * alpha;
@@ -1795,6 +1811,9 @@ void JonesFixedTick_RestoreCamera(const JonesFixedTickCameraState* pCur, SithCam
     pCamera->focusPos    = pCur->focusPos;
     sithCamera_g_camSpot     = pCur->camSpot;
     sithCamera_g_camLookSpot = pCur->camLookSpot;
+
+    // Added: the interpolated sector was only for the draw; restore the tick's sector.
+    pCamera->pSector = pCur->pSector;
 
     rdCamera_SetFOV(&pCamera->rdCamera, pCamera->fov);
     rdCamera_SetAspectRatio(&pCamera->rdCamera, pCamera->aspectRatio);
