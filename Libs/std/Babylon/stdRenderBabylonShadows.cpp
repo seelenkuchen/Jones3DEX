@@ -72,6 +72,27 @@ namespace
 
 namespace stdRenderBabylonInternal
 {
+    // Added: M11.6d. The frame camera's view-to-world transform for the world-anchored shadow fit.
+    // The shader camera's rows are right, up and forward, each carrying the position in w; the
+    // result's columns are those axes followed by the position.
+    void stdRenderBabylon_ViewToWorld(const float aCamera[12], shadow::Matrix4* pViewToWorld)
+    {
+        if ( !pViewToWorld )
+        {
+            return;
+        }
+
+        shadow::Matrix4 viewToWorld = shadow::identity();
+        for ( int row = 0; row < 3; ++row )
+        {
+            viewToWorld.m[row * 4 + 0] = aCamera[row];
+            viewToWorld.m[row * 4 + 1] = aCamera[4 + row];
+            viewToWorld.m[row * 4 + 2] = aCamera[8 + row];
+            viewToWorld.m[row * 4 + 3] = aCamera[row * 4 + 3];
+        }
+        *pViewToWorld = viewToWorld;
+    }
+
     // Added: the character-shadow stage's scene-sized target, made when its size changes. False,
     // logging why, when it can't be created. The caster mask shares the size and is made by its own
     // stage after this one, so the mask pass calls this before it creates its target.
@@ -190,6 +211,13 @@ namespace stdRenderBabylonInternal
 
         float aLight[3];
         stdRenderBabylon_ContactLightDirection(stdRenderBabylon_state.aLastCameraMatrix, aLight);
+
+        // Added: M11.6d. Anchor the fit in the world, so a camera rotation about its own position
+        // leaves a fixed caster's shadow at the same world place instead of turning the texel grid.
+        shadow::Matrix4 viewToWorld;
+        stdRenderBabylon_ViewToWorld(stdRenderBabylon_state.aLastCameraMatrix, &viewToWorld);
+        stdRenderBabylon_state.pShadowMap->setViewToWorld(viewToWorld);
+
         if ( !stdRenderBabylon_state.pShadowMap->record(list, aLight,
                 std::span<const shadow::CasterBatch>(&batch, 1)) )
         {
@@ -324,6 +352,19 @@ bool stdRenderBabylon_GetShadows()
 }
 
 #ifdef J3D_TEST
+bool stdRenderBabylon_GetShadowMapViewToShadowForTest(shadow::Matrix4* pViewToShadowTexture)
+{
+    if ( !stdRenderBabylon_state.pShadowMap || !stdRenderBabylon_state.pShadowMap->isValid() )
+    {
+        return false;
+    }
+    if ( pViewToShadowTexture )
+    {
+        *pViewToShadowTexture = stdRenderBabylon_state.pShadowMap->viewToShadowTexture();
+    }
+    return true;
+}
+
 bool stdRenderBabylon_GetShadowReceiveSettingsForTest(postfx::ShadowReceiveSettings* pSettings)
 {
     if ( !stdRenderBabylon_state.pPostfxShadowReceive )

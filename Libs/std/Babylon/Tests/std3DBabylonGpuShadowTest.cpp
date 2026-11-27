@@ -4,6 +4,7 @@
 #include "std3DBabylonTestSupport.h"
 
 #include "../std3DBabylonInternal.h"
+#include "../stdRenderBabylonInternal.h"
 
 #include <babylon/postfx/ShadowReceiveEffect.h>
 
@@ -64,6 +65,26 @@ namespace
             0.0f, 0.0f, 0.0f
         };
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
+    }
+
+    // M11.6d. A world-space point in rdroid camera space (x right, y forward, z up) for the camera
+    // whose world axes are right, up and forward at position.
+    void WorldToRdroidCamera(const float aWorld[3], const float aRight[3], const float aUp[3],
+        const float aForward[3], const float aPosition[3], float aOut[3])
+    {
+        const float aDelta[3] = {
+            aWorld[0] - aPosition[0],
+            aWorld[1] - aPosition[1],
+            aWorld[2] - aPosition[2],
+        };
+        aOut[0] = aRight[0] * aDelta[0] + aRight[1] * aDelta[1] + aRight[2] * aDelta[2];
+        aOut[1] = aForward[0] * aDelta[0] + aForward[1] * aDelta[1] + aForward[2] * aDelta[2];
+        aOut[2] = aUp[0] * aDelta[0] + aUp[1] * aDelta[1] + aUp[2] * aDelta[2];
+    }
+
+    float Dot3(const float a[3], const float b[3])
+    {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     }
 
     // A caster quad above the floor and farther from the camera. The light has a forward component,
@@ -431,6 +452,134 @@ TEST(std3DBabylonGpu, ShadowReceiveEffectGetsTheGentlerCharacterShadowSettings)
     TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.minLight);
     TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.25f, settings.fullLight);
     TEST_ASSERT_EQUAL_UINT32(0x8u, settings.receiverClasses);
+}
+
+TEST(std3DBabylonGpu, ViewToWorldMapsTheCameraBasisAndPosition)
+{
+    const auto checkBasis = [](const float aRight[3], const float aUp[3],
+        const float aForward[3], const float aPosition[3]) {
+        const float aCamera[12] = {
+            aRight[0], aRight[1], aRight[2], aPosition[0],
+            aUp[0], aUp[1], aUp[2], aPosition[1],
+            aForward[0], aForward[1], aForward[2], aPosition[2],
+        };
+
+        babylon::shadow::Matrix4 viewToWorld{};
+        stdRenderBabylonInternal::stdRenderBabylon_ViewToWorld(aCamera, &viewToWorld);
+
+        const float aView[3][3] = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f },
+            { 1.0f, 0.0f, 0.0f } };
+        float aExpected[3][3];
+        for ( int axis = 0; axis < 3; ++axis )
+        {
+            aExpected[0][axis] = aPosition[axis];
+            aExpected[1][axis] = aPosition[axis] + aForward[axis];
+            aExpected[2][axis] = aPosition[axis] + aRight[axis];
+        }
+
+        for ( int point = 0; point < 3; ++point )
+        {
+            float aWorld[4];
+            babylon::shadow::transformPoint(viewToWorld, aView[point], aWorld);
+            for ( int axis = 0; axis < 3; ++axis )
+            {
+                TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, aExpected[point][axis], aWorld[axis]);
+            }
+            TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 1.0f, aWorld[3]);
+        }
+    };
+
+    const float aAxisRight[3]     = { 1.0f, 0.0f, 0.0f };
+    const float aAxisUp[3]        = { 0.0f, 0.0f, 1.0f };
+    const float aAxisForward[3]   = { 0.0f, 1.0f, 0.0f };
+    const float aAxisPosition[3]  = { 1.5f, -2.0f, 3.25f };
+    checkBasis(aAxisRight, aAxisUp, aAxisForward, aAxisPosition);
+
+    const float angle  = 0.7f;
+    const float cosine = std::cos(angle);
+    const float sine   = std::sin(angle);
+    const float aRotatedRight[3]    = { cosine, sine, 0.0f };
+    const float aRotatedUp[3]       = { 0.0f, 0.0f, 1.0f };
+    const float aRotatedForward[3]  = { -sine, cosine, 0.0f };
+    const float aRotatedPosition[3] = { -0.5f, 0.25f, 2.0f };
+    checkBasis(aRotatedRight, aRotatedUp, aRotatedForward, aRotatedPosition);
+}
+
+TEST(std3DBabylonGpu, AWorldAnchoredShadowKeepsAFixedWorldPointInPlaceWhenTheCameraTurns)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+
+    // The same world-space caster quad for every camera: the ground caster the tests above use.
+    const float aWorldCaster[4][3] = {
+        { 0.10f, 2.1f, -0.286f },
+        { 0.30f, 2.1f, -0.286f },
+        { 0.30f, 2.1f, -0.086f },
+        { 0.10f, 2.1f, -0.086f },
+    };
+    const float aFixedWorldPoint[3] = { 0.20f, 2.1f, -0.186f };
+
+    const auto runCamera = [&](const float aRight[3], const float aUp[3],
+        const float aForward[3], const float aPosition[3]) {
+        const float aCameraMatrix[12] = {
+            aRight[0], aRight[1], aRight[2],
+            aForward[0], aForward[1], aForward[2],
+            aUp[0], aUp[1], aUp[2],
+            aPosition[0], aPosition[1], aPosition[2],
+        };
+        stdRenderBabylon_SetCameraTransform(aCameraMatrix, true);
+
+        float aCaster[4][3];
+        for ( size_t vertex = 0; vertex < 4u; ++vertex )
+        {
+            WorldToRdroidCamera(aWorldCaster[vertex], aRight, aUp, aForward, aPosition,
+                aCaster[vertex]);
+        }
+
+        Null().clearRecorded();
+        TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+        std3D_AddShadowCasterPolygon(&aCaster[0][0], 4u);
+        EndFrame();
+
+        babylon::shadow::Matrix4 viewToShadow{};
+        TEST_ASSERT_TRUE(stdRenderBabylon_GetShadowMapViewToShadowForTest(&viewToShadow));
+
+        // The fixed world point through this camera: view space is x right, y up, z forward.
+        const float aDelta[3] = {
+            aFixedWorldPoint[0] - aPosition[0],
+            aFixedWorldPoint[1] - aPosition[1],
+            aFixedWorldPoint[2] - aPosition[2],
+        };
+        const float aViewPoint[3] = {
+            Dot3(aRight, aDelta),
+            Dot3(aUp, aDelta),
+            Dot3(aForward, aDelta),
+        };
+        float aUv[4];
+        babylon::shadow::transformPoint(viewToShadow, aViewPoint, aUv);
+        return std::array<float, 3>{ aUv[0], aUv[1], aUv[2] };
+    };
+
+    const float aRight[3]     = { 1.0f, 0.0f, 0.0f };
+    const float aUp[3]        = { 0.0f, 0.0f, 1.0f };
+    const float aForward[3]   = { 0.0f, 1.0f, 0.0f };
+    const float aPosition[3]  = { 0.0f, 0.0f, 0.0f };
+    const std::array<float, 3> aBefore = runCamera(aRight, aUp, aForward, aPosition);
+
+    const float angle  = 0.35f;
+    const float cosine = std::cos(angle);
+    const float sine   = std::sin(angle);
+    const float aYawedRight[3]   = { cosine, sine, 0.0f };
+    const float aYawedForward[3] = { -sine, cosine, 0.0f };
+    const std::array<float, 3> aAfter = runCamera(aYawedRight, aUp, aYawedForward, aPosition);
+
+    for ( int axis = 0; axis < 3; ++axis )
+    {
+        TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, aBefore[axis], aAfter[axis]);
+    }
 }
 
 TEST(std3DBabylonGpu, ShadowCasterDrawsAreMarkedAndOthersAreNot)
