@@ -261,6 +261,7 @@ TEST_CASE("record fits the light, uploads once and draws the casters")
     CHECK(created->desc.depth.compare == CompareOp::LessOrEqual);
     CHECK(created->desc.depth.depthBiasConstant == doctest::Approx(desc.depthBiasConstant));
     CHECK(created->desc.depth.depthBiasSlope == doctest::Approx(desc.depthBiasSlope));
+    CHECK_FALSE(created->desc.depthClip);
     CHECK(created->desc.cull == CullMode::None);
     REQUIRE(created->desc.vertexLayout.bufferStrides.size() == 1);
     CHECK(created->desc.vertexLayout.bufferStrides[0] == 3 * sizeof(float));

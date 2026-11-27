@@ -11,7 +11,7 @@ babylon_add_module(render
 babylon_add_module_tests(render
     DEPS log platform
     SOURCES tests/RenderContractTest.cpp tests/NullDeviceTest.cpp
-        backends/sdl/tests/SdlGpuDeviceTest.cpp)
+        tests/PipelineDescTest.cpp backends/sdl/tests/SdlGpuDeviceTest.cpp)
 if (TARGET babylon_render_tests)
     # SDL GPU starts SDL's video subsystem; the offscreen driver needs no
     # display and still offers Vulkan surfaces (VK_EXT_headless_surface), so

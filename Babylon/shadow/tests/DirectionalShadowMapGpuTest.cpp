@@ -250,7 +250,7 @@ TEST_CASE("A directional shadow map blocks texels under a caster (GPU)")
     CHECK(sink.records().empty());
 }
 
-TEST_CASE("A static caster within staticReach casts and one beyond does not (GPU)")
+TEST_CASE("Static casters within and beyond staticReach both cast (GPU)")
 {
     babylon::render::test::keepGpuDriverLoaded();
     babylon::log::CaptureSink sink;
@@ -303,13 +303,16 @@ TEST_CASE("A static caster within staticReach casts and one beyond does not (GPU
     CHECK(redAt(withinPixels, 128, 40) > 191);
     CHECK(redAt(withinPixels, 128, 220) > 191);
 
-    // A ledge beyond staticReach is clipped and leaves the center lit; the
-    // dynamic casters at the x edges stay in the map.
+    // A ledge beyond staticReach is in front of the light fit's near plane.
+    // Depth clamping keeps it, writing depth 0, so it now shadows the center.
+    // With depth clipping it would be cut and the center would stay lit; the
+    // render module's depth-clip test covers that cut. The dynamic casters at
+    // the x edges stay in the map either way.
     const std::vector<std::byte> beyondPixels = renderShadowFrame(*device, map, receive,
         receivePipeline, dynamicVertices, &beyond);
     REQUIRE(beyondPixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
     CHECK(map.isValid());
-    CHECK(redAt(beyondPixels, kSize / 2, 205) > 191);
+    CHECK(redAt(beyondPixels, kSize / 2, 205) < 64);
     CHECK(redAt(beyondPixels, 38, 205) < 64);
     CHECK(redAt(beyondPixels, 217, 205) < 64);
 

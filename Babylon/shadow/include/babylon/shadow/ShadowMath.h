@@ -54,6 +54,18 @@ namespace babylon::shadow
         float margin, std::uint32_t mapSize, Matrix4* pViewToShadowClip,
         float towardLightReach = 0.0f);
 
+    // fitDirectional() in a fixed world-anchored basis: towardLight and
+    // casters are in world space and the light's up axis is worldUp instead of
+    // the view's +Y, so the texel grid stays fixed in the world as the camera
+    // turns. worldUp need not be normalized; when it is parallel to the light,
+    // another world axis is used. The result maps world-space positions to
+    // shadow clip space, with the same extent ladder, texel snapping, margin
+    // and towardLightReach as fitDirectional(). A zero or non-finite worldUp,
+    // or any input fitDirectional() rejects, returns false.
+    [[nodiscard]] bool fitDirectionalWorld(const float towardLight[3], const Bounds& casters,
+        float margin, std::uint32_t mapSize, const float worldUp[3],
+        Matrix4* pWorldToShadowClip, float towardLightReach = 0.0f);
+
     // The shadow clip to texture transform: u = x * 0.5 + 0.5,
     // v = 0.5 - y * 0.5, z unchanged.
     Matrix4 shadowClipToTexture();
