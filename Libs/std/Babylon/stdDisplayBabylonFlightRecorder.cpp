@@ -4,12 +4,16 @@
 // code: no Fixed/Added markers inside.
 //
 // Every successful present records the just-presented frame into the next slot of a fixed ring of
-// Bgra8 color targets through stdRenderBabylon_RenderPresentToTexture, the same capture path a menu
-// screenshot takes. Nothing is read back while the game runs; stdDisplay_SaveFlightRecorder reads
-// the ring only when the player asks for it, so the stall there is fine. The textures are made on
-// first use and sized to the presented aspect at kFlightRecorderWidth; a size change (a window
-// resize or a new video mode) frees and recreates them. The display owns the ring: Open reads
-// engine.debug.flightRecorder and Close frees it.
+// Bgra8 color targets. stdRenderBabylon_RenderPresentToTexture writes to one recorder-owned Bgra8
+// scratch target at the real presented size, the size the normal present uses, so the render
+// frame owner's shared SMAA, sharpening and camera-effect targets are never resized. A plain
+// fullscreen copy then scales that scratch target into the kFlightRecorderWidth-wide ring slot
+// with linear filtering, adding no tone map. Nothing is read back while the game runs;
+// stdDisplay_SaveFlightRecorder reads the ring only when the player asks for it, so the stall there
+// is fine. The resources are made on first use and sized to the presented aspect at
+// kFlightRecorderWidth; a size change (a window resize or a new video mode) frees and recreates
+// them. The display owns the ring: Open reads engine.debug.flightRecorder and Close frees it.
+// 300 frames is about two seconds at the 150 fps and faster rates the owner plays at.
 #include <std/General/stdDisplay.h>
 
 #include <std/General/std.h>
@@ -20,7 +24,10 @@
 
 #include <babylon/platform/Window.h>
 #include <babylon/render/Device.h>
+#include <babylon/render/Pipeline.h>
+#include <babylon/render/Sampler.h>
 #include <babylon/render/Texture.h>
+#include <babylon/shaders/stdBabylonShaders.h>
 
 #include <algorithm>
 #include <array>
@@ -47,7 +54,8 @@ namespace
         bool bCreateFailed  = false;
         bool bFailureLogged = false;
 
-        // The presented size the ring was made for and the 640-wide target it scales to.
+        // The presented size the ring was made for and the kFlightRecorderWidth-wide target it
+        // scales to.
         uint32_t sourceWidth  = 0;
         uint32_t sourceHeight = 0;
         uint32_t width        = stdDisplay_kFlightRecorderWidth;
@@ -58,6 +66,16 @@ namespace
         size_t nextSlot           = 0;
         size_t numFrames          = 0;
         uint64_t nextPresentIndex = 0;
+
+        // The presented-size target RenderPresentToTexture draws into, then the plain copy pass
+        // that scales it into a ring slot.
+        render::TextureHandle scratchTexture;
+        uint32_t scratchWidth     = 0;
+        uint32_t scratchHeight    = 0;
+        bool bScratchFailed       = false;
+        render::PipelineHandle copyPipeline;
+        render::SamplerHandle copySampler;
+        bool bCopySetupFailed     = false;
     };
 
     StdDisplayFlightRecorderState stdDisplayFlightRecorder_state;
@@ -96,8 +114,36 @@ namespace
         stdDisplayFlightRecorder_state.bCreated = false;
     }
 
-    // The height of a 640-wide target with the presented aspect, rounded to the nearest even
-    // number so the frame keeps its centre row.
+    void StdDisplayFlightRecorder_FreeScratchAndCopy()
+    {
+        if ( stdDisplay_state.pDevice )
+        {
+            render::Device* pDevice = stdDisplay_state.pDevice;
+            if ( !stdDisplayFlightRecorder_state.scratchTexture.isNull() )
+            {
+                pDevice->destroyTexture(stdDisplayFlightRecorder_state.scratchTexture);
+            }
+            if ( !stdDisplayFlightRecorder_state.copyPipeline.isNull() )
+            {
+                pDevice->destroyPipeline(stdDisplayFlightRecorder_state.copyPipeline);
+            }
+            if ( !stdDisplayFlightRecorder_state.copySampler.isNull() )
+            {
+                pDevice->destroySampler(stdDisplayFlightRecorder_state.copySampler);
+            }
+        }
+
+        stdDisplayFlightRecorder_state.scratchTexture = {};
+        stdDisplayFlightRecorder_state.scratchWidth   = 0;
+        stdDisplayFlightRecorder_state.scratchHeight  = 0;
+        stdDisplayFlightRecorder_state.copyPipeline   = {};
+        stdDisplayFlightRecorder_state.copySampler    = {};
+        stdDisplayFlightRecorder_state.bScratchFailed = false;
+        stdDisplayFlightRecorder_state.bCopySetupFailed = false;
+    }
+
+    // The height of a kFlightRecorderWidth-wide target with the presented aspect, rounded to the
+    // nearest even number so the frame keeps its centre row.
     uint32_t StdDisplayFlightRecorder_TargetHeight(uint32_t sourceWidth, uint32_t sourceHeight)
     {
         if ( sourceWidth == 0u )
@@ -159,7 +205,7 @@ namespace
             || stdDisplayFlightRecorder_state.height > maxSize )
         {
             StdDisplayFlightRecorder_LogOnce(
-                "stdDisplay: the flight recorder's 640-wide targets exceed the device's texture limit.");
+                "stdDisplay: the flight recorder's ring targets exceed the device's texture limit.");
             return false;
         }
 
@@ -189,13 +235,152 @@ namespace
         stdDisplayFlightRecorder_state.numFrames      = 0;
         return true;
     }
+
+    // One Bgra8 scratch target at the presented size, sampled by the copy pass. RenderPresentToTexture
+    // draws into it, so its size is the size the shared present targets expect and they never resize.
+    bool StdDisplayFlightRecorder_EnsureScratch(uint32_t width, uint32_t height)
+    {
+        render::Device* pDevice = stdDisplay_state.pDevice;
+        if ( !pDevice )
+        {
+            return false;
+        }
+
+        if ( stdDisplayFlightRecorder_state.bScratchFailed
+            && width == stdDisplayFlightRecorder_state.scratchWidth
+            && height == stdDisplayFlightRecorder_state.scratchHeight )
+        {
+            return false;
+        }
+
+        if ( !stdDisplayFlightRecorder_state.scratchTexture.isNull()
+            && width == stdDisplayFlightRecorder_state.scratchWidth
+            && height == stdDisplayFlightRecorder_state.scratchHeight )
+        {
+            return true;
+        }
+
+        if ( !stdDisplayFlightRecorder_state.scratchTexture.isNull() )
+        {
+            pDevice->destroyTexture(stdDisplayFlightRecorder_state.scratchTexture);
+            stdDisplayFlightRecorder_state.scratchTexture = {};
+        }
+
+        stdDisplayFlightRecorder_state.scratchWidth  = width;
+        stdDisplayFlightRecorder_state.scratchHeight = height;
+
+        const render::TextureUsage usage = render::TextureUsage::ColorTarget
+            | render::TextureUsage::Sampled;
+        if ( !pDevice->supportsFormat(render::TextureFormat::Bgra8, usage) )
+        {
+            StdDisplayFlightRecorder_LogOnce(
+                "stdDisplay: the flight recorder's scratch target cannot be sampled.");
+            stdDisplayFlightRecorder_state.bScratchFailed = true;
+            return false;
+        }
+
+        const render::TextureDesc desc{ width, height, 1,
+            render::TextureFormat::Bgra8, usage };
+        stdDisplayFlightRecorder_state.scratchTexture = pDevice->createTexture(desc);
+        if ( stdDisplayFlightRecorder_state.scratchTexture.isNull() )
+        {
+            StdDisplayFlightRecorder_LogOnce(
+                "stdDisplay: could not create the flight recorder's scratch target.");
+            stdDisplayFlightRecorder_state.bScratchFailed = true;
+            return false;
+        }
+
+        stdDisplayFlightRecorder_state.scratchWidth  = width;
+        stdDisplayFlightRecorder_state.scratchHeight = height;
+        stdDisplayFlightRecorder_state.bScratchFailed = false;
+        return true;
+    }
+
+    // The plain fullscreen copy from the present-sized scratch target to a Bgra8 ring slot. The
+    // present fragment shader is just a texture sample, so the ring gets the presented image scaled
+    // with linear filtering and no second tone map.
+    bool StdDisplayFlightRecorder_EnsureCopyPipeline()
+    {
+        render::Device* pDevice = stdDisplay_state.pDevice;
+        if ( !pDevice )
+        {
+            return false;
+        }
+
+        if ( !stdDisplayFlightRecorder_state.copyPipeline.isNull()
+            && !stdDisplayFlightRecorder_state.copySampler.isNull() )
+        {
+            return true;
+        }
+
+        if ( stdDisplayFlightRecorder_state.bCopySetupFailed )
+        {
+            return false;
+        }
+
+        render::SamplerDesc samplerDesc;
+        samplerDesc.minFilter = render::Filter::Linear;
+        samplerDesc.magFilter = render::Filter::Linear;
+        samplerDesc.addressU  = render::AddressMode::ClampToEdge;
+        samplerDesc.addressV  = render::AddressMode::ClampToEdge;
+        stdDisplayFlightRecorder_state.copySampler = pDevice->createSampler(samplerDesc);
+
+        render::PipelineDesc desc;
+        desc.vertexShader   = stdBabylon::shaders::presentVert();
+        desc.fragmentShader = stdBabylon::shaders::presentFrag();
+        desc.primitive      = render::PrimitiveType::TriangleList;
+        desc.colorTargets   = { render::ColorTargetDesc{ render::TextureFormat::Bgra8, {} } };
+        stdDisplayFlightRecorder_state.copyPipeline = pDevice->createPipeline(desc);
+
+        if ( stdDisplayFlightRecorder_state.copySampler.isNull()
+            || stdDisplayFlightRecorder_state.copyPipeline.isNull() )
+        {
+            StdDisplayFlightRecorder_LogOnce(
+                "stdDisplay: could not set up the flight recorder's copy pass.");
+            StdDisplayFlightRecorder_FreeScratchAndCopy();
+            stdDisplayFlightRecorder_state.bCopySetupFailed = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    bool StdDisplayFlightRecorder_CopyToSlot(render::TextureHandle slot)
+    {
+        render::Device* pDevice = stdDisplay_state.pDevice;
+        if ( !pDevice )
+        {
+            return false;
+        }
+
+        render::CommandList list = pDevice->beginFrame();
+        render::PassDesc pass;
+        pass.colorTargets.push_back(render::ColorAttachment{ slot, 0,
+            render::LoadOp::DontCare, render::StoreOp::Store, {} });
+        if ( !list.beginPass(pass) )
+        {
+            return false;
+        }
+
+        list.setPipeline(stdDisplayFlightRecorder_state.copyPipeline);
+        list.bindTexture(render::ShaderStage::Fragment, 0,
+            stdDisplayFlightRecorder_state.scratchTexture,
+            stdDisplayFlightRecorder_state.copySampler);
+        list.draw(3);
+        if ( !list.endPass() )
+        {
+            return false;
+        }
+
+        return pDevice->submit(list);
+    }
 }
 
 namespace stdDisplayBabylonInternal
 {
     void stdDisplay_FlightRecorderOpen()
     {
-        stdDisplayFlightRecorder_state = StdDisplayFlightRecorderState{};
+        stdDisplay_FlightRecorderClose();
 
 #ifdef J3D_TEST
         if ( stdDisplayFlightRecorder_bEnabledOverrideSet )
@@ -213,6 +398,7 @@ namespace stdDisplayBabylonInternal
     void stdDisplay_FlightRecorderClose()
     {
         StdDisplayFlightRecorder_FreeTextures();
+        StdDisplayFlightRecorder_FreeScratchAndCopy();
         stdDisplayFlightRecorder_state = StdDisplayFlightRecorderState{};
     }
 
@@ -265,13 +451,28 @@ namespace stdDisplayBabylonInternal
             return;
         }
 
-        const render::TextureHandle target =
-            stdDisplayFlightRecorder_state.aTextures[stdDisplayFlightRecorder_state.nextSlot];
-        if ( !stdRenderBabylon_RenderPresentToTexture(target,
-                stdDisplayFlightRecorder_state.width, stdDisplayFlightRecorder_state.height) )
+        if ( !StdDisplayFlightRecorder_EnsureScratch(sourceWidth, sourceHeight)
+            || !StdDisplayFlightRecorder_EnsureCopyPipeline() )
+        {
+            return;
+        }
+
+        // The render frame owner's shared targets are sized by this call. Passing the presented
+        // size keeps them at the size the real present uses, so nothing is recreated here.
+        if ( !stdRenderBabylon_RenderPresentToTexture(
+                stdDisplayFlightRecorder_state.scratchTexture, sourceWidth, sourceHeight) )
         {
             StdDisplayFlightRecorder_LogOnce(
                 "stdDisplay: could not record a flight recorder frame.");
+            return;
+        }
+
+        const render::TextureHandle target =
+            stdDisplayFlightRecorder_state.aTextures[stdDisplayFlightRecorder_state.nextSlot];
+        if ( !StdDisplayFlightRecorder_CopyToSlot(target) )
+        {
+            StdDisplayFlightRecorder_LogOnce(
+                "stdDisplay: could not scale a flight recorder frame into its ring.");
             return;
         }
 

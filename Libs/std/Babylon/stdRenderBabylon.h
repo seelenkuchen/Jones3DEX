@@ -465,6 +465,12 @@ bool stdRenderBabylon_HasHudOverlay();
 // screenshots of the window, including the overlay a menu records on the swapchain. Returns false,
 // logging why, when not open, without a back buffer, while a frame is being recorded, or when the
 // device refuses the frame.
+//
+// Added: width and height must be the size the real present uses (the window's drawable size, or
+// the back buffer without a window). The capture sizes the shared SMAA, sharpening and camera-effect
+// targets to them, so a different size destroys and recreates those targets; that is safe for a
+// one-off screenshot or a test with no present in flight, never for a per-frame caller. The flight
+// recorder renders at the present size and scales the result down into its own ring afterwards.
 bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle target,
     std::uint32_t width, std::uint32_t height);
 

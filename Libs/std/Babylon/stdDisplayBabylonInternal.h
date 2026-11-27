@@ -25,8 +25,8 @@ namespace stdDisplayBabylonInternal
     inline constexpr size_t stdDisplay_kMaxVideoModes   = 64u;
 
     // Added: the flight recorder's ring of presented frames, and the engine key that turns it off.
-    inline constexpr size_t stdDisplay_kFlightRecorderFrames     = 120u;
-    inline constexpr uint32_t stdDisplay_kFlightRecorderWidth    = 640u;
+    inline constexpr size_t stdDisplay_kFlightRecorderFrames     = 300u;
+    inline constexpr uint32_t stdDisplay_kFlightRecorderWidth    = 480u;
     inline constexpr const char* stdDisplay_kFlightRecorderKey   = "engine.debug.flightRecorder";
 
     struct StdDisplayBabylonState
