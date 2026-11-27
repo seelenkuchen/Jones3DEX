@@ -44,20 +44,32 @@ namespace babylon::postfx
             float tanHalfFovX;
             float tanHalfFovY;
             std::uint32_t maskMode; // 0 none, 1 exclude, 2 include
-            float padding[2];
+            float penumbra;
+            float penumbraPerDistance;
+            float distanceFadeStart;
+            float distanceFadeEnd;
+            float minLight;
+            float fullLight;
+            float padding[4];
         };
-        static_assert(sizeof(ShadowReceiveUniforms) == 144);
+        static_assert(sizeof(ShadowReceiveUniforms) == 176);
     }
 
     void ShadowReceiveEffect::setSettings(const ShadowReceiveSettings& settings)
     {
-        m_settings.strength        = std::clamp(settings.strength, 0.0f, 1.0f);
-        m_settings.normalOffset    = std::max(settings.normalOffset, 0.0f);
-        m_settings.depthBias       = std::max(settings.depthBias, 0.0f);
-        m_settings.filterRadius    = std::clamp(settings.filterRadius, 0.5f, 4.0f);
-        m_settings.receiverClasses = settings.receiverClasses;
-        m_settings.fadeStart       = settings.fadeStart;
-        m_settings.fadeEnd         = std::max(settings.fadeEnd, m_settings.fadeStart);
+        m_settings.strength            = std::clamp(settings.strength, 0.0f, 1.0f);
+        m_settings.normalOffset        = std::max(settings.normalOffset, 0.0f);
+        m_settings.depthBias           = std::max(settings.depthBias, 0.0f);
+        m_settings.filterRadius        = std::clamp(settings.filterRadius, 0.5f, 4.0f);
+        m_settings.receiverClasses     = settings.receiverClasses;
+        m_settings.fadeStart           = settings.fadeStart;
+        m_settings.fadeEnd             = std::max(settings.fadeEnd, m_settings.fadeStart);
+        m_settings.penumbra            = std::max(settings.penumbra, 0.0f);
+        m_settings.penumbraPerDistance = std::max(settings.penumbraPerDistance, 0.0f);
+        m_settings.distanceFadeStart   = std::max(settings.distanceFadeStart, 0.0f);
+        m_settings.distanceFadeEnd     = std::max(settings.distanceFadeEnd, 0.0f);
+        m_settings.minLight            = std::max(settings.minLight, 0.0f);
+        m_settings.fullLight           = std::max(settings.fullLight, 0.0f);
     }
 
     const ShadowReceiveSettings& ShadowReceiveEffect::settings() const
@@ -202,7 +214,13 @@ namespace babylon::postfx
             projection.tanHalfFovX,
             projection.tanHalfFovY,
             maskMode,
-            { 0.0f, 0.0f } };
+            m_settings.penumbra,
+            m_settings.penumbraPerDistance,
+            m_settings.distanceFadeStart,
+            m_settings.distanceFadeEnd,
+            m_settings.minLight,
+            m_settings.fullLight,
+            { 0.0f, 0.0f, 0.0f, 0.0f } };
 
         // One pass: colour and depth of the frame, the normals (or depth again),
         // the shadow map with its comparison sampler, and the exclude mask (or

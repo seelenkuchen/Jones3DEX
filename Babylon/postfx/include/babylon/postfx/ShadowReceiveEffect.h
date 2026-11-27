@@ -31,6 +31,15 @@ namespace babylon::postfx
         std::uint32_t receiverClasses = 0x8; // bit i set: pixels whose normals alpha is class i
         float fadeStart = 20.0f;      // view distance where shadows start to fade
         float fadeEnd = 40.0f;        // view distance where they are gone
+        // The fields below give the filter a view-unit radius and fade shadows by the
+        // receiver's distance behind the map and by the surface's brightness. All default
+        // to 0, which leaves the texel-radius filter and no extra fades.
+        float penumbra = 0.0f;            // view units: minimum filter radius (0 = filterRadius texels only)
+        float penumbraPerDistance = 0.0f; // extra view-unit radius per view unit beyond the map's far side
+        float distanceFadeStart = 0.0f;   // view units behind the map's far side where the fade starts
+        float distanceFadeEnd = 0.0f;     // where the shadow is gone (end <= start disables the fade)
+        float minLight = 0.0f;            // input-colour luminance below which no shadow applies
+        float fullLight = 0.0f;           // luminance at which the full shadow applies (full <= min disables)
     };
 
     // What the mask's red >= 0.5 selects. Exclude keeps those pixels' exact input colour, so a
@@ -75,13 +84,16 @@ namespace babylon::postfx
     // confines a map to those pixels. That lets two maps share one light: the map whose casters
     // are the moving characters excludes them so they do not shadow themselves, while a map
     // whose casters are the static level includes only them. Shadows fade with view distance and
-    // near the map border. postfx takes the map as plain inputs and does not depend on the shadow
-    // module.
+    // near the map border. A view-unit penumbra widens the filter with the receiver's distance
+    // behind the map's far side, and a luminance gate keeps a dim surface out of a bright light's
+    // shadow. postfx takes the map as plain inputs and does not depend on the shadow module.
     class ShadowReceiveEffect final : public Effect
     {
     public:
-        // Clamps strength to 0..1, normalOffset and depthBias to at least 0, filterRadius to
-        // 0.5..4 and fadeEnd to no less than fadeStart.
+        // Clamps strength to 0..1, normalOffset, depthBias, the penumbra, distance-fade and
+        // luminance fields to at least 0, filterRadius to 0.5..4 and fadeEnd to no less than
+        // fadeStart. distanceFadeEnd and fullLight keep their values so end <= start and
+        // fullLight <= minLight can disable those gates.
         void setSettings(const ShadowReceiveSettings& settings);
         const ShadowReceiveSettings& settings() const;
 

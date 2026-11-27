@@ -58,9 +58,15 @@ namespace
         float tanHalfFovX;
         float tanHalfFovY;
         std::uint32_t hasExcludeMask;
-        float padding[2];
+        float penumbra;
+        float penumbraPerDistance;
+        float distanceFadeStart;
+        float distanceFadeEnd;
+        float minLight;
+        float fullLight;
+        float padding[4];
     };
-    static_assert(sizeof(ExpectedShadowReceiveUniforms) == 144);
+    static_assert(sizeof(ExpectedShadowReceiveUniforms) == 176);
 
     struct PassRecord
     {
@@ -238,17 +244,29 @@ TEST_CASE("Shadow receive settings clamp and control active and needs")
     CHECK(effect.settings().receiverClasses == 0x8u);
     CHECK(effect.settings().fadeStart == doctest::Approx(20.0f));
     CHECK(effect.settings().fadeEnd == doctest::Approx(40.0f));
+    CHECK(effect.settings().penumbra == 0.0f);
+    CHECK(effect.settings().penumbraPerDistance == 0.0f);
+    CHECK(effect.settings().distanceFadeStart == 0.0f);
+    CHECK(effect.settings().distanceFadeEnd == 0.0f);
+    CHECK(effect.settings().minLight == 0.0f);
+    CHECK(effect.settings().fullLight == 0.0f);
     CHECK(effect.needs().depth);
     CHECK(effect.needs().normals);
 
     ShadowReceiveSettings wide;
-    wide.strength        = 2.0f;
-    wide.normalOffset    = -1.0f;
-    wide.depthBias       = -1.0f;
-    wide.filterRadius    = 100.0f;
-    wide.receiverClasses = 0xFu;
-    wide.fadeStart       = 50.0f;
-    wide.fadeEnd         = 10.0f;
+    wide.strength             = 2.0f;
+    wide.normalOffset         = -1.0f;
+    wide.depthBias            = -1.0f;
+    wide.filterRadius         = 100.0f;
+    wide.receiverClasses      = 0xFu;
+    wide.fadeStart            = 50.0f;
+    wide.fadeEnd              = 10.0f;
+    wide.penumbra             = -0.1f;
+    wide.penumbraPerDistance  = -0.2f;
+    wide.distanceFadeStart    = -0.3f;
+    wide.distanceFadeEnd      = -0.4f;
+    wide.minLight             = -0.5f;
+    wide.fullLight            = -0.6f;
     effect.setSettings(wide);
     CHECK(effect.settings().strength == 1.0f);
     CHECK(effect.settings().normalOffset == 0.0f);
@@ -257,23 +275,77 @@ TEST_CASE("Shadow receive settings clamp and control active and needs")
     CHECK(effect.settings().receiverClasses == 0xFu);
     CHECK(effect.settings().fadeStart == doctest::Approx(50.0f));
     CHECK(effect.settings().fadeEnd == doctest::Approx(50.0f));
+    CHECK(effect.settings().penumbra == 0.0f);
+    CHECK(effect.settings().penumbraPerDistance == 0.0f);
+    CHECK(effect.settings().distanceFadeStart == 0.0f);
+    CHECK(effect.settings().distanceFadeEnd == 0.0f);
+    CHECK(effect.settings().minLight == 0.0f);
+    CHECK(effect.settings().fullLight == 0.0f);
     CHECK(effect.needs().depth);
     CHECK_FALSE(effect.needs().normals);
 
     ShadowReceiveSettings narrow;
-    narrow.strength        = -1.0f;
-    narrow.normalOffset    = 0.01f;
-    narrow.depthBias       = 0.002f;
-    narrow.filterRadius    = 0.1f;
-    narrow.receiverClasses = 0x1u;
-    narrow.fadeStart       = 10.0f;
-    narrow.fadeEnd         = 20.0f;
+    narrow.strength            = -1.0f;
+    narrow.normalOffset        = 0.01f;
+    narrow.depthBias           = 0.002f;
+    narrow.filterRadius        = 0.1f;
+    narrow.receiverClasses     = 0x1u;
+    narrow.fadeStart           = 10.0f;
+    narrow.fadeEnd             = 20.0f;
+    narrow.penumbra            = 0.02f;
+    narrow.penumbraPerDistance = 0.03f;
+    narrow.distanceFadeStart   = 0.5f;
+    narrow.distanceFadeEnd     = 1.5f;
+    narrow.minLight            = 0.1f;
+    narrow.fullLight           = 0.7f;
     effect.setSettings(narrow);
     CHECK(effect.settings().strength == 0.0f);
     CHECK_FALSE(effect.active());
     CHECK(effect.settings().filterRadius == doctest::Approx(0.5f));
     CHECK(effect.settings().fadeEnd == doctest::Approx(20.0f));
+    CHECK(effect.settings().penumbra == doctest::Approx(0.02f));
+    CHECK(effect.settings().penumbraPerDistance == doctest::Approx(0.03f));
+    CHECK(effect.settings().distanceFadeStart == doctest::Approx(0.5f));
+    CHECK(effect.settings().distanceFadeEnd == doctest::Approx(1.5f));
+    CHECK(effect.settings().minLight == doctest::Approx(0.1f));
+    CHECK(effect.settings().fullLight == doctest::Approx(0.7f));
     CHECK(effect.needs().normals);
+}
+
+TEST_CASE("The shadow receive effect writes the default soft-edge uniforms as zero")
+{
+    NullDevice device;
+    ShadowReceiveEffect effect;
+    Chain chain(device);
+    REQUIRE(chain.open());
+
+    effect.setShadowMap(makeMap(makeShadowMap(device, 256),
+        makeCompareSampler(device)));
+    REQUIRE(chain.add(effect));
+
+    const TextureHandle color   = makeColor(device, 16, 16);
+    const TextureHandle depth   = makeDepth(device, 16, 16);
+    const TextureHandle normals = makeNormals(device, 16, 16);
+    const TextureHandle target  = makeOutput(device, 16, 16);
+    const FrameInputs frame     = makeFrame(color, depth, normals, 16, 16);
+    const OutputTarget output   = makeOutputTarget(target, 16, 16);
+
+    recordChain(chain, device, frame, output);
+
+    const std::vector<PassRecord> passes = passRecords(device.recorded());
+    REQUIRE(passes.size() == 2);
+    REQUIRE(passes[0].uniforms.size() == 1);
+    const ExpectedShadowReceiveUniforms expected{
+        { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+            9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
+        { 0.0f, 1.0f, 0.0f },
+        0.55f, 0.004f, 0.0015f, 1.5f, 256.0f, 0x8u, 20.0f, 40.0f,
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 0u,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, { 0.0f, 0.0f, 0.0f, 0.0f } };
+    CHECK(passes[0].uniforms.front().data == bytesOf(expected));
+
+    checkNames(chain, { "shadow receive", "copy" });
+    chain.close();
 }
 
 TEST_CASE("Shadow receive is active only with strength and a valid map")
@@ -355,13 +427,19 @@ TEST_CASE("The shadow receive effect records one pass with five textures")
     REQUIRE(chain.open());
 
     ShadowReceiveSettings settings;
-    settings.strength        = 0.75f;
-    settings.normalOffset    = 0.01f;
-    settings.depthBias       = 0.002f;
-    settings.filterRadius    = 2.0f;
-    settings.receiverClasses = 0x8u;
-    settings.fadeStart       = 12.0f;
-    settings.fadeEnd         = 24.0f;
+    settings.strength            = 0.75f;
+    settings.normalOffset        = 0.01f;
+    settings.depthBias           = 0.002f;
+    settings.filterRadius        = 2.0f;
+    settings.receiverClasses     = 0x8u;
+    settings.fadeStart           = 12.0f;
+    settings.fadeEnd             = 24.0f;
+    settings.penumbra            = 0.02f;
+    settings.penumbraPerDistance = 0.03f;
+    settings.distanceFadeStart   = 0.5f;
+    settings.distanceFadeEnd     = 1.5f;
+    settings.minLight            = 0.1f;
+    settings.fullLight           = 0.7f;
     effect.setSettings(settings);
 
     const TextureHandle shadowMap = makeShadowMap(device, 256);
@@ -435,7 +513,8 @@ TEST_CASE("The shadow receive effect records one pass with five textures")
             9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
         { 0.0f, 1.0f, 0.0f },
         0.75f, 0.01f, 0.002f, 2.0f, 256.0f, 0x8u, 12.0f, 24.0f,
-        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 0u, { 0.0f, 0.0f } };
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 0u,
+        0.02f, 0.03f, 0.5f, 1.5f, 0.1f, 0.7f, { 0.0f, 0.0f, 0.0f, 0.0f } };
     CHECK(push.data == bytesOf(expected));
 
     REQUIRE(passes[0].draws.size() == 1);
@@ -537,7 +616,8 @@ TEST_CASE("The shadow receive effect binds an exclude mask and flags it in the u
             9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
         { 0.0f, 1.0f, 0.0f },
         0.75f, 0.01f, 0.002f, 2.0f, 256.0f, 0x8u, 12.0f, 24.0f,
-        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 1u, { 0.0f, 0.0f } };
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 1u,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, { 0.0f, 0.0f, 0.0f, 0.0f } };
     CHECK(push.data == bytesOf(expected));
 
     checkNames(chain, { "shadow receive", "copy" });
@@ -588,7 +668,8 @@ TEST_CASE("The shadow receive mask mode selects include, and needs a mask to inc
             9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f },
         { 0.0f, 1.0f, 0.0f },
         0.75f, 0.01f, 0.002f, 2.0f, 256.0f, 0x8u, 12.0f, 24.0f,
-        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 2u, { 0.0f, 0.0f } };
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 2u,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, { 0.0f, 0.0f, 0.0f, 0.0f } };
     CHECK(passes[0].uniforms.front().data == bytesOf(expected));
     REQUIRE(passes[0].draws.size() == 1);
     checkNames(chain, { "shadow receive", "copy" });
