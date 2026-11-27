@@ -53,6 +53,7 @@ target_include_directories(jonesScreenshotTests PRIVATE "${CMAKE_CURRENT_SOURCE_
 
 set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../JonesScreenshot.c" PROPERTY COMPILE_DEFINITIONS
     JonesMain_OnScreenshotKey=JonesScreenshotTest_OnScreenshotKey
+    JonesScreenshot_WriteBugReport=JonesScreenshotTest_WriteBugReport
 )
 
 target_compile_definitions(jonesScreenshotTests PRIVATE J3D_TEST)

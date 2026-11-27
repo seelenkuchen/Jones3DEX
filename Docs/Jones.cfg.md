@@ -290,10 +290,12 @@ level loads. The Display row applies at once; any other value falls back to `0`.
 ### `engine.debug.flightRecorder`
 
 Presentation only, `true` by default in every build and profile. The display keeps the last 300 presented
-frames (about two seconds at 150 fps) in a GPU ring sized 480 wide with the presented aspect and writes
-them oldest to newest as `frame-0000.bmp`... plus an `index.txt` when the player presses Shift+F12; the
-normal F12 screenshot is still written to `<screenshot>.bmp` and the recorder's frames go to
-`<screenshot>-last2s/`. It costs a present-sized extra present pass per frame plus one small copy pass,
+frames (about two seconds at 150 fps) in a GPU ring sized 480 wide with the presented aspect. Shift+F12
+writes a bug report folder, `report-NNN`, under `JONES3D_REPORT_DIR` or, when that variable is unset or
+empty, under the screenshots directory. The folder holds the recorder's frames oldest to newest as
+`frame-0000.bmp`... plus an `index.txt`, a `report.nds` savegame when saving is allowed, and a `pose.txt`
+with the level, game time, player and camera position and direction, sector and fixed tick rate. The
+normal F12 screenshot is still written to `<screenshot>.bmp`. It costs a present-sized extra present pass per frame plus one small copy pass,
 about 156 MB of video memory for the 480-wide ring at 16:9 (155,520,000 bytes) or 207 MB at 4:3
 (207,360,000 bytes), and one presented-size `Bgra8` scratch target (about 8 MB at 1080p). Read when the
 display opens.
@@ -407,7 +409,7 @@ A connected gamepad is always on and works alongside the keyboard and mouse. The
 | `engine.renderer.fov` | float | `90` | Player Field of view, horizontal degrees at 4:3, `60` to `110` (Options > Display, "Field of view"). `0` or missing keeps the default. Presentation only; the simulation keeps the default visibility frustum. |
 | `engine.sim.fixedTick` | int | `50` (Enhanced), `0` (Retail and QOL-off) | Fixed simulation tick: `0` Off keeps the measured frame time, `50` On runs the simulation at 50 Hz, matching the game's 20 ms physics step. Any other positive value (an old `30`/`60`/`120`) maps to `50`, and a negative value keeps the build's default. Enhanced/QOL builds only: Retail and QOL-off builds ignore the key and always use the measured frame time. On, the game runs `sithUpdate` at the fixed step, draws extra frames by interpolating thing positions/orientations and the camera, and moves the simulation-facing draw work (visibility marks, AI waypoint lasers, polyline updates) onto the tick. Options > Gameplay has an Enhanced-only **Simulation tick** toggle (Off/On at 50 Hz); the value is read at startup, so it applies when the game restarts, not on the next level load. The headless `--fixed-tick <hz>` option overrides it for a run; a headless run without it stays off. |
 | `engine.renderer.frameLimit` | int | `0` | Presentation only (Options > Display, "Frame rate limit": V-Sync, 30, 60, 120, 144, 240 or Unlimited = `0`, `30`, `60`, `120`, `144`, `240` or `-1`). `0` presents with V-Sync. A positive value presents immediately (V-Sync off) and waits after each present until the next frame's wall-clock deadline, so the rate is capped without affecting game time or the simulation. `-1` turns V-Sync off with no cap. The wait is off in headless runs and while a level loads, which keeps its fast path. The Display row applies at once; any other value falls back to `0`. |
-| `engine.debug.flightRecorder` | bool | `true` | Presentation only. Keeps the last 300 presented frames (about 2 s at 150 fps) in 480-wide `Bgra8` GPU targets and writes them on Shift+F12 beside the screenshot; costs one present-sized extra present pass and one copy pass per frame, about 156 MB of video memory for the ring at 16:9 (207 MB at 4:3) plus one presented-size scratch target. Read when the display opens; `false` turns it off. |
+| `engine.debug.flightRecorder` | bool | `true` | Presentation only. Keeps the last 300 presented frames (about 2 s at 150 fps) in 480-wide `Bgra8` GPU targets and writes them on Shift+F12 into a `report-NNN` bug report folder under `JONES3D_REPORT_DIR` (or the screenshots directory when unset), with a savegame and `pose.txt`; costs one present-sized extra present pass and one copy pass per frame, about 156 MB of video memory for the ring at 16:9 (207 MB at 4:3) plus one presented-size scratch target. Read when the display opens; `false` turns it off. |
 | `engine.renderer.fog.enabled` | bool | `true` | Global fog toggle. |
 | `engine.renderer.fog.density` | float | `1.0` | Global fog density multiplier. |
 | `engine.renderer.culling.pvs.enabled` | bool | `true` | Enables PVS sector culling. |

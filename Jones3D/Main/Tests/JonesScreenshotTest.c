@@ -14,7 +14,10 @@
 
 #include <std/General/std.h>
 #include <std/General/stdControl.h>
+#include <std/General/stdFileUtil.h>
+#include <std/General/stdFnames.h>
 #include <std/General/stdKeys.h>
+#include <std/General/stdUtil.h>
 #include <std/Null/stdControlNull.h>
 
 TEST_GROUP(JonesScreenshot);
@@ -22,11 +25,33 @@ TEST_GROUP(JonesScreenshot);
 static tHostServices JonesScreenshotTest_hostServices;
 static size_t JonesScreenshotTest_numScreenshots;
 
+static const char* JonesScreenshotTest_pReportRoot = "JonesScreenshotTest_reports";
+
 void JonesScreenshotTest_OnScreenshotKey(void); // Added: the counting seam of JonesMain_OnScreenshotKey
 
 void JonesScreenshotTest_OnScreenshotKey(void)
 {
     ++JonesScreenshotTest_numScreenshots;
+}
+
+void JonesScreenshotTest_WriteBugReport(void); // Added: the stub seam of JonesScreenshot_WriteBugReport
+
+void JonesScreenshotTest_WriteBugReport(void)
+{
+}
+
+static void JonesScreenshotTest_RemoveReportFolders(void)
+{
+    char aPath[64];
+    for ( unsigned int i = 1u; i <= 3u; ++i )
+    {
+        char aName[32];
+        STD_FORMAT(aName, "report-%03u", i);
+        stdFnames_MakePath(aPath, STD_ARRAYLEN(aPath), JonesScreenshotTest_pReportRoot, aName);
+        stdFileUtil_RmDir(aPath);
+    }
+
+    stdFileUtil_RmDir(JonesScreenshotTest_pReportRoot);
 }
 
 static int J3DAPI JonesScreenshotTest_Print(const char* pFormat, ...)
@@ -80,6 +105,7 @@ TEST_SETUP(JonesScreenshot)
     sithControl_Shutdown();
     sithControl_ResetGlobals();
     JonesScreenshot_ResetGlobals();
+    JonesScreenshotTest_RemoveReportFolders();
 
     TEST_ASSERT_EQUAL_INT(0, sithControl_Startup(0));
     TEST_ASSERT_EQUAL_INT(1, sithControl_Open());
@@ -98,6 +124,7 @@ TEST_TEAR_DOWN(JonesScreenshot)
     sithControl_Shutdown();
     sithControl_ResetGlobals();
     JonesScreenshot_ResetGlobals();
+    JonesScreenshotTest_RemoveReportFolders();
 
     sith_g_pHS = NULL;
     std_g_pHS  = NULL;
@@ -129,7 +156,34 @@ TEST(JonesScreenshot, PressEdgeMakesOneScreenshotAndHoldingDoesNotRepeat)
     TEST_ASSERT_EQUAL_size_t(2u, JonesScreenshotTest_numScreenshots);
 }
 
+TEST(JonesScreenshot, BugReportFolderIsTheFirstFreeReportNumber)
+{
+    char aFolder[64];
+
+    TEST_ASSERT_TRUE(stdFileUtil_MkDir(JonesScreenshotTest_pReportRoot));
+
+    TEST_ASSERT_TRUE(JonesScreenshot_SelectBugReportFolder(JonesScreenshotTest_pReportRoot,
+        aFolder, sizeof(aFolder)));
+    TEST_ASSERT_EQUAL_STRING("JonesScreenshotTest_reports\\report-001", aFolder);
+    TEST_ASSERT_TRUE(stdFileUtil_MkDir(aFolder));
+
+    TEST_ASSERT_TRUE(JonesScreenshot_SelectBugReportFolder(JonesScreenshotTest_pReportRoot,
+        aFolder, sizeof(aFolder)));
+    TEST_ASSERT_EQUAL_STRING("JonesScreenshotTest_reports\\report-002", aFolder);
+    TEST_ASSERT_TRUE(stdFileUtil_MkDir(aFolder));
+
+    TEST_ASSERT_TRUE(JonesScreenshot_SelectBugReportFolder(JonesScreenshotTest_pReportRoot,
+        aFolder, sizeof(aFolder)));
+    TEST_ASSERT_EQUAL_STRING("JonesScreenshotTest_reports\\report-003", aFolder);
+
+    // A buffer the path cannot fit fails rather than truncating the folder name.
+    char aTiny[8];
+    TEST_ASSERT_FALSE(JonesScreenshot_SelectBugReportFolder(JonesScreenshotTest_pReportRoot,
+        aTiny, sizeof(aTiny)));
+}
+
 TEST_GROUP_RUNNER(JonesScreenshot)
 {
     RUN_TEST_CASE(JonesScreenshot, PressEdgeMakesOneScreenshotAndHoldingDoesNotRepeat);
+    RUN_TEST_CASE(JonesScreenshot, BugReportFolderIsTheFirstFreeReportNumber);
 }
