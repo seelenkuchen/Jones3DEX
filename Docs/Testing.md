@@ -509,6 +509,11 @@ records, intro 267,535 and indoor 310,790. Rendering them with `--render gpu` dr
 lavapipe (canyon 32, intro 2,014 and indoor 1,077), including the 2D layer and the intro movie. The
 [M6.7 progress screenshots](References/M6.7/README.md) pair replayed frames with the DX9 references.
 
+The headless Babylon column can write screenshots of chosen presents without a window:
+`Jones3D-headless --render gpu --screenshot-dir <dir> --screenshot-at <n>[,<n>...]` writes
+`<dir>/frame-<n>.bmp` after those presents (present counts, not engine frames), in the same format as
+the windowed build. The options need `--render gpu`; with the default Null device the run exits `1`.
+
 <a name="babylon-render-contract-tests"></a>
 
 #### 🧪 Babylon Render Contract Tests

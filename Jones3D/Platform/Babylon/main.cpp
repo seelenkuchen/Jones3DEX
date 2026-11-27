@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <j3dcore/j3d.h>
 
@@ -23,6 +24,7 @@
 
 #include <std/Babylon/stdBabylon.h>
 #include <std/Babylon/stdBabylonCvars.h>
+#include <std/Babylon/stdBabylonTour.h>
 #include <std/Babylon/stdRenderBabylon.h>
 
 #include <Jones3D/Main/JonesDataLocate.h>
@@ -63,6 +65,58 @@ int main(int argc, char** argv)
     if ( !stdRenderBabylon_TakeRenderOption(&argc, argv, &renderType) )
     {
         fprintf(stderr, "ERROR: Jones3D-headless: --render needs null or gpu!\n");
+        return 1;
+    }
+
+    // Added: the screenshots of chosen presents use the windowed build's scripted tour. Only its two
+    // screenshot options belong here: its full parser also owns --input, which the headless runner
+    // reads as its own script. So build a command line of only those pairs, let the tour validate
+    // them, then take the same pairs out of the real arguments before the runner sees them.
+    std::vector<char*> tourArgs;
+    tourArgs.push_back(argv[0]);
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp(argv[i], "--screenshot-dir") == 0 || strcmp(argv[i], "--screenshot-at") == 0 )
+        {
+            tourArgs.push_back(argv[i]);
+            if ( i + 1 < argc )
+            {
+                tourArgs.push_back(argv[++i]);
+            }
+        }
+    }
+
+    tourArgs.push_back(nullptr);
+
+    StdBabylonTourOptions tourOptions;
+    std::string tourError;
+    int tourArgc = static_cast<int>(tourArgs.size()) - 1;
+    if ( !stdBabylonTour_TakeOptions(&tourArgc, tourArgs.data(), tourOptions, tourError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D-headless: %s\n", tourError.c_str());
+        return 1;
+    }
+
+    int numKept = 1;
+    for ( int i = 1; i < argc; ++i )
+    {
+        if ( strcmp(argv[i], "--screenshot-dir") == 0 || strcmp(argv[i], "--screenshot-at") == 0 )
+        {
+            ++i;
+            continue;
+        }
+
+        argv[numKept++] = argv[i];
+    }
+
+    argv[numKept] = nullptr;
+    argc          = numKept;
+
+    // Added: screenshots read the rendered frame back from the present path, which only the SDL GPU
+    // device draws; the Null device has nothing to write.
+    if ( !tourOptions.screenshotDir.empty() && renderType != StdRenderBabylonDeviceType::Gpu )
+    {
+        fprintf(stderr, "ERROR: Jones3D-headless: --screenshot-dir needs --render gpu!\n");
         return 1;
     }
 
@@ -114,7 +168,19 @@ int main(int argc, char** argv)
     StdBabylonContext context{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform, nullptr, &cvars,
         pRenderDevice.get(), pAudioDevice.get() };
     stdBabylon_SetContext(&context);
+
+    // Added: the headless run has no window, so the tour gets the invalid WindowId (0) and only its
+    // screenshot side is used; the present count and the frame-<n>.bmp writer need no window.
+    if ( !tourOptions.screenshotDir.empty()
+        && !stdBabylonTour_Configure(tourOptions, babylon::platform::WindowId{}, tourError) )
+    {
+        fprintf(stderr, "ERROR: Jones3D-headless: %s\n", tourError.c_str());
+        stdBabylon_SetContext(nullptr);
+        return 1;
+    }
+
     int exitCode = JonesHeadless_Run(argc, argv);
+    stdBabylonTour_Shutdown();
     stdBabylon_SetContext(nullptr);
     return exitCode;
 }

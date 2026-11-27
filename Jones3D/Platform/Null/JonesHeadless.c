@@ -8,7 +8,7 @@
 // behind: the retail mutex, the Win32 signal handler, window creation and the
 // stdWin95 window/instance/Guid registration.
 //
-// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--draw-step <msec>] [--fixed-tick <hz>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n>]
+// Usage: Jones3D-headless [--user-dir <dir>] [--load <save.nds>] [--data <dir>] [--hash-data <dir>] [--frames <n>] [--step <msec>] [--draw-step <msec>] [--fixed-tick <hz>] [--state <file>] [--input <file>] [--capture <file>] [--draw-trace <file>] [--runs <n>] [--screenshot-dir <dir> --screenshot-at <n>[,<n>...]]
 //   --user-dir writes Jones.cfg, logs and savegames in the given directory, created when missing.
 //            The default is "" (the working directory), so headless traces keep today's paths.
 //   --load   answers the load-game dialog once with the given path; needs the
@@ -47,6 +47,10 @@
 //   --render (Babylon column only) the render device std3D draws with: "null" (the default) records
 //            the frames and draws nothing; "gpu" is the SDL GPU device without a window (set
 //            SDL_VIDEO_DRIVER=offscreen where there is no display). The Babylon main() takes it out
+//            of the arguments before they reach JonesHeadless_Run.
+//   --screenshot-dir <dir> --screenshot-at <n>[,<n>...] (Babylon column only, with --render gpu)
+//            writes <dir>/frame-<n>.bmp after the chosen present counts, like the windowed build.
+//            The counts are presents, not engine frames; the Babylon main() takes both options out
 //            of the arguments before they reach JonesHeadless_Run.
 #include <ctype.h>
 #include <stdio.h>
@@ -110,7 +114,7 @@ typedef struct HeadlessInputEvent
 
 // Added: the Babylon column's main() also takes --render (see the usage comment at the top).
 #ifdef J3D_PLATFORM_BABYLON
-#define HEADLESS_RENDER_USAGE " [--render null|gpu, default null]"
+#define HEADLESS_RENDER_USAGE " [--render null|gpu, default null] [--screenshot-dir <dir> --screenshot-at <n>[,<n>...], gpu only]"
 #else
 #define HEADLESS_RENDER_USAGE ""
 #endif
