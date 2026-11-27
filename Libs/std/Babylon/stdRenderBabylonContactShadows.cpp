@@ -32,6 +32,12 @@ namespace
     constexpr float stdRenderBabylon_kContactLightAzimuth = 30.0f; // degrees about the world Z axis
     constexpr float stdRenderBabylon_kContactPi           = 3.14159265358979323846f;
 
+    // Added: M11.6b. The contact-shadow look. The game's scale has Indy about 0.2 view units tall, so
+    // the shadow fades out a few body lengths away rather than across the whole level.
+    constexpr float stdRenderBabylon_kContactShadowStrength  = 0.5f; // 1 - strength is a fully blocked pixel's brightness
+    constexpr float stdRenderBabylon_kContactShadowFadeStart = 2.0f; // view distance where the shadow starts to fade
+    constexpr float stdRenderBabylon_kContactShadowFadeEnd   = 4.0f; // view distance where it is gone
+
     // Added: the contact-shadow stage's scene-sized target, made when its size changes. False,
     // logging why, when it can't be created.
     bool stdRenderBabylon_EnsureContactShadowTargets(uint32_t width, uint32_t height)
@@ -168,6 +174,9 @@ namespace stdRenderBabylonInternal
             nearPlane + 1.0e-3f);
 
         postfx::ContactShadowSettings settings;
+        settings.strength        = stdRenderBabylon_kContactShadowStrength;
+        settings.fadeStart       = stdRenderBabylon_kContactShadowFadeStart;
+        settings.fadeEnd         = stdRenderBabylon_kContactShadowFadeEnd;
         settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
         stdRenderBabylon_state.pPostfxContactShadows->setSettings(settings);
 

@@ -5,6 +5,8 @@
 
 #include "../std3DBabylonInternal.h"
 
+#include <babylon/postfx/ShadowReceiveEffect.h>
+
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -78,17 +80,32 @@ namespace
         std3D_AddShadowCasterPolygon(aPositions, 4u);
     }
 
-    // A closed box around the caster quad, submitted face by face and never drawn. Its camera-facing
-    // faces are not part of the rendered scene, so the shadow under the floor can only come from the
-    // whole model the polygon call carries.
+    // M11.6b. A caster just above the floor at the game's scale, so the receiver is within the
+    // character shadow's new distance fade: 0.2 high and 0.1 beyond the constant-depth floor
+    // (forward 2.0), instead of floating the 1.4 units the old scene used. The shadow falls at
+    // about screen x 30..35, y 40..44.
+    void DrawGroundShadowCasterQuad()
+    {
+        const float aPositions[12] = {
+            0.10f, 2.1f, -0.286f,
+            0.30f, 2.1f, -0.286f,
+            0.30f, 2.1f, -0.086f,
+            0.10f, 2.1f, -0.086f,
+        };
+        std3D_AddShadowCasterPolygon(aPositions, 4u);
+    }
+
+    // A closed box around the ground caster, submitted face by face and never drawn. Its
+    // camera-facing faces are not part of the rendered scene, so the shadow under the floor can only
+    // come from the whole model the polygon call carries.
     void AddClosedBoxShadowCaster()
     {
-        const float x0 = 0.766f;
-        const float x1 = 0.966f;
-        const float y0 = 2.45f;
-        const float y1 = 2.55f;
-        const float z0 = 0.7f;
-        const float z1 = 0.9f;
+        const float x0 = 0.10f;
+        const float x1 = 0.30f;
+        const float y0 = 2.06f;
+        const float y1 = 2.14f;
+        const float z0 = -0.286f;
+        const float z1 = -0.086f;
 
         const float aFaces[6][4][3] = {
             { { x0, y0, z0 }, { x1, y0, z0 }, { x1, y0, z1 }, { x0, y0, z1 } }, // -forward
@@ -111,11 +128,11 @@ namespace
         DrawQuad(nullptr, (Std3DRenderState)0, 0.0f, 0.0f, 64.0f, 64.0f,
             SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), grey);
 
-        DrawShadowCasterQuad();
+        DrawGroundShadowCasterQuad();
 
         // M11.2g. The same caster is also drawn as a visible, caster-flagged quad on the floor in the
         // shadowed region: it casts onto the floor, but its own pixels must not receive the shadow.
-        DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 30.0f, 42.0f, 33.0f, 45.0f,
+        DrawQuad(nullptr, STD3D_RS_SHADOW_CASTER, 31.0f, 41.0f, 34.0f, 44.0f,
             SceneDepthForEyeDepth(2.0f, 0.1f, 100.0f), 0xFFCC3030u);
 
         if ( bSkyAndHud )
@@ -386,6 +403,34 @@ TEST(std3DBabylonGpu, ShadowMapRunsBeforeThePostChainAndReceiveBetweenContactAnd
     TEST_ASSERT_TRUE(ssaoIndex < aPasses.size());
     TEST_ASSERT_TRUE(receiveIndex < ssaoIndex);
     TEST_ASSERT_FALSE(receiveOutput.isNull());
+}
+
+TEST(std3DBabylonGpu, ShadowReceiveEffectGetsTheGentlerCharacterShadowSettings)
+{
+    UseNullDevice();
+    OpenStd3D(kSceneSize, kSceneSize);
+
+    UseShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    SetShadowCamera();
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    DrawShadowScene(false);
+    EndFrame();
+
+    babylon::postfx::ShadowReceiveSettings settings;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetShadowReceiveSettingsForTest(&settings));
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.4f, settings.strength);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.002f, settings.penumbra);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.penumbraPerDistance);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.3f, settings.distanceFadeStart);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 1.0f, settings.distanceFadeEnd);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 3.0f, settings.fadeStart);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 6.0f, settings.fadeEnd);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.03f, settings.minLight);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.25f, settings.fullLight);
+    TEST_ASSERT_EQUAL_UINT32(0x8u, settings.receiverClasses);
 }
 
 TEST(std3DBabylonGpu, ShadowCasterDrawsAreMarkedAndOthersAreNot)
@@ -668,15 +713,15 @@ TEST(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud)
     const std::vector<std::byte> on = CapturePresented(kSceneSize, kSceneSize);
 
     // The floor below the caster (the light comes from +x, +up and +forward) darkens.
-    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
-    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 28u, 42u, 36u, 49u);
+    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 29u, 39u, 36u, 45u);
+    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 29u, 39u, 36u, 45u);
     std::printf("M11.2d character shadows: floor below the caster %.2f off, %.2f on\n",
         (double)offShadow, (double)onShadow);
     TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);
 
     // M11.2g. The visible caster casts onto the floor but does not receive its own shadow: its
     // interior pixels are the shadows-off image.
-    const size_t casterPixel = ((size_t)43u * kSceneSize + 31u) * 4u;
+    const size_t casterPixel = ((size_t)42u * kSceneSize + 32u) * 4u;
     for ( size_t channel = 0; channel < 4u; ++channel )
     {
         TEST_ASSERT_EQUAL_INT((int)off[casterPixel + channel], (int)on[casterPixel + channel]);
@@ -721,8 +766,8 @@ TEST(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor)
     const std::vector<std::byte> on = CapturePresented(kSceneSize, kSceneSize);
 
     // The whole closed box casts, so the floor below it darkens even though no caster face is drawn.
-    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
-    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 28u, 42u, 36u, 49u);
+    const float offShadow = SsaoMeanBrightness(off, kSceneSize, 29u, 39u, 36u, 45u);
+    const float onShadow  = SsaoMeanBrightness(on, kSceneSize, 29u, 39u, 36u, 45u);
     std::printf("M11.2e closed-box caster: floor below it %.2f off, %.2f on\n",
         (double)offShadow, (double)onShadow);
     TEST_ASSERT_TRUE(onShadow < offShadow - 1.0f);

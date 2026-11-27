@@ -32,6 +32,19 @@ using namespace stdRenderBabylonInternal;
 
 namespace
 {
+    // Added: M11.6b. The character-shadow receive look. The game's scale has Indy about 0.2 view
+    // units tall, so the fades are a few body lengths: the penumbra widens with the receiver's gap
+    // behind the caster, and the shadow is gone before the level's far geometry.
+    constexpr float stdRenderBabylon_kCharacterShadowStrength            = 0.4f;   // 1 - strength is a fully shadowed pixel's brightness
+    constexpr float stdRenderBabylon_kCharacterShadowPenumbra            = 0.002f; // view units: minimum soft edge
+    constexpr float stdRenderBabylon_kCharacterShadowPenumbraPerDistance = 0.03f;  // extra view units per view unit behind the map
+    constexpr float stdRenderBabylon_kCharacterShadowDistanceFadeStart   = 0.3f;   // view units behind the map's far side where the fade starts
+    constexpr float stdRenderBabylon_kCharacterShadowDistanceFadeEnd     = 1.0f;   // where the shadow behind the caster is gone
+    constexpr float stdRenderBabylon_kCharacterShadowFadeStart           = 3.0f;   // view distance where the shadow starts to fade
+    constexpr float stdRenderBabylon_kCharacterShadowFadeEnd             = 6.0f;   // view distance where it is gone
+    constexpr float stdRenderBabylon_kCharacterShadowMinLight            = 0.03f;  // luminance below which no shadow applies
+    constexpr float stdRenderBabylon_kCharacterShadowFullLight           = 0.25f;  // luminance at which the full shadow applies
+
     // Added: the character-shadow stage's resources: the Babylon shadow map and postfx receive
     // effect, made when the frame owner opens or the option turns on. False, logging nothing again,
     // when they are unavailable or the setup already failed.
@@ -228,7 +241,16 @@ namespace stdRenderBabylonInternal
             nearPlane + 1.0e-3f);
 
         postfx::ShadowReceiveSettings settings;
-        settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
+        settings.strength            = stdRenderBabylon_kCharacterShadowStrength;
+        settings.penumbra            = stdRenderBabylon_kCharacterShadowPenumbra;
+        settings.penumbraPerDistance = stdRenderBabylon_kCharacterShadowPenumbraPerDistance;
+        settings.distanceFadeStart   = stdRenderBabylon_kCharacterShadowDistanceFadeStart;
+        settings.distanceFadeEnd     = stdRenderBabylon_kCharacterShadowDistanceFadeEnd;
+        settings.fadeStart           = stdRenderBabylon_kCharacterShadowFadeStart;
+        settings.fadeEnd             = stdRenderBabylon_kCharacterShadowFadeEnd;
+        settings.minLight            = stdRenderBabylon_kCharacterShadowMinLight;
+        settings.fullLight           = stdRenderBabylon_kCharacterShadowFullLight;
+        settings.receiverClasses     = 0x8; // only ordinary surfaces, class 3 of the surface tags
         stdRenderBabylon_state.pPostfxShadowReceive->setSettings(settings);
 
         postfx::ShadowMapInput shadowMap;
@@ -300,3 +322,18 @@ bool stdRenderBabylon_GetShadows()
 {
     return stdRenderBabylon_state.bShadows;
 }
+
+#ifdef J3D_TEST
+bool stdRenderBabylon_GetShadowReceiveSettingsForTest(postfx::ShadowReceiveSettings* pSettings)
+{
+    if ( !stdRenderBabylon_state.pPostfxShadowReceive )
+    {
+        return false;
+    }
+    if ( pSettings )
+    {
+        *pSettings = stdRenderBabylon_state.pPostfxShadowReceive->settings();
+    }
+    return true;
+}
+#endif
