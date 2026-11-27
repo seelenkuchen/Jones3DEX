@@ -537,6 +537,7 @@ babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 namespace babylon::postfx
 {
     struct ShadowReceiveSettings;
+    struct ContactShadowSettings;
 }
 bool stdRenderBabylon_GetShadowReceiveSettingsForTest(babylon::postfx::ShadowReceiveSettings* pSettings);
 
@@ -573,6 +574,13 @@ bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalf
 // the light. Returns false for a null matrix. Production builds don't compile it.
 bool stdRenderBabylon_GetContactLightDirectionForTest(const float aCamera[12], float* pX,
     float* pY, float* pZ);
+
+// Added: test-only. Reads back the settings the contact-shadow stage applies, through the effect's
+// settings() getter. Returns false when the contact-shadow effect is unavailable. Production
+// builds don't compile it.
+bool stdRenderBabylon_GetContactShadowSettingsForTest(
+    babylon::postfx::ContactShadowSettings* pSettings);
+
 // Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
 // whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
 // Returns false without such a submit. Production builds don't compile it.

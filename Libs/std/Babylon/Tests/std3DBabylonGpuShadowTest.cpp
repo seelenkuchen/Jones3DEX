@@ -202,11 +202,12 @@ namespace
     }
 
     // M11.2i. The caster scene for a camera whose view light points toward the camera. The box front
-    // stands farther in front of the floor, so the ray from the caster toward that light still lands
-    // behind the box and the contact shadow reaches the caster's pixels.
+    // stands closer in front of the floor, within the shorter M11.7c contact ray, so the ray from the
+    // caster toward that light still lands behind the box and the contact shadow reaches the caster's
+    // pixels.
     void DrawContactShadowReceiverScene()
     {
-        DrawContactShadowCasterScene(0.46f);
+        DrawContactShadowCasterScene(0.49f);
     }
 
     struct RecordedPass

@@ -92,5 +92,7 @@ profile and QOL-off builds keep the original blob shadow.
   sharp and reaching too far. The character receive passes strength `0.4`, a `0.002`-view-unit minimum penumbra
   that grows by `0.03` per unit behind the caster, a `0.3`..`1.0`-unit fade behind the map, a `3`..`6`-view-unit
   distance fade and a `0.03`..`0.25` luminance gate; contact shadows pass strength `0.5` and a `2`..`4`-view-unit
-  distance fade. These are presentation constants in the adapter, tuned at the game's scale, where Indy is about
-  `0.2` units tall.
+  distance fade. M11.7c narrows that contact ray to `0.04` view units with a `0.02`-unit sample thickness, down
+  from Babylon's `0.2` and `0.04` defaults, which reached a whole character height and made large,
+  view-dependent patches. These are presentation constants in the adapter, tuned at the game's scale, where Indy
+  is about `0.2` units tall.

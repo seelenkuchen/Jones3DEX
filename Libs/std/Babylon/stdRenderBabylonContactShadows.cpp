@@ -38,6 +38,13 @@ namespace
     constexpr float stdRenderBabylon_kContactShadowFadeStart = 2.0f; // view distance where the shadow starts to fade
     constexpr float stdRenderBabylon_kContactShadowFadeEnd   = 4.0f; // view distance where it is gone
 
+    // Added: M11.7c. The ray length and depth sample thickness in view units. Babylon's defaults,
+    // 0.2 and 0.04, reached a whole character height and made large, view-dependent dark patches as
+    // the camera moved; at the game's scale (Indy about 0.2 view units tall) they stay at real
+    // contact range instead.
+    constexpr float stdRenderBabylon_kContactShadowLength    = 0.04f; // ray length in view units
+    constexpr float stdRenderBabylon_kContactShadowThickness = 0.02f; // depth sample this far in front still blocks
+
     // Added: the contact-shadow stage's scene-sized target, made when its size changes. False,
     // logging why, when it can't be created.
     bool stdRenderBabylon_EnsureContactShadowTargets(uint32_t width, uint32_t height)
@@ -175,6 +182,8 @@ namespace stdRenderBabylonInternal
 
         postfx::ContactShadowSettings settings;
         settings.strength        = stdRenderBabylon_kContactShadowStrength;
+        settings.length          = stdRenderBabylon_kContactShadowLength;
+        settings.thickness       = stdRenderBabylon_kContactShadowThickness;
         settings.fadeStart       = stdRenderBabylon_kContactShadowFadeStart;
         settings.fadeEnd         = stdRenderBabylon_kContactShadowFadeEnd;
         settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
@@ -265,6 +274,19 @@ bool stdRenderBabylon_GetContactLightDirectionForTest(const float aCamera[12], f
     if ( pZ )
     {
         *pZ = aDirection[2];
+    }
+    return true;
+}
+
+bool stdRenderBabylon_GetContactShadowSettingsForTest(postfx::ContactShadowSettings* pSettings)
+{
+    if ( !stdRenderBabylon_state.pPostfxContactShadows )
+    {
+        return false;
+    }
+    if ( pSettings )
+    {
+        *pSettings = stdRenderBabylon_state.pPostfxContactShadows->settings();
     }
     return true;
 }
