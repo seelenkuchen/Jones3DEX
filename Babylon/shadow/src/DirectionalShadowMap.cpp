@@ -138,10 +138,10 @@ namespace
         pipelineDesc.depth.compare            = render::CompareOp::LessOrEqual;
         pipelineDesc.depth.depthBiasConstant  = desc.depthBiasConstant;
         pipelineDesc.depth.depthBiasSlope     = desc.depthBiasSlope;
-        // Casters between the light and the fitted near plane (beyond
-        // staticReach, or in front of a static-only fit) must still occlude:
-        // clamped depth 0 keeps them in the map.
-        pipelineDesc.depthClip                = false;
+        // Clamping keeps a caster between the light and the fitted near plane
+        // (beyond staticReach, or in front of a static-only fit) in the map at
+        // depth 0; without it the near plane clips that caster away.
+        pipelineDesc.depthClip                = !desc.clampCastersToNearPlane;
         pipelineDesc.cull                     = render::CullMode::None;
         m_pipeline = m_device.createPipeline(pipelineDesc);
         if ( m_pipeline.isNull() )

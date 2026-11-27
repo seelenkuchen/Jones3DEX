@@ -323,6 +323,63 @@ TEST_CASE("Static casters within and beyond staticReach both cast (GPU)")
     CHECK(sink.records().empty());
 }
 
+TEST_CASE("With clamping off a caster beyond staticReach is clipped (GPU)")
+{
+    babylon::render::test::keepGpuDriverLoaded();
+    babylon::log::CaptureSink sink;
+    const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+    if ( device == nullptr )
+    {
+        babylon::render::test::noGpuDevice("no GPU device: " + joined(sink));
+        return;
+    }
+
+    DirectionalShadowMap map(*device);
+    ShadowMapDesc desc;
+    desc.size = kSize;
+    desc.clampCastersToNearPlane = false;
+    if ( !map.open(desc) )
+    {
+        babylon::render::test::noGpuDevice("no sampled depth format: " + joined(sink));
+        return;
+    }
+    REQUIRE(map.isOpen());
+
+    // Same batches as the clamping default case: the dynamic casters leave
+    // the center free, and the ledge is in front of the fit's near plane.
+    const std::vector<float> dynamicVertices = edgeCasters();
+    StaticCasterSet beyond(*device);
+    REQUIRE(beyond.upload(ledgeVertices(desc.staticReach + 5.0f)));
+
+    const TextureHandle receive = device->createTexture(TextureDesc{ kSize, kSize, 1,
+        TextureFormat::Rgba8, TextureUsage::ColorTarget });
+    REQUIRE_FALSE(receive.isNull());
+
+    PipelineDesc receiveDesc;
+    receiveDesc.vertexShader   = babylon::shadow::test::shaders::shadowReceiveVert();
+    receiveDesc.fragmentShader = babylon::shadow::test::shaders::shadowReceiveFrag();
+    receiveDesc.colorTargets   = { ColorTargetDesc{ TextureFormat::Rgba8, {} } };
+    const PipelineHandle receivePipeline = device->createPipeline(receiveDesc);
+    REQUIRE_FALSE(receivePipeline.isNull());
+
+    const std::vector<std::byte> pixels = renderShadowFrame(*device, map, receive,
+        receivePipeline, dynamicVertices, &beyond);
+    REQUIRE(pixels.size() == static_cast<std::size_t>(kSize) * kSize * 4u);
+    CHECK(map.isValid());
+
+    // The ledge is clipped by the near plane, so the center stays lit. The
+    // dynamic casters at the x edges are within the fit and still shadow.
+    CHECK(redAt(pixels, kSize / 2, 205) > 191);
+    CHECK(redAt(pixels, 38, 205) < 64);
+    CHECK(redAt(pixels, 217, 205) < 64);
+
+    device->destroyPipeline(receivePipeline);
+    device->destroyTexture(receive);
+
+    INFO("captured log: " << joined(sink));
+    CHECK(sink.records().empty());
+}
+
 TEST_CASE("A fit-only caster fits the map but leaves no shadow of its own (GPU)")
 {
     babylon::render::test::keepGpuDriverLoaded();

@@ -316,6 +316,24 @@ TEST_CASE("record fits the light, uploads once and draws the casters")
     }
 }
 
+TEST_CASE("open maps clampCastersToNearPlane onto the caster pipeline")
+{
+    for ( const bool clamp : { true, false } )
+    {
+        const std::unique_ptr<NullDevice> device = createNullDevice();
+        DirectionalShadowMap map(*device);
+        ShadowMapDesc desc;
+        desc.size = kMapSize;
+        desc.clampCastersToNearPlane = clamp;
+        INFO("clampCastersToNearPlane = " << clamp);
+        REQUIRE(map.open(desc));
+
+        const PipelineCreated* const created = findCreatedPipeline(device->recorded());
+        REQUIRE(created != nullptr);
+        CHECK(created->desc.depthClip == !clamp);
+    }
+}
+
 TEST_CASE("record draws a static batch from its set without uploading it")
 {
     const std::unique_ptr<NullDevice> device = createNullDevice();
