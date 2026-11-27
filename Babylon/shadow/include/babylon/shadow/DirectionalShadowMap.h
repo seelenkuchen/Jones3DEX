@@ -40,6 +40,13 @@ namespace babylon::shadow
         // range spends depth precision over a larger span, so a D32F map is
         // recommended.
         float staticReach = 20.0f;
+
+        // World-space up axis used by the world-anchored fit (see
+        // setViewToWorld()), default +Z. The x/y light basis is built around
+        // this fixed axis, so a camera rotation no longer turns the texel
+        // grid. It need not be normalized; when it is parallel to the light,
+        // another world axis is used. Unused without setViewToWorld().
+        float worldUp[3] = { 0.0f, 0.0f, 1.0f };
     };
 
     // One triangle list of casters: three float3 positions per triangle, no
@@ -63,8 +70,9 @@ namespace babylon::shadow
     };
 
     // A depth map rendered from a directional light around a set of casters,
-    // all in the camera's view space (x right, y up, z forward). open() makes
-    // the depth texture, the depth-only caster pipeline, the comparison
+    // all in the camera's view space (x right, y up, z forward);
+    // setViewToWorld() anchors the light fit in the world instead. open()
+    // makes the depth texture, the depth-only caster pipeline, the comparison
     // sampler and the vertex buffer; record() fits the light around the union
     // of the per-frame batches (fit-only ones included), uploads the drawn
     // per-frame ones once and draws every drawn batch (the static ones from
@@ -113,6 +121,24 @@ namespace babylon::shadow
         [[nodiscard]] bool record(render::CommandList& list, const float towardLight[3],
             std::span<const CasterBatch> casters, float margin = 0.05f);
 
+        // Switches record() to the world-anchored fit. viewToWorld maps the
+        // view space of record()'s casters and towardLight into the world: the
+        // light basis is built from the world-space light direction and
+        // desc.worldUp, the casters' view-space bounds are transformed through
+        // viewToWorld, and the light-space origin is snapped to whole texels
+        // in that fixed basis. A pure camera rotation therefore leaves a fixed
+        // caster's light fit unchanged. viewToShadowTexture() and the caster
+        // transforms still map from view space, so callers keep passing
+        // view-space positions. viewToWorld must be affine (w = 1); its
+        // rotation part converts towardLight. Without this call (or after
+        // clearViewToWorld()), record() keeps the original view-relative fit
+        // exactly.
+        void setViewToWorld(const Matrix4& viewToWorld);
+
+        // Returns to the view-relative fit. A safe no-op when not
+        // world-anchored.
+        void clearViewToWorld();
+
         bool isValid() const;                        // last record() succeeded
         render::TextureHandle texture() const;       // the depth map
         render::SamplerHandle compareSampler() const; // linear comparison sampler (LessOrEqual), clamp
@@ -136,8 +162,11 @@ namespace babylon::shadow
         std::uint64_t m_vertexCapacityBytes = 0;
         Matrix4 m_viewToShadowClip{};
         Matrix4 m_viewToShadowTexture{};
+        Matrix4 m_viewToWorld{};
+        float m_worldUp[3] = { 0.0f, 0.0f, 1.0f };
         std::uint32_t m_size = 0;
         float m_staticReach = 0.0f;
+        bool m_worldAnchored = false;
         bool m_open = false;
         bool m_valid = false;
         bool m_failureWarned = false;

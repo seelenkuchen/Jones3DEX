@@ -661,6 +661,98 @@ namespace
         CHECK(wrong == 0);
     }
 
+    // What one depth-clip scene rendered, or whether its caster pipeline was
+    // refused.
+    struct DepthClipResult
+    {
+        Image image;
+        bool pipelineBuilt = false;
+    };
+
+    // Draws a full-screen caster quad with its top edge at z=-0.5 (in front of
+    // the near plane) and bottom edge at z=+0.5 into a depth-only target, then
+    // a white receiver at z=0.99 with LESS. Where the caster wrote depth below
+    // 0.99 the receiver is cut and the target stays black; where the near
+    // plane clipped the caster, the cleared depth 1 lets it through.
+    DepthClipResult drawDepthClip(Device& device, bool depthClip)
+    {
+        DepthClipResult result;
+        const TextureHandle target = colorTarget(device);
+        const TextureHandle depth = device.createTexture(TextureDesc{ kSize, kSize, 1,
+            TextureFormat::D32F, TextureUsage::DepthTarget });
+        REQUIRE_FALSE(depth.isNull());
+
+        const std::vector<ShadowCasterVertex> caster = {
+            { -1.0f, 1.0f, -0.5f }, { 1.0f, 1.0f, -0.5f }, { -1.0f, -1.0f, 0.5f },
+            { -1.0f, -1.0f, 0.5f }, { 1.0f, 1.0f, -0.5f }, { 1.0f, -1.0f, 0.5f },
+        };
+        const BufferHandle casterBuffer = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(caster.size() * sizeof(ShadowCasterVertex)),
+            BufferUsage::Vertex });
+        REQUIRE_FALSE(casterBuffer.isNull());
+        REQUIRE(device.uploadBuffer(casterBuffer, 0, bytesOf(caster)));
+
+        PipelineDesc casterDesc;
+        casterDesc.vertexShader = shaders::shadowcastVert();
+        casterDesc.fragmentShader = shaders::shadowcastFrag();
+        casterDesc.vertexLayout.bufferStrides = { sizeof(ShadowCasterVertex) };
+        casterDesc.vertexLayout.attributes = {
+            VertexAttribute{ 0, 0, VertexFormat::Float3, 0 },
+        };
+        casterDesc.depthFormat = TextureFormat::D32F;
+        casterDesc.depth = DepthState{ true, true, CompareOp::LessOrEqual };
+        casterDesc.depthClip = depthClip;
+        const PipelineHandle casterPipeline = device.createPipeline(casterDesc);
+        if ( casterPipeline.isNull() )
+        {
+            device.destroyBuffer(casterBuffer);
+            device.destroyTexture(depth);
+            device.destroyTexture(target);
+            return result;
+        }
+
+        std::vector<ColorVertex> receiver;
+        appendQuad(receiver, -1.0f, -1.0f, 1.0f, 1.0f, 0.99f, kWhite);
+        const BufferHandle receiverBuffer = device.createBuffer(BufferDesc{
+            static_cast<std::uint32_t>(receiver.size() * sizeof(ColorVertex)),
+            BufferUsage::Vertex });
+        REQUIRE_FALSE(receiverBuffer.isNull());
+        REQUIRE(device.uploadBuffer(receiverBuffer, 0, bytesOf(receiver)));
+        const PipelineHandle receiverPipeline = device.createPipeline(colorPipeline(true));
+        REQUIRE_FALSE(receiverPipeline.isNull());
+
+        CommandList list = device.beginFrame();
+        PassDesc depthPass;
+        depthPass.depthTarget = DepthAttachment{ depth, LoadOp::Clear, StoreOp::Store, 1.0f, 0 };
+        REQUIRE(list.beginPass(depthPass));
+        list.setPipeline(casterPipeline);
+        list.bindVertexBuffer(0, casterBuffer);
+        list.draw(6);
+        REQUIRE(list.endPass());
+
+        PassDesc colorPass;
+        colorPass.colorTargets = { ColorAttachment{ target, 0, LoadOp::Clear, StoreOp::Store,
+            ClearColor{ 0.0f, 0.0f, 0.0f, 1.0f } } };
+        colorPass.depthTarget = DepthAttachment{ depth, LoadOp::Load, StoreOp::DontCare };
+        REQUIRE(list.beginPass(colorPass));
+        list.setPipeline(receiverPipeline);
+        list.bindVertexBuffer(0, receiverBuffer);
+        list.draw(6);
+        REQUIRE(list.endPass());
+        REQUIRE(device.submit(list));
+
+        result.image.bytes = device.readTexture(target, 0);
+        result.pipelineBuilt = true;
+
+        device.destroyPipeline(receiverPipeline);
+        device.destroyPipeline(casterPipeline);
+        device.destroyBuffer(receiverBuffer);
+        device.destroyBuffer(casterBuffer);
+        device.destroyTexture(depth);
+        device.destroyTexture(target);
+        return result;
+    }
+
     // The Null device records each pipeline creation, then every submitted
     // command as it was recorded, then the frame's end.
     void checkNullRecord(const NullDevice& device, const Drawn& drawn)
@@ -958,6 +1050,48 @@ TEST_CASE("SDL GPU depth bias moves a shadow caster behind the comparison")
     // everywhere.
     checkImage(layerOne, [](std::uint32_t, std::uint32_t) { return kWhite; }, 0);
     checkImage(layerZero, [](std::uint32_t, std::uint32_t) { return kWhite; }, 0);
+}
+
+TEST_CASE("SDL GPU clamps depth instead of clipping when depth clip is off")
+{
+    test::keepGpuDriverLoaded();
+    CaptureSink sink;
+    const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+    if ( device == nullptr )
+    {
+        test::noGpuDevice("no GPU device: " + joined(sink));
+        return;
+    }
+
+    // SDL3 GPU has no capability query for depth clamping, so creating the
+    // no-clip pipeline is the check: a driver that can't disable clipping
+    // refuses it.
+    const DepthClipResult unclipped = drawDepthClip(*device, false);
+    if ( !unclipped.pipelineBuilt )
+    {
+        MESSAGE("skipped, the device can't disable depth clipping: " << joined(sink));
+        return;
+    }
+    const DepthClipResult clipped = drawDepthClip(*device, true);
+    REQUIRE(clipped.pipelineBuilt);
+
+    INFO("captured log: " << joined(sink));
+    // Clamp: the whole quad rasterizes. Its top half writes the clamped depth
+    // 0 and its bottom half at most 0.5, so the receiver at 0.99 is cut
+    // everywhere and the target keeps its black clear.
+    checkImage(unclipped.image, [](std::uint32_t, std::uint32_t) { return kBlack; }, 0);
+    // SDL's D3D12 backend always clamps, even with depth clip enabled
+    // (SDL_gpu.h), so there is no cut to observe there.
+    if ( device->info().backend.find("d3d12") != std::string::npos )
+    {
+        MESSAGE("skipped the clip assertion, SDL's D3D12 backend always clamps");
+        return;
+    }
+    // Clip: the top half lies in front of the near plane and is cut, leaving
+    // the clear depth 1, so the receiver there draws white; the bottom half is
+    // still in front of the receiver and stays black.
+    checkImage(clipped.image, [](std::uint32_t, std::uint32_t y) {
+        return y < kSize / 2 ? kWhite : kBlack; }, 0);
 }
 
 namespace
