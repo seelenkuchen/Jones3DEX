@@ -7,6 +7,8 @@
 // suites; each case here sets what it needs.
 #include "std3DBabylonTestSupport.h"
 
+#include "../stdRenderBabylonInternal.h"
+
 #include <std/Babylon/stdBabylonEvents.h>
 #include <std/Babylon/stdDisplayBabylonInternal.h>
 
@@ -62,6 +64,18 @@ namespace
             }
         }
         return count;
+    }
+
+    uint32_t RecorderHeight(uint32_t sourceWidth, uint32_t sourceHeight)
+    {
+        uint64_t height = ((uint64_t)stdDisplayBabylonInternal::stdDisplay_kFlightRecorderWidth
+            * sourceHeight + sourceWidth / 2u) / sourceWidth;
+        if ( height == 0u )
+        {
+            height = 1u;
+        }
+        height = (height + 1u) & ~uint64_t(1u);
+        return (uint32_t)height;
     }
 
     uint32_t BmpWidth(const std::vector<uint8_t>& bmp)
@@ -171,6 +185,12 @@ TEST_TEAR_DOWN(std3DBabylonFlightRecorder)
     std3D_ResetGlobals();
     stdDisplay_ResetGlobals();
     DropDevice();
+    if ( StdBabylonContext* pContext = stdBabylon_GetContext() )
+    {
+        pContext->pWindow = nullptr;
+    }
+    std3DBabylonGpuTest_pWindow.reset();
+    std3DBabylonGpuTest_pPlatform.reset();
     RemoveRecorderFiles();
     stdDisplayBabylonInternal::stdDisplay_FlightRecorderSetEnabledForTest(false);
     StdGeneralTest_Shutdown();
@@ -209,8 +229,9 @@ TEST(std3DBabylonFlightRecorder, OnKeepsThePresentsOldestToNewest)
         TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
     }
 
-    // A normal present and a capture present per frame, and the ring made on first use.
-    TEST_ASSERT_EQUAL_size_t(6u, CountSubmitted(Null()));
+    // Three submits per frame: the normal present, the present-sized capture, and the copy into
+    // the ring slot. The ring is made on first use.
+    TEST_ASSERT_EQUAL_size_t(9u, CountSubmitted(Null()));
     TEST_ASSERT_EQUAL_size_t(stdDisplayBabylonInternal::stdDisplay_kFlightRecorderFrames,
         stdDisplayBabylonInternal::stdDisplay_FlightRecorderGetTextureCountForTest());
 
@@ -221,15 +242,17 @@ TEST(std3DBabylonFlightRecorder, OnKeepsThePresentsOldestToNewest)
     TEST_ASSERT_EQUAL_STRING(
         "frame-0000.bmp, 0\nframe-0001.bmp, 1\nframe-0002.bmp, 2\n", indexText.c_str());
 
+    const uint32_t expectedWidth  = stdDisplayBabylonInternal::stdDisplay_kFlightRecorderWidth;
+    const uint32_t expectedHeight = RecorderHeight(4u, 2u);
     for ( size_t i = 0; i < 3u; ++i )
     {
         char aName[64];
         std::snprintf(aName, sizeof(aName), "%s/frame-%04zu.bmp", kRecorderDir, i);
         const std::vector<uint8_t> bmp = ReadBmp(aName);
-        TEST_ASSERT_EQUAL_UINT32(640u, BmpWidth(bmp));
-        TEST_ASSERT_EQUAL_UINT32(320u, BmpHeight(bmp));
-        const size_t stride = ((size_t)640u * 3u + 3u) & ~size_t(3u);
-        TEST_ASSERT_EQUAL_size_t(54u + stride * 320u, bmp.size());
+        TEST_ASSERT_EQUAL_UINT32(expectedWidth, BmpWidth(bmp));
+        TEST_ASSERT_EQUAL_UINT32(expectedHeight, BmpHeight(bmp));
+        const size_t stride = ((size_t)expectedWidth * 3u + 3u) & ~size_t(3u);
+        TEST_ASSERT_EQUAL_size_t(54u + stride * expectedHeight, bmp.size());
     }
 
     TEST_ASSERT_FALSE(std::filesystem::exists((std::string(kRecorderDir) + "/frame-0003.bmp").c_str()));
@@ -295,6 +318,53 @@ TEST(std3DBabylonFlightRecorder, SaveFailsAndLogsForAnUnwritableDirectory)
     TEST_ASSERT_FALSE(aMessages.empty());
 }
 
+TEST(std3DBabylonFlightRecorder, CapturingDoesNotResizeTheSharedPresentTargets)
+{
+    // The display is 64 x 48 while the recorder's ring is 480 wide (480 x 360 here). Before
+    // M11.7d's fix the capture asked for the ring size too and recreated the shared SMAA,
+    // sharpening and camera-effect targets every frame; that destroy/create racing the GPU is what
+    // crashed. The present-sized scratch keeps them at 64 x 48 and stable over the following
+    // frames.
+    OpenHeadless(64u, 48u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.3f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+
+    using namespace stdRenderBabylonInternal;
+    stdDisplayBabylonInternal::stdDisplay_FlightRecorderSetEnabledForTest(true);
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+
+    const render::TextureHandle casTarget  = stdRenderBabylon_state.casSourceTarget;
+    const render::TextureHandle fxTarget   = stdRenderBabylon_state.fxSourceTarget;
+    const render::TextureHandle smaaTarget = stdRenderBabylon_state.smaaColorTarget;
+    TEST_ASSERT_FALSE(casTarget.isNull());
+    TEST_ASSERT_FALSE(fxTarget.isNull());
+    TEST_ASSERT_FALSE(smaaTarget.isNull());
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.casWidth);
+    TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.casHeight);
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.fxWidth);
+    TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.fxHeight);
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.smaaWidth);
+    TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.smaaHeight);
+
+    for ( int i = 0; i < 9; ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+        TEST_ASSERT_TRUE(stdRenderBabylon_state.casSourceTarget == casTarget);
+        TEST_ASSERT_TRUE(stdRenderBabylon_state.fxSourceTarget == fxTarget);
+        TEST_ASSERT_TRUE(stdRenderBabylon_state.smaaColorTarget == smaaTarget);
+        TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.casWidth);
+        TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.casHeight);
+        TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.fxWidth);
+        TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.fxHeight);
+        TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.smaaWidth);
+        TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.smaaHeight);
+    }
+
+    TEST_ASSERT_EQUAL_size_t(stdDisplayBabylonInternal::stdDisplay_kFlightRecorderFrames,
+        stdDisplayBabylonInternal::stdDisplay_FlightRecorderGetTextureCountForTest());
+}
+
 TEST(std3DBabylonFlightRecorder, ShiftF12WritesTheRecorderBesideTheScreenshot)
 {
     OpenHeadless(4u, 2u);
@@ -316,6 +386,70 @@ TEST(std3DBabylonFlightRecorder, ShiftF12WritesTheRecorderBesideTheScreenshot)
         babylon::platform::Key::LeftShift, false, false });
     TEST_ASSERT_EQUAL_INT(0, stdDisplay_SaveScreen(kShotPath));
     TEST_ASSERT_FALSE(std::filesystem::exists(kShotRecorderDir));
+}
+
+TEST(std3DBabylonFlightRecorder, GpuWindowCapturesKeepTheSharedPresentSize)
+{
+    // The same check with a real swapchain: a normal present and the capture both run at the
+    // window's 64 x 48, while the ring is 480 wide (480 x 360 here).
+    std3DBabylonGpuTest_pPlatform = babylon::platform::createSdlPlatform();
+    if ( !std3DBabylonGpuTest_pPlatform )
+    {
+        if ( GpuRequired() )
+        {
+            TEST_FAIL_MESSAGE("no SDL platform although BABYLON_REQUIRE_GPU=1");
+        }
+        TEST_IGNORE_MESSAGE("no SDL platform");
+    }
+
+    std3DBabylonGpuTest_pWindow = std3DBabylonGpuTest_pPlatform->createWindow(
+        babylon::platform::WindowDesc{ "std3DBabylonFlightRecorder", { 64, 48 } });
+    TEST_ASSERT_NOT_NULL(std3DBabylonGpuTest_pWindow.get());
+    UseDevice(CreateGpuDevice(std3DBabylonGpuTest_pWindow.get()));
+    if ( !std3DBabylonTest_pDevice )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+    TEST_ASSERT_TRUE(std3DBabylonTest_pDevice->info().hasSwapchain);
+
+    StdBabylonContext* pContext = stdBabylon_GetContext();
+    TEST_ASSERT_NOT_NULL(pContext);
+    pContext->pWindow = std3DBabylonGpuTest_pWindow.get();
+
+    OpenHeadless(64u, 48u);
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetAntiAliasing(true));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetSharpening(0.3f));
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetVignette(true));
+    stdDisplayBabylonInternal::stdDisplay_FlightRecorderSetEnabledForTest(true);
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+
+    using namespace stdRenderBabylonInternal;
+    const render::TextureHandle casTarget  = stdRenderBabylon_state.casSourceTarget;
+    const render::TextureHandle fxTarget   = stdRenderBabylon_state.fxSourceTarget;
+    const render::TextureHandle smaaTarget = stdRenderBabylon_state.smaaColorTarget;
+    TEST_ASSERT_FALSE(casTarget.isNull());
+    TEST_ASSERT_FALSE(fxTarget.isNull());
+    TEST_ASSERT_FALSE(smaaTarget.isNull());
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.casWidth);
+    TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.casHeight);
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.fxWidth);
+    TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.fxHeight);
+    TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.smaaWidth);
+    TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.smaaHeight);
+
+    for ( int i = 0; i < 9; ++i )
+    {
+        TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+        TEST_ASSERT_TRUE(stdRenderBabylon_state.casSourceTarget == casTarget);
+        TEST_ASSERT_TRUE(stdRenderBabylon_state.fxSourceTarget == fxTarget);
+        TEST_ASSERT_TRUE(stdRenderBabylon_state.smaaColorTarget == smaaTarget);
+        TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.casWidth);
+        TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.casHeight);
+        TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.fxWidth);
+        TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.fxHeight);
+        TEST_ASSERT_EQUAL_UINT32(64u, stdRenderBabylon_state.smaaWidth);
+        TEST_ASSERT_EQUAL_UINT32(48u, stdRenderBabylon_state.smaaHeight);
+    }
 }
 
 TEST(std3DBabylonFlightRecorder, GpuWritesThePresentedColoursInOrder)
@@ -355,8 +489,9 @@ TEST(std3DBabylonFlightRecorder, GpuWritesThePresentedColoursInOrder)
         char aName[64];
         std::snprintf(aName, sizeof(aName), "%s/frame-%04zu.bmp", kRecorderDir, i);
         const std::vector<uint8_t> bmp = ReadBmp(aName);
-        TEST_ASSERT_EQUAL_UINT32(640u, BmpWidth(bmp));
-        TEST_ASSERT_EQUAL_UINT32(320u, BmpHeight(bmp));
+        TEST_ASSERT_EQUAL_UINT32(stdDisplayBabylonInternal::stdDisplay_kFlightRecorderWidth,
+            BmpWidth(bmp));
+        TEST_ASSERT_EQUAL_UINT32(RecorderHeight(4u, 2u), BmpHeight(bmp));
 
         uint8_t blue  = 0;
         uint8_t green = 0;
@@ -377,6 +512,8 @@ TEST_GROUP_RUNNER(std3DBabylonFlightRecorder)
     RUN_TEST_CASE(std3DBabylonFlightRecorder, OnKeepsThePresentsOldestToNewest);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, ConfigReadsTheKeyWhenTheDisplayOpens);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, SaveFailsAndLogsForAnUnwritableDirectory);
+    RUN_TEST_CASE(std3DBabylonFlightRecorder, CapturingDoesNotResizeTheSharedPresentTargets);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, ShiftF12WritesTheRecorderBesideTheScreenshot);
+    RUN_TEST_CASE(std3DBabylonFlightRecorder, GpuWindowCapturesKeepTheSharedPresentSize);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, GpuWritesThePresentedColoursInOrder);
 }

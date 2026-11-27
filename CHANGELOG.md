@@ -12,9 +12,10 @@
     unchanged.
   - Vignette and film grain are now drawn by the Babylon Engine's new post-processing module; they look the same
     as before.
-  - **Flight recorder** (`engine.debug.flightRecorder`, on by default): Shift+F12 writes the last ~2 seconds of
-    presented frames beside the screenshot as `<screenshot>-last2s/`, for a glitch a screen recording drops. It
-    costs one extra 640-wide present pass per frame and about 111 MB of video memory at 16:9.
+  - **Flight recorder** (`engine.debug.flightRecorder`, on by default): Shift+F12 writes the last ~2 seconds at
+    150 fps (300 frames) beside the screenshot as `<screenshot>-last2s/`, for a glitch a screen recording
+    drops. It costs a present-sized extra present pass and one copy pass per frame, about 156 MB of video
+    memory for the 480-wide ring at 16:9, and one presented-size scratch target.
 
 ## Jones3D EX 0.6.0-alpha
 ### M10: Lighting

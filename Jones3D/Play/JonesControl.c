@@ -3,6 +3,7 @@
 #include <Jones3D/Display/jonesConfig.h>
 #include <Jones3D/Display/JonesConsole.h>
 #include <Jones3D/Main/JonesMain.h>
+#include <Jones3D/Main/JonesScreenshot.h>
 
 #include <sith/Devices/sithControl.h>
 #include <sith/Gameplay/sithPlayerControls.h>
@@ -20,6 +21,7 @@ void JonesControl_ResetGlobals(void)
 {
     JonesControl_bStartup = false; // Added: a second run must register its callbacks again
     JonesControl_joystickChangeCount = 0; // Added
+    JonesScreenshot_ResetGlobals(); // Added
 }
 
 int JonesControl_Startup(void)
@@ -234,10 +236,14 @@ static void JonesControl_UpdateJoystickBindings(void)
 
 int J3DAPI JonesControl_ProcessControls(SithThing* pPlayer, float secDeltaTime)
 {
-    J3D_UNUSED(secDeltaTime);
+    (void)secDeltaTime;
 
     // Added: gamepads added or removed after startup take effect at the next control update.
     JonesControl_UpdateJoystickBindings();
+
+    // Fixed: the removed Win32 window procedure called JonesMain_OnScreenshotKey on VK_F12; poll
+    //        the bound control before the game's other key handling, on the press edge only.
+    JonesScreenshot_ProcessKey();
 
     if ( (pPlayer->thingInfo.actorInfo.flags & SITH_AF_CONTROLSDISABLED) != 0 || JonesConsole_g_bVisible )
     {

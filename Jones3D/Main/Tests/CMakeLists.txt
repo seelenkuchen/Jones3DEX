@@ -40,6 +40,56 @@ set_tests_properties(Jones3D.Capture PROPERTIES
     TIMEOUT 60
 )
 
+# Added: the F12 screenshot hotkey (JonesScreenshot.c). The module is compiled with a counting
+# JonesMain_OnScreenshotKey, and the real sithControl key state comes from the column's scripted
+# stdControl device, so a press, a held key and a release are checked without game assets.
+add_executable(jonesScreenshotTests
+    JonesScreenshotTestRunner.c
+    JonesScreenshotTest.c
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesScreenshot.c"
+)
+
+target_include_directories(jonesScreenshotTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
+
+set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../JonesScreenshot.c" PROPERTY COMPILE_DEFINITIONS
+    JonesMain_OnScreenshotKey=JonesScreenshotTest_OnScreenshotKey
+)
+
+target_compile_definitions(jonesScreenshotTests PRIVATE J3D_TEST)
+
+set(STDBABYLON_TEST_MAIN_DIR "${CMAKE_SOURCE_DIR}/Libs/std/Babylon")
+std_use_babylon_test_main(jonesScreenshotTests "${CMAKE_CURRENT_SOURCE_DIR}/JonesScreenshotTestRunner.c")
+
+if (APPLE OR MSVC)
+    target_link_libraries(jonesScreenshotTests PRIVATE
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+    )
+else()
+    target_link_libraries(jonesScreenshotTests PRIVATE
+        -Wl,--start-group
+        ${JONES3D_CAPTURE_TEST_LIBS}
+        unity
+        -Wl,--end-group
+        m
+    )
+endif()
+
+set_target_properties(jonesScreenshotTests PROPERTIES
+    FOLDER "Tests/Jones3D"
+)
+
+source_group("Tests" FILES
+    JonesScreenshotTestRunner.c
+    JonesScreenshotTest.c
+)
+
+add_test(NAME Jones3D.Screenshot COMMAND jonesScreenshotTests)
+set_tests_properties(Jones3D.Screenshot PROPERTIES
+    LABELS "unit;Jones3D"
+    TIMEOUT 60
+)
+
 # Added: the game data check (ADR-0021, M8.3). It is plain C and needs no platform, so its test
 # links the module directly, like jonesCaptureTests above.
 add_executable(jonesDataTests
