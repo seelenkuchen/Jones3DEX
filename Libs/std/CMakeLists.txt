@@ -75,6 +75,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonTextures.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonBackBuffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonFlightRecorder.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonFramePacing.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonModes.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonScreenshot.cpp"
