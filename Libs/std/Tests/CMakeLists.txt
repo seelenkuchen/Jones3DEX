@@ -266,11 +266,14 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/std3DBabylonTextures.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylon.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonBackBuffer.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonFlightRecorder.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonFramePacing.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonModes.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonScreenshot.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdDisplayBabylonVBuffer.cpp"
         "${STD_BABYLON_SOURCE_DIR}/stdBabylonTour.cpp"
+        # Added: the display's Shift+F12 trigger reads the shared key state this pump owns.
+        "${STD_BABYLON_SOURCE_DIR}/stdBabylonEvents.cpp"
     )
 
     add_executable(std3DBabylonTests
@@ -291,6 +294,7 @@ if (J3D_PLATFORM_BABYLON)
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuSsaoMotionTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonGpuShaftsCameraFxTest.cpp"
         "${STD_BABYLON_SOURCE_DIR}/Tests/stdDisplayBabylonTest.cpp"
+        "${STD_BABYLON_SOURCE_DIR}/Tests/std3DBabylonFlightRecorderTest.cpp"
         ${STD3D_BABYLON_TESTED_SOURCES}
     )
 

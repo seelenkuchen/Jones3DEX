@@ -74,6 +74,9 @@ This is the stable contract the rest of the gameplay code consumes.
 - [`sithControl_RegisterJoystickBindings()`](../../../Libs/sith/Devices/sithControl.c#L815)
 - [`sithControl_RegisterMouseBindings()`](../../../Libs/sith/Devices/sithControl.c#L842)
 
+F12 (`SITHCONTROL_SCREENSHOT`) writes a screenshot; holding Shift when it fires also writes the
+flight recorder's last ~2 seconds beside it as `<screenshot>-last2s/`.
+
 Architecturally, the defaults are still data baked into code rather than an external action-map asset. The runtime config system changes where those bindings are stored and reloaded, but the underlying action model is still the original one.
 
 ## Platform Device Layer

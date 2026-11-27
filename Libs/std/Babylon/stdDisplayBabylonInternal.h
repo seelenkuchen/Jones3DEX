@@ -24,6 +24,11 @@ namespace stdDisplayBabylonInternal
     inline constexpr uint32_t stdDisplay_kDefaultHeight = 480u;
     inline constexpr size_t stdDisplay_kMaxVideoModes   = 64u;
 
+    // Added: the flight recorder's ring of presented frames, and the engine key that turns it off.
+    inline constexpr size_t stdDisplay_kFlightRecorderFrames     = 120u;
+    inline constexpr uint32_t stdDisplay_kFlightRecorderWidth    = 640u;
+    inline constexpr const char* stdDisplay_kFlightRecorderKey   = "engine.debug.flightRecorder";
+
     struct StdDisplayBabylonState
     {
         bool bStartup    = false;
@@ -82,4 +87,28 @@ namespace stdDisplayBabylonInternal
     int stdDisplay_VBufferLockInternal(tVBuffer* pVBuffer, bool bReadOnly);
     int stdDisplay_ClampFrameLimit(int frameLimit);
     void stdDisplay_ApplyFramePacing();
+
+    // Added: the flight recorder. Open reads engine.debug.flightRecorder and frees any ring left
+    // from a previous run; Close frees the ring; Capture records the just-presented frame into the
+    // ring, creating or resizing it on first use or when the presented size changes.
+    void stdDisplay_FlightRecorderOpen();
+    void stdDisplay_FlightRecorderClose();
+    void stdDisplay_FlightRecorderCapture();
+
+    // The BGRA8 BMP writer shared with stdDisplay_SaveScreen's overlay capture.
+    int stdDisplay_WriteBgraBmp(const char* pFilename, const uint8_t* pBgra,
+        uint32_t width, uint32_t height);
+
+#ifdef J3D_TEST
+    // Test-only: forces the flight recorder on or off until cleared, regardless of the config.
+    // The shared std3D test main turns it off so the other display tests keep their present streams.
+    void stdDisplay_FlightRecorderSetEnabledForTest(bool bEnabled);
+    void stdDisplay_FlightRecorderClearEnabledForTest();
+    bool stdDisplay_FlightRecorderIsEnabledForTest();
+    size_t stdDisplay_FlightRecorderGetTextureCountForTest();
+#endif
 }
+
+// Added: writes the flight recorder's ring oldest to newest as frame-0000.bmp and index.txt into
+// pDirectory, which is created when missing. False, with a log line, on any failure.
+bool stdDisplay_SaveFlightRecorder(const char* pDirectory);

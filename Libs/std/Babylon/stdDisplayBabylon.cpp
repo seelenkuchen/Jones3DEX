@@ -186,6 +186,7 @@ int J3DAPI stdDisplay_Open(size_t deviceNum)
 
     stdDisplay_state.curDevice = deviceNum;
     stdDisplay_EnumerateVideoModes();
+    stdDisplay_FlightRecorderOpen();
     stdDisplay_state.bOpen = true;
     stdDisplay_ApplyFramePacing();
     return 1;
@@ -233,6 +234,7 @@ void stdDisplay_Close(void)
         static_cast<void>(stdDisplay_state.pDevice->setPresentMode(render::PresentMode::Vsync));
     }
 
+    stdDisplay_FlightRecorderClose();
     stdRenderBabylon_Close();
 
     stdDisplay_state.curDevice = 0;
@@ -282,6 +284,9 @@ int stdDisplay_Update(void)
         STDLOG_ERROR("Error when presenting the frame.\n");
         return 1;
     }
+
+    // Added: keep the presented frame in the flight recorder's GPU ring, without a readback.
+    stdDisplay_FlightRecorderCapture();
 
     // Added: the scripted tour counts every presented frame, logs it, and asks for the BMP of a
     // requested present after it has been presented.

@@ -23,9 +23,13 @@
 #include <cstring>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
+#include <babylon/platform/Keys.h>
+
 #include "stdBabylon.h"
+#include "stdBabylonEvents.h"
 #include "stdBabylonTour.h"
 #include "stdDisplayBabylon.h"
 #include "stdRenderBabylon.h"
@@ -135,7 +139,10 @@ namespace
         std_g_pHS->pFileClose(fh);
         return result;
     }
+}
 
+namespace stdDisplayBabylonInternal
+{
     // A 24-bit BMP of Bgra8 pixels, rows top first in pBgra: the same file the back buffer writer
     // makes, for a capture that is not the back buffer. 0 on success, 1 on failure.
     int stdDisplay_WriteBgraBmp(const char* pFilename, const uint8_t* pBgra,
@@ -194,7 +201,10 @@ namespace
         std_g_pHS->pFileClose(fh);
         return result;
     }
+}
 
+namespace
+{
     // The window-sized frame including the present overlay, for a screenshot of a menu. False when
     // the target cannot be made or the capture fails; the caller falls back to the back buffer.
     bool stdDisplay_TrySaveOverlayBmp(const char* pFilename, uint32_t width, uint32_t height)
@@ -232,6 +242,34 @@ namespace
         pContext->pRenderDevice->destroyTexture(target);
         return ok;
     }
+
+    // Added: Shift+F12 writes the flight recorder beside the normal screenshot, in a sibling
+    // directory named after the screenshot file without its extension plus "-last2s". Shift is read
+    // from the adapter's shared keyboard state, the same snapshot stdControl reads.
+    void stdDisplay_SaveFlightRecorderIfShiftHeld(const char* pScreenshotPath)
+    {
+        const babylon::input::InputState& rInputState = stdBabylonEvents_InputState();
+        if ( !rInputState.keyDown(babylon::platform::Key::LeftShift)
+            && !rInputState.keyDown(babylon::platform::Key::RightShift) )
+        {
+            return;
+        }
+
+        std::string aDirectory(pScreenshotPath);
+        const size_t separator = aDirectory.find_last_of("/\\");
+        const size_t dot       = aDirectory.find_last_of('.');
+        if ( dot != std::string::npos && (separator == std::string::npos || dot > separator) )
+        {
+            aDirectory.erase(dot);
+        }
+        aDirectory += "-last2s";
+
+        if ( !stdDisplay_SaveFlightRecorder(aDirectory.c_str()) )
+        {
+            STDLOG_WARNING("stdDisplay: could not write the flight recorder to '%s'.\n",
+                aDirectory.c_str());
+        }
+    }
 }
 
 int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
@@ -240,6 +278,8 @@ int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
     {
         return 1;
     }
+
+    int result = 1;
 
     // Added: menus and the HUD prompt record onto the swapchain, which a back-buffer read cannot
     // see. While either overlay is installed, save the window-sized frame including them in the
@@ -254,10 +294,16 @@ int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
                 && stdDisplay_TrySaveOverlayBmp(pFilename, (uint32_t)size.width,
                     (uint32_t)size.height) )
             {
-                return 0;
+                result = 0;
             }
         }
     }
 
-    return stdDisplay_WriteBackBufferBmp(pFilename);
+    if ( result != 0 )
+    {
+        result = stdDisplay_WriteBackBufferBmp(pFilename);
+    }
+
+    stdDisplay_SaveFlightRecorderIfShiftHeld(pFilename);
+    return result;
 }
