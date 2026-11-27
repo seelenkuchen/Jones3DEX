@@ -751,6 +751,12 @@ TEST(stdDisplayBabylon, SoftwareVBuffersFillAndConvertByteExact)
 
 TEST(stdDisplayBabylon, SaveScreenWritesTheBackBufferAsBmp)
 {
+    // A window without an overlay keeps the back-buffer path.
+    stdDisplayBabylonTest_pWindow = stdDisplayBabylonTest_platform.createWindow(
+        babylon::platform::WindowDesc{ "test", { 20, 10 } });
+    TEST_ASSERT_NOT_NULL(stdDisplayBabylonTest_pWindow.get());
+    Context().pWindow = stdDisplayBabylonTest_pWindow.get();
+
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_Startup());
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_Open(0u));
     TEST_ASSERT_EQUAL_INT(1, stdDisplay_SaveScreen(kScreenshotPath)); // no mode
@@ -776,6 +782,36 @@ TEST(stdDisplayBabylon, SaveScreenWritesTheBackBufferAsBmp)
         0x30, 0x20, 0x10, 0x30, 0x20, 0x10, 0x30, 0x20, 0x10, 0, 0, 0, // bottom row
         0xC0, 0xB0, 0xA0, 0x30, 0x20, 0x10, 0x30, 0x20, 0x10, 0, 0, 0, // top row
     };
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(aRows, bmp.data() + 54u, 24u);
+}
+
+TEST(stdDisplayBabylon, SaveScreenWithoutAWindowWritesThePresentedFrame)
+{
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Startup());
+    TEST_ASSERT_EQUAL_INT(1, stdDisplay_Open(0u));
+    stdDisplay_SetDefaultResolution(3u, 2u);
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SetMode(0u, 0, 1u));
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_BackBufferFill(0x00102030u, nullptr));
+    const StdRect topLeft = { 0, 0, 1, 1 };
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_BackBufferFill(0x00A0B0C0u, &topLeft));
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
+
+    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SaveScreen(kScreenshotPath));
+    std::ifstream file(kScreenshotPath, std::ios::binary);
+    const std::vector<uint8_t> bmp((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+
+    // Without a window the presented frame is saved at the back buffer's size.
+    TEST_ASSERT_EQUAL_size_t(54u + 24u, bmp.size());
+    const uint8_t aHeader[54] = {
+        'B', 'M', 78, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
+        40, 0, 0, 0, 3, 0, 0, 0, 2, 0, 0, 0, 1, 0, 24, 0, 0, 0, 0, 0, 24, 0, 0, 0,
+        0x12, 0x0B, 0, 0, 0x12, 0x0B, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(aHeader, bmp.data(), 54u);
+
+    // The Null device does not rasterize the final pass, so the presented frame keeps the zeroed
+    // texture it was captured from: the rows are not the back buffer's fill.
+    const uint8_t aRows[24] = {};
     TEST_ASSERT_EQUAL_HEX8_ARRAY(aRows, bmp.data() + 54u, 24u);
 }
 
@@ -877,6 +913,7 @@ TEST_GROUP_RUNNER(stdDisplayBabylon)
     RUN_TEST_CASE(stdDisplayBabylon, PartialFillsUseDX9Rects);
     RUN_TEST_CASE(stdDisplayBabylon, SoftwareVBuffersFillAndConvertByteExact);
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenWritesTheBackBufferAsBmp);
+    RUN_TEST_CASE(stdDisplayBabylon, SaveScreenWithoutAWindowWritesThePresentedFrame);
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenCapturesTheWindowWithThePresentOverlay);
     RUN_TEST_CASE(stdDisplayBabylon, SaveScreenCapturesTheWindowWithTheHudOverlay);
     RUN_TEST_CASE(stdDisplayBabylon, UpdateSubmitsTheScenesStd3DRecorded);

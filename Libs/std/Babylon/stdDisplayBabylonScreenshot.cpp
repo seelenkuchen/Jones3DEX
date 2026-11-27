@@ -299,6 +299,20 @@ int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
         }
     }
 
+    // Without a window (the headless GPU run) save the composed present frame at the back buffer's
+    // size: the CPU copy of the back buffer is only read back when a 2D draw needs it, so it can
+    // hold an old frame.
+    StdBabylonContext* pHeadlessContext = stdBabylon_GetContext();
+    if ( result != 0 && (!pHeadlessContext || !pHeadlessContext->pWindow) )
+    {
+        const uint32_t width  = (uint32_t)stdDisplay_g_backBuffer.rasterInfo.width;
+        const uint32_t height = (uint32_t)stdDisplay_g_backBuffer.rasterInfo.height;
+        if ( width > 0 && height > 0 && stdDisplay_TrySaveOverlayBmp(pFilename, width, height) )
+        {
+            result = 0;
+        }
+    }
+
     if ( result != 0 )
     {
         result = stdDisplay_WriteBackBufferBmp(pFilename);
