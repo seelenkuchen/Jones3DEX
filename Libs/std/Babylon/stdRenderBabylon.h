@@ -318,6 +318,27 @@ int stdRenderBabylon_GetSsao();
 bool stdRenderBabylon_SetContactShadows(bool bEnabled);
 bool stdRenderBabylon_GetContactShadows();
 
+// Added: the built-in character-shadow stage over the HDR scene, after the contact shadows and
+// before the ambient-occlusion stage, so ambient occlusion and every later stage read its result.
+// Casters are all faces of the models of SITH_TF_SHADOW things (including faces turned away from the
+// camera): rdModel3 passes them in camera space through std3D_AddShadowCasterPolygon, before
+// back-face culling and clipping. Babylon's shadow module renders them into a 2048 overhead shadow
+// map fitted around them, and Babylon's postfx `ShadowReceiveEffect` (ADR-0041, ADR-0043) darkens the
+// ordinary surfaces (the normal target's alpha is the ordinary surface tag, class 3) whose path to
+// the same fixed overhead light is blocked. Things outside the view frustum do not cast yet. The
+// light is the M11.1 light, 35 degrees from vertical and 30 degrees in azimuth in the Z-up world,
+// converted to the shader camera's view space from the transform given to std3D_SetCameraTransform;
+// without a camera transform, without casters, or when the map fails, the stage is skipped for that
+// frame and its image is byte-identical. `std3D_DrawsThingShadows` reports it so the game can skip
+// the original blob shadow while it is on; when it is off or could not be set up the blob stays.
+// Sky-tagged, water-tagged, empty and the 0..0.1 first-person overlay pixels are returned unchanged,
+// as are the HUD, 2D layer, menus and prompts. A setter before the frame owner is open fails, logging
+// why; closing frees the stage's target, the map and the effect's resources. Opening reads
+// engine.renderer.shadows (default on in Enhanced builds, off in Retail/QOL-off ones); this setter
+// changes it until the next open.
+bool stdRenderBabylon_SetShadows(bool bEnabled);
+bool stdRenderBabylon_GetShadows();
+
 // Added: the built-in camera motion-blur stage over the HDR scene, after the ambient-occlusion
 // stage and before depth of field. level is 0 (Off), 1 (Low), 2 (Medium) or 3 (High); each level's
 // tap count, shutter fraction and maximum blur length (a fraction of the output height) live with
@@ -444,6 +465,12 @@ bool stdRenderBabylon_HasHudOverlay();
 // screenshots of the window, including the overlay a menu records on the swapchain. Returns false,
 // logging why, when not open, without a back buffer, while a frame is being recorded, or when the
 // device refuses the frame.
+//
+// Added: width and height must be the size the real present uses (the window's drawable size, or
+// the back buffer without a window). The capture sizes the shared SMAA, sharpening and camera-effect
+// targets to them, so a different size destroys and recreates those targets; that is safe for a
+// one-off screenshot or a test with no present in flight, never for a per-frame caller. The flight
+// recorder renders at the present size and scales the result down into its own ring afterwards.
 bool stdRenderBabylon_RenderPresentToTexture(babylon::render::TextureHandle target,
     std::uint32_t width, std::uint32_t height);
 
@@ -510,6 +537,26 @@ size_t stdRenderBabylon_GetNumPostPasses();
 babylon::render::TextureHandle stdRenderBabylon_GetPresentSource();
 
 #ifdef J3D_TEST
+// Added: test-only. Reads back the settings the character-shadow receive pass applies, through the
+// effect's settings() getter. Returns false when the receive effect is unavailable. Production
+// builds don't compile it.
+namespace babylon::postfx
+{
+    struct ShadowReceiveSettings;
+    struct ContactShadowSettings;
+}
+bool stdRenderBabylon_GetShadowReceiveSettingsForTest(babylon::postfx::ShadowReceiveSettings* pSettings);
+
+// Added: test-only. Writes the character-shadow map's view-to-shadow-texture matrix after a
+// presenting submit. Returns false when the map has not recorded a frame. Production builds don't
+// compile it.
+namespace babylon::shadow
+{
+    struct Matrix4;
+}
+bool stdRenderBabylon_GetShadowMapViewToShadowForTest(
+    babylon::shadow::Matrix4* pViewToShadowTexture);
+
 // Test-only: makes the next stdRenderBabylon_Open use the pre-M9.3 presentation so a test can
 // compare both paths in one run: a Bgra8 scene color target and the plain present pass, without the
 // tone map. It resets after that Open, and production builds don't compile the declaration.
@@ -533,6 +580,13 @@ bool stdRenderBabylon_GetSsaoProjectionForTest(float* pTanHalfX, float* pTanHalf
 // the light. Returns false for a null matrix. Production builds don't compile it.
 bool stdRenderBabylon_GetContactLightDirectionForTest(const float aCamera[12], float* pX,
     float* pY, float* pZ);
+
+// Added: test-only. Reads back the settings the contact-shadow stage applies, through the effect's
+// settings() getter. Returns false when the contact-shadow effect is unavailable. Production
+// builds don't compile it.
+bool stdRenderBabylon_GetContactShadowSettingsForTest(
+    babylon::postfx::ContactShadowSettings* pSettings);
+
 // Added: test-only. Reads the 1 x 1 light position and smoothed strength a presenting submit left,
 // whether they came from the light-shaft stage or from the lens-flare stage's mask reduction.
 // Returns false without such a submit. Production builds don't compile it.

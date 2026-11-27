@@ -58,3 +58,41 @@ profile and QOL-off builds keep the original blob shadow.
 - Shadow quality costs GPU time per shadow map and light; the options row (Shadows: Classic, Off, On) and the
   light cap bound it.
 - The blob shadow remains the Retail look and the fallback when shadows are off or unsupported.
+
+## Amendment (2026-11-26, M11.1 and M11.2)
+
+- **Light:** 35 degrees from vertical at azimuth 30 degrees in the Z-up world, converted to view space from the
+  camera basis each frame; reviewed by the owner with the M11.1 screenshots.
+- **Character shadows work in view space, not world space** (item 3). Model vertices already reach rdroid in
+  the camera's space: `rdModel3_DrawMesh` passes every face of a shadow-casting model in camera space through
+  `std3D_AddShadowCasterPolygon`, including faces turned away from the camera, before back-face culling and
+  clipping. The adapter fans each polygon into triangles and converts it to the postfx view convention, and the
+  receive pass reconstructs view positions from depth. So the overhead map is an orthographic light view fitted
+  around the casters' view-space bounds, and no world-space submission is needed for characters. Level geometry
+  (item 4) still needs a world-space upload in M11.3.
+- **Casters** are the things that get the original blob shadow (`SITH_TF_SHADOW`): rdroid marks their faces with
+  `RD_FF_SHADOW_CASTER`, and while `engine.renderer.shadows` is on `rdModel3_DrawMesh` sends all of the model's
+  faces, not only the camera-visible ones, through `std3D_AddShadowCasterPolygon`. Things outside the view frustum
+  do not cast yet. `STD3D_RS_SHADOW_CASTER` stays for M11.3's receiver mask, and `std3D_DrawsThingShadows` tells
+  sithRender to skip the blob; Retail and QOL-off keep the blob.
+- **Where the code lives:** `babylon::shadow::DirectionalShadowMap` and `babylon::postfx::ContactShadowEffect` /
+  `ShadowReceiveEffect` (ADR-0043); the adapter collects casters and orders the stages (water, contact shadows,
+  character shadows, SSAO).
+- **Characters cast but do not receive (M11.2g).** After the scene pass and before the receive pass, the adapter
+  re-draws the frame's scene draws marked `STD3D_RS_SHADOW_CASTER` with their own vertex and index buffers,
+  ranges and vertex shaders against the scene depth target, read-only, into a scene-sized mask cleared to 0. A
+  fragment that passes the depth test writes 1, so the mask marks a caster's own visible surface. The receive
+  pass samples it as `ShadowMapInput::excludeMask`: masked pixels keep their exact input colour, so the hat's
+  shadow stays off the face below it while the character still casts onto the scene. The stage runs only when
+  the frame's map was recorded and a caster draw was collected; otherwise the receive pass gets no mask.
+- **M11.3 reuses the mask inverted.** The same re-draw against the scene depth, with the mask test inverted,
+  gives the pixels that are not a level caster, so level geometry can cast onto characters without doubling
+  the shadows already baked into the level.
+- **M11.6b gentler character and contact shadows.** The owner's play-test found the shadows too strong, razor
+  sharp and reaching too far. The character receive passes strength `0.4`, a `0.002`-view-unit minimum penumbra
+  that grows by `0.03` per unit behind the caster, a `0.3`..`1.0`-unit fade behind the map, a `3`..`6`-view-unit
+  distance fade and a `0.03`..`0.25` luminance gate; contact shadows pass strength `0.5` and a `2`..`4`-view-unit
+  distance fade. M11.7c narrows that contact ray to `0.04` view units with a `0.02`-unit sample thickness, down
+  from Babylon's `0.2` and `0.04` defaults, which reached a whole character height and made large,
+  view-dependent patches. These are presentation constants in the adapter, tuned at the game's scale, where Indy
+  is about `0.2` units tall.

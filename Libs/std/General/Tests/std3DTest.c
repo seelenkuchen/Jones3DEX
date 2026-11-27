@@ -72,6 +72,7 @@ TEST(std3D, TestPublicEnumAndRenderStateValues)
     TEST_ASSERT_EQUAL_UINT32(0x00010000u, STD3D_RS_TEXFILTER_ANISOTROPIC);
     TEST_ASSERT_EQUAL_UINT32(0x00020000u, STD3D_RS_SURFACE_SKY);
     TEST_ASSERT_EQUAL_UINT32(0x00040000u, STD3D_RS_SURFACE_WATER);
+    TEST_ASSERT_EQUAL_UINT32(0x00080000u, STD3D_RS_SHADOW_CASTER);
 }
 
 TEST(std3D, TestDevice3DPublicFieldsAcceptFeatureLimits)
@@ -198,6 +199,18 @@ TEST(std3D, TestHudLayerCallsAreNoOps)
     std3D_EndScene();
 }
 
+// Added: shadow-caster polygons are presentation-only, so the Null backend ignores valid and invalid
+// calls alike without touching any state.
+TEST(std3D, TestShadowCasterPolygonIsANoOp)
+{
+    const float aPositions[9] = { 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f };
+
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    std3D_AddShadowCasterPolygon(aPositions, 3u);
+    std3D_AddShadowCasterPolygon(NULL, 0u);
+    std3D_EndScene();
+}
+
 TEST_GROUP_RUNNER(std3D)
 {
     RUN_TEST_CASE(std3D, TestPublicLimitsAndConfigKeys);
@@ -208,4 +221,5 @@ TEST_GROUP_RUNNER(std3D)
     RUN_TEST_CASE(std3D, TestEmptyTextureState);
     RUN_TEST_CASE(std3D, TestClearSystemTextureReleasesMipBuffers);
     RUN_TEST_CASE(std3D, TestHudLayerCallsAreNoOps);
+    RUN_TEST_CASE(std3D, TestShadowCasterPolygonIsANoOp);
 }

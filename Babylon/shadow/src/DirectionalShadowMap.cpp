@@ -5,6 +5,8 @@
 
 #include <babylon/shadow/DirectionalShadowMap.h>
 
+#include <babylon/shadow/StaticCasterSet.h>
+
 #include <babylon/render/Buffer.h>
 #include <babylon/render/CommandList.h>
 #include <babylon/render/Device.h>
@@ -37,6 +39,35 @@ namespace
 
     constexpr render::TextureUsage kDepthUsage =
         render::TextureUsage::DepthTarget | render::TextureUsage::Sampled;
+
+    // True when the batch needs no transform. Passing the fit directly keeps
+    // its exact bits, which a multiply by identity would change for a signed
+    // zero.
+    bool isIdentity(const Matrix4& matrix)
+    {
+        const Matrix4 identityMatrix = identity();
+        for ( int index = 0; index < 16; ++index )
+        {
+            if ( matrix.m[index] != identityMatrix.m[index] )
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // The light direction in world space: viewToWorld's rotation applied to a
+    // view-space direction.
+    void worldLightOf(const Matrix4& viewToWorld, const float towardLight[3],
+        float worldLight[3])
+    {
+        for ( int row = 0; row < 3; ++row )
+        {
+            worldLight[row] = viewToWorld.m[row * 4 + 0] * towardLight[0]
+                + viewToWorld.m[row * 4 + 1] * towardLight[1]
+                + viewToWorld.m[row * 4 + 2] * towardLight[2];
+        }
+    }
 
 }
 
@@ -107,6 +138,10 @@ namespace
         pipelineDesc.depth.compare            = render::CompareOp::LessOrEqual;
         pipelineDesc.depth.depthBiasConstant  = desc.depthBiasConstant;
         pipelineDesc.depth.depthBiasSlope     = desc.depthBiasSlope;
+        // Clamping keeps a caster between the light and the fitted near plane
+        // (beyond staticReach, or in front of a static-only fit) in the map at
+        // depth 0; without it the near plane clips that caster away.
+        pipelineDesc.depthClip                = !desc.clampCastersToNearPlane;
         pipelineDesc.cull                     = render::CullMode::None;
         m_pipeline = m_device.createPipeline(pipelineDesc);
         if ( m_pipeline.isNull() )
@@ -146,6 +181,10 @@ namespace
         }
 
         m_size = desc.size;
+        m_staticReach = desc.staticReach;
+        m_worldUp[0] = desc.worldUp[0];
+        m_worldUp[1] = desc.worldUp[1];
+        m_worldUp[2] = desc.worldUp[2];
         m_valid = false;
         m_failureWarned = false;
         return true;
@@ -182,7 +221,13 @@ namespace
         m_vertexCapacityBytes = 0;
         m_viewToShadowClip    = {};
         m_viewToShadowTexture = {};
+        m_viewToWorld         = {};
+        m_worldUp[0]          = 0.0f;
+        m_worldUp[1]          = 0.0f;
+        m_worldUp[2]          = 1.0f;
         m_size                = 0;
+        m_staticReach         = 0.0f;
+        m_worldAnchored       = false;
         m_open                = false;
         m_valid               = false;
         m_failureWarned       = false;
@@ -191,6 +236,18 @@ namespace
     bool DirectionalShadowMap::isOpen() const
     {
         return m_open;
+    }
+
+    void DirectionalShadowMap::setViewToWorld(const Matrix4& viewToWorld)
+    {
+        m_viewToWorld = viewToWorld;
+        m_worldAnchored = true;
+    }
+
+    void DirectionalShadowMap::clearViewToWorld()
+    {
+        m_viewToWorld = {};
+        m_worldAnchored = false;
     }
 
     bool DirectionalShadowMap::record(render::CommandList& list, const float towardLight[3],
@@ -209,9 +266,30 @@ namespace
             return failRecord("the light direction is missing");
         }
 
-        std::uint64_t totalVertices = 0;
+        // Static sets draw from their own buffers already on the GPU. Every
+        // per-frame batch is fitted; only the drawn ones are uploaded.
+        std::uint64_t totalVertices  = 0;
+        std::uint64_t uploadVertices = 0;
+        bool hasStaticBatch          = false;
         for ( const CasterBatch& batch : casters )
         {
+            if ( batch.pStatic != nullptr )
+            {
+                if ( batch.pPositions != nullptr )
+                {
+                    return failRecord("a static caster batch also has positions");
+                }
+                if ( batch.fitOnly )
+                {
+                    return failRecord("a static caster batch is fit-only");
+                }
+                if ( batch.pStatic->numVertices() != 0 && batch.pStatic->buffer().isNull() )
+                {
+                    return failRecord("a static caster set has no buffer");
+                }
+                hasStaticBatch = true;
+                continue;
+            }
             if ( batch.numVertices == 0 )
             {
                 continue;
@@ -225,6 +303,15 @@ namespace
                 return failRecord("the caster vertex count overflows");
             }
             totalVertices += batch.numVertices;
+            if ( !batch.fitOnly )
+            {
+                if ( batch.numVertices
+                    > std::numeric_limits<std::uint64_t>::max() - uploadVertices )
+                {
+                    return failRecord("the caster vertex count overflows");
+                }
+                uploadVertices += batch.numVertices;
+            }
         }
         if ( totalVertices == 0 )
         {
@@ -234,17 +321,27 @@ namespace
         {
             return failRecord("the casters do not fit in the vertex buffer");
         }
-        const std::uint64_t vertexBytes = totalVertices * 3 * sizeof(float);
+        const std::uint64_t vertexBytes = uploadVertices * 3 * sizeof(float);
         if ( vertexBytes > m_device.info().limits.maxBufferSize )
         {
             return failRecord("the casters do not fit in the vertex buffer");
         }
 
-        // One contiguous upload: copy every batch and take the union of their
-        // view-space bounds. A non-finite position can't define a light fit.
+        // One contiguous upload: copy every drawn per-frame batch and take the
+        // union of every per-frame batch's view-space bounds, fit-only ones
+        // included. For the world-anchored fit, also take the union of the
+        // actual caster vertices in world space, so the fit does not depend on
+        // how the camera's view AABB happens to enclose them. A non-finite
+        // position can't define a light fit.
         std::vector<float> vertices;
-        vertices.reserve(static_cast<std::size_t>(totalVertices) * 3);
+        vertices.reserve(static_cast<std::size_t>(uploadVertices) * 3);
         Bounds bounds = {
+            { std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::infinity() },
+            { -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                -std::numeric_limits<float>::infinity() },
+        };
+        Bounds worldBounds = {
             { std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity(),
                 std::numeric_limits<float>::infinity() },
             { -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
@@ -252,36 +349,78 @@ namespace
         };
         for ( const CasterBatch& batch : casters )
         {
-            if ( batch.numVertices == 0 )
+            if ( batch.pStatic != nullptr || batch.numVertices == 0 )
             {
                 continue;
             }
-            for ( std::size_t index = 0; index < batch.numVertices * 3; ++index )
+            for ( std::size_t vertex = 0; vertex < batch.numVertices; ++vertex )
             {
-                const float value = batch.pPositions[index];
-                if ( !std::isfinite(value) )
+                const float* const pPosition = batch.pPositions + vertex * 3;
+                for ( int axis = 0; axis < 3; ++axis )
                 {
-                    return failRecord("a caster position is not finite");
+                    const float value = pPosition[axis];
+                    if ( !std::isfinite(value) )
+                    {
+                        return failRecord("a caster position is not finite");
+                    }
+                    if ( !batch.fitOnly )
+                    {
+                        vertices.push_back(value);
+                    }
+                    bounds.min[axis] = value < bounds.min[axis] ? value : bounds.min[axis];
+                    bounds.max[axis] = value > bounds.max[axis] ? value : bounds.max[axis];
                 }
-                vertices.push_back(value);
-                const int axis = static_cast<int>(index % 3);
-                bounds.min[axis] = value < bounds.min[axis] ? value : bounds.min[axis];
-                bounds.max[axis] = value > bounds.max[axis] ? value : bounds.max[axis];
+                if ( m_worldAnchored )
+                {
+                    float worldPoint[4];
+                    transformPoint(m_viewToWorld, pPosition, worldPoint);
+                    for ( int axis = 0; axis < 3; ++axis )
+                    {
+                        worldBounds.min[axis] = worldPoint[axis] < worldBounds.min[axis]
+                            ? worldPoint[axis] : worldBounds.min[axis];
+                        worldBounds.max[axis] = worldPoint[axis] > worldBounds.max[axis]
+                            ? worldPoint[axis] : worldBounds.max[axis];
+                    }
+                }
             }
         }
 
         Matrix4 viewToShadowClip{};
-        if ( !fitDirectional(towardLight, bounds, margin, m_size, &viewToShadowClip) )
+        const float towardLightReach = hasStaticBatch ? m_staticReach : 0.0f;
+        bool fitted = false;
+        if ( m_worldAnchored )
+        {
+            // The fit is anchored in the world: use the world bounds of the
+            // actual casters, then come back to view space for the caster
+            // uniform and the receive transform.
+            float worldLight[3];
+            worldLightOf(m_viewToWorld, towardLight, worldLight);
+            Matrix4 worldToShadowClip{};
+            if ( fitDirectionalWorld(worldLight, worldBounds, margin, m_size, m_worldUp,
+                    &worldToShadowClip, towardLightReach) )
+            {
+                viewToShadowClip = multiply(worldToShadowClip, m_viewToWorld);
+                fitted = true;
+            }
+        }
+        else
+        {
+            fitted = fitDirectional(towardLight, bounds, margin, m_size, &viewToShadowClip,
+                towardLightReach);
+        }
+        if ( !fitted )
         {
             return failRecord("the light or caster bounds are invalid");
         }
-        if ( !ensureVertexCapacity(vertexBytes) )
+        if ( vertexBytes > 0 )
         {
-            return failRecord("the vertex buffer could not be grown");
+            if ( !ensureVertexCapacity(vertexBytes) )
+            {
+                return failRecord("the vertex buffer could not be grown");
+            }
+            list.updateBuffer(m_vertexBuffer, 0,
+                std::as_bytes(std::span(vertices.data(), vertices.size())));
         }
-
-        list.updateBuffer(m_vertexBuffer, 0,
-            std::as_bytes(std::span(vertices.data(), vertices.size())));
 
         render::PassDesc pass;
         render::DepthAttachment depth;
@@ -297,10 +436,39 @@ namespace
         }
 
         list.setPipeline(m_pipeline);
-        list.bindVertexBuffer(0, m_vertexBuffer);
-        list.pushUniforms(render::ShaderStage::Vertex, 0,
-            std::as_bytes(std::span(&viewToShadowClip, 1)));
-        list.draw(static_cast<std::uint32_t>(totalVertices));
+        std::uint64_t firstVertex = 0;
+        for ( const CasterBatch& batch : casters )
+        {
+            if ( batch.pStatic != nullptr )
+            {
+                const std::size_t staticVertices = batch.pStatic->numVertices();
+                if ( staticVertices == 0 )
+                {
+                    continue;
+                }
+                list.bindVertexBuffer(0, batch.pStatic->buffer());
+                const Matrix4 transform = isIdentity(batch.toView)
+                    ? viewToShadowClip
+                    : multiply(viewToShadowClip, batch.toView);
+                list.pushUniforms(render::ShaderStage::Vertex, 0,
+                    std::as_bytes(std::span(&transform, 1)));
+                list.draw(static_cast<std::uint32_t>(staticVertices));
+                continue;
+            }
+            if ( batch.numVertices == 0 || batch.fitOnly )
+            {
+                continue;
+            }
+            list.bindVertexBuffer(0, m_vertexBuffer);
+            const Matrix4 transform = isIdentity(batch.toView)
+                ? viewToShadowClip
+                : multiply(viewToShadowClip, batch.toView);
+            list.pushUniforms(render::ShaderStage::Vertex, 0,
+                std::as_bytes(std::span(&transform, 1)));
+            list.draw(static_cast<std::uint32_t>(batch.numVertices),
+                static_cast<std::uint32_t>(firstVertex));
+            firstVertex += batch.numVertices;
+        }
         if ( !list.endPass() )
         {
             return failRecord("the shadow pass could not end");

@@ -59,11 +59,14 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSharpening.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSmaa.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonSsao.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonShadows.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonShadowMask.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderBabylonWaterRipples.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdRenderReplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonCamera.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonDraw.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonShadowCasters.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonFormats.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonLighting.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonSamplers.cpp"
@@ -71,6 +74,7 @@ if (J3D_PLATFORM_BABYLON)
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/std3DBabylonTextures.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylon.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonBackBuffer.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonFlightRecorder.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonFramePacing.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonModes.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/stdDisplayBabylonScreenshot.cpp"
@@ -94,6 +98,7 @@ if (J3D_PLATFORM_BABYLON)
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d_wireframe.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d_lit.vert.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d_lit.frag.hlsl"
+            "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/std3d_shadow_mask.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/smaa_edge.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/smaa_weights.frag.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/Babylon/Shaders/smaa_blend.frag.hlsl"
@@ -144,6 +149,7 @@ if (J3D_PLATFORM_BABYLON)
         babylon::cvars
         babylon::render
         babylon::postfx
+        babylon::shadow
         stdBabylonShaders
     )
 

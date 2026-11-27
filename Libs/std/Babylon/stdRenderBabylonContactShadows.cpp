@@ -32,23 +32,18 @@ namespace
     constexpr float stdRenderBabylon_kContactLightAzimuth = 30.0f; // degrees about the world Z axis
     constexpr float stdRenderBabylon_kContactPi           = 3.14159265358979323846f;
 
-    // Added: the game world's direction toward the light in the shader camera's view space. aCamera
-    // is the 12-float shader camera (right, up and forward in world coordinates, elements 0-2, 4-6
-    // and 8-10); the result is (dot(right, Lw), dot(up, Lw), dot(forward, Lw)).
-    void stdRenderBabylon_ContactLightDirection(const float aCamera[12], float aDirection[3])
-    {
-        const float tilt    = stdRenderBabylon_kContactLightTilt * stdRenderBabylon_kContactPi / 180.0f;
-        const float azimuth = stdRenderBabylon_kContactLightAzimuth * stdRenderBabylon_kContactPi / 180.0f;
-        const float aWorld[3] = { std::sin(tilt) * std::cos(azimuth),
-            std::sin(tilt) * std::sin(azimuth), std::cos(tilt) };
+    // Added: M11.6b. The contact-shadow look. The game's scale has Indy about 0.2 view units tall, so
+    // the shadow fades out a few body lengths away rather than across the whole level.
+    constexpr float stdRenderBabylon_kContactShadowStrength  = 0.5f; // 1 - strength is a fully blocked pixel's brightness
+    constexpr float stdRenderBabylon_kContactShadowFadeStart = 2.0f; // view distance where the shadow starts to fade
+    constexpr float stdRenderBabylon_kContactShadowFadeEnd   = 4.0f; // view distance where it is gone
 
-        const float* pRight   = &aCamera[0];
-        const float* pUp      = &aCamera[4];
-        const float* pForward = &aCamera[8];
-        aDirection[0] = pRight[0] * aWorld[0] + pRight[1] * aWorld[1] + pRight[2] * aWorld[2];
-        aDirection[1] = pUp[0] * aWorld[0] + pUp[1] * aWorld[1] + pUp[2] * aWorld[2];
-        aDirection[2] = pForward[0] * aWorld[0] + pForward[1] * aWorld[1] + pForward[2] * aWorld[2];
-    }
+    // Added: M11.7c. The ray length and depth sample thickness in view units. Babylon's defaults,
+    // 0.2 and 0.04, reached a whole character height and made large, view-dependent dark patches as
+    // the camera moved; at the game's scale (Indy about 0.2 view units tall) they stay at real
+    // contact range instead.
+    constexpr float stdRenderBabylon_kContactShadowLength    = 0.04f; // ray length in view units
+    constexpr float stdRenderBabylon_kContactShadowThickness = 0.02f; // depth sample this far in front still blocks
 
     // Added: the contact-shadow stage's scene-sized target, made when its size changes. False,
     // logging why, when it can't be created.
@@ -115,6 +110,25 @@ namespace
 
 namespace stdRenderBabylonInternal
 {
+    // Added: the game world's direction toward the light in the shader camera's view space. aCamera
+    // is the 12-float shader camera (right, up and forward in world coordinates, elements 0-2, 4-6
+    // and 8-10); the result is (dot(right, Lw), dot(up, Lw), dot(forward, Lw)). Shared with the
+    // character-shadow stage (M11.2d).
+    void stdRenderBabylon_ContactLightDirection(const float aCamera[12], float aDirection[3])
+    {
+        const float tilt    = stdRenderBabylon_kContactLightTilt * stdRenderBabylon_kContactPi / 180.0f;
+        const float azimuth = stdRenderBabylon_kContactLightAzimuth * stdRenderBabylon_kContactPi / 180.0f;
+        const float aWorld[3] = { std::sin(tilt) * std::cos(azimuth),
+            std::sin(tilt) * std::sin(azimuth), std::cos(tilt) };
+
+        const float* pRight   = &aCamera[0];
+        const float* pUp      = &aCamera[4];
+        const float* pForward = &aCamera[8];
+        aDirection[0] = pRight[0] * aWorld[0] + pRight[1] * aWorld[1] + pRight[2] * aWorld[2];
+        aDirection[1] = pUp[0] * aWorld[0] + pUp[1] * aWorld[1] + pUp[2] * aWorld[2];
+        aDirection[2] = pForward[0] * aWorld[0] + pForward[1] * aWorld[1] + pForward[2] * aWorld[2];
+    }
+
     // Added: frees the contact-shadow stage's target. Recreated by the next present with the stage
     // on after a scene size or render scale change.
     void stdRenderBabylon_FreeContactShadowTargets()
@@ -129,9 +143,11 @@ namespace stdRenderBabylonInternal
     // Added: the contact-shadow stage over the scene source (the water-ripple output or the post
     // chain's). It marches a short ray through the depth target toward the fixed overhead light
     // and darkens ordinary surfaces whose path is blocked; sky, water, empty pixels and the
-    // first-person overlay stay unchanged. Without a camera transform yet the light direction is
-    // unknown, so the stage is skipped. bContactShadowsRan is set afterwards so ambient occlusion
-    // reads the result. False, having logged nothing, when a resource or pass fails.
+    // first-person overlay stay unchanged. With character shadows on, this frame's caster mask
+    // keeps the characters from casting or receiving contact shadows, since the character-shadow
+    // stage draws theirs. Without a camera transform yet the light direction is unknown, so the
+    // stage is skipped. bContactShadowsRan is set afterwards so ambient occlusion reads the
+    // result. False, having logged nothing, when a resource or pass fails.
     bool stdRenderBabylon_RecordContactShadows(render::CommandList& list)
     {
         if ( !stdRenderBabylon_state.bContactShadows
@@ -165,8 +181,20 @@ namespace stdRenderBabylonInternal
             nearPlane + 1.0e-3f);
 
         postfx::ContactShadowSettings settings;
+        settings.strength        = stdRenderBabylon_kContactShadowStrength;
+        settings.length          = stdRenderBabylon_kContactShadowLength;
+        settings.thickness       = stdRenderBabylon_kContactShadowThickness;
+        settings.fadeStart       = stdRenderBabylon_kContactShadowFadeStart;
+        settings.fadeEnd         = stdRenderBabylon_kContactShadowFadeEnd;
         settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
         stdRenderBabylon_state.pPostfxContactShadows->setSettings(settings);
+
+        // Added: when this frame ran the caster mask, the characters take no part in the contact
+        // shadows; the character shadows draw theirs. Always set it, so a frame without the mask
+        // never reuses a stale handle.
+        stdRenderBabylon_state.pPostfxContactShadows->setIgnoreMask(
+            stdRenderBabylon_state.bShadowMaskRan
+                ? stdRenderBabylon_state.shadowMaskTarget : render::TextureHandle{});
 
         float aLight[3];
         stdRenderBabylon_ContactLightDirection(stdRenderBabylon_state.aLastCameraMatrix, aLight);
@@ -246,6 +274,19 @@ bool stdRenderBabylon_GetContactLightDirectionForTest(const float aCamera[12], f
     if ( pZ )
     {
         *pZ = aDirection[2];
+    }
+    return true;
+}
+
+bool stdRenderBabylon_GetContactShadowSettingsForTest(postfx::ContactShadowSettings* pSettings)
+{
+    if ( !stdRenderBabylon_state.pPostfxContactShadows )
+    {
+        return false;
+    }
+    if ( pSettings )
+    {
+        *pSettings = stdRenderBabylon_state.pPostfxContactShadows->settings();
     }
     return true;
 }

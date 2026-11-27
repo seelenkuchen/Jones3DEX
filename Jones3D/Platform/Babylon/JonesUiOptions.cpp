@@ -370,6 +370,12 @@ namespace
         screen.help[layout.ssao] =
             "Darken the creases where geometry meets itself with screen-space ambient occlusion; "
             "the HUD, menus and prompts are unchanged. Applies when the display reopens.";
+        screen.help[layout.shadows] =
+            "Characters cast soft shadows from an overhead light; the HUD, menus and prompts are "
+            "unchanged. Applies at once while the display is open.";
+        screen.help[layout.contactShadows] =
+            "Darken corners and contact points where nearby geometry blocks the overhead light; "
+            "the HUD, menus and prompts are unchanged. Applies at once while the display is open.";
         screen.help[layout.motionBlur] =
             "Smear the 3D scene along the camera's motion; the HUD, menus and prompts are "
             "unchanged. Applies when the display reopens.";

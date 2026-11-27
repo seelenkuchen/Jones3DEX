@@ -79,6 +79,7 @@ namespace std3DBabylonInternal
         render::SamplerHandle sampler;    // triangles only
         Std3DBabylonFragmentUniforms uniforms;
         bool bLit;                        // a lit draw, which reads the light buffer
+        bool bShadowCaster;               // Added: M11.2g, a scene triangle drawn with STD3D_RS_SHADOW_CASTER
         uint32_t firstVertex;
         uint32_t numVertices;
         uint32_t firstIndex;
@@ -108,6 +109,11 @@ namespace std3DBabylonInternal
     extern tSystemTexture* std3D_pLastTexCache;
 
     extern Std3DRenderState std3D_renderState;
+#ifdef J3D_TEST
+    // Added: M11.2c. Vertices recorded this frame by draws carrying STD3D_RS_SHADOW_CASTER; reset at
+    // std3D_StartScene.
+    extern uint32_t std3D_casterVertexCount;
+#endif
     extern Std3DMipmapFilterType std3D_mipmapFilter;
     extern int std3D_anisotropicFilter;
     extern bool std3D_bTexturePixelated;
@@ -172,4 +178,18 @@ namespace std3DBabylonInternal
     void std3D_ResetTextureCacheInternal();
     bool std3D_InitDrawResources();
     void std3D_ReleaseDrawResources();
+
+    // Added: M11.2e. The frame's shadow casters, in the postfx view convention (x right, y up,
+    // z forward), three floats per triangle vertex. rdModel3 appends every face of the models of
+    // SITH_TF_SHADOW things through std3D_AddShadowCasterPolygon, including the faces turned away
+    // from the camera; std3D_StartScene clears the list. A polygon is added whole or not at all and
+    // the list is capped, so one bad polygon cannot shift the ones after it.
+    void std3DBabylon_ResetShadowCasters();
+    const std::vector<float>& std3DBabylon_GetShadowCasterPositions();
+
+    // Added: M11.2g. The scene triangle draws that carried STD3D_RS_SHADOW_CASTER this frame, with
+    // their streamed buffers and ranges, for the caster mask's re-draw. HUD-layer draws are never
+    // here. Reset at std3D_StartScene.
+    void std3DBabylon_ResetShadowCasterDraws();
+    const std::vector<Std3DBabylonDraw>& std3DBabylon_GetShadowCasterDraws();
 }

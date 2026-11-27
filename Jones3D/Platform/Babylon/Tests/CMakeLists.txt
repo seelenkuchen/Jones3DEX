@@ -10,7 +10,12 @@ add_executable(Jones3DUiPainterTests
     JonesUiSaveLoadTest.cpp
     JonesUiMainMenuTest.cpp
     JonesUiEndScreensTest.cpp
-    JonesUiSettingsTest.cpp
+    JonesUiSettingsTestSupport.cpp
+    JonesUiDisplaySettingsTest.cpp
+    JonesUiSoundSettingsTest.cpp
+    JonesUiGameplaySettingsTest.cpp
+    JonesUiOptionsTest.cpp
+    JonesUiBrightnessTest.cpp
     JonesUiPauseMenuTest.cpp
     JonesUiStoreTest.cpp
     JonesUiControlsTest.cpp
@@ -27,6 +32,10 @@ add_executable(Jones3DUiPainterTests
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiMainMenu.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiEndScreens.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplaySettings.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplayChoices.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplayConfig.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplayModes.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiDisplayScreen.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiBrightnessCalibration.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiSoundSettings.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../JonesUiPauseMenu.cpp"

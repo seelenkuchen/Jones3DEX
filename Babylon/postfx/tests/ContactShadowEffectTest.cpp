@@ -55,7 +55,8 @@ namespace
         float tanHalfFovY;
         float inputWidth;
         float inputHeight;
-        float padding[3];
+        std::uint32_t hasIgnoreMask;
+        float padding[2];
     };
     static_assert(sizeof(ExpectedContactShadowMaskUniforms) == 80);
 
@@ -155,6 +156,12 @@ namespace
     }
 
     TextureHandle makeNormals(NullDevice& device, std::uint32_t width, std::uint32_t height)
+    {
+        return device.createTexture(TextureDesc{ width, height, 1, TextureFormat::Rgba8,
+            TextureUsage::Sampled });
+    }
+
+    TextureHandle makeIgnoreMask(NullDevice& device, std::uint32_t width, std::uint32_t height)
     {
         return device.createTexture(TextureDesc{ width, height, 1, TextureFormat::Rgba8,
             TextureUsage::Sampled });
@@ -369,10 +376,12 @@ TEST_CASE("The contact shadow effect records mask, blur and composite passes")
         }
     }
 
-    // Mask: depth and normals in, the shadow amount out.
-    REQUIRE(passes[0].textures.size() == 2);
+    // Mask: depth, normals and the ignore-mask fallback (depth again) in, the
+    // shadow amount out.
+    REQUIRE(passes[0].textures.size() == 3);
     CHECK(passes[0].textures[0].texture == depth);
     CHECK(passes[0].textures[1].texture == normals);
+    CHECK(passes[0].textures[2].texture == depth);
     REQUIRE(passes[0].uniforms.size() == 1);
     const PushUniforms& maskPush = passes[0].uniforms.front();
     CHECK(maskPush.stage == ShaderStage::Fragment);
@@ -381,7 +390,7 @@ TEST_CASE("The contact shadow effect records mask, blur and composite passes")
         { 0.6f, 0.8f, 0.0f },
         0.2f, 0.04f, 12u, 0x8u, 12.0f, 24.0f,
         0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 16.0f, 16.0f,
-        { 0.0f, 0.0f, 0.0f } };
+        0u, { 0.0f, 0.0f } };
     CHECK(maskPush.data == bytesOf(expectedMask));
 
     // Blur: the mask and the depth that weights its taps in.
@@ -425,7 +434,7 @@ TEST_CASE("The contact shadow effect records mask, blur and composite passes")
     chain.close();
 }
 
-TEST_CASE("With every receiver class the mask pass binds depth in both texture slots")
+TEST_CASE("With every receiver class the mask pass binds depth in all its texture slots")
 {
     NullDevice device;
     ContactShadowEffect effect;
@@ -447,12 +456,95 @@ TEST_CASE("With every receiver class the mask pass binds depth in both texture s
 
     const std::vector<PassRecord> passes = passRecords(device.recorded());
     REQUIRE(passes.size() == 4);
-    REQUIRE(passes[0].textures.size() == 2);
+    REQUIRE(passes[0].textures.size() == 3);
     CHECK(passes[0].textures[0].texture == depth);
     CHECK(passes[0].textures[1].texture == depth);
+    CHECK(passes[0].textures[2].texture == depth);
     REQUIRE(passes[2].textures.size() == 4);
     CHECK(passes[2].textures[0].texture == depth);
     CHECK(passes[2].textures[1].texture == depth);
     CHECK(passes[2].textures[2].texture == color);
     checkNames(chain, { "contact shadows", "copy" });
+}
+
+TEST_CASE("The contact shadow effect binds an ignore mask and flags it in the uniforms")
+{
+    NullDevice device;
+    ContactShadowEffect effect;
+    Chain chain(device);
+    REQUIRE(chain.open());
+
+    ContactShadowSettings settings;
+    settings.strength        = 0.75f;
+    settings.length          = 0.2f;
+    settings.thickness       = 0.04f;
+    settings.steps           = 12;
+    settings.receiverClasses = 0x8u;
+    settings.fadeStart       = 12.0f;
+    settings.fadeEnd         = 24.0f;
+    effect.setSettings(settings);
+    effect.setLightDirection(3.0f, 4.0f, 0.0f);
+
+    const TextureHandle ignoreMask = makeIgnoreMask(device, 16, 16);
+    REQUIRE_FALSE(ignoreMask.isNull());
+    effect.setIgnoreMask(ignoreMask);
+    REQUIRE(chain.add(effect));
+
+    const TextureHandle color   = makeColor(device, 16, 16);
+    const TextureHandle depth   = makeDepth(device, 16, 16);
+    const TextureHandle normals = makeNormals(device, 16, 16);
+    const TextureHandle target  = makeOutput(device, 16, 16);
+    const FrameInputs frame     = makeFrame(color, depth, normals, 16, 16);
+    const OutputTarget output   = makeOutputTarget(target, 16, 16);
+
+    recordChain(chain, device, frame, output);
+
+    const std::vector<PassRecord> passes = passRecords(device.recorded());
+    REQUIRE(passes.size() == 4);
+
+    // The mask pass takes the ignore mask in its extra slot; the blur and
+    // composite keep their layouts and need no mask of their own.
+    REQUIRE(passes[0].textures.size() == 3);
+    CHECK(passes[0].textures[2].texture == ignoreMask);
+    CHECK(passes[0].textures[2].stage == ShaderStage::Fragment);
+    CHECK(passes[0].textures[2].slot == 2);
+    const std::optional<SamplerDesc> maskSampler =
+        device.samplerDesc(passes[0].textures[2].sampler);
+    REQUIRE(maskSampler.has_value());
+    CHECK(maskSampler->minFilter == Filter::Nearest);
+    CHECK(maskSampler->magFilter == Filter::Nearest);
+    CHECK(maskSampler->addressU == AddressMode::ClampToEdge);
+    CHECK(maskSampler->addressV == AddressMode::ClampToEdge);
+    REQUIRE(passes[1].textures.size() == 2);
+    REQUIRE(passes[2].textures.size() == 4);
+
+    REQUIRE(passes[0].uniforms.size() == 1);
+    const PushUniforms& maskPush = passes[0].uniforms.front();
+    CHECK(maskPush.stage == ShaderStage::Fragment);
+    CHECK(maskPush.slot == 0);
+    const ExpectedContactShadowMaskUniforms expectedMask{
+        { 0.6f, 0.8f, 0.0f },
+        0.2f, 0.04f, 12u, 0x8u, 12.0f, 24.0f,
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 16.0f, 16.0f,
+        1u, { 0.0f, 0.0f } };
+    CHECK(maskPush.data == bytesOf(expectedMask));
+
+    checkNames(chain, { "contact shadows", "copy" });
+
+    // Clearing the mask restores the fallback bind and the zero flag.
+    effect.setIgnoreMask({});
+    recordChain(chain, device, frame, output);
+    const std::vector<PassRecord> plainPasses = passRecords(device.recorded());
+    REQUIRE(plainPasses.size() == 4);
+    REQUIRE(plainPasses[0].textures.size() == 3);
+    CHECK(plainPasses[0].textures[2].texture == depth);
+    REQUIRE(plainPasses[0].uniforms.size() == 1);
+    const ExpectedContactShadowMaskUniforms expectedPlain{
+        { 0.6f, 0.8f, 0.0f },
+        0.2f, 0.04f, 12u, 0x8u, 12.0f, 24.0f,
+        0.2f, 500.0f, 0.05f, 0.95f, 1.2f, 0.8f, 16.0f, 16.0f,
+        0u, { 0.0f, 0.0f } };
+    CHECK(plainPasses[0].uniforms.front().data == bytesOf(expectedPlain));
+
+    chain.close();
 }

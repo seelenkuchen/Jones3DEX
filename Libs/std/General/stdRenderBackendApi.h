@@ -1,6 +1,6 @@
 // Backend-side prototypes of the pass-through layer (M6.0). A backend sees these next to the
 // macro-renamed public declarations of std3D.h/stdDisplay.h, so the compiler checks that the
-// two agree on every one of the 86 renderer functions.
+// two agree on every renderer function.
 #ifndef STD_STDRENDERBACKENDAPI_H
 #define STD_STDRENDERBACKENDAPI_H
 
@@ -37,6 +37,8 @@ void J3DAPI std3DBackend_UpdateFrameCount(tSystemTexture* pTexture);
 size_t J3DAPI std3DBackend_FindClosestFormat(const ColorInfo* pMatch);
 int J3DAPI std3DBackend_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3DBackend_SetProjection(float fov, float nearPlane, float farPlane);
+int std3DBackend_DrawsThingShadows(void);
+void J3DAPI std3DBackend_AddShadowCasterPolygon(const float* aPositions, size_t numVertices);
 void J3DAPI std3DBackend_EnableFog(int bEnabled, float density);
 void J3DAPI std3DBackend_SetFog(float red, float green, float blue, float startDepth, float endDepth);
 void std3DBackend_ClearZBuffer(void);

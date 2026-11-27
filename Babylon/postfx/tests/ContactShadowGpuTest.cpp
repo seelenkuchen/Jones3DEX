@@ -31,6 +31,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -184,6 +185,98 @@ namespace
     float boxFrontDepth()
     {
         return floorDepthAtRow(kFloorRow) - 0.02f;
+    }
+
+    // Mirrors tests/shaders/scene_depth.frag.hlsl's box intersection: true when
+    // the box, not the floor or the sky, is the nearest surface at the pixel.
+    bool isBoxPixel(std::uint32_t x, std::uint32_t y)
+    {
+        const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(kSize);
+        const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(kSize);
+        const float dx = (u * 2.0f - 1.0f) * kHalfFovX;
+        const float dy = (1.0f - v * 2.0f) * kHalfFovY;
+
+        float floorZ = kFar;
+        if ( dy < -1.0e-6f && kFloorY / dy > kNear )
+        {
+            floorZ = kFloorY / dy;
+        }
+
+        // The ray starts at the origin, so a slab from low to high along one
+        // axis narrows [enter, exit] the same way the test shader does.
+        float enter  = 0.0f;
+        float exitT  = kFar;
+        bool hit     = true;
+        const auto intersectSlab = [&enter, &exitT, &hit](
+            float direction, float low, float high)
+        {
+            if ( std::abs(direction) < 1.0e-8f )
+            {
+                if ( low > 0.0f || high < 0.0f )
+                {
+                    hit = false;
+                }
+                return;
+            }
+
+            float a = low / direction;
+            float b = high / direction;
+            if ( a > b )
+            {
+                std::swap(a, b);
+            }
+            enter = std::max(enter, a);
+            exitT = std::min(exitT, b);
+            if ( enter > exitT )
+            {
+                hit = false;
+            }
+        };
+        intersectSlab(dx, kBoxMinX, kBoxMaxX);
+        intersectSlab(dy, kFloorY, kBoxTopY);
+        intersectSlab(1.0f, boxFrontDepth(), boxFrontDepth() + 0.3f);
+        return hit && enter > kNear && enter < floorZ;
+    }
+
+    // An Rgba8 ignore mask with red 255 where pSelected is true and 0 elsewhere.
+    template <typename Predicate>
+    TextureHandle makeMask(Device& device, std::uint32_t width, std::uint32_t height,
+        Predicate pSelected)
+    {
+        std::vector<std::byte> texels(static_cast<std::size_t>(width) * height * 4u);
+        for ( std::uint32_t y = 0; y < height; ++y )
+        {
+            for ( std::uint32_t x = 0; x < width; ++x )
+            {
+                const std::size_t index = (static_cast<std::size_t>(y) * width + x) * 4u;
+                texels[index + 0u] = pSelected(x, y) ? std::byte{ 255 } : std::byte{ 0 };
+                texels[index + 1u] = std::byte{ 0 };
+                texels[index + 2u] = std::byte{ 0 };
+                texels[index + 3u] = std::byte{ 255 };
+            }
+        }
+
+        const TextureHandle texture = device.createTexture(TextureDesc{ width, height, 1,
+            TextureFormat::Rgba8, TextureUsage::Sampled });
+        REQUIRE_FALSE(texture.isNull());
+        REQUIRE(device.uploadTexture(texture, 0, texels));
+        return texture;
+    }
+
+    TextureHandle makeOccluderMask(Device& device, std::uint32_t width, std::uint32_t height)
+    {
+        return makeMask(device, width, height,
+            [](std::uint32_t x, std::uint32_t y) { return isBoxPixel(x, y); });
+    }
+
+    TextureHandle makeRectMask(Device& device, std::uint32_t width, std::uint32_t height,
+        std::uint32_t minX, std::uint32_t maxX, std::uint32_t minY, std::uint32_t maxY)
+    {
+        return makeMask(device, width, height,
+            [minX, maxX, minY, maxY](std::uint32_t x, std::uint32_t y)
+            {
+                return x >= minX && x < maxX && y >= minY && y < maxY;
+            });
     }
 
     // Renders the synthetic scene's depth into depth with a depth-only
@@ -363,6 +456,15 @@ namespace
         CHECK(pixelAt(pixels, kSize, 2, 2) == std::array<int, 4>{ 128, 128, 128, 255 });
         CHECK(pixelAt(pixels, kSize, 40, 4) == std::array<int, 4>{ 128, 128, 128, 255 });
 
+        // The no-effect copy, for the exact-input comparisons below.
+        std::vector<std::string_view> plainRan;
+        const std::vector<std::byte> plain =
+            runScene(*device, nullptr, color, depth, normals, projection, &plainRan);
+        REQUIRE(plain.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
+        REQUIRE(plainRan.size() == 1);
+        CHECK(plainRan[0] == "copy");
+
         // Half the screen is tagged class 2 (sky) in the normals alpha, next to
         // the shadowed ordinary floor. The tagged half takes no shadow at all,
         // byte for byte, even where the blur carries a shadow across the edge.
@@ -390,6 +492,55 @@ namespace
             CHECK(value <= 0.5f * (1.0f - 0.5f * effect.settings().strength) + 1.0f / 255.0f);
         }
 
+        // A mask on the occluder's pixels: the rays that the box blocked now
+        // cross it as gaps, so the floor it shadowed keeps its input colour,
+        // and the box itself keeps its input colour too, byte for byte.
+        const TextureHandle occluderMask = makeOccluderMask(*device, kSize, kSize);
+        effect.setIgnoreMask(occluderMask);
+        std::vector<std::string_view> occluderRan;
+        const std::vector<std::byte> occluded =
+            runScene(*device, &effect, color, depth, normals, projection, &occluderRan);
+        REQUIRE(occluded.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
+        REQUIRE(occluderRan.size() == 2);
+        CHECK(occluderRan[0] == "contact shadows");
+        CHECK(occluderRan[1] == "copy");
+        CHECK(pixelAt(occluded, kSize, kShadowedColumn, kFloorRow)
+            == pixelAt(plain, kSize, kShadowedColumn, kFloorRow));
+        CHECK(pixelAt(occluded, kSize, kBoxTopColumn, kBoxTopRow)
+            == pixelAt(plain, kSize, kBoxTopColumn, kBoxTopRow));
+
+        // A mask on floor pixels well away from the shadow: those pixels keep
+        // their input colour and every other pixel, including the whole shadow,
+        // matches the no-mask run byte for byte.
+        const TextureHandle floorMask = makeRectMask(*device, kSize, kSize, 2, 10, 44, 52);
+        effect.setIgnoreMask(floorMask);
+        std::vector<std::string_view> floorMaskRan;
+        const std::vector<std::byte> floorMasked =
+            runScene(*device, &effect, color, depth, normals, projection, &floorMaskRan);
+        REQUIRE(floorMasked.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
+        REQUIRE(floorMaskRan.size() == 2);
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = 0; x < kSize; ++x )
+            {
+                const bool masked = x >= 2 && x < 10 && y >= 44 && y < 52;
+                CHECK(pixelAt(floorMasked, kSize, x, y)
+                    == pixelAt(masked ? plain : pixels, kSize, x, y));
+            }
+        }
+
+        // Removing the mask restores the byte-identical no-mask result.
+        effect.setIgnoreMask({});
+        std::vector<std::string_view> restoredRan;
+        const std::vector<std::byte> restored =
+            runScene(*device, &effect, color, depth, normals, projection, &restoredRan);
+        REQUIRE(restored.size() == std::size_t{ kSize } * kSize * 4u);
+        INFO("log: " << joined(sink));
+        REQUIRE(restoredRan.size() == 2);
+        CHECK(restored == pixels);
+
         // Strength 0 skips the effect, leaving a byte-identical copy.
         ContactShadowEffect inactive;
         ContactShadowSettings off;
@@ -401,9 +552,6 @@ namespace
         INFO("log: " << joined(sink));
         REQUIRE(inactiveRan.size() == 1);
         CHECK(inactiveRan[0] == "copy");
-        std::vector<std::string_view> plainRan;
-        const std::vector<std::byte> plain =
-            runScene(*device, nullptr, color, depth, normals, projection, &plainRan);
         CHECK(skipped == plain);
 
         INFO("captured log: " << joined(sink));
@@ -412,6 +560,86 @@ namespace
         device->destroyTexture(color);
         device->destroyTexture(normals);
         device->destroyTexture(mixedNormals);
+        device->destroyTexture(occluderMask);
+        device->destroyTexture(floorMask);
+        device->destroyTexture(depth);
+    }
+
+    TEST_CASE("Contact shadows leave surfaces that face away from the light unchanged (GPU)")
+    {
+        babylon::render::test::keepGpuDriverLoaded();
+        babylon::log::CaptureSink sink;
+        const std::unique_ptr<Device> device = createSdlGpuDevice(nullptr);
+        if ( device == nullptr )
+        {
+            babylon::render::test::noGpuDevice("no GPU device: " + joined(sink));
+            return;
+        }
+
+        const TextureUsage depthUsage = TextureUsage::DepthTarget | TextureUsage::Sampled;
+        TextureFormat depthFormat = TextureFormat::D32F;
+        if ( !device->supportsFormat(depthFormat, depthUsage) )
+        {
+            depthFormat = TextureFormat::D24S8;
+        }
+        if ( !device->supportsFormat(depthFormat, depthUsage) )
+        {
+            babylon::render::test::noGpuDevice("no sampled depth format: " + joined(sink));
+            return;
+        }
+
+        const TextureHandle color   = makeHalfColor(*device, kSize, kSize);
+        const TextureHandle normals = makeNormals(*device, kSize, kSize);
+        const TextureHandle depth   = device->createTexture(TextureDesc{ kSize, kSize, 1,
+            depthFormat, depthUsage });
+        REQUIRE_FALSE(depth.isNull());
+        renderDepthScene(*device, depth, depthFormat);
+
+        Projection projection;
+        projection.nearPlane   = kNear;
+        projection.farPlane    = kFar;
+        projection.tanHalfFovX = kHalfFovX;
+        projection.tanHalfFovY = kHalfFovY;
+        projection.depthNear   = kDepthNear;
+        projection.depthFar    = kDepthFar;
+
+        // The light below the floor: the floor, the box top and the box's
+        // visible left face all face away from it, and its front face is edge-on.
+        // Nothing lit can be shadowed, so the output is the plain copy.
+        ContactShadowEffect effect;
+        effect.setLightDirection(0.5f, -0.85f, 0.0f);
+
+        std::vector<std::string_view> ran;
+        const std::vector<std::byte> pixels =
+            runScene(*device, &effect, color, depth, normals, projection, &ran);
+        std::vector<std::string_view> plainRan;
+        const std::vector<std::byte> plain =
+            runScene(*device, nullptr, color, depth, normals, projection, &plainRan);
+        INFO("log: " << joined(sink));
+        REQUIRE(pixels.size() == plain.size());
+        REQUIRE(ran.size() == 2);
+        CHECK(ran[0] == "contact shadows");
+        CHECK(ran[1] == "copy");
+
+        std::size_t numDarkened = 0;
+        for ( std::uint32_t y = 0; y < kSize; ++y )
+        {
+            for ( std::uint32_t x = 0; x < kSize; ++x )
+            {
+                if ( pixelAt(pixels, kSize, x, y) != pixelAt(plain, kSize, x, y) )
+                {
+                    ++numDarkened;
+                }
+            }
+        }
+        INFO("darkened pixels: " << numDarkened << " of " << kSize * kSize);
+        CHECK(numDarkened == 0);
+        checkUnchanged(pixelAt(pixels, kSize, kFarFloorColumn, kFloorRow));
+        checkUnchanged(pixelAt(pixels, kSize, kShadowedColumn, kFloorRow));
+        CHECK(sink.records().empty());
+
+        device->destroyTexture(color);
+        device->destroyTexture(normals);
         device->destroyTexture(depth);
     }
 }

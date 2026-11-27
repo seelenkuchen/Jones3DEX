@@ -45,6 +45,8 @@ J3D_EXTERN_C_START
 #define JONESDISPLAY_CFG_ENGINE_RENDER_SSAO                      "engine.renderer.ssao" // Added: M9.17b ambient-occlusion level
 #define JONESDISPLAY_CFG_ENGINE_RENDER_MOTIONBLUR                "engine.renderer.motionBlur" // Added: M9.19 camera motion-blur level
 #define JONESDISPLAY_CFG_ENGINE_RENDER_LENSFLARE                 "engine.renderer.lensFlare" // Added: M9.18 lens flare
+#define JONESDISPLAY_CFG_ENGINE_RENDER_SHADOWS                   "engine.renderer.shadows" // Added: M11.5 Options > Display, "Shadows"
+#define JONESDISPLAY_CFG_ENGINE_RENDER_CONTACTSHADOWS            "engine.renderer.contactShadows" // Added: M11.5 Options > Display, "Contact shadows"
 #define JONESDISPLAY_CFG_ENGINE_RENDER_VIGNETTE                  "engine.renderer.vignette" // Added: M9.18 vignette
 #define JONESDISPLAY_CFG_ENGINE_RENDER_FILMGRAIN                 "engine.renderer.filmGrain" // Added: M9.18 film grain
 #define JONESDISPLAY_CFG_ENGINE_RENDER_WATER_RIPPLES             "engine.renderer.water.ripples" // Added: M9.17 water ripples

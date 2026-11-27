@@ -9,7 +9,11 @@
 // mask's ordered jitter tile exactly. A tap is weighted by how close its linear
 // view depth is to the centre's; taps that are not receivers or not scene depth
 // weigh nothing, so a tagged non-receiver neighbour cannot lighten a real
-// shadow. When no tap carries weight the centre mask value passes through.
+// shadow. When no tap carries weight the centre mask value passes through. A
+// pixel excluded by the ignore mask is written by the mask pass as a
+// non-receiver (green 0), so it is never a tap here and its centre returns
+// zero: the blur needs no ignore mask of its own and cannot pull shadow into
+// it.
 
 Texture2D<float4> gMask : register(t0, space2);
 Texture2D<float> gDepth : register(t1, space2);

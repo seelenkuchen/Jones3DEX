@@ -14,6 +14,8 @@
 // clock that the std file and time adapters need, and each test puts its own render device in it.
 #include "std3DBabylonTestSupport.h"
 
+#include <std/Babylon/stdDisplayBabylonInternal.h>
+
 using namespace std3DBabylonTest;
 
 namespace
@@ -782,6 +784,7 @@ TEST_GROUP_RUNNER(std3DBabylon)
     RUN_TEST_CASE(std3DBabylon, DepthIsD32FWithoutD24S8);
     RUN_TEST_CASE(std3DBabylon, BadAndEmptyDrawsRecordNothing);
     RUN_TEST_CASE(std3DBabylon, TwoDrawsRecordTheirStreamExactly);
+    RUN_TEST_CASE(std3DBabylon, ShadowCasterStateDrawsLikeThePlainState);
     RUN_TEST_CASE(std3DBabylon, AFrameThatNeedsMoreGrowsTheBuffers);
     RUN_TEST_CASE(std3DBabylon, WireframeDrawsUseTheirPipelinesAndNoTexture);
     RUN_TEST_CASE(std3DBabylon, LitDrawsStreamApartWithTheLitPipeline);
@@ -816,6 +819,9 @@ extern "C" void TEST_stdRenderReplay_GROUP_RUNNER(void);
 void TEST_stdDisplayBabylon_GROUP_RUNNER(void);
 void TEST_stdDisplayBabylonGpu_GROUP_RUNNER(void);
 
+// The flight recorder suite (std3DBabylonFlightRecorderTest.cpp).
+void TEST_std3DBabylonFlightRecorder_GROUP_RUNNER(void);
+
 static void runAllTests(void)
 {
     RUN_TEST_GROUP(std3DBabylon);
@@ -824,6 +830,7 @@ static void runAllTests(void)
     RUN_TEST_GROUP(std3DBabylonGpu);
     RUN_TEST_GROUP(stdDisplayBabylon);
     RUN_TEST_GROUP(stdDisplayBabylonGpu);
+    RUN_TEST_GROUP(std3DBabylonFlightRecorder);
     UseNullDevice();
     TEST_stdRenderReplay_GROUP_RUNNER();
     DropDevice();
@@ -846,6 +853,9 @@ int main(int argc, char** argv)
     std3DBabylonTest_context = StdBabylonContext{ pClock.get(), &virtualClock, pFileSystem.get(), &platform, &platform,
         nullptr, &cvars, nullptr };
     stdBabylon_SetContext(&std3DBabylonTest_context);
+    // Added: no display test records a flight recorder stream unless it asks to; the flight
+    // recorder suite overrides this for its own cases.
+    stdDisplayBabylonInternal::stdDisplay_FlightRecorderSetEnabledForTest(false);
     int exitCode = UnityMain(argc, const_cast<const char**>(argv), runAllTests);
     stdBabylon_SetContext(nullptr);
     DropDevice();

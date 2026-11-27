@@ -53,6 +53,9 @@ void J3DAPI rdModel3_SetNodeColorForNonAmputatedJoints(const rdThing* prdThing, 
 int J3DAPI rdModel3_Draw(rdThing* pThing, const rdMatrix34* pPlacement);
 // Added: Append render flags to queued faces for this draw; authored faces and callbacks remain unchanged.
 int J3DAPI rdModel3_DrawWithFlags(rdThing* pThing, const rdMatrix34* pPlacement, rdFaceFlags flags);
+// Added: M11.2c. Face flags appended to every face of the model draws that follow, until cleared
+// with 0. sithRender sets them around the draw of a shadow-casting thing.
+void J3DAPI rdModel3_SetNextDrawFaceFlags(rdFaceFlags flags);
 void J3DAPI rdModel3_DrawHNode(const rdModel3GeoSet* prdGeo, const rdModel3HNode* pNode);
 void J3DAPI rdModel3_DrawMesh(const rdModel3Mesh* pMesh, const rdMatrix34* pOrient);
 void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformedVertices, int bIsBackFace, const rdVector4* pMeshColor);

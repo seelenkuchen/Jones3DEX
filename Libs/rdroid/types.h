@@ -60,6 +60,10 @@ typedef enum erdFaceFlags J3D_ENUM_TYPE(int32_t)
         // flags read from level or model files never set them.
         RD_FF_SKY_SURFACE        = 0x10000000,
         RD_FF_WATER_SURFACE      = 0x20000000,
+        // Added: marks every face of a thing that casts a blob shadow (M11.2c). sithRender sets it
+        // around the thing's model draw; rdCache turns it into the std3D render state for the
+        // Babylon adapter. High bit, so face flags read from level or model files never set it.
+        RD_FF_SHADOW_CASTER      = 0x40000000,
 } rdFaceFlags;
 
 typedef enum erdGeometryMode

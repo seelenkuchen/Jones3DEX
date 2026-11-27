@@ -37,12 +37,34 @@ namespace babylon::shadow
     // along -towardLight. The result maps view-space positions to shadow clip
     // space: x and y in -1..1 across the map (y up), z in 0..1 depth (0 at the
     // surface nearest the light). The box is expanded by margin on every side;
-    // the projection's x/y origin is snapped to whole shadow-map texels
-    // (mapSize) so a moving camera does not make the shadow edges shimmer.
-    // towardLight need not be normalized; a zero vector, a non-finite or empty
-    // box, a negative margin or a mapSize of 2 or less returns false.
+    // towardLightReach extends the depth range toward the light beyond that
+    // box, so a tall static caster can sit between the light and the dynamic
+    // casters without being clipped. The larger range spends depth precision
+    // over a bigger span, so a D32F map is recommended. The x/y extent is
+    // quantized to one square extent, the larger axis rounded up to a step of
+    // a geometric ladder with ratio 2^(1/4) (E_q = 2^(ceil(4*log2(E))/4)), so
+    // a slightly resized caster keeps the same texel size; E_q is never smaller
+    // than the real extent, so every corner stays inside -1..1. The
+    // projection's x/y origin is snapped to whole shadow-map texels (mapSize)
+    // so a moving camera does not make the shadow edges shimmer. towardLight
+    // need not be normalized; a zero vector, a non-finite or empty box, a
+    // negative margin, a negative or non-finite towardLightReach or a mapSize
+    // of 2 or less returns false.
     [[nodiscard]] bool fitDirectional(const float towardLight[3], const Bounds& casters,
-        float margin, std::uint32_t mapSize, Matrix4* pViewToShadowClip);
+        float margin, std::uint32_t mapSize, Matrix4* pViewToShadowClip,
+        float towardLightReach = 0.0f);
+
+    // fitDirectional() in a fixed world-anchored basis: towardLight and
+    // casters are in world space and the light's up axis is worldUp instead of
+    // the view's +Y, so the texel grid stays fixed in the world as the camera
+    // turns. worldUp need not be normalized; when it is parallel to the light,
+    // another world axis is used. The result maps world-space positions to
+    // shadow clip space, with the same extent ladder, texel snapping, margin
+    // and towardLightReach as fitDirectional(). A zero or non-finite worldUp,
+    // or any input fitDirectional() rejects, returns false.
+    [[nodiscard]] bool fitDirectionalWorld(const float towardLight[3], const Bounds& casters,
+        float margin, std::uint32_t mapSize, const float worldUp[3],
+        Matrix4* pWorldToShadowClip, float towardLightReach = 0.0f);
 
     // The shadow clip to texture transform: u = x * 0.5 + 0.5,
     // v = 0.5 - y * 0.5, z unchanged.

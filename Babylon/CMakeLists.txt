@@ -62,8 +62,9 @@ add_subdirectory(ui)
 # shader toolchain does.
 if (BABYLON_BUILD_SHADERS)
     add_subdirectory(uirender)
-    add_subdirectory(postfx)
+    # shadow comes before postfx: postfx's GPU tests build a shadow map with it.
     add_subdirectory(shadow)
+    add_subdirectory(postfx)
 else()
     message(STATUS "BABYLON_BUILD_SHADERS=OFF: skipping the uirender, postfx and shadow modules")
 endif()

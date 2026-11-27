@@ -33,6 +33,7 @@
 #include "std3DBabylon.h"
 #include "stdBabylon.h"
 #include "stdRenderBabylon.h"
+#include "stdRenderBabylonInternal.h"
 #include "std3DBabylonInternal.h"
 
 namespace render = babylon::render;
@@ -112,5 +113,13 @@ void J3DAPI std3D_SetCameraTransform(const float aMatrix[12], bool bCut)
     }
 
     stdRenderBabylon_SetCameraTransform(aMatrix, bCut);
+}
+
+int std3D_DrawsThingShadows(void)
+{
+    // Added: M11.2d. Only the Babylon column can draw real thing shadows; the game keeps the blob
+    // when the option is off or the shadow map and receive effect could not be opened.
+    return stdRenderBabylon_IsOpen() && stdRenderBabylon_GetShadows()
+        && stdRenderBabylonInternal::stdRenderBabylon_AreShadowObjectsOpen();
 }
 

@@ -242,6 +242,16 @@ namespace babylon::render
         std::vector<ColorTargetDesc> colorTargets;
         std::optional<TextureFormat> depthFormat;
         DepthState depth;
+
+        // Whether primitives outside the view volume are clipped. When false,
+        // fragment depth is clamped to the viewport range instead: a primitive
+        // in front of the near plane still rasterizes and writes depth 0,
+        // which lets a shadow caster nearer the light than the map's near
+        // plane still occlude. SDL3 GPU has no capability query for this; the
+        // backend maps it to the rasterizer's depth clip state, and a backend
+        // that can't disable clipping keeps clipping.
+        bool depthClip = true;
+
         CullMode cull = CullMode::None;
         FrontFace frontFace = FrontFace::CounterClockwise;
 

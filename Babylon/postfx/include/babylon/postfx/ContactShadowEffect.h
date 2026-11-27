@@ -34,14 +34,17 @@ namespace babylon::postfx
     };
 
     // Darkens pixels whose short path toward a directional light is blocked by nearby geometry in
-    // the depth buffer. The normals target's alpha carries one of four classes 0, 1/3, 2/3, 1
-    // (class = round(alpha * 3)); a pixel receives when its bit is in receiverClasses. With
-    // receiverClasses 0xF every pixel receives and the normals target is not needed. The light
-    // direction is the direction toward the light, in view space. Three Hdr passes: a ray-march
-    // mask into a scratch target, a depth-aware 4x4 blur of that mask (receiver taps only) into a
-    // second scratch target, then the darkened composite into the output. The composite repeats the
-    // receiver test, so non-receiver pixels keep their exact input colour. The ordered jitter and
-    // the blur make the result smooth; a blocker at the far end of the ray still gives half shadow.
+    // the depth buffer. A pixel whose surface faces away from the light does not receive; the
+    // surface normal is reconstructed from depth. The normals target's alpha carries one of four
+    // classes 0, 1/3, 2/3, 1 (class = round(alpha * 3)); a pixel receives when its bit is in
+    // receiverClasses. With receiverClasses 0xF every pixel receives and the normals target is not
+    // needed. The light direction is the direction toward the light, in view space. Three Hdr
+    // passes: a ray-march mask into a scratch target, a depth-aware 4x4 blur of that mask
+    // (receiver taps only) into a second scratch target, then the darkened composite into the
+    // output. The composite repeats the receiver test, so non-receiver pixels keep their exact
+    // input colour. The ordered jitter and the blur make the result smooth; a blocker at the far
+    // end of the ray still gives half shadow. An optional ignore mask takes selected pixels out of
+    // the effect: they neither cast nor receive contact shadow.
     class ContactShadowEffect final : public Effect
     {
     public:
@@ -54,6 +57,15 @@ namespace babylon::postfx
         // Normalized; a zero vector is ignored with one warning, leaving the previous direction.
         void setLightDirection(float x, float y, float z);
 
+        // An optional frame-sized texture whose red channel selects pixels that take no part in
+        // contact shadows: red >= 0.5 means the pixel neither casts nor receives one, so a ray
+        // sample that lands on it is a gap and the pixel itself keeps its exact input colour. Null
+        // means no mask, which leaves the output exactly as without this call. The effect borrows
+        // the texture, which must outlive the passes recorded with it. The mask pass marks a
+        // masked pixel as a non-receiver, so the blur already skips it as a tap and writes zero
+        // there; the blur and composite need no mask texture of their own.
+        void setIgnoreMask(render::TextureHandle mask);
+
         std::string_view name() const override;      // "contact shadows"
         Stage stage() const override;                // Stage::Hdr
         Needs needs() const override;                // depth, and normals when receiverClasses != 0xF
@@ -65,6 +77,7 @@ namespace babylon::postfx
 
         ContactShadowSettings m_settings;
         float m_lightDirection[3] = { 0.0f, 1.0f, 0.0f };
+        render::TextureHandle m_ignoreMask;
         // one pipeline per pass and output format, made with the Resources' device on first use
         render::Device* m_device = nullptr;
         std::vector<std::pair<render::TextureFormat, render::PipelineHandle>> m_maskPipelines;

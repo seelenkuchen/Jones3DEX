@@ -79,6 +79,10 @@ struct JonesUiDisplayValues
     // Added: index into the ambient-occlusion choices (Off, Low, Medium, High; Low at index 1 in
     // Enhanced).
     std::size_t ssao = 1;
+    // Added: M11.5 character shadows and contact shadows, toggles (on in Enhanced, off in
+    // Retail/QOL-off).
+    bool bShadows = true;
+    bool bContactShadows = true;
     // Added: index into the camera motion-blur choices (Off, Low, Medium, High; Low at index 1 in
     // Enhanced).
     std::size_t motionBlur = 1;
@@ -129,6 +133,8 @@ struct JonesUiDisplayLayout
     std::size_t bloom = 0; // Added
     std::size_t lightShafts = 0; // Added: M9.16 light-shaft level
     std::size_t ssao = 0; // Added: M9.17b ambient-occlusion level
+    std::size_t shadows = 0; // Added: M11.5 character shadows toggle
+    std::size_t contactShadows = 0; // Added: M11.5 contact shadows toggle
     std::size_t motionBlur = 0; // Added: M9.19 camera motion-blur level
     std::size_t lensFlare = 0; // Added: M9.18 lens flare toggle
     std::size_t vignette = 0; // Added: M9.18 vignette toggle
@@ -171,6 +177,8 @@ struct JonesUiDisplayModel
     int bloom = 1;              // Added: engine.renderer.bloom, 0 off / 1 low / 2 medium / 3 high
     int lightShafts = 1;        // Added: engine.renderer.lightShafts, 0 off / 1 low / 2 medium / 3 high
     int ssao = 1;               // Added: engine.renderer.ssao, 0 off / 1 low / 2 medium / 3 high
+    bool bShadows = true;        // Added: engine.renderer.shadows
+    bool bContactShadows = true; // Added: engine.renderer.contactShadows
     int motionBlur = 1;         // Added: engine.renderer.motionBlur, 0 off / 1 low / 2 medium / 3 high
     bool bLensFlare = true;     // Added: engine.renderer.lensFlare
     bool bVignette = false;     // Added: engine.renderer.vignette

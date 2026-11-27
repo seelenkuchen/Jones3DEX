@@ -2,6 +2,8 @@
 // Part of the std3D Babylon adapter tests; see std3DBabylonTest.cpp for the fixture overview.
 #include "std3DBabylonTestSupport.h"
 
+#include <babylon/postfx/ContactShadowEffect.h>
+
 #include <std/General/stdConfig.h>
 #include <std/General/stdJSON.h>
 
@@ -246,12 +248,13 @@ TEST(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao)
 
     TEST_ASSERT_TRUE(waterIndex < aPasses.size());
 
-    // The contact-shadow mask pass reads depth and normals and writes a scratch mask.
+    // The contact-shadow mask pass reads depth and normals (and the ignore-mask slot, which holds
+    // the depth again when there is no caster mask) and writes a scratch mask.
     size_t maskIndex = aPasses.size();
     for ( size_t i = waterIndex + 1u; i < aPasses.size(); ++i )
     {
         const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
-        if ( aTextures.size() == 2u && aTextures[0].texture == depthTarget
+        if ( aTextures.size() == 3u && aTextures[0].texture == depthTarget
             && aTextures[1].texture == normalTarget )
         {
             maskIndex = i;
@@ -434,6 +437,26 @@ TEST(std3DBabylonGpu, ContactShadowLightDirectionMatchesTheCamera)
     TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, 0.2868f, z);
 
     TEST_ASSERT_FALSE(stdRenderBabylon_GetContactLightDirectionForTest(nullptr, &x, &y, &z));
+}
+
+TEST(std3DBabylonGpu, ContactShadowEffectGetsTheContactRangeSettings)
+{
+    UseNullDevice();
+    OpenStd3D(64u, 64u);
+
+    UseContactShadowOnly();
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetContactShadows(true));
+    SetContactShadowCamera();
+
+    Null().clearRecorded();
+    TEST_ASSERT_EQUAL_INT(0, std3D_StartScene());
+    DrawContactShadowScene(false);
+    EndFrame();
+
+    babylon::postfx::ContactShadowSettings settings;
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetContactShadowSettingsForTest(&settings));
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.04f, settings.length);
+    TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, 0.02f, settings.thickness);
 }
 
 TEST(std3DBabylonGpu, ContactShadowsOptionDefaultsAndSetting)

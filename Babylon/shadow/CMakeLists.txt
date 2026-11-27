@@ -4,7 +4,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 babylon_add_module(shadow
-    SOURCES src/ShadowMath.cpp src/DirectionalShadowMap.cpp
+    SOURCES src/ShadowMath.cpp src/DirectionalShadowMap.cpp src/StaticCasterSet.cpp
     DEPS log
     PUBLIC_DEPS render)
 
@@ -14,7 +14,8 @@ babylon_add_shaders(babylon_shadow
 
 babylon_add_module_tests(shadow
     DEPS log render
-    SOURCES tests/ShadowMathTest.cpp tests/DirectionalShadowMapTest.cpp)
+    SOURCES tests/ShadowMathTest.cpp tests/DirectionalShadowMapTest.cpp
+        tests/DirectionalShadowMapAnchorTest.cpp tests/StaticCasterSetTest.cpp)
 
 if (TARGET babylon_shadow_tests)
     # The GPU case starts SDL's video subsystem; the offscreen driver needs

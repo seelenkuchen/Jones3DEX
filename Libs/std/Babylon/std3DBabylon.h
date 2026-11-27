@@ -38,6 +38,11 @@ bool std3DBabylon_ReadTexturePixelated(void);
 // Test support: the same state std3D_Open reads from the config, without starting one.
 void std3DBabylon_SetAnisotropicFilterForTest(int level);
 void std3DBabylon_SetTexturePixelatedForTest(bool bEnabled);
+
+// Test support: the vertices recorded this frame by draws that carried STD3D_RS_SHADOW_CASTER.
+// The flag stays for M11.3's receiver mask; casters themselves now come through
+// std3D_AddShadowCasterPolygon.
+uint32_t std3DBabylon_GetCasterVertexCountForTest(void);
 #endif
 
 #endif // STD_STD3DBABYLON_H

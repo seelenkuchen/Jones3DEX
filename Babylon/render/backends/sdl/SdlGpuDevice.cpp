@@ -742,7 +742,12 @@ namespace
             create.rasterizer_state.depth_bias_slope_factor = desc.depth.depthBiasSlope;
             create.rasterizer_state.enable_depth_bias = desc.depth.depthBiasConstant != 0.0f
                 || desc.depth.depthBiasSlope != 0.0f || desc.depth.depthBiasClamp != 0.0f;
-            create.rasterizer_state.enable_depth_clip = true;
+            // SDL3 GPU has no query for depth-clamp support. The device is
+            // created with SDL's default feature set, which enables depth
+            // clamping, so false is honored on the backends that implement it;
+            // one without it keeps clipping (SDL's D3D12 backend clamps even
+            // with clip on). See PipelineDesc::depthClip.
+            create.rasterizer_state.enable_depth_clip = desc.depthClip;
             create.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
             // Stencil is not part of the interface: always pass, keep.
             const SDL_GPUStencilOpState keep{ SDL_GPU_STENCILOP_KEEP, SDL_GPU_STENCILOP_KEEP,

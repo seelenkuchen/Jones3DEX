@@ -91,42 +91,54 @@ namespace
         }
     }
 
-    bool fitDirectional(const float towardLight[3], const Bounds& casters, float margin,
-        std::uint32_t mapSize, Matrix4* pViewToShadowClip)
-    {
-        if ( pViewToShadowClip == nullptr || towardLight == nullptr || mapSize <= 2
-            || !std::isfinite(margin) || margin < 0.0f || !finiteBounds(casters) )
-        {
-            return false;
-        }
+namespace
+{
 
-        // The current light points toward the light; its view looks the other
-        // way. A zero or non-finite direction can't define a light.
-        float forward[3] = { -towardLight[0], -towardLight[1], -towardLight[2] };
+    // Builds the normalized light basis looking along -towardLight.
+    // preferredUp is used unless it is parallel to the light, when fallbackUp
+    // is used instead.
+    bool buildBasis(const float towardLight[3], const float preferredUp[3],
+        const float fallbackUp[3], float right[3], float lightUp[3], float forward[3])
+    {
+        forward[0] = -towardLight[0];
+        forward[1] = -towardLight[1];
+        forward[2] = -towardLight[2];
         if ( !normalize3(forward) )
         {
             return false;
         }
 
-        // An up vector that isn't parallel to the view, so the basis is always
-        // defined. (0,0,1) is the fallback for a straight-down light.
-        float up[3] = { 0.0f, 1.0f, 0.0f };
+        float up[3] = { preferredUp[0], preferredUp[1], preferredUp[2] };
+        if ( !normalize3(up) )
+        {
+            return false;
+        }
         if ( std::fabs(dot3(up, forward)) > 0.999f )
         {
-            up[0] = 0.0f;
-            up[1] = 0.0f;
-            up[2] = 1.0f;
+            up[0] = fallbackUp[0];
+            up[1] = fallbackUp[1];
+            up[2] = fallbackUp[2];
+            if ( !normalize3(up) || std::fabs(dot3(up, forward)) > 0.999f )
+            {
+                return false;
+            }
         }
 
-        float right[3];
         cross3(up, forward, right);
         if ( !normalize3(right) )
         {
             return false;
         }
-        float lightUp[3];
         cross3(forward, right, lightUp);
+        return true;
+    }
 
+    // Projects the margin-expanded casters box into the light basis and builds
+    // the orthographic fit matrix.
+    bool buildFit(const float right[3], const float lightUp[3], const float forward[3],
+        const Bounds& casters, float margin, std::uint32_t mapSize, float towardLightReach,
+        Matrix4* pViewToShadowClip)
+    {
         // Expand the box by margin on every side, then project its eight
         // corners into light space.
         float boxMin[3];
@@ -163,6 +175,9 @@ namespace
         }
 
         float extent[3];
+        // Extend the depth range toward the light, leaving the far side at the
+        // dynamic casters' far side plus margin.
+        lightMin[2] -= towardLightReach;
         for ( int axis = 0; axis < 3; ++axis )
         {
             extent[axis] = lightMax[axis] - lightMin[axis];
@@ -177,8 +192,22 @@ namespace
         // texel of slack on each side. That keeps every corner inside -1..1
         // while a whole-texel step of the snapped origin moves a fixed point
         // by exactly one texel.
-        float texel[2] = { extent[0] / static_cast<float>(mapSize - 2),
-            extent[1] / static_cast<float>(mapSize - 2) };
+        //
+        // The x/y extent follows the casters, so an animating character would
+        // change the texel size every frame and shimmer even with a snapped
+        // origin. Quantize one square extent, the larger axis, up to a step of
+        // a geometric ladder with ratio 2^(1/4), so a small box change keeps
+        // the same texel size. Rounding up keeps the quantized extent at least
+        // the real one, so every corner still falls inside -1..1.
+        const float squareExtent = extent[0] > extent[1] ? extent[0] : extent[1];
+        const float ladderExponent = std::ceil(4.0f * std::log2(squareExtent)) / 4.0f;
+        const float quantizedExtent = std::pow(2.0f, ladderExponent);
+        if ( !std::isfinite(quantizedExtent) || !(quantizedExtent > 0.0f) )
+        {
+            return false;
+        }
+        float texel[2] = { quantizedExtent / static_cast<float>(mapSize - 2),
+            quantizedExtent / static_cast<float>(mapSize - 2) };
         float origin[2] = { std::floor(lightMin[0] / texel[0]) * texel[0],
             std::floor(lightMin[1] / texel[1]) * texel[1] };
         float projectedExtent[2] = { texel[0] * static_cast<float>(mapSize),
@@ -210,6 +239,79 @@ namespace
 
         *pViewToShadowClip = result;
         return true;
+    }
+
+    // A fallback up axis that differs from worldUp, for when the configured
+    // one is parallel to the light.
+    void fallbackWorldUp(const float worldUp[3], float fallback[3])
+    {
+        // Prefer world +Y; if worldUp is (nearly) +Y, use +X.
+        fallback[0] = 0.0f;
+        fallback[1] = 1.0f;
+        fallback[2] = 0.0f;
+        const float length = std::sqrt(dot3(worldUp, worldUp));
+        if ( length > 0.0f && std::isfinite(length)
+            && std::fabs(worldUp[1] / length) > 0.999f )
+        {
+            fallback[0] = 1.0f;
+            fallback[1] = 0.0f;
+            fallback[2] = 0.0f;
+        }
+    }
+
+}
+
+    bool fitDirectional(const float towardLight[3], const Bounds& casters, float margin,
+        std::uint32_t mapSize, Matrix4* pViewToShadowClip, float towardLightReach)
+    {
+        if ( pViewToShadowClip == nullptr || towardLight == nullptr || mapSize <= 2
+            || !std::isfinite(margin) || margin < 0.0f || !std::isfinite(towardLightReach)
+            || towardLightReach < 0.0f || !finiteBounds(casters) )
+        {
+            return false;
+        }
+
+        // An up vector that isn't parallel to the view, so the basis is always
+        // defined. (0,0,1) is the fallback for a straight-down light.
+        const float up[3] = { 0.0f, 1.0f, 0.0f };
+        const float fallbackUp[3] = { 0.0f, 0.0f, 1.0f };
+        float right[3];
+        float lightUp[3];
+        float forward[3];
+        if ( !buildBasis(towardLight, up, fallbackUp, right, lightUp, forward) )
+        {
+            return false;
+        }
+        return buildFit(right, lightUp, forward, casters, margin, mapSize, towardLightReach,
+            pViewToShadowClip);
+    }
+
+    bool fitDirectionalWorld(const float towardLight[3], const Bounds& casters, float margin,
+        std::uint32_t mapSize, const float worldUp[3], Matrix4* pWorldToShadowClip,
+        float towardLightReach)
+    {
+        if ( pWorldToShadowClip == nullptr || towardLight == nullptr || worldUp == nullptr
+            || mapSize <= 2 || !std::isfinite(margin) || margin < 0.0f
+            || !std::isfinite(towardLightReach) || towardLightReach < 0.0f
+            || !finiteBounds(casters) )
+        {
+            return false;
+        }
+
+        // The fixed world up keeps the light basis (and so the texel grid) from
+        // turning with the camera. A light parallel to it falls back to another
+        // world axis.
+        float fallbackUp[3];
+        fallbackWorldUp(worldUp, fallbackUp);
+        float right[3];
+        float lightUp[3];
+        float forward[3];
+        if ( !buildBasis(towardLight, worldUp, fallbackUp, right, lightUp, forward) )
+        {
+            return false;
+        }
+        return buildFit(right, lightUp, forward, casters, margin, mapSize, towardLightReach,
+            pWorldToShadowClip);
     }
 
     Matrix4 shadowClipToTexture()

@@ -13,6 +13,7 @@
 #include <rdroid/Raster/rdCache.h>
 #include <rdroid/Raster/rdFace.h>
 
+#include <std/General/std3D.h>
 #include <std/General/stdConffile.h>
 #include <std/General/stdMemory.h>
 #include <std/General/stdUtil.h>
@@ -70,6 +71,11 @@ static int sectorLightNum = -1;
 
 static rdFaceFlags extraFaceFlags = 0;
 static rdFaceFlags drawFaceFlags = 0;
+// Added: M11.2c. Face flags applied to every face of the model draws that follow, until the caller
+// clears them. sithRender marks the faces of shadow-casting things this way; rdCache turns the bit
+// into the std3D render state. It is separate from drawFaceFlags, which DrawWithFlags scopes to one
+// draw and restores.
+static rdFaceFlags nextDrawFaceFlags = 0;
 
 void J3DAPI rdModel3_LoadPostProcess(rdModel3* pModel3); // Added
 static int J3DAPI rdModel3_DrawModel(rdThing* pThing, const rdMatrix34* pPlacement);
@@ -78,7 +84,15 @@ void rdModel3_ResetGlobals(void)
 {
     STD_ZEROMEM(&rdModel3_g_numDrawnFaces, sizeof(rdModel3_g_numDrawnFaces));
     STD_ZEROMEM(&rdModel3_g_numDrawnAlphaFaces, sizeof(rdModel3_g_numDrawnAlphaFaces));
-    sectorLightNum = -1;
+    sectorLightNum    = -1;
+    nextDrawFaceFlags = 0;
+}
+
+void J3DAPI rdModel3_SetNextDrawFaceFlags(rdFaceFlags flags)
+{
+    // Added: M11.2c. Flags for the model draws that follow; sithRender sets and clears them around
+    // the draw of a thing that casts a shadow.
+    nextDrawFaceFlags = flags;
 }
 
 void J3DAPI rdModel3_SetSectorLightNum(int num)
@@ -1738,6 +1752,53 @@ void J3DAPI rdModel3_DrawHNode(const rdModel3GeoSet* prdGeo, const rdModel3HNode
     }
 }
 
+// Added: M11.2e. The most vertices one face may have to still be sent as a shadow-caster polygon.
+#define RDMODEL3_MAX_SHADOW_CASTER_VERTICES 32
+
+// Added: M11.2e. Sends every face of a shadow-casting mesh, including the faces turned away from
+// the camera, to this frame's shadow map from aView's camera-space vertices. aView already holds the
+// mesh transformed into camera space; this runs before back-face culling and clipping, so the caster
+// is the whole model rather than the half shell the camera sees.
+static void rdModel3_AddMeshShadowCasters(const rdModel3Mesh* pMesh)
+{
+    if ( !pMesh || !pMesh->aFaces )
+    {
+        return;
+    }
+
+    float aPositions[RDMODEL3_MAX_SHADOW_CASTER_VERTICES * 3];
+    for ( size_t i = 0; i < pMesh->numFaces; ++i )
+    {
+        const rdFace* pFace = &pMesh->aFaces[i];
+        if ( !pFace->aVertices || pFace->numVertices < 3
+            || pFace->numVertices > RDMODEL3_MAX_SHADOW_CASTER_VERTICES )
+        {
+            continue;
+        }
+
+        bool bValid = true;
+        for ( size_t j = 0; j < pFace->numVertices; ++j )
+        {
+            const int vertexIndex = pFace->aVertices[j];
+            if ( vertexIndex < 0 || (size_t)vertexIndex >= pMesh->numVertices )
+            {
+                bValid = false;
+                break;
+            }
+
+            const rdVector3* pVertex = &aView[vertexIndex];
+            aPositions[j * 3 + 0]    = pVertex->x;
+            aPositions[j * 3 + 1]    = pVertex->y;
+            aPositions[j * 3 + 2]    = pVertex->z;
+        }
+
+        if ( bValid )
+        {
+            std3D_AddShadowCasterPolygon(aPositions, pFace->numVertices);
+        }
+    }
+}
+
 void J3DAPI rdModel3_DrawMesh(const rdModel3Mesh* pMesh, const rdMatrix34* orient)
 {
     RD_ASSERTREL(rdCamera_g_pCurCamera != NULL);
@@ -1786,6 +1847,13 @@ void J3DAPI rdModel3_DrawMesh(const rdModel3Mesh* pMesh, const rdMatrix34* orien
         rdMatrix34 tmat;
         rdMatrix_Multiply34(&tmat, &rdCamera_g_pCurCamera->viewMatrix, orient); // Combine model-view matrices
         rdMatrix_TransformPointList34(&tmat, pCurMesh->apVertices, aView, pCurMesh->numVertices); // Transform vertices to view space (i.e. rotate to orinet and convert to view space)
+
+        // Added: M11.2e. A shadow-casting thing sends all of its model's faces to the frame's shadow
+        // map now, from camera space and before any back-face culling or clipping.
+        if ( (nextDrawFaceFlags & RD_FF_SHADOW_CASTER) != 0 && std3D_DrawsThingShadows() )
+        {
+            rdModel3_AddMeshShadowCasters(pCurMesh);
+        }
 
         // Added: lit faces carry view-space normals: the vertex normals rotated by the model-view
         // matrix (rdClip_FaceToPlaneLit renormalizes them, so a scaled placement is fine)
@@ -2046,7 +2114,7 @@ void J3DAPI rdModel3_DrawFace(const rdFace* pFace, const rdVector3* aTransformed
         }
     }
 
-    pPoly->flags     = pFace->flags | extraFaceFlags | drawFaceFlags;
+    pPoly->flags     = pFace->flags | extraFaceFlags | drawFaceFlags | nextDrawFaceFlags;
     pPoly->matCelNum = pFace->matCelNum;
     pPoly->pMaterial = pFace->pMaterial;
 

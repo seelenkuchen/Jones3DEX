@@ -1639,10 +1639,19 @@ int J3DAPI sithRender_RenderThing(SithThing* pThing)
         sithRender_MarkThingSeen(pThing);
     }
 
+    // Added: M11.2c. A thing that gets the blob shadow is also a shadow caster for the Babylon
+    // adapter: mark every face of its model, then clear the mark before the blob and any other draw.
+    // The flag is inert unless the adapter reads it, so both profiles set it.
+    rdModel3_SetNextDrawFaceFlags((pThing->flags & SITH_TF_SHADOW) != 0 ? RD_FF_SHADOW_CASTER : 0);
+
     // Now draw thing
     pThing->orient.dvec = pThing->pos;
     int drawResult = sithThing_Draw(pThing);
-    if ( (pThing->flags & SITH_TF_SHADOW) != 0 ) // draw shadow
+    rdModel3_SetNextDrawFaceFlags(0);
+
+    // Altered: M11.2d. When the platform draws real thing shadows from the overhead light, the
+    // original blob shadow is not drawn; the blob stays in Retail/QOL-off and where shadows failed.
+    if ( (pThing->flags & SITH_TF_SHADOW) != 0 && !std3D_DrawsThingShadows() ) // draw shadow
     {
         sithShadow_RenderThingShadow(pThing);
     }

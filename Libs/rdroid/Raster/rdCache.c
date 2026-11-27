@@ -286,6 +286,12 @@ LABEL_4:
             rdflags |= STD3D_RS_SURFACE_WATER;
         }
 
+        // Added: carry the shadow-caster mark to the adapter's draw (M11.2c).
+        if ( (fflags & RD_FF_SHADOW_CASTER) != 0 )
+        {
+            rdflags |= STD3D_RS_SHADOW_CASTER;
+        }
+
         // Added: a draw holds only lit faces (std3D_DrawRenderListLit) or only classic ones
         bool bLit = pCurPoly->aViewNormals != NULL;
 
