@@ -120,6 +120,11 @@ typedef struct sJonesFixedTickCameraState
     float      fov;
     float      aspectRatio;
 
+    // Added: the camera sector at the tick. A drawn frame moves the camera to an interpolated pose
+    // that may lie in the sector the camera just left, so the draw resolves the interpolated
+    // position's sector and the restore puts the tick's sector back.
+    SithSector* pSector;
+
     // Added: M9.24 (jitter). The draw reads lookPos for the sky, backface culling and the DoF
     // focus distance, and camSpot/camLookSpot are exposed to the frame. Blend them with the pose.
     rdVector3  lookPos;
@@ -181,6 +186,13 @@ void JonesFixedTick_RestoreThing(const JonesFixedTickThingState* pCur, SithThing
 void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
     const JonesFixedTickCameraState* pCur, SithCamera* pCamera, float alpha);
 void JonesFixedTick_RestoreCamera(const JonesFixedTickCameraState* pCur, SithCamera* pCamera);
+
+// Added: resolve the sector a drawn camera pose lies in. Returns the sector containing pPos, walking
+// from pFromSector at pFromPos through adjoins. Returns pFromSector when either sector argument is
+// NULL, the positions are equal, or the walk is blocked before reaching pPos. Reads the world only;
+// no simulation state changes.
+SithSector* JonesFixedTick_ResolveCameraSector(SithSector* pFromSector, const rdVector3* pFromPos, const rdVector3* pPos);
+
 void JonesFixedTick_LerpVector(rdVector3* pOut, const rdVector3* pA, const rdVector3* pB, float alpha);
 void JonesFixedTick_LerpOrient(rdMatrix34* pOut, const rdMatrix34* pA, const rdMatrix34* pB, float alpha);
 
