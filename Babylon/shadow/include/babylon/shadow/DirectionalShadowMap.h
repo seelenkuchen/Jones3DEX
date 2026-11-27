@@ -41,6 +41,14 @@ namespace babylon::shadow
         // recommended.
         float staticReach = 20.0f;
 
+        // True: a caster nearer the light than the fitted near plane still
+        // occludes, clamped to depth 0. That suits moving casters that must
+        // never pop. False: such a caster is clipped, so staticReach is a hard
+        // limit on how far toward the light a static caster may be and still
+        // cast. That suits a whole level uploaded as static casters, where
+        // only geometry close above the characters should count.
+        bool clampCastersToNearPlane = true;
+
         // World-space up axis used by the world-anchored fit (see
         // setViewToWorld()), default +Z. The x/y light basis is built around
         // this fixed axis, so a camera rotation no longer turns the texel
