@@ -1,5 +1,9 @@
 ## Unreleased
 ### M11: Shadows
+  - **Smooth surface light** (on in Enhanced, off in Retail): the baked light inside large world polygons is now
+    blended smoothly from the polygon's corners instead of per triangle, so the faint light/dark diagonal lines
+    along the old triangle seams are gone when the camera sweeps. Needs lit faces. Presentation only: traces are
+    unchanged.
   - **Contact shadows** (`engine.renderer.contactShadows`, on by default in Enhanced, off in Retail): surfaces whose
     short path toward a fixed overhead light (35 degrees from vertical) is blocked by nearby geometry are darkened,
     so characters and props are grounded; Indy's hat shades his face and his legs cast a soft shadow beside his

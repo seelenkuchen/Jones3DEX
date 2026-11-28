@@ -337,6 +337,8 @@ int J3DAPI JonesDisplay_Open(JonesDisplaySettings* pSettings)
     // builds. It takes effect only with lit faces, so the same call applies it here and from Options.
     JonesDisplay_SetPerPixelLighting((int)stdConfig_GetBool(JONESDISPLAY_CFG_ENGINE_RENDER_PERPIXELLIGHTING,
         JONESDISPLAY_DEFAULT_PERPIXELLIGHTING));
+    // Added: smooth Gouraud light inside world polygons: Enhanced on, Retail off.
+    rdSetSmoothVertexLight(J3D_QOL_VALUE(true, false));
     sithRender_SetLightingMode(pSettings->lightMode);
     sithRender_SetRenderFlags(sithRender_GetRenderFlags() | RDROID_USE_AMBIENT_CAMERA_LIGHT);
 

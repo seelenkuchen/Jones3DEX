@@ -7,6 +7,9 @@ add_executable(rdroidTests
     ../Engine/Tests/rdClipTest.c
     ../Engine/Tests/rdCameraTest.c
     ../Raster/Tests/rdCacheTest.c
+    ../Raster/Tests/rdCacheTestSupport.c
+    ../Raster/Tests/rdCacheSmoothTest.c
+    ../Raster/Tests/rdPolySmoothTest.c
     ../Raster/Tests/rdFaceTest.c
     ../Math/rdVector.c
     ../Math/rdMatrix.c

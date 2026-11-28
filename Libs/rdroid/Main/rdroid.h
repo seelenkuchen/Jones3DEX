@@ -110,6 +110,15 @@ void rdSetLitFaces(bool bEnable);
 bool rdGetPerPixelLighting(void);
 void rdSetPerPixelLighting(bool bEnable);
 
+// Added: smooth Gouraud light inside world polygons (rdPolySmooth). When on, a lit GOURAUD face
+// is drawn with interior ring vertices whose light is a mean value interpolation of its corners,
+// so the light gradient no longer bends along the old zig-zag triangle diagonals. Off draws the
+// old triangulation byte for byte. Presentation only; nothing that reaches simulation state reads
+// it. Off after rdroid_ResetGlobals; read when a face is drawn, so a change applies from the next
+// face on.
+bool rdGetSmoothVertexLight(void);
+void rdSetSmoothVertexLight(bool bEnable);
+
 void rdroid_ResetGlobals(void);
 
 J3D_EXTERN_C_END

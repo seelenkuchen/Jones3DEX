@@ -1,5 +1,7 @@
 #include "rdCache.h"
+#include "rdPolySmooth.h"
 
+#include <rdroid/Engine/rdCamera.h>
 #include <rdroid/Main/rdroid.h>
 
 #include <std/General/stdEffect.h>
@@ -232,6 +234,111 @@ void J3DAPI rdCache_AddAlphaProcFace(size_t numVertices)
     ++rdCache_numAlphaProcFaces;
 }
 
+// Added: the clamped color rdCache gives one corner, before it is packed. The smoothed extra
+// vertices blend these final colors with mean value weights, so a corner that extraLight and
+// intensity push past 1 keeps its brightness instead of being washed out by a later clamp. The
+// non-Gouraud alpha is corner 0's, as it always was.
+static rdVector4 rdCache_ComputeVertexColor(const rdCacheProcEntry* pPoly, rdLightMode lightingMode,
+    const rdVector4* pIntensity, const tStdFadeFactor* pFadeFactor)
+{
+    float blue  = 1.0f;
+    float green = 1.0f;
+    float red   = 1.0f;
+    float alpha = pPoly->aVertIntensities->alpha;
+    if ( lightingMode > RD_LIGHTING_NONE && lightingMode <= RD_LIGHTING_GOURAUD )
+    {
+        red   = pPoly->extraLight.red;
+        green = pPoly->extraLight.green;
+        blue  = pPoly->extraLight.blue;
+        alpha = pPoly->aVertIntensities->alpha;
+    }
+
+    if ( lightingMode == RD_LIGHTING_GOURAUD )
+    {
+        red   += pIntensity->red;
+        green += pIntensity->green;
+        blue  += pIntensity->blue;
+        if ( pPoly->extraLight.alpha >= 1.0f )
+        {
+            alpha = pIntensity->alpha;
+        }
+        else
+        {
+            alpha = pIntensity->alpha + pPoly->extraLight.alpha;
+        }
+    }
+
+    if ( pFadeFactor->bEnabled )
+    {
+        red   = pFadeFactor->factor * red;
+        green = pFadeFactor->factor * green;
+        blue  = pFadeFactor->factor * blue;
+    }
+
+    rdVector4 color;
+    color.red   = STDMATH_CLAMP(red, 0.0f, 1.0f);
+    color.green = STDMATH_CLAMP(green, 0.0f, 1.0f);
+    color.blue  = STDMATH_CLAMP(blue, 0.0f, 1.0f);
+    color.alpha = STDMATH_CLAMP(alpha, 0.0f, 1.0f);
+    return color;
+}
+
+static uint32_t rdCache_PackVertexColor(const rdVector4* pColor, uint32_t fflags)
+{
+    if ( (fflags & RD_FF_TEX_TRANSLUCENT) != 0 )
+    {
+        return STD_COLOR_FROM_FLOATS(pColor->red, pColor->green, pColor->blue, pColor->alpha);
+    }
+
+    return STD_COLOR_FROM_FLOATS_RGB(pColor->red, pColor->green, pColor->blue);
+}
+
+static rdLightMode rdCache_ResolveLightingMode(const rdCacheProcEntry* pPoly)
+{
+    rdLightMode lightingMode = rdroid_g_curLightingMode;
+    if ( pPoly->lightingMode < rdroid_g_curLightingMode )
+    {
+        lightingMode = pPoly->lightingMode;
+    }
+
+    return lightingMode;
+}
+
+// Added: the rings to tessellate a face with, 0 to keep the old zig-zag triangulation.
+static size_t rdCache_GetSmoothRings(const rdCacheProcEntry* pPoly, rdLightMode lightingMode)
+{
+    if ( !rdGetSmoothVertexLight() || !pPoly->aViewVertices || !pPoly->aViewNormals
+        || lightingMode != RD_LIGHTING_GOURAUD
+        || !rdCamera_g_pCurCamera || !rdCamera_g_pCurCamera->pCanvas )
+    {
+        return 0;
+    }
+
+    return rdPolySmooth_GetRingCount(pPoly->aViewVertices, pPoly->numVertices);
+}
+
+// Added: the vertices and indices a face will draw with once its smoothing is decided.
+static void rdCache_GetFaceDrawCounts(const rdCacheProcEntry* pPoly, rdLightMode lightingMode,
+    size_t* pNumVerts, size_t* pNumIndices)
+{
+    size_t rings = rdCache_GetSmoothRings(pPoly, lightingMode);
+    if ( rings > 0 )
+    {
+        *pNumVerts = pPoly->numVertices + rdPolySmooth_GetExtraVertexCount(pPoly->numVertices, rings);
+        *pNumIndices = rdPolySmooth_GetIndexCount(pPoly->numVertices, rings);
+    }
+    else
+    {
+        *pNumVerts = pPoly->numVertices;
+        *pNumIndices = pPoly->numVertices <= 3u ? 3u : 3u * (pPoly->numVertices - 2u);
+    }
+}
+
+// A smoothed face adds at most (RDPOLYSMOOTH_MAXRINGS - 1) * RDCACHE_MAXFACEVERTICES + 1 vertices
+// to the corners; it must fit the 16-bit indices of one batch.
+static_assert((RDPOLYSMOOTH_MAXRINGS - 1) * RDCACHE_MAXFACEVERTICES + 1 + RDCACHE_MAXFACEVERTICES <= UINT16_MAX,
+    "a smoothed face fits the 16-bit index range");
+
 void J3DAPI rdCache_SendFaceListToHardware(size_t numPolys, rdCacheProcEntry* pCurPoly, rdCacheSortFunc pfSort)
 {
     size_t polyNum   = 0;
@@ -239,6 +346,12 @@ void J3DAPI rdCache_SendFaceListToHardware(size_t numPolys, rdCacheProcEntry* pC
     // Fixed: Bound WORD-indexed batches, including devices limited to 65,535 unique vertices.
     const size_t maxBatchVertices = J3DMIN((size_t)UINT16_MAX, std3D_g_maxVertices);
     const tStdFadeFactor* pFadeFactor = stdEffect_GetFadeFactor();
+
+    // Added: the extra vertices of a smoothed face, in the slots after its corners.
+    rdVector4 aCornerValues[RDCACHE_MAXFACEVERTICES];
+    rdVector4 aExtraValues[RDPOLYSMOOTH_MAXEXTRAVERTS];
+    rdVector3 aExtraViewVerts[RDPOLYSMOOTH_MAXEXTRAVERTS];
+    rdVector3 aExtraViewNormals[RDPOLYSMOOTH_MAXEXTRAVERTS];
 
     if ( pfSort == rdCache_ProcFaceDistanceCompare )
     {
@@ -333,65 +446,21 @@ LABEL_4:
         while ( 1 )
         {
             uint16_t curVertIdx = rdCache_totalVerts;
-            rdLightMode lightingMode = rdroid_g_curLightingMode;
-            if ( pCurPoly->lightingMode < rdroid_g_curLightingMode )
-            {
-                lightingMode = pCurPoly->lightingMode;
-            }
+            rdLightMode lightingMode = rdCache_ResolveLightingMode(pCurPoly);
+            size_t rings = rdCache_GetSmoothRings(pCurPoly, lightingMode);
 
             rdCache_pCurInVert = pCurPoly->aVertices;
             rdCache_pCurCacheVertex = &rdCache_aHWVertices[rdCache_totalVerts];
             for ( size_t i = 0; i < pCurPoly->numVertices; ++i )
             {
                 STD_COPYMEM(rdCache_pCurCacheVertex, rdCache_pCurInVert++, sizeof(StdVertexTL));
-
-                float blue  = 1.0f;
-                float green = 1.0f;
-                float red   = 1.0f;
-                float alpha = pCurPoly->aVertIntensities->alpha;
-                if ( lightingMode > RD_LIGHTING_NONE && lightingMode <= RD_LIGHTING_GOURAUD )
+                rdVector4 color = rdCache_ComputeVertexColor(pCurPoly, lightingMode,
+                    &pCurPoly->aVertIntensities[i], pFadeFactor);
+                if ( rings > 0 )
                 {
-                    red   = pCurPoly->extraLight.red;
-                    green = pCurPoly->extraLight.green;
-                    blue  = pCurPoly->extraLight.blue;
-                    alpha = pCurPoly->aVertIntensities->alpha;
+                    aCornerValues[i] = color;
                 }
-
-                if ( lightingMode == RD_LIGHTING_GOURAUD )
-                {
-                    red   += pCurPoly->aVertIntensities[i].red;
-                    green += pCurPoly->aVertIntensities[i].green;
-                    blue  += pCurPoly->aVertIntensities[i].blue;
-                    if ( pCurPoly->extraLight.alpha >= 1.0f )
-                    {
-                        alpha = pCurPoly->aVertIntensities[i].alpha;
-                    }
-                    else
-                    {
-                        alpha = pCurPoly->aVertIntensities[i].alpha + pCurPoly->extraLight.alpha;
-                    }
-                }
-
-                if ( pFadeFactor->bEnabled )
-                {
-                    red   = pFadeFactor->factor * red;
-                    green = pFadeFactor->factor * green;
-                    blue  = pFadeFactor->factor * blue;
-                }
-
-                red   = STDMATH_CLAMP(red, 0.0f, 1.0f);
-                green = STDMATH_CLAMP(green, 0.0f, 1.0f);
-                blue  = STDMATH_CLAMP(blue, 0.0f, 1.0f);
-                alpha = STDMATH_CLAMP(alpha, 0.0f, 1.0f);
-
-                if ( (fflags & RD_FF_TEX_TRANSLUCENT) != 0 )
-                {
-                    rdCache_pCurCacheVertex->color = STD_COLOR_FROM_FLOATS(red, green, blue, alpha); // (int32_t)(blue * 255.0f) | ((unsigned int)(int32_t)(green * 255.0f) << 8) | ((unsigned int)(int32_t)(red * 255.0f) << 16) | ((unsigned int)(int32_t)(alpha * 255.0f) << 24);
-                }
-                else
-                {
-                    rdCache_pCurCacheVertex->color = STD_COLOR_FROM_FLOATS_RGB(red, green, blue); //(int32_t)(blue * 255.0f) | ((unsigned int)(int32_t)(green * 255.0f) << 8) | ((unsigned int)(int32_t)(red * 255.0f) << 16) | 0xFF000000;
-                }
+                rdCache_pCurCacheVertex->color = rdCache_PackVertexColor(&color, (uint32_t)fflags);
 
                 ++rdCache_pCurCacheVertex;
                 ++rdCache_totalVerts;
@@ -425,7 +494,55 @@ LABEL_4:
             }
 
             // Triangulation
-            if ( pCurPoly->numVertices <= 3u )
+            if ( rings > 0 )
+            {
+                // Added: the smooth interior vertices, then the ring tessellation.
+                rdPolySmoothProjection proj;
+                proj.focalLength  = rdCamera_g_pCurCamera->focalLength * rdCamera_g_pCurCamera->aspectRatio;
+                proj.centerX      = rdCamera_g_pCurCamera->pCanvas->center.x;
+                proj.centerY      = rdCamera_g_pCurCamera->pCanvas->center.y;
+                proj.invNearPlane = rdCamera_g_pCurCamera->invNearClipPlane;
+                proj.invFarPlane  = rdCamera_g_pCurCamera->invFarClipPlane;
+
+                size_t extraVerts         = rdPolySmooth_GetExtraVertexCount(pCurPoly->numVertices, rings);
+                StdVertexTL* pExtraVerts  = &rdCache_aHWVertices[curVertIdx + pCurPoly->numVertices];
+                rdPolySmooth_BuildVertices(pCurPoly, rings, &proj, aCornerValues,
+                    pExtraVerts, aExtraValues, aExtraViewVerts, aExtraViewNormals);
+
+                for ( size_t i = 0; i < extraVerts; ++i )
+                {
+                    // Already final (blended clamped corner colors): clamp once more and pack.
+                    aExtraValues[i].red   = STDMATH_CLAMP(aExtraValues[i].red, 0.0f, 1.0f);
+                    aExtraValues[i].green = STDMATH_CLAMP(aExtraValues[i].green, 0.0f, 1.0f);
+                    aExtraValues[i].blue  = STDMATH_CLAMP(aExtraValues[i].blue, 0.0f, 1.0f);
+                    aExtraValues[i].alpha = STDMATH_CLAMP(aExtraValues[i].alpha, 0.0f, 1.0f);
+                    pExtraVerts[i].color = rdCache_PackVertexColor(&aExtraValues[i], (uint32_t)fflags);
+
+                    if ( bLit )
+                    {
+                        StdVertexLit* pLitVert = &rdCache_aHWLitVertices[curVertIdx + pCurPoly->numVertices + i];
+                        pLitVert->tl = pExtraVerts[i];
+                        pLitVert->vx = aExtraViewVerts[i].x;
+                        pLitVert->vy = aExtraViewVerts[i].y;
+                        pLitVert->vz = aExtraViewVerts[i].z;
+                        pLitVert->nx = aExtraViewNormals[i].x;
+                        pLitVert->ny = aExtraViewNormals[i].y;
+                        pLitVert->nz = aExtraViewNormals[i].z;
+
+                        if ( rdGetPerPixelLighting() )
+                        {
+                            const bool bAddLights = lightingMode == RD_LIGHTING_GOURAUD
+                                || lightingMode == RD_LIGHTING_DIFFUSE;
+                            pLitVert->tl.specular = bAddLights ? 0xFFFFFFFFu : 0u;
+                        }
+                    }
+                }
+
+                rdCache_totalVerts += extraVerts;
+                rdPolySmooth_BuildIndices(pCurPoly->numVertices, rings, curVertIdx, &rdCache_aVertIndices[totalIndices]);
+                totalIndices += rdPolySmooth_GetIndexCount(pCurPoly->numVertices, rings);
+            }
+            else if ( pCurPoly->numVertices <= 3u )
             {
                 rdCache_aVertIndices[totalIndices++] = curVertIdx;
                 rdCache_aVertIndices[totalIndices++] = curVertIdx + 1;
@@ -458,11 +575,20 @@ LABEL_4:
             ++pCurPoly;
             ++polyNum;
 
+            // Added: the next face's expanded counts, when it will be smoothed, keep the buffers and
+            // the 16-bit indices within their limits.
+            size_t nextVerts   = 0;
+            size_t nextIndices = 0;
+            if ( polyNum < numPolys )
+            {
+                rdCache_GetFaceDrawCounts(pCurPoly, rdCache_ResolveLightingMode(pCurPoly), &nextVerts, &nextIndices);
+            }
+
             // Fixed: Check polyNum first; after the last poly, pCurPoly points past the end of the list
             if ( polyNum >= numPolys
-                || pCurPoly->numVertices + rdCache_totalVerts > maxBatchVertices
-                || 3 * (pCurPoly->numVertices - 2) + totalIndices > STD_ARRAYLEN(rdCache_aVertIndices)
-                || 3 * (pCurPoly->numVertices - 2) + totalIndices >= std3D_g_maxVertices // i.e. totalIndices + num required triangle indices for next poly >= std3D_g_maxVertices
+                || nextVerts + rdCache_totalVerts > maxBatchVertices
+                || nextIndices + totalIndices > STD_ARRAYLEN(rdCache_aVertIndices)
+                || nextIndices + totalIndices >= std3D_g_maxVertices // i.e. totalIndices + num required triangle indices for next poly >= std3D_g_maxVertices
                 || pCurMat != pCurPoly->pMaterial
                 || curMatCelNum != pCurPoly->matCelNum
                 || fflags != pCurPoly->flags
