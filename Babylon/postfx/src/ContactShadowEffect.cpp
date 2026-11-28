@@ -71,6 +71,24 @@ namespace babylon::postfx
         };
         static_assert(sizeof(ContactShadowCompositeUniforms) == 16);
 
+        // Matches the cbuffer in shaders/contact_shadow_temporal.frag.hlsl.
+        struct alignas(16) ContactShadowTemporalUniforms
+        {
+            float currentToPrevious[12];
+            float nearPlane;
+            float farPlane;
+            float depthNear;
+            float depthFar;
+            float tanHalfFovX;
+            float tanHalfFovY;
+            float inputWidth;
+            float inputHeight;
+            float blend;
+            std::uint32_t hasHistory;
+            float padding[2];
+        };
+        static_assert(sizeof(ContactShadowTemporalUniforms) == 96);
+
         constexpr float kSmallestLength = 1.0e-4f;
     }
 
@@ -83,6 +101,7 @@ namespace babylon::postfx
         m_settings.receiverClasses = settings.receiverClasses;
         m_settings.fadeStart       = settings.fadeStart;
         m_settings.fadeEnd         = std::max(settings.fadeEnd, m_settings.fadeStart);
+        m_settings.historyHalfLife = std::clamp(settings.historyHalfLife, 0.0f, 1.0f);
     }
 
     const ContactShadowSettings& ContactShadowEffect::settings() const
@@ -108,6 +127,16 @@ namespace babylon::postfx
         m_ignoreMask = mask;
     }
 
+    void ContactShadowEffect::setCameraMotion(const CameraMotion& motion)
+    {
+        m_cameraMotion = motion;
+    }
+
+    void ContactShadowEffect::resetHistory()
+    {
+        m_historyValid = false;
+    }
+
     std::string_view ContactShadowEffect::name() const
     {
         return "contact shadows";
@@ -128,6 +157,57 @@ namespace babylon::postfx
         return m_settings.strength > 0.0f;
     }
 
+    bool ContactShadowEffect::ensureHistoryTextures(render::Device& device, std::uint32_t width,
+        std::uint32_t height)
+    {
+        m_device = &device;
+        if ( !m_historyTextures[0].isNull() && !m_historyTextures[1].isNull()
+            && m_historyWidth == width && m_historyHeight == height )
+        {
+            return true;
+        }
+
+        // A size change starts a fresh history.
+        m_historyValid = false;
+        if ( !m_historyTextures[0].isNull() )
+        {
+            device.destroyTexture(m_historyTextures[0]);
+        }
+        if ( !m_historyTextures[1].isNull() )
+        {
+            device.destroyTexture(m_historyTextures[1]);
+        }
+        m_historyTextures[0] = {};
+        m_historyTextures[1] = {};
+        m_historyWidth       = 0;
+        m_historyHeight      = 0;
+        m_historyReadIndex   = 0;
+
+        const render::TextureDesc desc{ width, height, 1, render::TextureFormat::Rgba16F,
+            render::TextureUsage::ColorTarget | render::TextureUsage::Sampled };
+        m_historyTextures[0] = device.createTexture(desc);
+        m_historyTextures[1] = device.createTexture(desc);
+        if ( m_historyTextures[0].isNull() || m_historyTextures[1].isNull() )
+        {
+            log::warning("postfx: contact shadows: the history targets could not be created");
+            if ( !m_historyTextures[0].isNull() )
+            {
+                device.destroyTexture(m_historyTextures[0]);
+            }
+            if ( !m_historyTextures[1].isNull() )
+            {
+                device.destroyTexture(m_historyTextures[1]);
+            }
+            m_historyTextures[0] = {};
+            m_historyTextures[1] = {};
+            return false;
+        }
+
+        m_historyWidth  = width;
+        m_historyHeight = height;
+        return true;
+    }
+
     void ContactShadowEffect::releaseResources()
     {
         if ( m_device != nullptr )
@@ -140,14 +220,32 @@ namespace babylon::postfx
             {
                 m_device->destroyPipeline(entry.second);
             }
+            for ( const auto& entry : m_temporalPipelines )
+            {
+                m_device->destroyPipeline(entry.second);
+            }
             for ( const auto& entry : m_compositePipelines )
             {
                 m_device->destroyPipeline(entry.second);
             }
+            for ( render::TextureHandle& texture : m_historyTextures )
+            {
+                if ( !texture.isNull() )
+                {
+                    m_device->destroyTexture(texture);
+                }
+            }
         }
         m_maskPipelines.clear();
         m_blurPipelines.clear();
+        m_temporalPipelines.clear();
         m_compositePipelines.clear();
+        m_historyTextures[0] = {};
+        m_historyTextures[1] = {};
+        m_historyWidth       = 0;
+        m_historyHeight      = 0;
+        m_historyReadIndex   = 0;
+        m_historyValid       = false;
         m_device = nullptr;
     }
 
@@ -226,6 +324,19 @@ namespace babylon::postfx
             return false;
         }
 
+        const bool useHistory = m_settings.historyHalfLife > 0.0f;
+        render::PipelineHandle temporalPipeline;
+        if ( useHistory )
+        {
+            temporalPipeline = getPipeline(m_temporalPipelines, render::TextureFormat::Rgba16F,
+                shaders::contactShadowTemporalFrag());
+            if ( temporalPipeline.isNull() )
+            {
+                log::warning("postfx: contact shadows: the temporal pipeline could not be created");
+                return false;
+            }
+        }
+
         const render::PipelineHandle compositePipeline = getPipeline(m_compositePipelines,
             ctx.outputFormat, shaders::contactShadowCompositeFrag());
         if ( compositePipeline.isNull() )
@@ -292,10 +403,59 @@ namespace babylon::postfx
             return false;
         }
 
+        render::TextureHandle compositeMask = blurTarget;
+        if ( useHistory )
+        {
+            if ( !ensureHistoryTextures(ctx.resources.device(), ctx.inputWidth, ctx.inputHeight) )
+            {
+                return false;
+            }
+
+            const bool hasHistory = m_historyValid && m_cameraMotion.valid
+                && ctx.frame.deltaSeconds > 0.0f;
+            const std::uint32_t writeIndex = m_historyReadIndex == 0u ? 1u : 0u;
+            const float blend = hasHistory
+                ? 1.0f - std::exp2(-ctx.frame.deltaSeconds / m_settings.historyHalfLife)
+                : 0.0f;
+
+            ContactShadowTemporalUniforms temporalUniforms{};
+            for ( std::size_t i = 0; i < 12; ++i )
+            {
+                temporalUniforms.currentToPrevious[i] = m_cameraMotion.currentToPrevious[i];
+            }
+            temporalUniforms.nearPlane   = projection.nearPlane;
+            temporalUniforms.farPlane    = projection.farPlane;
+            temporalUniforms.depthNear   = projection.depthNear;
+            temporalUniforms.depthFar    = projection.depthFar;
+            temporalUniforms.tanHalfFovX = projection.tanHalfFovX;
+            temporalUniforms.tanHalfFovY = projection.tanHalfFovY;
+            temporalUniforms.inputWidth  = static_cast<float>(ctx.inputWidth);
+            temporalUniforms.inputHeight = static_cast<float>(ctx.inputHeight);
+            temporalUniforms.blend       = blend;
+            temporalUniforms.hasHistory  = hasHistory ? 1u : 0u;
+            temporalUniforms.padding[0]  = 0.0f;
+            temporalUniforms.padding[1]  = 0.0f;
+
+            // Temporal: the blurred mask, the depth and the previous mask, reprojected
+            // through the camera motion, out to the history target this frame writes.
+            const render::TextureHandle temporalTextures[3] = { blurTarget, ctx.frame.depth,
+                m_historyTextures[m_historyReadIndex] };
+            if ( !Resources::recordFullscreenPass(ctx.list, m_historyTextures[writeIndex],
+                temporalPipeline, std::span<const render::TextureHandle>(temporalTextures, 3),
+                ctx.resources.linearClamp(), std::as_bytes(std::span(&temporalUniforms, 1))) )
+            {
+                return false;
+            }
+
+            m_historyReadIndex = writeIndex;
+            m_historyValid     = true;
+            compositeMask      = m_historyTextures[writeIndex];
+        }
+
         // Composite: depth and normals in the mask pass's slots, then the input colour
-        // and the blurred mask. It repeats the receiver test so non-receivers stay exact.
+        // and the mask. It repeats the receiver test so non-receivers stay exact.
         const render::TextureHandle compositeTextures[4] = { ctx.frame.depth,
-            needsNormals ? ctx.frame.normals : ctx.frame.depth, ctx.input, blurTarget };
+            needsNormals ? ctx.frame.normals : ctx.frame.depth, ctx.input, compositeMask };
         return Resources::recordFullscreenPass(ctx.list, ctx.output, compositePipeline,
             std::span<const render::TextureHandle>(compositeTextures, 4),
             ctx.resources.nearestClamp(), std::as_bytes(std::span(&compositeUniforms, 1)));

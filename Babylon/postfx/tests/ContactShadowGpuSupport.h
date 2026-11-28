@@ -287,13 +287,13 @@ namespace babylon::postfx::testsupport
     // a depth in front of the near plane (an overlay) and the sky gets the
     // clear depth.
     inline void renderDepthScene(Device& device, TextureHandle depth, TextureFormat depthFormat,
-        bool bBox = true)
+        bool bBox = true, float boxShiftX = 0.0f)
     {
         const float front = boxFrontDepth();
         // A box far off screen and outside the far plane never intersects a
         // ray, so the scene is the open floor alone.
-        const float boxMinX = bBox ? kBoxMinX : 1000.0f;
-        const float boxMaxX = bBox ? kBoxMaxX : 1001.0f;
+        const float boxMinX = bBox ? kBoxMinX + boxShiftX : 1000.0f;
+        const float boxMaxX = bBox ? kBoxMaxX + boxShiftX : 1001.0f;
         const float boxTopY = bBox ? kBoxTopY : kFloorY;
         const float boxFront = bBox ? front : 1000.0f;
         const SceneUniforms uniforms{
@@ -327,7 +327,7 @@ namespace babylon::postfx::testsupport
     // (when asked) the effect names that ran.
     inline std::vector<std::byte> runScene(Device& device, Effect* pEffect, TextureHandle color,
         TextureHandle depth, TextureHandle normals, const Projection& projection,
-        std::vector<std::string_view>* pRan)
+        std::vector<std::string_view>* pRan, float deltaSeconds = 0.0f)
     {
         const TextureHandle output = device.createTexture(TextureDesc{ kSize, kSize, 1,
             TextureFormat::Rgba8, TextureUsage::ColorTarget });
@@ -345,9 +345,10 @@ namespace babylon::postfx::testsupport
         frame.colorFormat = TextureFormat::Rgba16F;
         frame.depth       = depth;
         frame.normals     = normals;
-        frame.width       = kSize;
-        frame.height      = kSize;
-        frame.projection  = projection;
+        frame.width        = kSize;
+        frame.height       = kSize;
+        frame.projection   = projection;
+        frame.deltaSeconds = deltaSeconds;
 
         OutputTarget target;
         target.texture = output;

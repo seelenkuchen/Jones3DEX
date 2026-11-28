@@ -13,7 +13,7 @@
 // pixel excluded by the ignore mask is written by the mask pass as a
 // non-receiver (green 0), so it is never a tap here and its centre returns
 // zero: the blur needs no ignore mask of its own and cannot pull shadow into
-// it.
+// it. Green carries the centre's receiver flag on to the temporal pass.
 
 Texture2D<float4> gMask : register(t0, space2);
 Texture2D<float> gDepth : register(t1, space2);
@@ -82,13 +82,13 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
     float centreDepth = gDepth.Sample(gDepthSampler, centreUv);
     if ( !isSceneDepth(centreDepth) )
     {
-        return float4(centreMask.r, 0.0, 0.0, 1.0);
+        return float4(centreMask.r, centreMask.g, 0.0, 1.0);
     }
 
     float zCentre = linearViewDepth(centreDepth);
     if ( zCentre <= 0.0 )
     {
-        return float4(centreMask.r, 0.0, 0.0, 1.0);
+        return float4(centreMask.r, centreMask.g, 0.0, 1.0);
     }
 
     float weighted = 0.0;
@@ -120,5 +120,5 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target0
     }
 
     float mask = totalWeight > 0.0 ? weighted / totalWeight : centreMask.r;
-    return float4(mask, 0.0, 0.0, 1.0);
+    return float4(mask, centreMask.g, 0.0, 1.0);
 }

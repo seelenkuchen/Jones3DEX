@@ -14,8 +14,8 @@ babylon_add_shaders(babylon_postfx
     NAMESPACE babylon::postfx::shaders
     SOURCES shaders/fullscreen.vert.hlsl shaders/copy.frag.hlsl shaders/vignette.frag.hlsl
         shaders/film_grain.frag.hlsl shaders/contact_shadow_mask.frag.hlsl
-        shaders/contact_shadow_blur.frag.hlsl shaders/contact_shadow_composite.frag.hlsl
-        shaders/shadow_receive.frag.hlsl)
+        shaders/contact_shadow_blur.frag.hlsl shaders/contact_shadow_temporal.frag.hlsl
+        shaders/contact_shadow_composite.frag.hlsl shaders/shadow_receive.frag.hlsl)
 
 # The GPU case builds its shadow map with the shadow module; that is a test
 # dependency only, so postfx itself still depends on render and log alone.
@@ -43,7 +43,7 @@ if (TARGET babylon_postfx_tests)
             SOURCES tests/shaders/scene_depth.frag.hlsl
                 tests/shaders/shadow_floor_depth.frag.hlsl)
         target_sources(babylon_postfx_tests PRIVATE tests/ContactShadowGpuTest.cpp
-            tests/ContactShadowRobustnessGpuTest.cpp tests/ShadowReceiveGpuTest.cpp
-            tests/ShadowReceiveSoftnessGpuTest.cpp)
+            tests/ContactShadowRobustnessGpuTest.cpp tests/ContactShadowTemporalGpuTest.cpp
+            tests/ShadowReceiveGpuTest.cpp tests/ShadowReceiveSoftnessGpuTest.cpp)
     endif()
 endif()

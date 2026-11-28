@@ -283,16 +283,34 @@ TEST(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao)
     const render::TextureHandle blurOutput = PassTarget(aPasses[blurIndex]);
     TEST_ASSERT_FALSE(blurOutput.isNull());
 
-    // The composite pass reads depth, normals, the water output and the blurred mask, and writes
-    // the stage's target.
+    // The temporal pass reads the blurred mask, the depth and the history, and writes the other
+    // history target. It runs even on a frame without a previous mask, so the next one has one.
+    size_t temporalIndex = aPasses.size();
+    for ( size_t i = blurIndex + 1u; i < aPasses.size(); ++i )
+    {
+        const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
+        if ( aTextures.size() == 3u && aTextures[0].texture == blurOutput
+            && aTextures[1].texture == depthTarget )
+        {
+            temporalIndex = i;
+            break;
+        }
+    }
+
+    TEST_ASSERT_TRUE(temporalIndex < aPasses.size());
+    const render::TextureHandle temporalOutput = PassTarget(aPasses[temporalIndex]);
+    TEST_ASSERT_FALSE(temporalOutput.isNull());
+
+    // The composite pass reads depth, normals, the water output and the temporally filtered mask,
+    // and writes the stage's target.
     const render::TextureHandle waterOutput = PassTarget(aPasses[waterIndex]);
     size_t contactIndex = aPasses.size();
-    for ( size_t i = blurIndex + 1u; i < aPasses.size(); ++i )
+    for ( size_t i = temporalIndex + 1u; i < aPasses.size(); ++i )
     {
         const std::vector<render::BindTexture>& aTextures = aPasses[i].aTextures;
         if ( aTextures.size() == 4u && aTextures[0].texture == depthTarget
             && aTextures[1].texture == normalTarget && aTextures[2].texture == waterOutput
-            && aTextures[3].texture == blurOutput )
+            && aTextures[3].texture == temporalOutput )
         {
             contactIndex = i;
             break;
@@ -319,16 +337,20 @@ TEST(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao)
     TEST_ASSERT_TRUE(ssaoCompositeIndex < aPasses.size());
     TEST_ASSERT_TRUE(waterIndex < maskIndex);
     TEST_ASSERT_TRUE(maskIndex < blurIndex);
-    TEST_ASSERT_TRUE(blurIndex < contactIndex);
+    TEST_ASSERT_TRUE(blurIndex < temporalIndex);
+    TEST_ASSERT_TRUE(temporalIndex < contactIndex);
     TEST_ASSERT_TRUE(contactIndex < ssaoCompositeIndex);
     TEST_ASSERT_TRUE(aPasses[maskIndex].aTextures[0].texture == depthTarget);
     TEST_ASSERT_TRUE(aPasses[maskIndex].aTextures[1].texture == normalTarget);
     TEST_ASSERT_TRUE(aPasses[blurIndex].aTextures[0].texture == maskOutput);
     TEST_ASSERT_TRUE(aPasses[blurIndex].aTextures[1].texture == depthTarget);
+    TEST_ASSERT_TRUE(aPasses[temporalIndex].aTextures[0].texture == blurOutput);
+    TEST_ASSERT_TRUE(aPasses[temporalIndex].aTextures[1].texture == depthTarget);
     TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[2].texture == waterOutput);
-    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[3].texture == blurOutput);
+    TEST_ASSERT_TRUE(aPasses[contactIndex].aTextures[3].texture == temporalOutput);
     TEST_ASSERT_FALSE(contactOutput == waterOutput);
     TEST_ASSERT_FALSE(maskOutput == blurOutput);
+    TEST_ASSERT_FALSE(temporalOutput == blurOutput);
 }
 
 TEST(std3DBabylonGpu, ContactShadowsDarkenTheFloorBesideABox)
@@ -444,6 +466,86 @@ TEST(std3DBabylonGpu, ContactShadowLightDirectionMatchesTheCamera)
     TEST_ASSERT_FLOAT_WITHIN(1.0e-4f, 0.2868f, z);
 
     TEST_ASSERT_FALSE(stdRenderBabylon_GetContactLightDirectionForTest(nullptr, &x, &y, &z));
+}
+
+TEST(std3DBabylonGpu, ContactShadowCameraMotionMapsAKnownPointToThePreviousView)
+{
+    // Current camera: right +X, up +Z, forward +Y, eye (1, 2, 3).
+    const float aCurrent[12] = {
+        1.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 1.0f, 2.0f,
+        0.0f, 1.0f, 0.0f, 3.0f
+    };
+    // Previous camera: a quarter turn about Z with another eye, (2, -1, 0.5).
+    const float aPrevious[12] = {
+        0.0f, 1.0f, 0.0f, 2.0f,
+        -1.0f, 0.0f, 0.0f, -1.0f,
+        0.0f, 0.0f, 1.0f, 0.5f
+    };
+
+    // A world point seen by both cameras.
+    const float aPoint[3] = { 0.3f, 3.4f, 2.5f };
+
+    // Its view position under the current camera.
+    const float aRelative[3] = { aPoint[0] - aCurrent[3], aPoint[1] - aCurrent[7],
+        aPoint[2] - aCurrent[11] };
+    const float aCurrentView[3] = {
+        aCurrent[0] * aRelative[0] + aCurrent[1] * aRelative[1] + aCurrent[2] * aRelative[2],
+        aCurrent[4] * aRelative[0] + aCurrent[5] * aRelative[1] + aCurrent[6] * aRelative[2],
+        aCurrent[8] * aRelative[0] + aCurrent[9] * aRelative[1] + aCurrent[10] * aRelative[2]
+    };
+
+    // Its view position under the previous camera, which the helper must reproduce.
+    const float aPreviousRelative[3] = { aPoint[0] - aPrevious[3], aPoint[1] - aPrevious[7],
+        aPoint[2] - aPrevious[11] };
+    const float aExpected[3] = {
+        aPrevious[0] * aPreviousRelative[0] + aPrevious[1] * aPreviousRelative[1]
+            + aPrevious[2] * aPreviousRelative[2],
+        aPrevious[4] * aPreviousRelative[0] + aPrevious[5] * aPreviousRelative[1]
+            + aPrevious[6] * aPreviousRelative[2],
+        aPrevious[8] * aPreviousRelative[0] + aPrevious[9] * aPreviousRelative[1]
+            + aPrevious[10] * aPreviousRelative[2]
+    };
+
+    float aMotion[12];
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetContactCameraMotionForTest(aCurrent, aPrevious,
+        aMotion));
+
+    const float aMapped[3] = {
+        aMotion[0] * aCurrentView[0] + aMotion[1] * aCurrentView[1] + aMotion[2] * aCurrentView[2]
+            + aMotion[3],
+        aMotion[4] * aCurrentView[0] + aMotion[5] * aCurrentView[1] + aMotion[6] * aCurrentView[2]
+            + aMotion[7],
+        aMotion[8] * aCurrentView[0] + aMotion[9] * aCurrentView[1] + aMotion[10] * aCurrentView[2]
+            + aMotion[11]
+    };
+    for ( size_t i = 0; i < 3u; ++i )
+    {
+        TEST_ASSERT_FLOAT_WITHIN(1.0e-5f, aExpected[i], aMapped[i]);
+    }
+
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetContactCameraMotionForTest(nullptr, aPrevious, aMotion));
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetContactCameraMotionForTest(aCurrent, nullptr, aMotion));
+    TEST_ASSERT_FALSE(stdRenderBabylon_GetContactCameraMotionForTest(aCurrent, aPrevious,
+        nullptr));
+}
+
+TEST(std3DBabylonGpu, ContactShadowCameraMotionOfIdenticalCamerasIsTheIdentity)
+{
+    const float aCamera[12] = {
+        1.0f, 0.0f, 0.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 2.0f,
+        0.0f, 0.0f, 1.0f, 3.0f
+    };
+    const float aIdentity[12] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f };
+
+    float aMotion[12];
+    TEST_ASSERT_TRUE(stdRenderBabylon_GetContactCameraMotionForTest(aCamera, aCamera, aMotion));
+    for ( size_t i = 0; i < 12u; ++i )
+    {
+        TEST_ASSERT_FLOAT_WITHIN(1.0e-6f, aIdentity[i], aMotion[i]);
+    }
 }
 
 TEST(std3DBabylonGpu, ContactShadowEffectGetsTheContactRangeSettings)

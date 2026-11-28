@@ -782,6 +782,8 @@ TEST_GROUP_RUNNER(std3DBabylonGpu)
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowPassRunsBetweenWaterAndSsao);
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsDarkenTheFloorBesideABox);
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowLightDirectionMatchesTheCamera);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowCameraMotionMapsAKnownPointToThePreviousView);
+    RUN_TEST_CASE(std3DBabylonGpu, ContactShadowCameraMotionOfIdenticalCamerasIsTheIdentity);
     RUN_TEST_CASE(std3DBabylonGpu, ContactShadowsOptionDefaultsAndSetting);
     RUN_TEST_CASE(std3DBabylonGpu, AddShadowCasterPolygonTriangleUsesTheViewConvention);
     RUN_TEST_CASE(std3DBabylonGpu, AddShadowCasterPolygonFansQuadsAndPentagons);

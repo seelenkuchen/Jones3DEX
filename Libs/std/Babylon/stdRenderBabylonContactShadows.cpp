@@ -45,6 +45,56 @@ namespace
     constexpr float stdRenderBabylon_kContactShadowLength    = 0.04f; // ray length in view units
     constexpr float stdRenderBabylon_kContactShadowThickness = 0.02f; // depth sample this far in front still blocks
 
+    // The contact-shadow mask's history half life in seconds. A shadow that appears or
+    // vanishes reaches about 80 percent in 0.1 s instead of switching in one frame.
+    constexpr float stdRenderBabylon_kContactShadowHistoryHalfLife = 0.04f; // seconds
+
+    // The inverse of stdRenderBabylon_WorldToView: a view-space point back to the world.
+    void stdRenderBabylon_ContactViewToWorld(const float aCamera[12],
+        babylon::shadow::Matrix4* pOut)
+    {
+        const float* pRight   = &aCamera[0];
+        const float* pUp      = &aCamera[4];
+        const float* pForward = &aCamera[8];
+
+        pOut->m[0]  = pRight[0];
+        pOut->m[1]  = pUp[0];
+        pOut->m[2]  = pForward[0];
+        pOut->m[3]  = aCamera[3];
+        pOut->m[4]  = pRight[1];
+        pOut->m[5]  = pUp[1];
+        pOut->m[6]  = pForward[1];
+        pOut->m[7]  = aCamera[7];
+        pOut->m[8]  = pRight[2];
+        pOut->m[9]  = pUp[2];
+        pOut->m[10] = pForward[2];
+        pOut->m[11] = aCamera[11];
+        pOut->m[12] = 0.0f;
+        pOut->m[13] = 0.0f;
+        pOut->m[14] = 0.0f;
+        pOut->m[15] = 1.0f;
+    }
+
+    // The contact-shadow history reprojection from two shader cameras: WorldToView(previous)
+    // * ViewToWorld(current), written as the effect's CameraMotion rows.
+    void stdRenderBabylon_ContactCameraMotion(const float aCurrent[12], const float aPrevious[12],
+        float aOut[12])
+    {
+        babylon::shadow::Matrix4 previousWorldToView;
+        babylon::shadow::Matrix4 currentViewToWorld;
+        stdRenderBabylon_WorldToView(aPrevious, &previousWorldToView);
+        stdRenderBabylon_ContactViewToWorld(aCurrent, &currentViewToWorld);
+        const babylon::shadow::Matrix4 currentToPrevious =
+            babylon::shadow::multiply(previousWorldToView, currentViewToWorld);
+        for ( int row = 0; row < 3; ++row )
+        {
+            aOut[row * 4 + 0] = currentToPrevious.m[row * 4 + 0];
+            aOut[row * 4 + 1] = currentToPrevious.m[row * 4 + 1];
+            aOut[row * 4 + 2] = currentToPrevious.m[row * 4 + 2];
+            aOut[row * 4 + 3] = currentToPrevious.m[row * 4 + 3];
+        }
+    }
+
     // Added: the contact-shadow stage's scene-sized target, made when its size changes. False,
     // logging why, when it can't be created.
     bool stdRenderBabylon_EnsureContactShadowTargets(uint32_t width, uint32_t height)
@@ -81,6 +131,11 @@ namespace
         stdRenderBabylon_state.contactShadowColorTarget = target;
         stdRenderBabylon_state.contactShadowWidth       = width;
         stdRenderBabylon_state.contactShadowHeight      = height;
+        // A new scene size starts a fresh mask history.
+        if ( stdRenderBabylon_state.pPostfxContactShadows )
+        {
+            stdRenderBabylon_state.pPostfxContactShadows->resetHistory();
+        }
         return true;
     }
 
@@ -187,6 +242,7 @@ namespace stdRenderBabylonInternal
         settings.fadeStart       = stdRenderBabylon_kContactShadowFadeStart;
         settings.fadeEnd         = stdRenderBabylon_kContactShadowFadeEnd;
         settings.receiverClasses = 0x8; // only ordinary surfaces, class 3 of the surface tags
+        settings.historyHalfLife = stdRenderBabylon_kContactShadowHistoryHalfLife;
         stdRenderBabylon_state.pPostfxContactShadows->setSettings(settings);
 
         // Added: when this frame ran the caster mask, the characters take no part in the contact
@@ -201,6 +257,19 @@ namespace stdRenderBabylonInternal
         stdRenderBabylon_state.pPostfxContactShadows->setLightDirection(aLight[0], aLight[1],
             aLight[2]);
 
+        // The mask history reprojects through the camera motion since the previous frame.
+        // bMotionBlurActive is false on a cut, a teleport, a snap or the first frame, so the
+        // history starts anew there. It is maintained whenever a camera transform arrives, whether
+        // the motion-blur option is on or not.
+        postfx::CameraMotion motion;
+        if ( stdRenderBabylon_state.bMotionBlurActive )
+        {
+            stdRenderBabylon_ContactCameraMotion(stdRenderBabylon_state.aMotionBlurCurrent,
+                stdRenderBabylon_state.aMotionBlurPrevious, motion.currentToPrevious);
+            motion.valid = true;
+        }
+        stdRenderBabylon_state.pPostfxContactShadows->setCameraMotion(motion);
+
         postfx::FrameInputs frame;
         frame.color       = scene;
         frame.colorFormat = stdRenderBabylon_state.colorFormat;
@@ -208,6 +277,8 @@ namespace stdRenderBabylonInternal
         frame.normals     = stdRenderBabylon_state.normalTarget;
         frame.width       = width;
         frame.height      = height;
+        // The frame's game time, the same delta the light shafts and water ripples use.
+        frame.deltaSeconds = stdRenderBabylon_state.shaftDeltaTime;
         frame.projection.nearPlane   = nearPlane;
         frame.projection.farPlane    = farPlane;
         frame.projection.tanHalfFovX = tanHalfX;
@@ -244,6 +315,11 @@ bool stdRenderBabylon_SetContactShadows(bool bEnabled)
     stdRenderBabylon_state.bContactShadows            = bEnabled;
     stdRenderBabylon_state.bContactShadowsSetupFailed = false;
     stdRenderBabylon_state.bContactShadowsRan         = false;
+    // Switching the stage on starts a fresh mask history.
+    if ( bEnabled && stdRenderBabylon_state.pPostfxContactShadows )
+    {
+        stdRenderBabylon_state.pPostfxContactShadows->resetHistory();
+    }
     return true;
 }
 
@@ -288,6 +364,18 @@ bool stdRenderBabylon_GetContactShadowSettingsForTest(postfx::ContactShadowSetti
     {
         *pSettings = stdRenderBabylon_state.pPostfxContactShadows->settings();
     }
+    return true;
+}
+
+bool stdRenderBabylon_GetContactCameraMotionForTest(const float aCurrent[12],
+    const float aPrevious[12], float aOut[12])
+{
+    if ( !aCurrent || !aPrevious || !aOut )
+    {
+        return false;
+    }
+
+    stdRenderBabylon_ContactCameraMotion(aCurrent, aPrevious, aOut);
     return true;
 }
 #endif
