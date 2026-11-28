@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -350,6 +351,14 @@ namespace
 
         ~SdlGpuDevice() override
         {
+            // Wait for the frames still in flight before their resources go.
+            while ( !m_inFlight.empty() )
+            {
+                SDL_GPUFence* const fence = m_inFlight.front();
+                SDL_WaitForGPUFences(m_device, true, &fence, 1);
+                SDL_ReleaseGPUFence(m_device, fence);
+                m_inFlight.pop_front();
+            }
             m_textures.forEach([this](SdlTexture& t) { SDL_ReleaseGPUTexture(m_device, t.texture); });
             m_buffers.forEach([this](SdlBuffer& b) { SDL_ReleaseGPUBuffer(m_device, b.buffer); });
             m_samplers.forEach([this](SdlSampler& s) { SDL_ReleaseGPUSampler(m_device, s.sampler); });
@@ -912,12 +921,17 @@ namespace
         HandlePool<SamplerTag, SdlSampler> m_samplers;
         HandlePool<PipelineTag, SdlPipeline> m_pipelines;
         std::uint64_t m_frame = 0;
+        // Bounds the submits that no swapchain acquisition throttles.
+        static constexpr std::size_t kMaxFramesInFlight = 2;
+        std::deque<SDL_GPUFence*> m_inFlight;
     };
 
     // Translates one checked frame into one SDL command buffer. Copies and
     // buffer updates between passes share a copy pass, which ends before the
     // next render pass begins. A pass to the swapchain of a headless device,
-    // or of a window that has no image (minimized), is skipped whole.
+    // or of a window that has no image (minimized), is skipped whole. Without a
+    // swapchain acquisition to throttle submits, at most kMaxFramesInFlight
+    // submits run ahead of the CPU.
     void SdlGpuDevice::doSubmit(std::vector<Command> commands, bool drawsToSwapchain)
     {
         (void)drawsToSwapchain;   // presenting is part of submitting the acquired image
@@ -1188,9 +1202,37 @@ namespace
         closeCopyPass();
 
         // Submitting the buffer that acquired the swapchain image presents it.
-        if ( !SDL_SubmitGPUCommandBuffer(buffer) )
+        if ( acquired )
         {
-            log::warning("render: submit: SDL_SubmitGPUCommandBuffer failed: {}", SDL_GetError());
+            if ( !SDL_SubmitGPUCommandBuffer(buffer) )
+            {
+                log::warning("render: submit: SDL_SubmitGPUCommandBuffer failed: {}",
+                    SDL_GetError());
+            }
+        }
+        else
+        {
+            SDL_GPUFence* const fence = SDL_SubmitGPUCommandBufferAndAcquireFence(buffer);
+            if ( fence == nullptr )
+            {
+                log::warning("render: submit: SDL_SubmitGPUCommandBufferAndAcquireFence failed: {}",
+                    SDL_GetError());
+            }
+            else
+            {
+                m_inFlight.push_back(fence);
+                while ( m_inFlight.size() > kMaxFramesInFlight )
+                {
+                    SDL_GPUFence* const oldest = m_inFlight.front();
+                    if ( !SDL_WaitForGPUFences(m_device, true, &oldest, 1) )
+                    {
+                        log::warning("render: submit: SDL_WaitForGPUFences failed: {}",
+                            SDL_GetError());
+                    }
+                    SDL_ReleaseGPUFence(m_device, oldest);
+                    m_inFlight.pop_front();
+                }
+            }
         }
         if ( transfer != nullptr )
         {
