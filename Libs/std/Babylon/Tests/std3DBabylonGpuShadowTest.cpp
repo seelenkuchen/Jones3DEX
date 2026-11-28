@@ -53,15 +53,15 @@ namespace
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
     }
 
-    // M11.2i. The shadow camera turned to look along -Y with world Z up. The overhead light then has
-    // a negative view-space forward component, so the flat screen-facing receivers of the contact
-    // shadow scene face it instead of away.
+    // M11.2i. The shadow camera turned to look 30 degrees down with world Z up. The overhead light
+    // then has a negative view-space forward component, so the flat screen-facing receivers of the
+    // contact shadow scene face it past the facing fade (N.L about 0.66) instead of away.
     void SetContactShadowReceiverCamera()
     {
         const float aMatrix[12] = {
             1.0f, 0.0f, 0.0f, // right
-            0.0f, -1.0f, 0.0f, // forward
-            0.0f, 0.0f, 1.0f, // up
+            0.0f, -0.8660254f, -0.5f, // forward
+            0.0f, -0.5f, 0.8660254f, // up
             0.0f, 0.0f, 0.0f
         };
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
@@ -216,13 +216,13 @@ namespace
             0xFFCC3030u);
     }
 
-    // M11.2i. The caster scene for a camera whose view light points toward the camera. The box front
-    // stands closer in front of the floor, within the shorter M11.7c contact ray, so the ray from the
-    // caster toward that light still lands behind the box and the contact shadow reaches the caster's
-    // pixels.
+    // M11.2i. The caster scene for a camera that looks 30 degrees down. The camera-facing receivers
+    // then face the overhead light past the facing fade (N.L about 0.66), and the box front stands
+    // 0.03 in front of the receiver, so the short ray from the caster toward that light still lands
+    // behind the box and the contact shadow reaches the caster's pixels.
     void DrawContactShadowReceiverScene()
     {
-        DrawContactShadowCasterScene(0.49f);
+        DrawContactShadowCasterScene(0.47f);
     }
 
     struct RecordedPass
@@ -1015,11 +1015,12 @@ TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun
     UseShadowOnly();
     SetContactShadowReceiverCamera();
 
-    // The camera turned so the overhead light points toward it: flat receivers face the light.
+    // The camera looks 30 degrees down, so the overhead light points toward the camera-facing
+    // receivers (N.L about 0.66), past the facing fade.
     const float aShaderCamera[12] = {
         1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, -1.0f, 0.0f, 0.0f
+        0.0f, -0.5f, 0.8660254f, 0.0f,
+        0.0f, -0.8660254f, -0.5f, 0.0f
     };
     float lightX = 0.0f;
     float lightY = 0.0f;
