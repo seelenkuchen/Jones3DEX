@@ -121,8 +121,8 @@ typedef struct sJonesFixedTickCameraState
     float      aspectRatio;
 
     // Added: the camera sector at the tick. A drawn frame moves the camera to an interpolated pose
-    // that may lie in the sector the camera just left, so the draw resolves the interpolated
-    // position's sector and the restore puts the tick's sector back.
+    // that may lie in the sector the camera just left, so the draw resolves the interpolated eye's
+    // (lookPos) sector and the restore puts the tick's sector back.
     SithSector* pSector;
 
     // Added: M9.24 (jitter). The draw reads lookPos for the sky, backface culling and the DoF

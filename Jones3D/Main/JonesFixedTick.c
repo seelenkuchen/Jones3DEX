@@ -1770,14 +1770,6 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
 
         JonesFixedTick_LerpVector(&pCamera->pos, &pPrev->pos, &pCur->pos, alpha);
 
-        // Added: the interpolated pose may lie in the sector the camera just left, so resolve the
-        // drawn frame's sector from the tick sector; the restore puts the tick sector back.
-        pCamera->pSector = pCur->pSector;
-        if ( pCur->pSector )
-        {
-            pCamera->pSector = JonesFixedTick_ResolveCameraSector(pCur->pSector, &pCur->pos, &pCamera->pos);
-        }
-
         JonesFixedTick_LerpOrient(&pCamera->orient, &pPrev->orient, &pCur->orient, alpha);
         pCamera->fov         = pPrev->fov + (pCur->fov - pPrev->fov) * alpha;
         pCamera->aspectRatio = pPrev->aspectRatio + (pCur->aspectRatio - pPrev->aspectRatio) * alpha;
@@ -1788,6 +1780,15 @@ void JonesFixedTick_BlendCamera(const JonesFixedTickCameraState* pPrev,
         JonesFixedTick_LerpVector(&pCamera->focusPos, &pPrev->focusPos, &pCur->focusPos, alpha);
         JonesFixedTick_LerpVector(&sithCamera_g_camSpot, &pPrev->camSpot, &pCur->camSpot, alpha);
         JonesFixedTick_LerpVector(&sithCamera_g_camLookSpot, &pPrev->camLookSpot, &pCur->camLookSpot, alpha);
+
+        // Added: the drawn frame's sector follows the interpolated eye (lookPos), which is what the
+        // tick's sector and the renderer use; the restore puts the tick sector back.
+        // Fixed: resolve from the eye (lookPos), not the smoothing target pos (bug 40).
+        pCamera->pSector = pCur->pSector;
+        if ( pCur->pSector )
+        {
+            pCamera->pSector = JonesFixedTick_ResolveCameraSector(pCur->pSector, &pCur->lookPos, &pCamera->lookPos);
+        }
     }
 
     // Added: the draw's projection comes from the camera's rdCamera, so apply the interpolated

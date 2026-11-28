@@ -7,6 +7,7 @@
 #include <rdroid/Engine/rdPuppet.h>
 #include <rdroid/Raster/rdCache.h>
 #include <sith/Engine/sithCamera.h>
+#include <sith/Engine/sithCollision.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithWorld.h>
 
@@ -406,6 +407,133 @@ TEST(JonesFixedTick, ResolveCameraSectorNullArgsReturnFromSector)
     TEST_ASSERT_EQUAL_PTR(&sector, pNullFrom);
     TEST_ASSERT_EQUAL_PTR(&sector, pNullPos);
     TEST_ASSERT_EQUAL_PTR(&sector, pNoWorldSector);
+}
+
+// Added: a minimal world of two half-space sectors with one face each, the shared face in the x = 0
+// plane, an adjoin both ways and the normals pointing into their own sector: A is x < 0, B is x > 0.
+#define JONESFIXEDTICKTEST_TWOSECTOR_VERTS 4
+static SithWorld jonesFixedTickTest_world;
+static SithSector jonesFixedTickTest_aSectors[2];
+static SithSurface jonesFixedTickTest_aSurfaces[2];
+static SithSurfaceAdjoin jonesFixedTickTest_aAdjoins[2];
+static rdVector3 jonesFixedTickTest_aWorldVertices[JONESFIXEDTICKTEST_TWOSECTOR_VERTS];
+static int jonesFixedTickTest_aASurfaceVerts[JONESFIXEDTICKTEST_TWOSECTOR_VERTS] = { 0, 3, 2, 1 };
+static int jonesFixedTickTest_aBSurfaceVerts[JONESFIXEDTICKTEST_TWOSECTOR_VERTS] = { 0, 1, 2, 3 };
+
+static void JonesFixedTickTest_BuildTwoSectorWorld(void)
+{
+    memset(&jonesFixedTickTest_world, 0, sizeof(jonesFixedTickTest_world));
+    memset(jonesFixedTickTest_aSectors, 0, sizeof(jonesFixedTickTest_aSectors));
+    memset(jonesFixedTickTest_aSurfaces, 0, sizeof(jonesFixedTickTest_aSurfaces));
+    memset(jonesFixedTickTest_aAdjoins, 0, sizeof(jonesFixedTickTest_aAdjoins));
+
+    // The shared face: x = 0, y and z in [-1, 1].
+    jonesFixedTickTest_aWorldVertices[0] = (rdVector3){ 0.0f, -1.0f, -1.0f };
+    jonesFixedTickTest_aWorldVertices[1] = (rdVector3){ 0.0f,  1.0f, -1.0f };
+    jonesFixedTickTest_aWorldVertices[2] = (rdVector3){ 0.0f,  1.0f,  1.0f };
+    jonesFixedTickTest_aWorldVertices[3] = (rdVector3){ 0.0f, -1.0f,  1.0f };
+
+    jonesFixedTickTest_world.aSectors     = jonesFixedTickTest_aSectors;
+    jonesFixedTickTest_world.numSectors   = STD_ARRAYLEN(jonesFixedTickTest_aSectors);
+    jonesFixedTickTest_world.aVertices    = jonesFixedTickTest_aWorldVertices;
+    jonesFixedTickTest_world.numVertices  = STD_ARRAYLEN(jonesFixedTickTest_aWorldVertices);
+
+    SithSector*  pA     = &jonesFixedTickTest_aSectors[0];
+    SithSector*  pB     = &jonesFixedTickTest_aSectors[1];
+    SithSurface* pSurfA = &jonesFixedTickTest_aSurfaces[0];
+    SithSurface* pSurfB = &jonesFixedTickTest_aSurfaces[1];
+
+    pA->pFirstSurface = pSurfA;
+    pA->numSurfaces   = 1;
+    pB->pFirstSurface = pSurfB;
+    pB->numSurfaces   = 1;
+
+    pSurfA->pSector            = pA;
+    pSurfA->pAdjoin            = &jonesFixedTickTest_aAdjoins[0];
+    pSurfA->face.geometryMode  = RD_GEOMETRY_FULL;
+    pSurfA->face.numVertices   = STD_ARRAYLEN(jonesFixedTickTest_aASurfaceVerts);
+    pSurfA->face.aVertices     = jonesFixedTickTest_aASurfaceVerts;
+    pSurfA->face.normal        = (rdVector3){ -1.0f, 0.0f, 0.0f };
+
+    pSurfB->pSector            = pB;
+    pSurfB->pAdjoin            = &jonesFixedTickTest_aAdjoins[1];
+    pSurfB->face.geometryMode  = RD_GEOMETRY_FULL;
+    pSurfB->face.numVertices   = STD_ARRAYLEN(jonesFixedTickTest_aBSurfaceVerts);
+    pSurfB->face.aVertices     = jonesFixedTickTest_aBSurfaceVerts;
+    pSurfB->face.normal        = (rdVector3){ 1.0f, 0.0f, 0.0f };
+
+    jonesFixedTickTest_aAdjoins[0].flags          = SITH_ADJOIN_MOVE | SITH_ADJOIN_VISIBLE;
+    jonesFixedTickTest_aAdjoins[0].pAdjoinSector  = pB;
+    jonesFixedTickTest_aAdjoins[0].pAdjoinSurface = pSurfB;
+    jonesFixedTickTest_aAdjoins[0].pMirrorAdjoin  = &jonesFixedTickTest_aAdjoins[1];
+    jonesFixedTickTest_aAdjoins[1].flags          = SITH_ADJOIN_MOVE | SITH_ADJOIN_VISIBLE;
+    jonesFixedTickTest_aAdjoins[1].pAdjoinSector  = pA;
+    jonesFixedTickTest_aAdjoins[1].pAdjoinSurface = pSurfA;
+    jonesFixedTickTest_aAdjoins[1].pMirrorAdjoin  = &jonesFixedTickTest_aAdjoins[0];
+
+    sithWorld_g_pCurrentWorld = &jonesFixedTickTest_world;
+}
+
+TEST(JonesFixedTick, BlendCameraResolvesTheSectorAtTheEyeNotTheSmoothingTarget)
+{
+    SithWorld* pSavedWorld = sithWorld_g_pCurrentWorld;
+
+    sithCollision_ResetGlobals();
+    sithCollision_Startup();
+    JonesFixedTickTest_BuildTwoSectorWorld();
+
+    SithSector* pA = &jonesFixedTickTest_aSectors[0];
+    SithSector* pB = &jonesFixedTickTest_aSectors[1];
+    SithSector* pDrawnSector;
+    SithSector* pMirrorDrawnSector;
+
+    SithCamera camera;
+    memset(&camera, 0, sizeof(camera));
+
+    // Both ticks' eye (lookPos) and pos move from A into B, but pos lags: at alpha 0.5 the interpolated
+    // eye is in B while the interpolated pos is still in A. The draw must follow the eye.
+    JonesFixedTickCameraState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid   = true;
+    prev.orient  = JonesFixedTickTest_Identity();
+    prev.pos     = (rdVector3){ -0.8f, 0.0f, 0.0f };
+    prev.lookPos = (rdVector3){ -0.8f, 0.0f, 0.0f };
+    prev.pSector = pA;
+
+    JonesFixedTickCameraState cur;
+    memset(&cur, 0, sizeof(cur));
+    cur.valid   = true;
+    cur.orient  = JonesFixedTickTest_Identity();
+    cur.pos     = (rdVector3){ 0.2f, 0.0f, 0.0f };
+    cur.lookPos = (rdVector3){ 2.0f, 0.0f, 0.0f };
+    cur.pSector = pB;
+
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    pDrawnSector = camera.pSector;
+
+    // The mirror: the drawn eye is in A while the interpolated pos is in B, and the tick sector is A.
+    memset(&prev, 0, sizeof(prev));
+    prev.valid   = true;
+    prev.orient  = JonesFixedTickTest_Identity();
+    prev.pos     = (rdVector3){ 0.8f, 0.0f, 0.0f };
+    prev.lookPos = (rdVector3){ 0.8f, 0.0f, 0.0f };
+    prev.pSector = pB;
+
+    memset(&cur, 0, sizeof(cur));
+    cur.valid   = true;
+    cur.orient  = JonesFixedTickTest_Identity();
+    cur.pos     = (rdVector3){ -0.2f, 0.0f, 0.0f };
+    cur.lookPos = (rdVector3){ -2.0f, 0.0f, 0.0f };
+    cur.pSector = pA;
+
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    pMirrorDrawnSector = camera.pSector;
+
+    sithCollision_Shutdown();
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+
+    TEST_ASSERT_EQUAL_PTR(pB, pDrawnSector);
+    TEST_ASSERT_EQUAL_PTR(pA, pMirrorDrawnSector);
 }
 
 TEST(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds)
@@ -1488,6 +1616,7 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, RestoreCameraRestoresTickSector);
     RUN_TEST_CASE(JonesFixedTick, BlendCameraTeleportKeepsTickSector);
     RUN_TEST_CASE(JonesFixedTick, ResolveCameraSectorNullArgsReturnFromSector);
+    RUN_TEST_CASE(JonesFixedTick, BlendCameraResolvesTheSectorAtTheEyeNotTheSmoothingTarget);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
     RUN_TEST_CASE(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates);
