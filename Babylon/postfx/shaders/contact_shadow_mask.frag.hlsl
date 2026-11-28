@@ -7,13 +7,16 @@
 // receiver toward a directional light through the depth buffer and writes the
 // shadow amount to red. A sample blocks when the stored surface is in front of
 // the ray point, but not by more than the thickness, so a thin object does not
-// cast from a gap behind it. A receiver whose surface faces away from the light
-// writes 0 to red and 1 to green: it cannot be visibly shadowed, but it stays a
-// receiver tap. The surface normal is reconstructed from the depth of the four
-// neighbours, because the normals target holds a constant normal for classic
-// draws. Green is 1 for a receiver and 0 otherwise, so the blur can ignore taps
-// that do not receive shadows. Pixels that are not receivers write 0 to both
-// channels. An optional ignore mask (red >= 0.5)
+// cast from a gap behind it. A sample also blocks only when it stands above the
+// receiver's own surface plane, so a surface cannot shadow itself. A sample near
+// the screen border fades its shadow in over the outer 15 percent, so an
+// occluder entering at the edge does not pop. A receiver whose surface faces
+// away from the light writes 0 to red and 1 to green: it cannot be visibly
+// shadowed, but it stays a receiver tap. The surface normal is reconstructed
+// from the depth of the four neighbours, because the normals target holds a
+// constant normal for classic draws. Green is 1 for a receiver and 0 otherwise,
+// so the blur can ignore taps that do not receive shadows. Pixels that are not
+// receivers write 0 to both channels. An optional ignore mask (red >= 0.5)
 // removes a pixel from the effect: a masked receiver writes 0 to both channels,
 // and a ray sample that lands on a masked pixel is a gap that never blocks.
 
@@ -48,6 +51,24 @@ cbuffer ContactShadowMaskParams : register(b0, space3)
     uint gHasIgnoreMask; // 0 no mask, 1 the extra texture holds one
     float2 gPadding;
 };
+
+// Facing fade edges. A face nearly edge-on to the light self-shadows: its own
+// depth blocks the short ray, and whether it does depends on the view angle, so
+// a whole face (a ledge top, a rock edge strip) pops on and off in one frame as
+// the camera moves. A wider fade band keeps those grazing faces out. The fixed
+// overhead light at 35 degrees leaves floors at about 0.82 and lit walls at
+// about 0.57, so both stay shadowed.
+static const float kFacingFadeStart = 0.3;
+static const float kFacingFadeEnd   = 0.6;
+
+// A blocker must stand above the receiver's own surface plane: a depth sample
+// lying on that plane (the receiver itself, quantised on a steep floor or at a
+// grazing view) must never block. This is a fraction of gLength.
+static const float kMinBlockerHeight = 0.15; // times gLength
+
+// The screen border fade width, a fraction of the screen. An occluder that
+// slides in from the screen edge fades its shadow in instead of popping it.
+static const float kEdgeFadeWidth = 0.15;
 
 // The positive view-space distance along the view axis of a depth texel.
 // Depth is affine in 1/z between depthNear (at the near plane) and depthFar
@@ -208,8 +229,11 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
     // A surface turned away from the light cannot receive a visible shadow:
     // without this test every ray sample would sit behind it within the
     // thickness and block at once. Keep it as a receiver tap (green 1) so the
-    // blur can still use it. The fade also avoids a hard edge at the terminator.
-    float facing = smoothstep(0.0, 0.2, dot(receiverNormal(uv, receiver), gLightDirection));
+    // blur can still use it. The wide fade band also skips faces at a grazing
+    // angle to the light, which self-shadow view-dependently and pop, and
+    // avoids a hard edge at the terminator.
+    float3 normal = receiverNormal(uv, receiver);
+    float facing = smoothstep(kFacingFadeStart, kFacingFadeEnd, dot(normal, gLightDirection));
     if ( facing <= 0.0 )
     {
         return float4(0.0, 1.0, 0.0, 1.0);
@@ -239,7 +263,7 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
         }
 
         float2 edge = min(sampleUv, 1.0 - sampleUv);
-        float edgeFade = smoothstep(0.0, 0.05, min(edge.x, edge.y));
+        float edgeFade = smoothstep(0.0, kEdgeFadeWidth, min(edge.x, edge.y));
 
         // A sample on a masked pixel never blocks: it is a gap in the scene.
         if ( gHasIgnoreMask != 0u )
@@ -260,7 +284,10 @@ float4 main(float2 uv : TEXCOORD0, float4 position : SV_Position) : SV_Target0
 
         float sampleZ = linearViewDepth(sampleDepth);
         float difference = samplePoint.z - sampleZ;
-        if ( difference > 0.002 * samplePoint.z && difference <= gThickness )
+        float3 blocker = samplePoint * (sampleZ / samplePoint.z);
+        float height = dot(blocker - receiver, normal);
+        if ( difference > 0.002 * samplePoint.z && difference <= gThickness
+            && height > kMinBlockerHeight * gLength )
         {
             // A later blocker still gives half shadow, so the fade along the
             // ray does not hide the shadow at the far end.

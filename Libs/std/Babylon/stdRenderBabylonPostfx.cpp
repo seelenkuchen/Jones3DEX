@@ -68,6 +68,10 @@ namespace stdRenderBabylonInternal
         // allocates nothing and leaves every recorded frame exactly as before.
         stdRenderBabylon_state.pPostfxShadowReceive =
             std::make_unique<postfx::ShadowReceiveEffect>();
+        // Added: M11.3. The level-shadow receive effect is a second instance of the same effect, created
+        // with the character one and applied through the caster mask in include mode.
+        stdRenderBabylon_state.pPostfxLevelShadowReceive =
+            std::make_unique<postfx::ShadowReceiveEffect>();
         if ( stdRenderBabylon_state.bShadows )
         {
             static_cast<void>(stdRenderBabylon_EnsureShadowMap());
@@ -95,10 +99,20 @@ namespace stdRenderBabylonInternal
         {
             stdRenderBabylon_state.pPostfxShadowReceive->releaseResources();
         }
+        // Added: M11.3. Release the level-shadow effect, map and static set before the device goes.
+        if ( stdRenderBabylon_state.pPostfxLevelShadowReceive )
+        {
+            stdRenderBabylon_state.pPostfxLevelShadowReceive->releaseResources();
+        }
         if ( stdRenderBabylon_state.pShadowMap )
         {
             stdRenderBabylon_state.pShadowMap->close();
         }
+        if ( stdRenderBabylon_state.pLevelShadowMap )
+        {
+            stdRenderBabylon_state.pLevelShadowMap->close();
+        }
+        stdRenderBabylon_state.pLevelStaticCasters.reset();
         if ( stdRenderBabylon_state.pPostfxTargets )
         {
             stdRenderBabylon_state.pPostfxTargets->releaseAll();
@@ -112,7 +126,9 @@ namespace stdRenderBabylonInternal
         stdRenderBabylon_state.pPostfxGrain.reset();
         stdRenderBabylon_state.pPostfxContactShadows.reset();
         stdRenderBabylon_state.pPostfxShadowReceive.reset();
+        stdRenderBabylon_state.pPostfxLevelShadowReceive.reset();
         stdRenderBabylon_state.pShadowMap.reset();
+        stdRenderBabylon_state.pLevelShadowMap.reset();
         stdRenderBabylon_state.pPostfxTargets.reset();
         stdRenderBabylon_state.pPostfxResources.reset();
     }

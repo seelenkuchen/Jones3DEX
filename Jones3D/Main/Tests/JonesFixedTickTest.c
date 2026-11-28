@@ -7,6 +7,7 @@
 #include <rdroid/Engine/rdPuppet.h>
 #include <rdroid/Raster/rdCache.h>
 #include <sith/Engine/sithCamera.h>
+#include <sith/Engine/sithCollision.h>
 #include <sith/Gameplay/sithTime.h>
 #include <sith/World/sithWorld.h>
 
@@ -322,6 +323,217 @@ TEST(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook)
     TEST_ASSERT_EQUAL_FLOAT(7.0f, sithCamera_g_camSpot.x);
     TEST_ASSERT_EQUAL_FLOAT(12.0f, sithCamera_g_camLookSpot.z);
     TEST_ASSERT_EQUAL_MEMORY(&cur.orient, &camera.orient, sizeof(camera.orient));
+}
+
+TEST(JonesFixedTick, RestoreCameraRestoresTickSector)
+{
+    SithSector sectorA;
+    SithSector sectorB;
+    memset(&sectorA, 0, sizeof(sectorA));
+    memset(&sectorB, 0, sizeof(sectorB));
+
+    SithCamera camera;
+    memset(&camera, 0, sizeof(camera));
+    camera.pSector = &sectorA;
+
+    JonesFixedTickCameraState cur;
+    JonesFixedTick_CaptureCamera(&cur, &camera);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, cur.pSector);
+
+    // No previous tick: the draw keeps the tick sector.
+    JonesFixedTick_BlendCamera(NULL, &cur, &camera, 0.5f);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+
+    // A drawn frame may have moved the camera to another sector; the restore puts the tick's back.
+    camera.pSector = &sectorB;
+    JonesFixedTick_RestoreCamera(&cur, &camera);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+}
+
+TEST(JonesFixedTick, BlendCameraTeleportKeepsTickSector)
+{
+    SithSector sectorA;
+    SithSector sectorB;
+    memset(&sectorA, 0, sizeof(sectorA));
+    memset(&sectorB, 0, sizeof(sectorB));
+
+    SithCamera camera;
+    memset(&camera, 0, sizeof(camera));
+    camera.pos.x         = 10.0f;
+    camera.orient        = JonesFixedTickTest_Identity();
+    camera.orient.dvec.x = 10.0f;
+    camera.pSector       = &sectorA;
+
+    JonesFixedTickCameraState cur;
+    JonesFixedTick_CaptureCamera(&cur, &camera);
+
+    JonesFixedTickCameraState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid     = true;
+    prev.orient    = JonesFixedTickTest_Identity();
+    prev.pSector   = &sectorB;
+
+    // The pose moved beyond the teleport threshold, so the draw snaps to the current tick sector.
+    camera.pSector = &sectorB;
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+
+    // An invalid previous tick takes the same path.
+    prev.valid     = false;
+    camera.pSector = &sectorB;
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    TEST_ASSERT_EQUAL_PTR(&sectorA, camera.pSector);
+}
+
+TEST(JonesFixedTick, ResolveCameraSectorNullArgsReturnFromSector)
+{
+    // With no world there is nothing to walk, so every call returns the sector it started from.
+    SithWorld* pSavedWorld = sithWorld_g_pCurrentWorld;
+    sithWorld_g_pCurrentWorld = NULL;
+
+    SithSector sector;
+    memset(&sector, 0, sizeof(sector));
+    const rdVector3 from = { 0.0f, 0.0f, 0.0f };
+    const rdVector3 to   = { 1.0f, 1.0f, 1.0f };
+
+    SithSector* pNullSector   = JonesFixedTick_ResolveCameraSector(NULL, &from, &to);
+    SithSector* pNullFrom     = JonesFixedTick_ResolveCameraSector(&sector, NULL, &to);
+    SithSector* pNullPos      = JonesFixedTick_ResolveCameraSector(&sector, &from, NULL);
+    SithSector* pNoWorldSector = JonesFixedTick_ResolveCameraSector(&sector, &from, &to);
+
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+
+    TEST_ASSERT_EQUAL_PTR(NULL, pNullSector);
+    TEST_ASSERT_EQUAL_PTR(&sector, pNullFrom);
+    TEST_ASSERT_EQUAL_PTR(&sector, pNullPos);
+    TEST_ASSERT_EQUAL_PTR(&sector, pNoWorldSector);
+}
+
+// Added: a minimal world of two half-space sectors with one face each, the shared face in the x = 0
+// plane, an adjoin both ways and the normals pointing into their own sector: A is x < 0, B is x > 0.
+#define JONESFIXEDTICKTEST_TWOSECTOR_VERTS 4
+static SithWorld jonesFixedTickTest_world;
+static SithSector jonesFixedTickTest_aSectors[2];
+static SithSurface jonesFixedTickTest_aSurfaces[2];
+static SithSurfaceAdjoin jonesFixedTickTest_aAdjoins[2];
+static rdVector3 jonesFixedTickTest_aWorldVertices[JONESFIXEDTICKTEST_TWOSECTOR_VERTS];
+static int jonesFixedTickTest_aASurfaceVerts[JONESFIXEDTICKTEST_TWOSECTOR_VERTS] = { 0, 3, 2, 1 };
+static int jonesFixedTickTest_aBSurfaceVerts[JONESFIXEDTICKTEST_TWOSECTOR_VERTS] = { 0, 1, 2, 3 };
+
+static void JonesFixedTickTest_BuildTwoSectorWorld(void)
+{
+    memset(&jonesFixedTickTest_world, 0, sizeof(jonesFixedTickTest_world));
+    memset(jonesFixedTickTest_aSectors, 0, sizeof(jonesFixedTickTest_aSectors));
+    memset(jonesFixedTickTest_aSurfaces, 0, sizeof(jonesFixedTickTest_aSurfaces));
+    memset(jonesFixedTickTest_aAdjoins, 0, sizeof(jonesFixedTickTest_aAdjoins));
+
+    // The shared face: x = 0, y and z in [-1, 1].
+    jonesFixedTickTest_aWorldVertices[0] = (rdVector3){ 0.0f, -1.0f, -1.0f };
+    jonesFixedTickTest_aWorldVertices[1] = (rdVector3){ 0.0f,  1.0f, -1.0f };
+    jonesFixedTickTest_aWorldVertices[2] = (rdVector3){ 0.0f,  1.0f,  1.0f };
+    jonesFixedTickTest_aWorldVertices[3] = (rdVector3){ 0.0f, -1.0f,  1.0f };
+
+    jonesFixedTickTest_world.aSectors     = jonesFixedTickTest_aSectors;
+    jonesFixedTickTest_world.numSectors   = STD_ARRAYLEN(jonesFixedTickTest_aSectors);
+    jonesFixedTickTest_world.aVertices    = jonesFixedTickTest_aWorldVertices;
+    jonesFixedTickTest_world.numVertices  = STD_ARRAYLEN(jonesFixedTickTest_aWorldVertices);
+
+    SithSector*  pA     = &jonesFixedTickTest_aSectors[0];
+    SithSector*  pB     = &jonesFixedTickTest_aSectors[1];
+    SithSurface* pSurfA = &jonesFixedTickTest_aSurfaces[0];
+    SithSurface* pSurfB = &jonesFixedTickTest_aSurfaces[1];
+
+    pA->pFirstSurface = pSurfA;
+    pA->numSurfaces   = 1;
+    pB->pFirstSurface = pSurfB;
+    pB->numSurfaces   = 1;
+
+    pSurfA->pSector            = pA;
+    pSurfA->pAdjoin            = &jonesFixedTickTest_aAdjoins[0];
+    pSurfA->face.geometryMode  = RD_GEOMETRY_FULL;
+    pSurfA->face.numVertices   = STD_ARRAYLEN(jonesFixedTickTest_aASurfaceVerts);
+    pSurfA->face.aVertices     = jonesFixedTickTest_aASurfaceVerts;
+    pSurfA->face.normal        = (rdVector3){ -1.0f, 0.0f, 0.0f };
+
+    pSurfB->pSector            = pB;
+    pSurfB->pAdjoin            = &jonesFixedTickTest_aAdjoins[1];
+    pSurfB->face.geometryMode  = RD_GEOMETRY_FULL;
+    pSurfB->face.numVertices   = STD_ARRAYLEN(jonesFixedTickTest_aBSurfaceVerts);
+    pSurfB->face.aVertices     = jonesFixedTickTest_aBSurfaceVerts;
+    pSurfB->face.normal        = (rdVector3){ 1.0f, 0.0f, 0.0f };
+
+    jonesFixedTickTest_aAdjoins[0].flags          = SITH_ADJOIN_MOVE | SITH_ADJOIN_VISIBLE;
+    jonesFixedTickTest_aAdjoins[0].pAdjoinSector  = pB;
+    jonesFixedTickTest_aAdjoins[0].pAdjoinSurface = pSurfB;
+    jonesFixedTickTest_aAdjoins[0].pMirrorAdjoin  = &jonesFixedTickTest_aAdjoins[1];
+    jonesFixedTickTest_aAdjoins[1].flags          = SITH_ADJOIN_MOVE | SITH_ADJOIN_VISIBLE;
+    jonesFixedTickTest_aAdjoins[1].pAdjoinSector  = pA;
+    jonesFixedTickTest_aAdjoins[1].pAdjoinSurface = pSurfA;
+    jonesFixedTickTest_aAdjoins[1].pMirrorAdjoin  = &jonesFixedTickTest_aAdjoins[0];
+
+    sithWorld_g_pCurrentWorld = &jonesFixedTickTest_world;
+}
+
+TEST(JonesFixedTick, BlendCameraResolvesTheSectorAtTheEyeNotTheSmoothingTarget)
+{
+    SithWorld* pSavedWorld = sithWorld_g_pCurrentWorld;
+
+    sithCollision_ResetGlobals();
+    sithCollision_Startup();
+    JonesFixedTickTest_BuildTwoSectorWorld();
+
+    SithSector* pA = &jonesFixedTickTest_aSectors[0];
+    SithSector* pB = &jonesFixedTickTest_aSectors[1];
+    SithSector* pDrawnSector;
+    SithSector* pMirrorDrawnSector;
+
+    SithCamera camera;
+    memset(&camera, 0, sizeof(camera));
+
+    // Both ticks' eye (lookPos) and pos move from A into B, but pos lags: at alpha 0.5 the interpolated
+    // eye is in B while the interpolated pos is still in A. The draw must follow the eye.
+    JonesFixedTickCameraState prev;
+    memset(&prev, 0, sizeof(prev));
+    prev.valid   = true;
+    prev.orient  = JonesFixedTickTest_Identity();
+    prev.pos     = (rdVector3){ -0.8f, 0.0f, 0.0f };
+    prev.lookPos = (rdVector3){ -0.8f, 0.0f, 0.0f };
+    prev.pSector = pA;
+
+    JonesFixedTickCameraState cur;
+    memset(&cur, 0, sizeof(cur));
+    cur.valid   = true;
+    cur.orient  = JonesFixedTickTest_Identity();
+    cur.pos     = (rdVector3){ 0.2f, 0.0f, 0.0f };
+    cur.lookPos = (rdVector3){ 2.0f, 0.0f, 0.0f };
+    cur.pSector = pB;
+
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    pDrawnSector = camera.pSector;
+
+    // The mirror: the drawn eye is in A while the interpolated pos is in B, and the tick sector is A.
+    memset(&prev, 0, sizeof(prev));
+    prev.valid   = true;
+    prev.orient  = JonesFixedTickTest_Identity();
+    prev.pos     = (rdVector3){ 0.8f, 0.0f, 0.0f };
+    prev.lookPos = (rdVector3){ 0.8f, 0.0f, 0.0f };
+    prev.pSector = pB;
+
+    memset(&cur, 0, sizeof(cur));
+    cur.valid   = true;
+    cur.orient  = JonesFixedTickTest_Identity();
+    cur.pos     = (rdVector3){ -0.2f, 0.0f, 0.0f };
+    cur.lookPos = (rdVector3){ -2.0f, 0.0f, 0.0f };
+    cur.pSector = pA;
+
+    JonesFixedTick_BlendCamera(&prev, &cur, &camera, 0.5f);
+    pMirrorDrawnSector = camera.pSector;
+
+    sithCollision_Shutdown();
+    sithWorld_g_pCurrentWorld = pSavedWorld;
+
+    TEST_ASSERT_EQUAL_PTR(pB, pDrawnSector);
+    TEST_ASSERT_EQUAL_PTR(pA, pMirrorDrawnSector);
 }
 
 TEST(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds)
@@ -1401,6 +1613,10 @@ TEST_GROUP_RUNNER(JonesFixedTick)
     RUN_TEST_CASE(JonesFixedTick, BlendThingNeverBlendsAcrossASignatureChange);
     RUN_TEST_CASE(JonesFixedTick, BlendThingSnapsACreatedThingAndATeleport);
     RUN_TEST_CASE(JonesFixedTick, BlendCameraInterpolatesAndRestoresFovAspectAndLook);
+    RUN_TEST_CASE(JonesFixedTick, RestoreCameraRestoresTickSector);
+    RUN_TEST_CASE(JonesFixedTick, BlendCameraTeleportKeepsTickSector);
+    RUN_TEST_CASE(JonesFixedTick, ResolveCameraSectorNullArgsReturnFromSector);
+    RUN_TEST_CASE(JonesFixedTick, BlendCameraResolvesTheSectorAtTheEyeNotTheSmoothingTarget);
     RUN_TEST_CASE(JonesFixedTick, ConfigureHonoursTheOptionOnlyInQOLBuilds);
     RUN_TEST_CASE(JonesFixedTick, ConfigureAcceptsZeroAsOff);
     RUN_TEST_CASE(JonesFixedTick, ConfigureDevOverrideKeepsTheComparisonRates);

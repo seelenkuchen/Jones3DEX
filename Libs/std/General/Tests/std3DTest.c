@@ -211,6 +211,17 @@ TEST(std3D, TestShadowCasterPolygonIsANoOp)
     std3D_EndScene();
 }
 
+// Added: M11.3. Static level casters are presentation-only too; the Null backend accepts valid uploads,
+// clears and invalid counts alike without touching any state.
+TEST(std3D, TestStaticShadowCastersIsANoOp)
+{
+    const float aPositions[9] = { 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f };
+
+    std3D_SetStaticShadowCasters(aPositions, 3u);
+    std3D_SetStaticShadowCasters(aPositions, 4u);
+    std3D_SetStaticShadowCasters(NULL, 0u);
+}
+
 TEST_GROUP_RUNNER(std3D)
 {
     RUN_TEST_CASE(std3D, TestPublicLimitsAndConfigKeys);
@@ -222,4 +233,5 @@ TEST_GROUP_RUNNER(std3D)
     RUN_TEST_CASE(std3D, TestClearSystemTextureReleasesMipBuffers);
     RUN_TEST_CASE(std3D, TestHudLayerCallsAreNoOps);
     RUN_TEST_CASE(std3D, TestShadowCasterPolygonIsANoOp);
+    RUN_TEST_CASE(std3D, TestStaticShadowCastersIsANoOp);
 }

@@ -365,27 +365,23 @@ TEST(std3DBabylonFlightRecorder, CapturingDoesNotResizeTheSharedPresentTargets)
         stdDisplayBabylonInternal::stdDisplay_FlightRecorderGetTextureCountForTest());
 }
 
-TEST(std3DBabylonFlightRecorder, ShiftF12WritesTheRecorderBesideTheScreenshot)
+TEST(std3DBabylonFlightRecorder, SaveScreenDoesNotWriteTheRecorder)
 {
     OpenHeadless(4u, 2u);
     stdDisplayBabylonInternal::stdDisplay_FlightRecorderSetEnabledForTest(true);
     TEST_ASSERT_EQUAL_INT(0, stdDisplay_Update());
 
+    // Shift+F12 writes the report folder in the game now; the screenshot path alone never writes
+    // the recorder, even while Shift is held.
     babylon::input::InputState& rInputState = stdBabylonEvents_InputState();
     rInputState.apply(babylon::platform::KeyChanged{ 0,
         babylon::platform::Key::LeftShift, true, false });
     TEST_ASSERT_EQUAL_INT(0, stdDisplay_SaveScreen(kShotPath));
     TEST_ASSERT_TRUE(std::filesystem::exists(kShotPath));
-    TEST_ASSERT_TRUE(std::filesystem::exists(
-        (std::string(kShotRecorderDir) + "/index.txt").c_str()));
+    TEST_ASSERT_FALSE(std::filesystem::exists(kShotRecorderDir));
 
-    // Without Shift the next screenshot writes no recorder directory.
-    std::error_code error;
-    std::filesystem::remove_all(kShotRecorderDir, error);
     rInputState.apply(babylon::platform::KeyChanged{ 0,
         babylon::platform::Key::LeftShift, false, false });
-    TEST_ASSERT_EQUAL_INT(0, stdDisplay_SaveScreen(kShotPath));
-    TEST_ASSERT_FALSE(std::filesystem::exists(kShotRecorderDir));
 }
 
 TEST(std3DBabylonFlightRecorder, GpuWindowCapturesKeepTheSharedPresentSize)
@@ -513,7 +509,7 @@ TEST_GROUP_RUNNER(std3DBabylonFlightRecorder)
     RUN_TEST_CASE(std3DBabylonFlightRecorder, ConfigReadsTheKeyWhenTheDisplayOpens);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, SaveFailsAndLogsForAnUnwritableDirectory);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, CapturingDoesNotResizeTheSharedPresentTargets);
-    RUN_TEST_CASE(std3DBabylonFlightRecorder, ShiftF12WritesTheRecorderBesideTheScreenshot);
+    RUN_TEST_CASE(std3DBabylonFlightRecorder, SaveScreenDoesNotWriteTheRecorder);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, GpuWindowCapturesKeepTheSharedPresentSize);
     RUN_TEST_CASE(std3DBabylonFlightRecorder, GpuWritesThePresentedColoursInOrder);
 }

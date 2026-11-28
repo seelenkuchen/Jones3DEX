@@ -74,6 +74,15 @@ void J3DAPI stdDisplay_GetBackBufferSize(uint32_t* pWidth, uint32_t* pHeight);
 int J3DAPI stdDisplay_BackBufferFill(uint32_t color, const StdRect* lpRect);
 int J3DAPI stdDisplay_SaveScreen(const char* pFilename);
 
+// Added: writes the flight recorder's ring oldest to newest as frame-0000.bmp plus index.txt into
+// pDirectory, which is created when missing. Returns false, with a log line, when the recorder is
+// off or empty or a write fails.
+bool stdDisplay_SaveFlightRecorder(const char* pDirectory);
+
+// Added: the directory Shift+F12 writes bug reports to, from JONES3D_REPORT_DIR. Returns NULL when
+// the variable is unset or empty. The pointer is valid until the next call.
+const char* stdDisplay_GetBugReportDir(void);
+
 void J3DAPI stdDisplay_SetDefaultResolution(uint32_t width, uint32_t height);
 
 tSysDrawContext stdDisplay_GetFrontBufferDC(void);

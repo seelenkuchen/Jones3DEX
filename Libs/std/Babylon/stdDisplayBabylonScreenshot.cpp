@@ -1,4 +1,4 @@
-// The BMP writers and stdDisplay_SaveScreen.
+// The BMP writers, stdDisplay_SaveScreen and the bug report directory.
 // Part of the Babylon column's display adapter; see stdDisplayBabylon.cpp for the overview. Adapter code: no Fixed/Added markers inside.
 #include <std/General/stdRenderBackend.h>
 #include <std/General/std3D.h>
@@ -20,16 +20,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <span>
 #include <string>
 #include <vector>
 
-#include <babylon/platform/Keys.h>
-
 #include "stdBabylon.h"
-#include "stdBabylonEvents.h"
 #include "stdBabylonTour.h"
 #include "stdDisplayBabylon.h"
 #include "stdRenderBabylon.h"
@@ -242,34 +240,29 @@ namespace
         pContext->pRenderDevice->destroyTexture(target);
         return ok;
     }
+}
 
-    // Added: Shift+F12 writes the flight recorder beside the normal screenshot, in a sibling
-    // directory named after the screenshot file without its extension plus "-last2s". Shift is read
-    // from the adapter's shared keyboard state, the same snapshot stdControl reads.
-    void stdDisplay_SaveFlightRecorderIfShiftHeld(const char* pScreenshotPath)
+const char* stdDisplay_GetBugReportDir(void)
+{
+    static std::string aDirectory;
+
+#ifdef _WIN32
+    char* pValue = nullptr;
+    size_t size  = 0;
+    if ( _dupenv_s(&pValue, &size, "JONES3D_REPORT_DIR") != 0 || !pValue )
     {
-        const babylon::input::InputState& rInputState = stdBabylonEvents_InputState();
-        if ( !rInputState.keyDown(babylon::platform::Key::LeftShift)
-            && !rInputState.keyDown(babylon::platform::Key::RightShift) )
-        {
-            return;
-        }
-
-        std::string aDirectory(pScreenshotPath);
-        const size_t separator = aDirectory.find_last_of("/\\");
-        const size_t dot       = aDirectory.find_last_of('.');
-        if ( dot != std::string::npos && (separator == std::string::npos || dot > separator) )
-        {
-            aDirectory.erase(dot);
-        }
-        aDirectory += "-last2s";
-
-        if ( !stdDisplay_SaveFlightRecorder(aDirectory.c_str()) )
-        {
-            STDLOG_WARNING("stdDisplay: could not write the flight recorder to '%s'.\n",
-                aDirectory.c_str());
-        }
+        aDirectory.clear();
+        return NULL;
     }
+
+    aDirectory = pValue;
+    std::free(pValue);
+#else
+    const char* pValue = std::getenv("JONES3D_REPORT_DIR");
+    aDirectory        = pValue ? pValue : "";
+#endif
+
+    return aDirectory.empty() ? NULL : aDirectory.c_str();
 }
 
 int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
@@ -299,11 +292,24 @@ int J3DAPI stdDisplay_SaveScreen(const char* pFilename)
         }
     }
 
+    // Without a window (the headless GPU run) save the composed present frame at the back buffer's
+    // size: the CPU copy of the back buffer is only read back when a 2D draw needs it, so it can
+    // hold an old frame.
+    StdBabylonContext* pHeadlessContext = stdBabylon_GetContext();
+    if ( result != 0 && (!pHeadlessContext || !pHeadlessContext->pWindow) )
+    {
+        const uint32_t width  = (uint32_t)stdDisplay_g_backBuffer.rasterInfo.width;
+        const uint32_t height = (uint32_t)stdDisplay_g_backBuffer.rasterInfo.height;
+        if ( width > 0 && height > 0 && stdDisplay_TrySaveOverlayBmp(pFilename, width, height) )
+        {
+            result = 0;
+        }
+    }
+
     if ( result != 0 )
     {
         result = stdDisplay_WriteBackBufferBmp(pFilename);
     }
 
-    stdDisplay_SaveFlightRecorderIfShiftHeld(pFilename);
     return result;
 }

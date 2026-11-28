@@ -31,6 +31,11 @@ namespace std3DBabylonInternal
     // std3D_StartScene and read by the shadow stage at the presenting submit.
     std::vector<float> std3D_shadowCasterPositions;
 
+    // Added: M11.3. The level's static casters in world space, and whether the GPU set must be uploaded
+    // again. The upload happens on the first frame that needs it, not here, so this works with no device.
+    std::vector<float> std3D_staticShadowCasterPositions;
+    bool std3D_bStaticShadowCastersDirty = true;
+
     void std3DBabylon_ResetShadowCasters()
     {
         std3D_shadowCasterPositions.clear();
@@ -39,6 +44,21 @@ namespace std3DBabylonInternal
     const std::vector<float>& std3DBabylon_GetShadowCasterPositions()
     {
         return std3D_shadowCasterPositions;
+    }
+
+    const std::vector<float>& std3DBabylon_GetStaticShadowCasterPositions()
+    {
+        return std3D_staticShadowCasterPositions;
+    }
+
+    bool std3DBabylon_AreStaticShadowCastersDirty()
+    {
+        return std3D_bStaticShadowCastersDirty;
+    }
+
+    void std3DBabylon_MarkStaticShadowCastersClean()
+    {
+        std3D_bStaticShadowCastersDirty = false;
     }
 }
 
@@ -87,4 +107,42 @@ void J3DAPI std3D_AddShadowCasterPolygon(const float* aPositions, size_t numVert
             std3D_shadowCasterPositions.push_back(aPositions[index + 1u]);
         }
     }
+}
+
+void J3DAPI std3D_SetStaticShadowCasters(const float* aPositions, size_t numVertices)
+{
+    // Added: M11.3. The level's static casters are presentation input and may arrive before the device or
+    // the shadow stage exists, so they are only validated and copied here; the stage uploads them lazily.
+    std3D_staticShadowCasterPositions.clear();
+    std3D_bStaticShadowCastersDirty = true;
+
+    if ( !aPositions || numVertices == 0u )
+    {
+        return;
+    }
+
+    if ( numVertices % 3u != 0u )
+    {
+        STDLOG_WARNING("std3DBabylon: the static shadow casters need whole triangles; %zu vertices is not a multiple of 3.\n",
+            numVertices);
+        return;
+    }
+
+    if ( numVertices > SIZE_MAX / 3u )
+    {
+        STDLOG_WARNING("std3DBabylon: the static shadow caster count overflows the vertex list.\n");
+        return;
+    }
+
+    const size_t numFloats = numVertices * 3u;
+    for ( size_t i = 0; i < numFloats; ++i )
+    {
+        if ( !std::isfinite(aPositions[i]) )
+        {
+            STDLOG_WARNING("std3DBabylon: the static shadow casters contain a non-finite coordinate; they are cleared.\n");
+            return;
+        }
+    }
+
+    std3D_staticShadowCasterPositions.assign(aPositions, aPositions + numFloats);
 }

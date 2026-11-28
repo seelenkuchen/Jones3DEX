@@ -784,6 +784,9 @@ TEST(stdRenderCaptureForward, TestForwardersPassThroughWithoutCapture)
     {
         const float aCasterPositions[9] = { 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f };
         std3D_AddShadowCasterPolygon(aCasterPositions, 3u);
+        // Added: M11.3. The static level casters are the same kind of presentation input.
+        std3D_SetStaticShadowCasters(aCasterPositions, 3u);
+        std3D_SetStaticShadowCasters(NULL, 0u);
     }
 
     STD_ZEROMEM(&colorInfo, sizeof(colorInfo));

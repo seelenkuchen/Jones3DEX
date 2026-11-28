@@ -135,6 +135,13 @@ int std3D_DrawsThingShadows(void);
 // pointer is read during the call only. Records nothing in a capture.
 void J3DAPI std3D_AddShadowCasterPolygon(const float* aPositions, size_t numVertices);
 
+// Added: M11.3. Replaces the level's static shadow casters (presentation only): numVertices points (a multiple
+// of 3, a triangle list) as x, y, z floats in world space, the units and Z-up axes of the level's vertices.
+// NULL or 0 clears them. The backend copies the data; the pointer is read during the call only. Invalid input
+// (count not a multiple of 3, a non-finite coordinate) clears the casters and logs one warning. Records nothing
+// in a capture; Null ignores it.
+void J3DAPI std3D_SetStaticShadowCasters(const float* aPositions, size_t numVertices);
+
 // On success 0 is returned
 int J3DAPI std3D_SetMipmapFilter(Std3DMipmapFilterType mode);
 int J3DAPI std3D_SetProjection(float fov, float nearPlane, float farPlane);

@@ -15,6 +15,7 @@
 #include <babylon/render/Sampler.h>
 #include <babylon/render/Texture.h>
 #include <babylon/shadow/DirectionalShadowMap.h>
+#include <babylon/shadow/StaticCasterSet.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -412,6 +413,21 @@ namespace stdRenderBabylonInternal
         render::PipelineHandle shadowMaskPipeline;
         render::PipelineHandle shadowMaskLitPipeline;
 
+        // Added: M11.3. The level's own static casters cast onto the characters through a second map.
+        // The world-space caster list lives in the std3D backend; the set here uploads it lazily while
+        // dirty and is freed with the stage. The map is fitted around the characters (a fit-only batch)
+        // and draws only the static set; the receive pass uses the caster mask in include mode, so only
+        // characters receive it. The receive target is scene sized like the character one.
+        bool bLevelShadowsSetupFailed = false;
+        bool bLevelMapRecorded = false;
+        bool bLevelShadowsRan = false;
+        std::unique_ptr<babylon::shadow::DirectionalShadowMap> pLevelShadowMap;
+        std::unique_ptr<babylon::shadow::StaticCasterSet> pLevelStaticCasters;
+        std::unique_ptr<postfx::ShadowReceiveEffect> pPostfxLevelShadowReceive;
+        render::TextureHandle levelShadowColorTarget;
+        uint32_t levelShadowWidth  = 0;
+        uint32_t levelShadowHeight = 0;
+
         // Added: the built-in screen-space ambient occlusion stage after the contact shadows and
         // before depth of field. The raw and blurred occlusion terms are half the scene size, the
         // composite is scene sized. The stage reads the depth and normal targets; it needs a
@@ -573,6 +589,14 @@ namespace stdRenderBabylonInternal
     bool stdRenderBabylon_RecordShadowMap(render::CommandList& list);
     bool stdRenderBabylon_RecordShadowMask(render::CommandList& list);
     bool stdRenderBabylon_RecordShadowReceive(render::CommandList& list);
+    // Added: M11.3. The level's static geometry casts onto the characters through a second map and a
+    // second receive pass, ordered before the character receive so it reads this pass's output.
+    bool stdRenderBabylon_RecordLevelShadowMap(render::CommandList& list);
+    bool stdRenderBabylon_RecordLevelShadowReceive(render::CommandList& list);
+    void stdRenderBabylon_FreeLevelShadowTargets();
+    // Added: M11.3. The frame's world-to-view matrix (x right, y up, z forward) from the shader camera
+    // transform, so a world-space static caster lands in the same view space as the character casters.
+    void stdRenderBabylon_WorldToView(const float aCamera[12], babylon::shadow::Matrix4* pOut);
     bool stdRenderBabylon_RecordSsao(render::CommandList& list);
     bool stdRenderBabylon_RecordMotionBlur(render::CommandList& list);
     bool stdRenderBabylon_RecordShaftMaskCentroid(render::CommandList& list);
@@ -615,5 +639,9 @@ namespace stdRenderBabylonInternal
     extern bool stdRenderBabylon_bLegacyPresentationForTest;
     float stdRenderBabylon_ReadShaftTexel(const std::vector<std::byte>& texels,
         render::TextureFormat format, size_t index, size_t channel = 0);
+    std::size_t stdRenderBabylon_GetLevelStaticCasterUploadCountForTest();
+    render::BufferHandle stdRenderBabylon_GetLevelStaticCasterBufferForTest();
+    bool stdRenderBabylon_GetLevelShadowReceiveSettingsForTest(
+        postfx::ShadowReceiveSettings* pSettings);
 #endif
 }

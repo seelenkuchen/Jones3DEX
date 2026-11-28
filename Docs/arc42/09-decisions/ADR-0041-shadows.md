@@ -85,14 +85,47 @@ profile and QOL-off builds keep the original blob shadow.
   pass samples it as `ShadowMapInput::excludeMask`: masked pixels keep their exact input colour, so the hat's
   shadow stays off the face below it while the character still casts onto the scene. The stage runs only when
   the frame's map was recorded and a caster draw was collected; otherwise the receive pass gets no mask.
-- **M11.3 reuses the mask inverted.** The same re-draw against the scene depth, with the mask test inverted,
-  gives the pixels that are not a level caster, so level geometry can cast onto characters without doubling
-  the shadows already baked into the level.
+- **M11.3 reuses the mask.** The same re-draw against the scene depth also identifies the characters for the
+  level-shadow receive. The final shape is the include mode in the M11.3 amendment below; the mask need not
+  be inverted.
 - **M11.6b gentler character and contact shadows.** The owner's play-test found the shadows too strong, razor
   sharp and reaching too far. The character receive passes strength `0.4`, a `0.002`-view-unit minimum penumbra
   that grows by `0.03` per unit behind the caster, a `0.3`..`1.0`-unit fade behind the map, a `3`..`6`-view-unit
   distance fade and a `0.03`..`0.25` luminance gate; contact shadows pass strength `0.5` and a `2`..`4`-view-unit
-  distance fade. M11.7c narrows that contact ray to `0.04` view units with a `0.02`-unit sample thickness, down
-  from Babylon's `0.2` and `0.04` defaults, which reached a whole character height and made large,
-  view-dependent patches. These are presentation constants in the adapter, tuned at the game's scale, where Indy
-  is about `0.2` units tall.
+  distance fade. These are presentation constants in the adapter, tuned at the game's scale, where Indy is about
+  `0.2` units tall.
+
+## Amendment (2026-11-26, M11.3)
+
+- **Two maps, one light.** The character map is unchanged. A second `shadow::DirectionalShadowMap` (2048,
+  `staticReach` 1.5 view units: the game's scale is about 0.2 units per character height) is fitted around
+  the same characters through a `CasterBatch::fitOnly` batch and draws only the level's static set. Both
+  maps use the same fixed overhead light and are recorded in the same frame.
+- **The reach is a hard limit (M11.6f).** The level map opens with `clampCastersToNearPlane` off, so a
+  caster nearer the light than the fitted near plane is clipped rather than clamped to depth 0: only
+  geometry close above the characters counts. A moving character caster keeps the clamp so it never pops.
+- **The level fit is anchored to the world (M11.6f).** The level map gets `setViewToWorld()` every frame
+  from the same camera matrix as its world-to-view batch transforms, so a camera rotation about its own
+  position leaves a fixed caster's light fit unchanged instead of turning the texel grid.
+- **The level receive is gentle (M11.6f).** Strength `0.3`, a `0.002`-view-unit minimum penumbra that
+  widens by `0.03` per unit behind the map, a `3`..`6`-view-unit distance fade and a `0.03`..`0.25`
+  luminance gate. There is no distance-behind fade: the receivers are the characters themselves, possibly
+  far below a ledge.
+- **Level casters are uploaded at level open.** `sithRender_Open` walks `sithWorld_g_pCurrentWorld` and keeps
+  the surfaces the renderer draws as solid level geometry (`RD_GEOMETRY_NONE` dropped, translucent adjoins
+  dropped, sky and water dropped), fan-triangulates each into world-space triangles and passes the one list
+  through `std3D_SetStaticShadowCasters`; `sithRender_Close` clears it. The adapter copies the list and
+  uploads it once to a `shadow::StaticCasterSet` on the first frame that needs it. Nothing in the simulation
+  changes. Only up-facing level surfaces cast: the light is a fixed overhead light and a room's ceiling faces
+  down into the room, so letting it cast would put every indoor character in full shadow, while the top of a
+  ledge or overhang faces up and still casts.
+- **Include mask.** The level receive is a second `postfx::ShadowReceiveEffect` with
+  `MaskMode::Include` and the same caster mask, so only the characters (not the world, whose shadows are
+  already baked) receive the level map. It runs before the character receive, which reads its output as the
+  scene source; the two passes touch disjoint pixels.
+- **Order and freeing.** The level map is recorded after the caster mask and before the contact shadows; the
+  level receive runs just before the character receive. The level target, map, set and effect are freed with
+  the character-shadow ones on close and on a scene-size change; turning the option off stops every pass.
+- **Contact ray (M11.7c).** The contact-shadow ray is narrowed to `0.04` view units with a `0.02`-unit
+  sample thickness, down from Babylon's `0.2` and `0.04` defaults, which reached a whole character height and
+  made large, view-dependent patches.

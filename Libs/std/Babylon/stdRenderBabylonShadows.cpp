@@ -184,6 +184,8 @@ namespace stdRenderBabylonInternal
         stdRenderBabylon_state.shadowMaskHeight  = 0;
         stdRenderBabylon_state.bShadowMaskRan    = false;
         stdRenderBabylon_state.bShadowsRan       = false;
+        // Added: M11.3. The level receive shares the scene size and goes with the character targets.
+        stdRenderBabylon_FreeLevelShadowTargets();
     }
 
     // Added: records this frame's shadow map from the casters the std3D draw path collected, before
@@ -256,10 +258,16 @@ namespace stdRenderBabylonInternal
             return false;
         }
 
-        const render::TextureHandle scene = stdRenderBabylon_state.bContactShadowsRan
-            ? stdRenderBabylon_state.contactShadowColorTarget
-            : (stdRenderBabylon_state.bWaterRan
-                ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource());
+        // Added: M11.3. The level receive ran first and wrote its own target; the character receive then
+        // reads that image so both shadows land in one chain. Without a level pass it reads the scene
+        // source exactly as before.
+        const render::TextureHandle scene = (stdRenderBabylon_state.bLevelShadowsRan
+                && !stdRenderBabylon_state.levelShadowColorTarget.isNull())
+            ? stdRenderBabylon_state.levelShadowColorTarget
+            : (stdRenderBabylon_state.bContactShadowsRan
+                ? stdRenderBabylon_state.contactShadowColorTarget
+                : (stdRenderBabylon_state.bWaterRan
+                    ? stdRenderBabylon_state.waterColorTarget : stdRenderBabylon_ChainSource()));
 
         float tanHalfX = 0.0f;
         float tanHalfY = 0.0f;
@@ -335,9 +343,13 @@ bool stdRenderBabylon_SetShadows(bool bEnabled)
         return false;
     }
 
-    stdRenderBabylon_state.bShadows            = bEnabled;
-    stdRenderBabylon_state.bShadowsSetupFailed = false;
-    stdRenderBabylon_state.bShadowsRan         = false;
+    stdRenderBabylon_state.bShadows                 = bEnabled;
+    stdRenderBabylon_state.bShadowsSetupFailed      = false;
+    stdRenderBabylon_state.bShadowsRan              = false;
+    // Added: M11.3. The level stage follows the same option and starts clean when it changes.
+    stdRenderBabylon_state.bLevelShadowsSetupFailed = false;
+    stdRenderBabylon_state.bLevelMapRecorded        = false;
+    stdRenderBabylon_state.bLevelShadowsRan         = false;
     if ( bEnabled )
     {
         // Make the map now, so std3D_DrawsThingShadows answers at once.

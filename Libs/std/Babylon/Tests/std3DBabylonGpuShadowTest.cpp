@@ -53,15 +53,15 @@ namespace
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
     }
 
-    // M11.2i. The shadow camera turned to look along -Y with world Z up. The overhead light then has
-    // a negative view-space forward component, so the flat screen-facing receivers of the contact
-    // shadow scene face it instead of away.
+    // M11.2i. The shadow camera turned to look 30 degrees down with world Z up. The overhead light
+    // then has a negative view-space forward component, so the flat screen-facing receivers of the
+    // contact shadow scene face it past the facing fade (N.L about 0.66) instead of away.
     void SetContactShadowReceiverCamera()
     {
         const float aMatrix[12] = {
             1.0f, 0.0f, 0.0f, // right
-            0.0f, -1.0f, 0.0f, // forward
-            0.0f, 0.0f, 1.0f, // up
+            0.0f, -0.8660254f, -0.5f, // forward
+            0.0f, -0.5f, 0.8660254f, // up
             0.0f, 0.0f, 0.0f
         };
         stdRenderBabylon_SetCameraTransform(aMatrix, true);
@@ -99,6 +99,21 @@ namespace
             0.766f, 2.5f, 0.9f,
         };
         std3D_AddShadowCasterPolygon(aPositions, 4u);
+    }
+
+    // M11.3. A static ledge in world space (x, y forward, z up), above the caster, for the level map.
+    // With the identity camera it lands at view (x, z, y), above the character casters.
+    void SetLevelShadowLedge()
+    {
+        const float aPositions[18] = {
+            0.70f, 2.30f, 1.00f,
+            1.10f, 2.30f, 1.00f,
+            1.10f, 2.80f, 1.00f,
+            0.70f, 2.30f, 1.00f,
+            1.10f, 2.80f, 1.00f,
+            0.70f, 2.80f, 1.00f,
+        };
+        std3D_SetStaticShadowCasters(aPositions, 6u);
     }
 
     // M11.6b. A caster just above the floor at the game's scale, so the receiver is within the
@@ -201,13 +216,13 @@ namespace
             0xFFCC3030u);
     }
 
-    // M11.2i. The caster scene for a camera whose view light points toward the camera. The box front
-    // stands closer in front of the floor, within the shorter M11.7c contact ray, so the ray from the
-    // caster toward that light still lands behind the box and the contact shadow reaches the caster's
-    // pixels.
+    // M11.2i. The caster scene for a camera that looks 30 degrees down. The camera-facing receivers
+    // then face the overhead light past the facing fade (N.L about 0.66), and the box front stands
+    // 0.03 in front of the receiver, so the short ray from the caster toward that light still lands
+    // behind the box and the contact shadow reaches the caster's pixels.
     void DrawContactShadowReceiverScene()
     {
-        DrawContactShadowCasterScene(0.49f);
+        DrawContactShadowCasterScene(0.47f);
     }
 
     struct RecordedPass
@@ -897,6 +912,73 @@ TEST(std3DBabylonGpu, ShadowsDarkenTheFloorBelowTheCasterAndLeaveFarSkyAndHud)
     TEST_ASSERT_EQUAL_INT((int)off[hudPixel + 3u], (int)on[hudPixel + 3u]);
 }
 
+TEST(std3DBabylonGpu, LevelGeometryShadowsTheCharacterButNotTheWorld)
+{
+    if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
+    {
+        TEST_IGNORE_MESSAGE("no SDL GPU device");
+    }
+
+    UseShadowOnly();
+    SetShadowCamera();
+
+    const auto renderWithLedge = [](bool bLedge) {
+        RenderScene([bLedge] {
+            DrawShadowScene(false);
+            if ( bLedge )
+            {
+                SetLevelShadowLedge();
+            }
+            else
+            {
+                std3D_SetStaticShadowCasters(nullptr, 0u);
+            }
+        });
+    };
+
+    // Off, with the ledge present: the baseline image.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(false));
+    renderWithLedge(true);
+    const std::vector<std::byte> off = CapturePresented(kSceneSize, kSceneSize);
+
+    // On without the ledge only the character map runs; on with it the level map also applies.
+    TEST_ASSERT_TRUE(stdRenderBabylon_SetShadows(true));
+    renderWithLedge(false);
+    const std::vector<std::byte> onNoLedge = CapturePresented(kSceneSize, kSceneSize);
+    renderWithLedge(true);
+    const std::vector<std::byte> onLedge = CapturePresented(kSceneSize, kSceneSize);
+
+    // The character's own pixels darken from the ledge; without it they keep the baseline colour.
+    const size_t casterPixel = ((size_t)43u * kSceneSize + 31u) * 4u;
+    for ( size_t channel = 0; channel < 4u; ++channel )
+    {
+        TEST_ASSERT_EQUAL_INT((int)off[casterPixel + channel],
+            (int)onNoLedge[casterPixel + channel]);
+    }
+    const float noLedgeCaster = SsaoMeanBrightness(onNoLedge, kSceneSize, 30u, 42u, 33u, 45u);
+    const float ledgeCaster    = SsaoMeanBrightness(onLedge, kSceneSize, 30u, 42u, 33u, 45u);
+    std::printf("M11.3 level shadows: character %.2f without the ledge, %.2f with it\n",
+        (double)noLedgeCaster, (double)ledgeCaster);
+    TEST_ASSERT_TRUE(ledgeCaster < noLedgeCaster - 1.0f);
+
+    // The level shadow stays off the world: the floor beside the character is exactly as without the
+    // ledge.
+    const float noLedgeFloor = SsaoMeanBrightness(onNoLedge, kSceneSize, 50u, 52u, 60u, 62u);
+    const float ledgeFloor    = SsaoMeanBrightness(onLedge, kSceneSize, 50u, 52u, 60u, 62u);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, noLedgeFloor, ledgeFloor);
+
+    // The character still casts onto the floor with the level map on. This rectangle also contains
+    // the visible caster, whose pixels the level pass legitimately darkens, so only the darkening
+    // against off is asserted here; the far-floor check above proves the world itself is untouched.
+    const float offShadow     = SsaoMeanBrightness(off, kSceneSize, 28u, 42u, 36u, 49u);
+    const float noLedgeShadow = SsaoMeanBrightness(onNoLedge, kSceneSize, 28u, 42u, 36u, 49u);
+    const float ledgeShadow   = SsaoMeanBrightness(onLedge, kSceneSize, 28u, 42u, 36u, 49u);
+    std::printf("M11.3 level shadows: floor below the caster %.2f off, %.2f on, %.2f with the ledge\n",
+        (double)offShadow, (double)noLedgeShadow, (double)ledgeShadow);
+    TEST_ASSERT_TRUE(noLedgeShadow < offShadow - 1.0f);
+    TEST_ASSERT_TRUE(ledgeShadow < offShadow - 1.0f);
+}
+
 TEST(std3DBabylonGpu, AClosedBoxItsVisibleFacesAreNotDrawnStillShadowsTheFloor)
 {
     if ( !OpenGpuStd3D(kSceneSize, kSceneSize) )
@@ -933,11 +1015,12 @@ TEST(std3DBabylonGpu, ContactShadowsIgnoreTheCasterPixelsWhenCharacterShadowsRun
     UseShadowOnly();
     SetContactShadowReceiverCamera();
 
-    // The camera turned so the overhead light points toward it: flat receivers face the light.
+    // The camera looks 30 degrees down, so the overhead light points toward the camera-facing
+    // receivers (N.L about 0.66), past the facing fade.
     const float aShaderCamera[12] = {
         1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, -1.0f, 0.0f, 0.0f
+        0.0f, -0.5f, 0.8660254f, 0.0f,
+        0.0f, -0.8660254f, -0.5f, 0.0f
     };
     float lightX = 0.0f;
     float lightY = 0.0f;

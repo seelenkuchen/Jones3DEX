@@ -92,9 +92,6 @@ namespace
                 {
                     static_cast<void>(stdRenderBabylon_RecordShadowMap(list));
                 }
-                // The map has consumed this frame's casters; a later present without a new scene
-                // must not reuse them.
-                std3DBabylonInternal::std3DBabylon_ResetShadowCasters();
 
                 stdRenderBabylon_RecordPostChain(list);
 
@@ -118,6 +115,18 @@ namespace
                     static_cast<void>(stdRenderBabylon_RecordShadowMask(list));
                 }
 
+                // Added: M11.3. The level's static geometry casts onto the characters through a second
+                // map, fitted around the same characters and drawing only the level set. It needs this
+                // frame's character map and caster mask. The casters are consumed after it, since both
+                // maps fit around them; a later present without a new scene must not reuse them.
+                stdRenderBabylon_state.bLevelMapRecorded = false;
+                if ( stdRenderBabylon_state.bShadowMapRecorded
+                    && stdRenderBabylon_state.bShadowMaskRan )
+                {
+                    static_cast<void>(stdRenderBabylon_RecordLevelShadowMap(list));
+                }
+                std3DBabylonInternal::std3DBabylon_ResetShadowCasters();
+
                 // Added: the screen-space contact-shadow stage after the water ripples and before
                 // ambient occlusion. Off, without a camera transform, or a failure, skips the pass
                 // so the image is byte-identical to the path without it.
@@ -134,6 +143,13 @@ namespace
                 // Added: the character-shadow receive stage after the contact shadows and before
                 // ambient occlusion. Its map was recorded above; no casters, a failed map or a
                 // failure here skips the pass so the image is byte-identical.
+                // Added: M11.3. The level receive runs first and writes its own target; the character
+                // receive then reads that target so both shadows reach every later stage unchanged.
+                stdRenderBabylon_state.bLevelShadowsRan = false;
+                if ( stdRenderBabylon_state.bLevelMapRecorded )
+                {
+                    static_cast<void>(stdRenderBabylon_RecordLevelShadowReceive(list));
+                }
                 stdRenderBabylon_state.bShadowsRan = false;
                 if ( stdRenderBabylon_state.bShadowMapRecorded )
                 {

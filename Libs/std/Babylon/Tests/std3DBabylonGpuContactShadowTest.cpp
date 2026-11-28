@@ -357,9 +357,16 @@ TEST(std3DBabylonGpu, ContactShadowsDarkenTheFloorBesideABox)
     TEST_ASSERT_TRUE(onLeft < offLeft - 1.0f);
 
     // The floor away from the box darkens less than the part right beside it: the box is the
-    // additional occluder the stage finds.
-    const float onFar = ContactShadowMeanBrightness(on, 64u, 2u, 44u, 12u, 52u);
+    // additional occluder the stage finds. Rows 46..52 only: at rows 44 and 45 one pixel row of
+    // this 64 x 64 floor spans so much depth that its quantised neighbour still reads as a blocker.
+    const float onFar  = ContactShadowMeanBrightness(on, 64u, 2u, 46u, 12u, 52u);
+    const float offFar = ContactShadowMeanBrightness(off, 64u, 2u, 46u, 12u, 52u);
+    std::printf("M11.1 contact shadows: open floor %.2f off, %.2f on\n",
+        (double)offFar, (double)onFar);
     TEST_ASSERT_TRUE(onLeft < onFar);
+
+    // The open floor is not its own occluder.
+    TEST_ASSERT_TRUE(onFar > offFar - 1.0f);
 
     // A sky-tagged pixel is returned unchanged.
     const size_t skyPixel = ((size_t)8u * 64u + 8u) * 4u;
